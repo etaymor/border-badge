@@ -1105,3 +1105,207 @@ class TestIsolation:
         assert finalize(client, db, quiz_id).status_code == 200
         resp = play(client, db, quiz_id, user_id=OTHER_USER_ID)
         assert resp.status_code == 404
+
+
+# ============================================================================
+# U11: GET /quiz -- the owner's quiz list
+# ============================================================================
+
+
+def seed_questions(db: FakeDB, quiz_id: str, count: int) -> None:
+    for position in range(count):
+        db.tables["quiz_question"].append(
+            {
+                "id": str(uuid4()),
+                "quiz_id": quiz_id,
+                "position": position,
+                "storage_path": f"quiz/{quiz_id}/photo-{position}.jpg",
+                "options": ["France", "Italy", "Spain", "Germany"],
+                "correct_index": 0,
+                "capture_year": None,
+                "year_options": None,
+            }
+        )
+
+
+class TestQuizList:
+    def test_lists_owner_quizzes_newest_first_with_summaries(
+        self, client: TestClient
+    ) -> None:
+        db = FakeDB()
+        draft_id = db.seed_quiz()  # oldest
+        shared_id = db.seed_quiz(
+            state="shared",
+            slug="a" * 32,
+            score_to_beat_correct=3,
+            score_to_beat_total=5,
+        )
+        revoked_id = db.seed_quiz(  # newest
+            state="revoked",
+            score_to_beat_correct=2,
+            score_to_beat_total=5,
+            revoked_at="2026-08-10T00:00:00+00:00",
+        )
+        seed_questions(db, shared_id, 5)
+        seed_questions(db, revoked_id, 6)
+
+        resp = call(client, db, "GET", "/quiz")
+        assert resp.status_code == 200, resp.text
+        quizzes = resp.json()["quizzes"]
+        assert [q["id"] for q in quizzes] == [revoked_id, shared_id, draft_id]
+
+        revoked, shared, draft = quizzes
+        assert draft["state"] == "building"
+        assert draft["question_count"] == 0
+        assert draft["score_to_beat"] is None
+        assert draft["slug"] is None
+        assert draft["revoked_at"] is None
+        assert draft["created_at"]
+
+        assert shared["state"] == "shared"
+        assert shared["question_count"] == 5
+        assert shared["score_to_beat"] == {"correct": 3, "total": 5}
+        assert shared["slug"] == "a" * 32
+        assert shared["share_url"] == f"https://example.com/q/{'a' * 32}"
+
+        assert revoked["state"] == "revoked"
+        assert revoked["question_count"] == 6
+        # A revoked quiz's slug serves nothing publicly and is not returned.
+        assert revoked["slug"] is None
+        assert revoked["share_url"] is None
+        assert revoked["revoked_at"] == "2026-08-10T00:00:00+00:00"
+
+    def test_list_excludes_other_users_quizzes(self, client: TestClient) -> None:
+        db = FakeDB()
+        mine = db.seed_quiz()
+        db.seed_quiz(owner_id=OTHER_USER_ID)
+        resp = call(client, db, "GET", "/quiz")
+        assert resp.status_code == 200, resp.text
+        assert [q["id"] for q in resp.json()["quizzes"]] == [mine]
+
+    def test_list_empty_when_no_quizzes(self, client: TestClient) -> None:
+        resp = call(client, FakeDB(), "GET", "/quiz")
+        assert resp.status_code == 200, resp.text
+        assert resp.json() == {"quizzes": []}
+
+
+# ============================================================================
+# U11: GET /quiz/{quiz_id}/leaderboard -- the owner's board (R14)
+# ============================================================================
+
+
+def seed_session(
+    db: FakeDB,
+    quiz_id: str,
+    name: str | None,
+    score: int,
+    *,
+    completed_at: str | None = "auto",
+    hidden: bool = False,
+    token: str | None = None,
+) -> str:
+    seq = next(db._seq)
+    row = {
+        "id": str(uuid4()),
+        "quiz_id": quiz_id,
+        "token": token or f"tok-{uuid4().hex}",
+        "display_name": name,
+        "score": score,
+        "completed_at": (
+            f"2026-08-02T00:00:{seq:02d}+00:00"
+            if completed_at == "auto"
+            else completed_at
+        ),
+        "hidden": hidden,
+        "created_at": f"2026-08-02T00:00:{seq:02d}+00:00",
+    }
+    db.tables["quiz_session"].append(row)
+    return row["id"]
+
+
+class TestOwnerLeaderboard:
+    def seed_shared(self, db: FakeDB) -> str:
+        return db.seed_quiz(
+            state="shared",
+            slug="b" * 32,
+            score_to_beat_correct=3,
+            score_to_beat_total=5,
+        )
+
+    def test_owner_board_aggregates_best_score_and_attempts(
+        self, client: TestClient
+    ) -> None:
+        # AE4: one row per canonicalized name -- best score, attempt count.
+        db = FakeDB()
+        quiz_id = self.seed_shared(db)
+        seed_session(db, quiz_id, "Maya", 2)
+        seed_session(db, quiz_id, " maya ", 4)  # same identity after NFKC/trim/fold
+        seed_session(db, quiz_id, "Sam", 3)
+
+        resp = call(client, db, "GET", f"/quiz/{quiz_id}/leaderboard")
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["score_to_beat"] == {"correct": 3, "total": 5}
+        rows = body["leaderboard"]
+        assert [(r["display_name"], r["best_score"], r["attempts"]) for r in rows] == [
+            ("maya", 4, 2),
+            ("Sam", 3, 1),
+        ]
+        assert all(r["hidden"] is False for r in rows)
+
+    def test_owner_board_includes_hidden_entries_marked(
+        self, client: TestClient
+    ) -> None:
+        db = FakeDB()
+        quiz_id = self.seed_shared(db)
+        visible_id = seed_session(db, quiz_id, "Sam", 3)
+        hidden_a = seed_session(db, quiz_id, "Troll", 5, hidden=True)
+        hidden_b = seed_session(db, quiz_id, "Troll", 4, hidden=True)
+
+        resp = call(client, db, "GET", f"/quiz/{quiz_id}/leaderboard")
+        assert resp.status_code == 200, resp.text
+        rows = {r["display_name"]: r for r in resp.json()["leaderboard"]}
+        assert rows["Troll"]["hidden"] is True
+        assert rows["Troll"]["best_score"] == 5
+        assert rows["Troll"]["attempts"] == 2
+        assert sorted(rows["Troll"]["session_ids"]) == sorted([hidden_a, hidden_b])
+        assert rows["Sam"]["hidden"] is False
+        assert rows["Sam"]["session_ids"] == [visible_id]
+
+    def test_owner_board_excludes_owner_and_incomplete_sessions(
+        self, client: TestClient
+    ) -> None:
+        db = FakeDB()
+        quiz_id = self.seed_shared(db)
+        seed_session(db, quiz_id, "Owner", 5, token=f"owner-{uuid4().hex}")
+        seed_session(db, quiz_id, "MidGame", 2, completed_at=None)
+        seed_session(db, quiz_id, None, 2)  # unnamed (e.g. post-revoke nulling)
+        seed_session(db, quiz_id, "Sam", 3)
+
+        resp = call(client, db, "GET", f"/quiz/{quiz_id}/leaderboard")
+        assert resp.status_code == 200, resp.text
+        assert [r["display_name"] for r in resp.json()["leaderboard"]] == ["Sam"]
+
+    def test_hidden_session_stays_off_public_board_but_marked_for_owner(
+        self, client: TestClient
+    ) -> None:
+        # Hiding through the owner endpoint removes the entry from the public
+        # aggregation while the owner still sees it, marked.
+        db = FakeDB()
+        quiz_id = self.seed_shared(db)
+        session_id = seed_session(db, quiz_id, "Troll", 5)
+        resp = call(client, db, "POST", f"/quiz/{quiz_id}/sessions/{session_id}/hide")
+        assert resp.status_code == 200, resp.text
+
+        resp = call(client, db, "GET", f"/quiz/{quiz_id}/leaderboard")
+        assert resp.status_code == 200, resp.text
+        rows = resp.json()["leaderboard"]
+        assert [(r["display_name"], r["hidden"]) for r in rows] == [("Troll", True)]
+
+    def test_owner_board_404s_for_non_owner(self, client: TestClient) -> None:
+        db = FakeDB()
+        quiz_id = self.seed_shared(db)
+        resp = call(
+            client, db, "GET", f"/quiz/{quiz_id}/leaderboard", user_id=OTHER_USER_ID
+        )
+        assert resp.status_code == 404

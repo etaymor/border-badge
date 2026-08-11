@@ -44,6 +44,35 @@ export interface QuizDetail {
 }
 
 const QUIZZES_QUERY_KEY = ['quizzes'];
+// The management-surface list (U11). Lives under the quizzes namespace but
+// with its own segment so per-quiz invalidations (['quizzes', quizId]) never
+// have to refetch the whole list, and vice versa.
+const QUIZ_LIST_QUERY_KEY = [...QUIZZES_QUERY_KEY, 'list'];
+
+// One owned quiz in the management list; matches backend QuizSummary.
+export interface QuizSummary {
+  id: string;
+  state: string;
+  slug?: string | null;
+  share_url?: string | null;
+  score_to_beat?: QuizScoreToBeat | null;
+  question_count: number;
+  created_at: string;
+  revoked_at?: string | null;
+}
+
+// Every quiz the owner has, newest first (U11 management surface).
+export function useMyQuizzes() {
+  return useQuery({
+    queryKey: QUIZ_LIST_QUERY_KEY,
+    queryFn: async (): Promise<QuizSummary[]> => {
+      const response = await api.get('/quiz');
+      return response.data.quizzes;
+    },
+    staleTime: STALE_TIMES.USER_DATA, // 5 minutes
+    gcTime: 1000 * 60 * 30, // 30 minutes
+  });
+}
 
 // Fetch one quiz (owner detail view).
 export function useQuiz(quizId: string | undefined) {
@@ -73,8 +102,10 @@ export function useCreateQuiz() {
       createQuizFromLibrary(options),
     onSuccess: (outcome) => {
       if (outcome.status === 'created') {
-        // Scoped invalidation: only the newly created quiz's detail query.
+        // Scoped invalidation: only the newly created quiz's detail query,
+        // plus the management list it now appears on.
         queryClient.invalidateQueries({ queryKey: [...QUIZZES_QUERY_KEY, outcome.quizId] });
+        queryClient.invalidateQueries({ queryKey: QUIZ_LIST_QUERY_KEY });
       }
     },
   });
@@ -152,8 +183,10 @@ export function useCompleteQuizPlay(quizId: string) {
       return response.data;
     },
     onSuccess: () => {
-      // The quiz row changed (state + seeded pair): refresh the detail.
+      // The quiz row changed (state + seeded pair): refresh the detail and
+      // the management list's state label.
       queryClient.invalidateQueries({ queryKey: [...QUIZZES_QUERY_KEY, quizId] });
+      queryClient.invalidateQueries({ queryKey: QUIZ_LIST_QUERY_KEY });
     },
   });
 }
@@ -212,8 +245,11 @@ export function useShareQuiz(quizId: string) {
       return response.data;
     },
     onSuccess: () => {
-      // State moved to 'shared': the detail drives the edit affordances.
+      // State moved to 'shared': the detail drives the edit affordances, the
+      // list shows the new state, and the leaderboard (keyed under the quiz)
+      // refetches with the live board.
       queryClient.invalidateQueries({ queryKey: [...QUIZZES_QUERY_KEY, quizId] });
+      queryClient.invalidateQueries({ queryKey: QUIZ_LIST_QUERY_KEY });
     },
   });
 }
@@ -242,8 +278,10 @@ export function useRevokeQuiz(quizId: string) {
       return response.data;
     },
     onSuccess: () => {
-      // State moved to 'revoked': the detail drives the share affordances.
+      // State moved to 'revoked': the detail drives the share affordances,
+      // and the list + leaderboard (both under the quizzes namespace) follow.
       queryClient.invalidateQueries({ queryKey: [...QUIZZES_QUERY_KEY, quizId] });
+      queryClient.invalidateQueries({ queryKey: QUIZ_LIST_QUERY_KEY });
     },
   });
 }
@@ -259,6 +297,69 @@ export function useDeleteQuiz() {
     },
     onSuccess: (quizId) => {
       queryClient.invalidateQueries({ queryKey: [...QUIZZES_QUERY_KEY, quizId] });
+      queryClient.invalidateQueries({ queryKey: QUIZ_LIST_QUERY_KEY });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Owner leaderboard (U11 / R14)
+// ---------------------------------------------------------------------------
+
+// Matches backend QuizOwnerLeaderboardEntry: one aggregated row per name
+// (AE4), with the sessions behind it so the owner can hide the lot.
+export interface QuizOwnerLeaderboardEntry {
+  display_name: string;
+  best_score: number;
+  attempts: number;
+  /** True when the entry no longer surfaces on the public leaderboard. */
+  hidden: boolean;
+  session_ids: string[];
+}
+
+// Matches backend QuizOwnerLeaderboardResponse.
+export interface QuizOwnerLeaderboard {
+  score_to_beat?: QuizScoreToBeat | null;
+  leaderboard: QuizOwnerLeaderboardEntry[];
+}
+
+/**
+ * The owner's view of a quiz's leaderboard, hidden entries included (marked).
+ * Keyed under ['quizzes', quizId], so the share/revoke invalidations above
+ * refresh it automatically.
+ */
+export function useQuizLeaderboard(quizId: string | undefined) {
+  return useQuery({
+    queryKey: [...QUIZZES_QUERY_KEY, quizId, 'leaderboard'],
+    queryFn: async (): Promise<QuizOwnerLeaderboard> => {
+      const response = await api.get(`/quiz/${quizId}/leaderboard`);
+      return response.data;
+    },
+    enabled: !!quizId,
+    // Always refetch on mount: a just-hidden entry or fresh plays must show.
+    staleTime: 0,
+    gcTime: 1000 * 60 * 30, // 30 minutes
+  });
+}
+
+/**
+ * Hide a leaderboard entry (U8 moderation, owner-only): the backend hide
+ * endpoint is per-session, so hiding an entry means hiding every session
+ * folded into it. Hidden sessions stay visible to the owner, marked.
+ */
+export function useHideQuizSessions(quizId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (sessionIds: string[]): Promise<void> => {
+      for (const sessionId of sessionIds) {
+        await api.post(`/quiz/${quizId}/sessions/${sessionId}/hide`);
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: [...QUIZZES_QUERY_KEY, quizId, 'leaderboard'],
+      });
     },
   });
 }

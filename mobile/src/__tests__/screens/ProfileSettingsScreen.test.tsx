@@ -140,6 +140,17 @@ describe('ProfileSettingsScreen', () => {
     jest.useRealTimers();
   });
 
+  describe('My Quizzes entry point', () => {
+    it('navigates to the My Quizzes management screen', () => {
+      mockHooksWithData();
+
+      render(<ProfileSettingsScreen navigation={mockNavigation} route={mockRoute} />);
+
+      fireEvent.press(screen.getByTestId('profile-my-quizzes'));
+      expect(mockNavigation.navigate).toHaveBeenCalledWith('MyQuizzes');
+    });
+  });
+
   describe('Export Modal', () => {
     it('opens export modal when export button pressed', async () => {
       const countries = createMockCountriesForRegions();

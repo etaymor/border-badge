@@ -53,11 +53,15 @@ from app.schemas.quiz import (
     QuizEligibilityResult,
     QuizFinalizePhoto,
     QuizFinalizeRequest,
+    QuizListResponse,
+    QuizOwnerLeaderboardEntry,
+    QuizOwnerLeaderboardResponse,
     QuizPlayResponse,
     QuizQuestionPayload,
     QuizRevokeResponse,
     QuizSessionHideResponse,
     QuizShareResponse,
+    QuizSummary,
     QuizSwapRequest,
     QuizUploadTarget,
     QuizUploadUrlRequest,
@@ -69,6 +73,11 @@ from app.services.photo_vision.quiz_classifier import (
     classify_quiz_images,
 )
 from app.services.quiz_grading import grade_answer
+from app.services.quiz_leaderboard import (
+    OWNER_SESSION_TOKEN_PREFIX,
+    aggregate_leaderboard,
+    completed_public_sessions,
+)
 from app.services.quiz_storage import (
     QuizStorageDeletionError,
     delete_quiz_storage_objects,
@@ -101,6 +110,51 @@ async def create_quiz_draft(
             detail="Failed to create quiz draft",
         )
     return QuizDraftResponse(id=rows[0]["id"], state=rows[0]["state"])
+
+
+@router.get("", response_model=QuizListResponse)
+async def list_quizzes(user: CurrentUser) -> QuizListResponse:
+    """Every quiz the caller owns, newest first (U11).
+
+    The management-surface list: lifecycle state, question count, the seeded
+    score-to-beat pair, and the share link while (and only while) the quiz is
+    'shared'. Quizzes are fully independent of one another (R17). Sorted here
+    rather than via PostgREST so ordering never depends on the client wrapper.
+    """
+    db = get_supabase_client()  # service role: quiz tables are backend-only
+    rows = await db.get("quiz", {"owner_id": f"eq.{user.id}"})
+    rows.sort(key=lambda r: str(r.get("created_at") or ""), reverse=True)
+
+    counts: dict[str, int] = {}
+    if rows:
+        ids = ",".join(str(r["id"]) for r in rows)
+        questions = await db.get(
+            "quiz_question", {"quiz_id": f"in.({ids})", "select": "id,quiz_id"}
+        )
+        for q in questions:
+            counts[str(q["quiz_id"])] = counts.get(str(q["quiz_id"]), 0) + 1
+
+    summaries: list[QuizSummary] = []
+    for r in rows:
+        score_to_beat = None
+        if r.get("score_to_beat_correct") is not None:
+            score_to_beat = ScoreToBeat(
+                correct=r["score_to_beat_correct"], total=r["score_to_beat_total"]
+            )
+        slug = r.get("slug") if r.get("state") == "shared" else None
+        summaries.append(
+            QuizSummary(
+                id=r["id"],
+                state=r["state"],
+                slug=slug,
+                share_url=_share_url(slug) if slug else None,
+                score_to_beat=score_to_beat,
+                question_count=counts.get(str(r["id"]), 0),
+                created_at=str(r["created_at"]),
+                revoked_at=r.get("revoked_at"),
+            )
+        )
+    return QuizListResponse(quizzes=summaries)
 
 
 @router.post("/eligibility", response_model=QuizEligibilityResponse)
@@ -280,10 +334,8 @@ MAX_QUIZ_PHOTOS = 10
 # written, but a short cacheControl keeps a revoked quiz's photos from living
 # on in shared caches (KTD5).
 QUIZ_UPLOAD_CACHE_CONTROL_SECONDS = "60"
-# Owner play sessions share the quiz_session table with anonymous ones (KTD4:
-# one grading path); the token prefix is what distinguishes them, and they are
-# born hidden so they can never surface on the public leaderboard.
-OWNER_SESSION_TOKEN_PREFIX = "owner-"
+# OWNER_SESSION_TOKEN_PREFIX lives in app/services/quiz_leaderboard.py (shared
+# with the aggregation); imported above and re-exported here for callers.
 # States in which the owner may still edit questions (swap/remove).
 PRE_SHARE_EDITABLE_STATES = ("awaiting_owner_play", "playable")
 _SLUG_MINT_ATTEMPTS = 5
@@ -779,6 +831,50 @@ async def get_quiz(quiz_id: UUID, user: CurrentUser) -> QuizDetailResponse:
             quiz = await _get_owned_quiz(db, quiz_id, user.id)
     questions = await _get_questions(db, quiz_id)
     return _detail_response(quiz, questions)
+
+
+@router.get("/{quiz_id}/leaderboard", response_model=QuizOwnerLeaderboardResponse)
+async def get_owner_quiz_leaderboard(
+    quiz_id: UUID, user: CurrentUser
+) -> QuizOwnerLeaderboardResponse:
+    """The owner's view of their quiz's board (R14).
+
+    Unlike the anonymous GET /q/{slug}/leaderboard, this serves any owned quiz
+    regardless of state and INCLUDES hidden sessions: an entry absent from the
+    public aggregation is returned with `hidden` true — marked, never removed
+    from the owner's sight. Each entry carries its session ids so the owner
+    can hide every session behind it. Same ONE aggregation implementation as
+    the public surface (app/services/quiz_leaderboard.py).
+    """
+    db = get_supabase_client()  # service role: quiz tables are backend-only
+    quiz = await _get_owned_quiz(db, quiz_id, user.id)
+
+    sessions = await completed_public_sessions(db, quiz_id, include_hidden=True)
+    entries = aggregate_leaderboard(sessions)
+    # An entry is 'hidden' iff it would not surface on the public board.
+    public_keys = {
+        e["key"]
+        for e in aggregate_leaderboard([s for s in sessions if not s.get("hidden")])
+    }
+
+    score_to_beat = None
+    if quiz.get("score_to_beat_correct") is not None:
+        score_to_beat = ScoreToBeat(
+            correct=quiz["score_to_beat_correct"], total=quiz["score_to_beat_total"]
+        )
+    return QuizOwnerLeaderboardResponse(
+        score_to_beat=score_to_beat,
+        leaderboard=[
+            QuizOwnerLeaderboardEntry(
+                display_name=e["display_name"],
+                best_score=e["best_score"],
+                attempts=e["attempts"],
+                hidden=e["key"] not in public_keys,
+                session_ids=e["session_ids"],
+            )
+            for e in entries
+        ],
+    )
 
 
 @router.post(

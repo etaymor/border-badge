@@ -28,13 +28,11 @@ the service-role client; authorization is the slug + token pair.
 
 import logging
 import secrets
-import unicodedata
 from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Path, Request, Response, status
 
-from app.api.quiz import OWNER_SESSION_TOKEN_PREFIX
 from app.db.session import SupabaseClient, get_supabase_client
 from app.main import limiter
 from app.schemas.quiz import (
@@ -52,15 +50,23 @@ from app.schemas.quiz import (
 )
 from app.services.quiz_grading import grade_answer
 
+# The aggregation implementation lives in app/services/quiz_leaderboard.py —
+# ONE implementation shared with the owner-facing board (U11). The size
+# constants are re-imported here as module attributes (monkeypatchable in
+# tests) and passed explicitly at each call site.
+from app.services.quiz_leaderboard import (
+    QUIZ_LEADERBOARD_MAX_NAMES,
+    QUIZ_LEADERBOARD_TOP_N,
+    aggregate_leaderboard,
+    canonical_name,
+    completed_public_sessions,
+    is_public_session,
+    top_entries,
+)
+
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["public-quiz"])
 
-# KTD9: at most this many DISTINCT canonicalized names ever join a quiz's
-# board, claimed in first-completion order. Existing names update forever.
-QUIZ_LEADERBOARD_MAX_NAMES = 100
-# Reads serve at most the top N rows (plus the player's own standing when it
-# falls outside the top N in the completion response).
-QUIZ_LEADERBOARD_TOP_N = 50
 _SESSION_TOKEN_MINT_ATTEMPTS = 3
 
 # Mirrors the /q/{slug} page route's slug handling (U7): minted slugs are
@@ -70,15 +76,6 @@ SlugPath = Path(..., min_length=1, max_length=100, pattern=r"^[a-z0-9-]+$")
 
 def _now_iso() -> str:
     return datetime.now(UTC).isoformat()
-
-
-def _canonical_name(name: str) -> str:
-    """AE4 leaderboard identity: Unicode NFKC, trimmed, case-folded."""
-    return unicodedata.normalize("NFKC", name).strip().casefold()
-
-
-def _is_public_session(row: dict[str, Any]) -> bool:
-    return not str(row.get("token", "")).startswith(OWNER_SESSION_TOKEN_PREFIX)
 
 
 async def _get_shared_quiz(db: SupabaseClient, slug: str) -> dict[str, Any]:
@@ -115,7 +112,7 @@ async def _require_public_session(
         "quiz_session",
         {"token": f"eq.{token}", "quiz_id": f"eq.{quiz['id']}"},
     )
-    if not rows or not _is_public_session(rows[0]):
+    if not rows or not is_public_session(rows[0]):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Play session not found"
         )
@@ -133,79 +130,6 @@ def _score_to_beat(quiz: dict[str, Any]) -> ScoreToBeat | None:
     return ScoreToBeat(
         correct=quiz["score_to_beat_correct"], total=quiz["score_to_beat_total"]
     )
-
-
-async def _completed_public_sessions(
-    db: SupabaseClient, quiz_id: Any
-) -> list[dict[str, Any]]:
-    """Every session eligible for the leaderboard: completed, named,
-    non-hidden, non-owner. Hidden filtering happens here -- a hidden session
-    is never served anywhere on the public surface."""
-    rows = await db.get(
-        "quiz_session",
-        {"quiz_id": f"eq.{quiz_id}", "completed_at": "not.is.null"},
-    )
-    return [
-        r
-        for r in rows
-        if _is_public_session(r)
-        and not r.get("hidden")
-        and (r.get("display_name") or "").strip()
-    ]
-
-
-def _aggregate_leaderboard(
-    sessions: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    """READ-TIME aggregation (KTD9): one row per canonicalized name.
-
-    Sessions fold in first-completion order, so the distinct-name cap is
-    deterministic: the first QUIZ_LEADERBOARD_MAX_NAMES names to complete own
-    the board permanently, and a later new name never displaces them --
-    while replays of existing names keep updating best score and attempts
-    straight through the cap. The displayed raw name follows the best-scoring
-    attempt. Returned entries are sorted best score first, earliest first
-    completion breaking ties.
-    """
-    groups: dict[str, dict[str, Any]] = {}
-    for s in sorted(sessions, key=lambda r: str(r.get("completed_at") or "")):
-        raw = str(s.get("display_name") or "").strip()
-        key = _canonical_name(raw)
-        if not key:
-            continue
-        score = int(s.get("score") or 0)
-        group = groups.get(key)
-        if group is None:
-            if len(groups) >= QUIZ_LEADERBOARD_MAX_NAMES:
-                continue  # board full: new names no longer join (KTD9 cap)
-            groups[key] = {
-                "key": key,
-                "display_name": raw,
-                "best_score": score,
-                "attempts": 1,
-                "first_completed_at": str(s.get("completed_at") or ""),
-            }
-        else:
-            group["attempts"] += 1
-            if score > group["best_score"]:
-                group["best_score"] = score
-                group["display_name"] = raw
-    return sorted(
-        groups.values(),
-        key=lambda g: (-g["best_score"], g["first_completed_at"]),
-    )
-
-
-def _top_entries(
-    entries: list[dict[str, Any]], viewer_key: str | None = None
-) -> list[dict[str, Any]]:
-    """The top N rows, plus the viewer's own standing when outside them."""
-    top = entries[:QUIZ_LEADERBOARD_TOP_N]
-    if viewer_key is not None and all(e["key"] != viewer_key for e in top):
-        own = next((e for e in entries if e["key"] == viewer_key), None)
-        if own is not None:
-            top = [*top, own]
-    return top
 
 
 # ============================================================================
@@ -237,7 +161,7 @@ async def start_public_quiz_session(
             "quiz_session",
             {"token": f"eq.{data.token}", "quiz_id": f"eq.{quiz['id']}"},
         )
-        if rows and _is_public_session(rows[0]):
+        if rows and is_public_session(rows[0]):
             return await _session_snapshot(db, quiz, rows[0])
 
     for _ in range(_SESSION_TOKEN_MINT_ATTEMPTS):
@@ -406,9 +330,12 @@ async def complete_public_quiz_session(
                 session = refreshed[0]
 
     bound_name = str(session.get("display_name") or data.display_name)
-    viewer_key = _canonical_name(bound_name)
+    viewer_key = canonical_name(bound_name)
 
-    entries = _aggregate_leaderboard(await _completed_public_sessions(db, quiz["id"]))
+    entries = aggregate_leaderboard(
+        await completed_public_sessions(db, quiz["id"]),
+        max_names=QUIZ_LEADERBOARD_MAX_NAMES,
+    )
     on_board = any(e["key"] == viewer_key for e in entries)
     # Board-full indicator (KTD9): a completed, named session missing from
     # the aggregation means the distinct-name cap excluded it.
@@ -425,7 +352,9 @@ async def complete_public_quiz_session(
                 attempts=e["attempts"],
                 is_you=e["key"] == viewer_key,
             )
-            for e in _top_entries(entries, viewer_key=viewer_key)
+            for e in top_entries(
+                entries, viewer_key=viewer_key, top_n=QUIZ_LEADERBOARD_TOP_N
+            )
         ],
         already_completed=already_completed,
         leaderboard_full=leaderboard_full,
@@ -451,7 +380,10 @@ async def get_public_quiz_leaderboard(
     """
     db = get_supabase_client()  # service role: quiz tables are backend-only
     quiz = await _get_shared_quiz(db, slug)
-    entries = _aggregate_leaderboard(await _completed_public_sessions(db, quiz["id"]))
+    entries = aggregate_leaderboard(
+        await completed_public_sessions(db, quiz["id"]),
+        max_names=QUIZ_LEADERBOARD_MAX_NAMES,
+    )
     response.headers["Cache-Control"] = "no-store"
     return PublicQuizLeaderboardResponse(
         score_to_beat=_score_to_beat(quiz),
@@ -461,6 +393,6 @@ async def get_public_quiz_leaderboard(
                 best_score=e["best_score"],
                 attempts=e["attempts"],
             )
-            for e in _top_entries(entries)
+            for e in top_entries(entries, top_n=QUIZ_LEADERBOARD_TOP_N)
         ],
     )

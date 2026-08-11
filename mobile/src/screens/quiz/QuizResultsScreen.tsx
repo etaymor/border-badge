@@ -87,8 +87,10 @@ export function QuizResultsScreen({ navigation, route }: Props) {
     () => (quiz ? [...quiz.questions].sort((a, b) => a.position - b.position) : []),
     [quiz]
   );
-  const state = quiz?.state ?? results.state;
-  const scoreToBeat = quiz?.score_to_beat ?? results.score_to_beat;
+  // `results` is absent when arriving from My Quizzes (no fresh play-through);
+  // everything below then renders from the fetched quiz detail alone.
+  const state = quiz?.state ?? results?.state;
+  const scoreToBeat = quiz?.score_to_beat ?? results?.score_to_beat;
   const editable = state === 'awaiting_owner_play' || state === 'playable';
   const canRemove = questions.length > QUIZ_MIN_PHOTOS;
   const unansweredCount = playState
@@ -139,6 +141,7 @@ export function QuizResultsScreen({ navigation, route }: Props) {
   });
 
   const handleShare = useStableCallback(async () => {
+    if (!scoreToBeat) return; // Unreachable: share renders only with a score.
     try {
       const shared = await shareMutation.mutateAsync();
       const message =
@@ -203,6 +206,17 @@ export function QuizResultsScreen({ navigation, route }: Props) {
     navigation.popToTop();
   });
 
+  // Without navigation results, the score pair arrives with the quiz detail.
+  if (!scoreToBeat) {
+    return (
+      <Screen>
+        <View style={styles.loading} testID="quiz-results-loading">
+          <ActivityIndicator size="large" color={colors.sunsetGold} />
+        </View>
+      </Screen>
+    );
+  }
+
   return (
     <Screen>
       <ScrollView contentContainerStyle={styles.content}>
@@ -214,7 +228,7 @@ export function QuizResultsScreen({ navigation, route }: Props) {
           Friends who play your quiz will try to beat this country score.
         </Text>
 
-        {results.memory_total > 0 && (
+        {results && results.memory_total > 0 && (
           <View style={styles.memoryCard} testID="quiz-memory-score">
             <Text style={styles.memoryTitle}>
               Memory: {results.memory_correct} of {results.memory_total} years right
@@ -372,6 +386,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingVertical: 16,
     gap: 12,
+  },
+  loading: {
+    flex: 1,
+    justifyContent: 'center',
   },
   heading: {
     fontFamily: fonts.playfair.bold,

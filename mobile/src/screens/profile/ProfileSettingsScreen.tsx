@@ -361,6 +361,11 @@ export function ProfileSettingsScreen({ navigation }: Props) {
     setDeleteConfirmModalVisible(false);
   }, []);
 
+  const handleOpenMyQuizzes = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    navigation.navigate('MyQuizzes');
+  }, [navigation]);
+
   const handleOpenTerms = useCallback(() => {
     Linking.openURL(`${env.webBaseUrl}/terms`);
   }, []);
@@ -595,6 +600,21 @@ export function ProfileSettingsScreen({ navigation }: Props) {
           onOpenPhotoInfoModal={handleOpenPhotoInfoModal}
         />
 
+        <View style={styles.divider} />
+
+        <Pressable
+          onPress={handleOpenMyQuizzes}
+          style={({ pressed }) => [styles.myQuizzesRow, pressed && styles.myQuizzesRowPressed]}
+          accessibilityRole="button"
+          accessibilityLabel="My Quizzes"
+          testID="profile-my-quizzes"
+        >
+          <Text style={styles.myQuizzesTitle}>My Quizzes</Text>
+          <Text style={styles.myQuizzesSubtitle}>
+            Manage your travel photo quizzes and see who beat your score
+          </Text>
+        </Pressable>
+
         <View style={styles.contactSupportSection}>
           <Pressable
             onPress={() => Linking.openURL('mailto:support@atlasi.app')}
@@ -721,6 +741,24 @@ const styles = StyleSheet.create({
     backgroundColor: colors.paperBeige,
     marginHorizontal: 24,
     marginVertical: 8,
+  },
+  myQuizzesRow: {
+    marginHorizontal: 24,
+    paddingVertical: 12,
+    gap: 2,
+  },
+  myQuizzesRowPressed: {
+    opacity: 0.7,
+  },
+  myQuizzesTitle: {
+    fontFamily: fonts.openSans.semiBold,
+    fontSize: 16,
+    color: colors.midnightNavy,
+  },
+  myQuizzesSubtitle: {
+    fontFamily: fonts.openSans.regular,
+    fontSize: 13,
+    color: colors.textSecondary,
   },
   contactSupportSection: {
     alignItems: 'center',

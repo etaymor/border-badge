@@ -20,8 +20,10 @@ export type RootStackParamList = {
   QuizResults: {
     quizId: string;
     /** Owner completion payload (backend QuizCompleteResponse). The memory
-     * score exists only here - it is never stored nor served publicly. */
-    results: {
+     * score exists only here - it is never stored nor served publicly.
+     * Absent when arriving from the My Quizzes list (no fresh play-through);
+     * the screen then renders entirely from the quiz detail. */
+    results?: {
       correct: number;
       total: number;
       memory_correct: number;
@@ -30,6 +32,8 @@ export type RootStackParamList = {
       state: string;
     };
   };
+  MyQuizzes: undefined;
+  QuizLeaderboard: { quizId: string };
 };
 
 // Auth stack screens

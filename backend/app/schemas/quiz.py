@@ -381,3 +381,46 @@ class QuizSessionHideResponse(BaseModel):
 
     session_id: UUID
     hidden: bool
+
+
+# ============================================================================
+# U11: the owner's management surface (list + owner leaderboard)
+# ============================================================================
+
+
+class QuizSummary(BaseModel):
+    """One owned quiz in the management list.
+
+    `slug`/`share_url` are served only while the quiz is 'shared' (a revoked
+    slug serves nothing publicly). `question_count` stands in for content the
+    list never needs to load.
+    """
+
+    id: UUID
+    state: str
+    slug: str | None = None
+    share_url: str | None = None
+    score_to_beat: ScoreToBeat | None = None
+    question_count: int
+    created_at: str
+    revoked_at: str | None = None
+
+
+class QuizListResponse(BaseModel):
+    quizzes: list[QuizSummary]
+
+
+class QuizOwnerLeaderboardEntry(PublicLeaderboardEntry):
+    """Owner view row (R14): hidden entries stay visible, marked.
+
+    `session_ids` are every session folded into this entry, so the owner can
+    hide the lot of them through the per-session hide endpoint.
+    """
+
+    hidden: bool = False
+    session_ids: list[UUID] = Field(default_factory=list)
+
+
+class QuizOwnerLeaderboardResponse(BaseModel):
+    score_to_beat: ScoreToBeat | None = None
+    leaderboard: list[QuizOwnerLeaderboardEntry]
