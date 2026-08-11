@@ -9,6 +9,11 @@ error rather than silently trimmed.
 
 U3: the authenticated lifecycle -- signed uploads, finalize, owner play
 (sanitized question payloads with NO ground truth), grading, share, revoke.
+
+U8: the anonymous public play surface -- opaque-token sessions, per-question
+grading verdicts, idempotent completion, and the read-time leaderboard.
+Completion deliberately accepts NO score field: extras are ignored and the
+score is always recomputed server-side from recorded answers.
 """
 
 import base64
@@ -245,3 +250,131 @@ class QuizShareResponse(BaseModel):
 class QuizRevokeResponse(BaseModel):
     state: str
     revoked_at: str
+
+
+# ============================================================================
+# U8: anonymous public play (/q/{slug}/* JSON endpoints)
+# ============================================================================
+
+# Mirrors the app-wide display-name rule (see
+# mobile/src/utils/displayNameValidation.ts and migration 0013): 2-50 chars
+# after trimming. Stored raw; escaping happens at render sinks.
+DISPLAY_NAME_MIN_LENGTH = 2
+DISPLAY_NAME_MAX_LENGTH = 50
+# Session tokens are secrets.token_urlsafe(32) (43 chars); the bound just
+# keeps hostile payloads from carrying arbitrary-size strings into queries.
+MAX_SESSION_TOKEN_LENGTH = 128
+
+
+class PublicQuizSessionRequest(BaseModel):
+    """Start or resume an anonymous play session ({} or {"token": ...})."""
+
+    token: str | None = Field(None, min_length=1, max_length=MAX_SESSION_TOKEN_LENGTH)
+
+
+class PublicAnsweredQuestion(BaseModel):
+    """One already-recorded answer, echoed back on session resume."""
+
+    question_id: str
+    selected_option_index: int
+    correct: bool
+    correct_country: str
+
+
+class PublicQuizSessionResponse(BaseModel):
+    """The session snapshot the game resumes from.
+
+    `score` is populated only for completed sessions; mid-run the client
+    derives progress from `answered` and the server recomputes the score
+    from recorded answers at every grade.
+    """
+
+    token: str
+    answered: list[PublicAnsweredQuestion]
+    completed: bool
+    score: int | None = None
+
+
+class PublicQuizAnswerRequest(BaseModel):
+    token: str = Field(..., min_length=1, max_length=MAX_SESSION_TOKEN_LENGTH)
+    question_id: UUID
+    selected_option_index: int = Field(..., ge=0, le=3)
+
+
+class PublicQuizAnswerResponse(BaseModel):
+    """The verdict for one public answer -- the ONLY place ground truth for
+    that question is revealed to an anonymous player."""
+
+    correct: bool
+    correct_country: str
+    answered_count: int
+
+
+class PublicQuizCompleteRequest(BaseModel):
+    """Finish a session and post a display name to the leaderboard.
+
+    There is deliberately no score field; a client-sent score is ignored by
+    schema (extra fields dropped) and the response score is always recomputed
+    server-side from the session's recorded answers.
+    """
+
+    token: str = Field(..., min_length=1, max_length=MAX_SESSION_TOKEN_LENGTH)
+    # Loose Field bound so the trim-then-check validator owns the real rule
+    # (" A " must fail as 1 char, not pass as 3).
+    display_name: str = Field(..., max_length=200)
+
+    @field_validator("display_name")
+    @classmethod
+    def validate_display_name(cls, v: str) -> str:
+        v = v.strip()
+        if len(v) < DISPLAY_NAME_MIN_LENGTH:
+            raise ValueError(
+                f"display_name must be at least {DISPLAY_NAME_MIN_LENGTH} " "characters"
+            )
+        if len(v) > DISPLAY_NAME_MAX_LENGTH:
+            raise ValueError(
+                f"display_name must be {DISPLAY_NAME_MAX_LENGTH} characters or less"
+            )
+        return v
+
+
+class PublicLeaderboardEntry(BaseModel):
+    """One aggregated leaderboard row (per canonicalized name -- AE4)."""
+
+    display_name: str
+    best_score: int
+    attempts: int
+
+
+class PublicCompleteLeaderboardEntry(PublicLeaderboardEntry):
+    """Leaderboard row in the completion response, flagged for the player."""
+
+    is_you: bool = False
+
+
+class PublicQuizCompleteResponse(BaseModel):
+    """Completion result: server-computed score plus the current board.
+
+    `leaderboard_full` is the board-full indicator: the distinct-name cap was
+    reached before this player's name joined, so their score is returned but
+    no leaderboard entry was created for them. Not an error.
+    """
+
+    score: int
+    total: int
+    score_to_beat: ScoreToBeat | None = None
+    leaderboard: list[PublicCompleteLeaderboardEntry]
+    already_completed: bool
+    leaderboard_full: bool = False
+
+
+class PublicQuizLeaderboardResponse(BaseModel):
+    score_to_beat: ScoreToBeat | None = None
+    leaderboard: list[PublicLeaderboardEntry]
+
+
+class QuizSessionHideResponse(BaseModel):
+    """Owner-side acknowledgement that a session is hidden from the board."""
+
+    session_id: UUID
+    hidden: bool

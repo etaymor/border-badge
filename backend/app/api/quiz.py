@@ -56,6 +56,7 @@ from app.schemas.quiz import (
     QuizPlayResponse,
     QuizQuestionPayload,
     QuizRevokeResponse,
+    QuizSessionHideResponse,
     QuizShareResponse,
     QuizSwapRequest,
     QuizUploadTarget,
@@ -1126,6 +1127,38 @@ async def share_quiz(quiz_id: UUID, user: CurrentUser) -> QuizShareResponse:
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         detail="Could not mint a share link. Please try again.",
     )
+
+
+@router.post(
+    "/{quiz_id}/sessions/{session_id}/hide",
+    response_model=QuizSessionHideResponse,
+)
+@limiter.limit("60/hour")
+async def hide_quiz_session(
+    request: Request,  # Required for rate limiter
+    quiz_id: UUID,
+    session_id: UUID,
+    user: CurrentUser,
+) -> QuizSessionHideResponse:
+    """Hide a play session from the public leaderboard (U8 moderation).
+
+    Owner-only: the ownership check 404s for anyone else, exactly like every
+    other quiz route (no existence leak). Hiding is a flag, not a delete --
+    the session's answers stay recorded, but the read-time leaderboard
+    aggregation never serves a hidden session again.
+    """
+    db = get_supabase_client()  # service role: quiz tables are backend-only
+    await _get_owned_quiz(db, quiz_id, user.id)
+    rows = await db.patch(
+        "quiz_session",
+        {"hidden": True},
+        {"id": f"eq.{session_id}", "quiz_id": f"eq.{quiz_id}"},
+    )
+    if not rows:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Play session not found"
+        )
+    return QuizSessionHideResponse(session_id=session_id, hidden=True)
 
 
 @router.post("/{quiz_id}/revoke", response_model=QuizRevokeResponse)
