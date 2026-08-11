@@ -39,6 +39,8 @@ import type { RootStackScreenProps } from '@navigation/types';
 // The creation orchestration drags in the photo-import stack; U11 never runs it.
 jest.mock('@services/quiz/quizCreation', () => ({
   createQuizFromLibrary: jest.fn(),
+  loadDraftState: jest.fn().mockResolvedValue(null),
+  clearDraftState: jest.fn(),
 }));
 
 jest.mock('@services/quiz/quizPlay', () => ({

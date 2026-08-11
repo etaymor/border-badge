@@ -424,6 +424,38 @@ class TestDisplayNameValidation:
         # Nothing completed: the session is still finishable.
         assert db.find("quiz_session", token=token)[0]["completed_at"] is None
 
+    @pytest.mark.parametrize(
+        "bad",
+        [
+            "\u200b\u200b\u200b",  # zero-width spaces only (Cf)
+            "\u2060\u2060",  # word joiners only (Cf)
+            "\x01\x02\x03",  # control characters only (Cc)
+            "!!--",  # punctuation only: no letter or number
+        ],
+    )
+    def test_format_or_control_only_names_rejected(
+        self, client: TestClient, bad: str
+    ) -> None:
+        """Blank-looking names (format/control chars) survive NFKC/casefold as
+        distinct identities and could fill the leaderboard's distinct-name cap
+        with empty rows -- a name must contain a letter or number."""
+        db = FakeDB()
+        quiz_id, slug = shared_quiz(client, db)
+        token = start_session(client, db, slug).json()["token"]
+        answer_all_public(client, db, slug, quiz_id, token)
+        resp = finish(client, db, slug, token, bad)
+        assert resp.status_code == 422, repr(bad)
+        assert db.find("quiz_session", token=token)[0]["completed_at"] is None
+
+    def test_normal_name_with_letters_still_accepted(self, client: TestClient) -> None:
+        db = FakeDB()
+        quiz_id, slug = shared_quiz(client, db)
+        token = start_session(client, db, slug).json()["token"]
+        answer_all_public(client, db, slug, quiz_id, token)
+        resp = finish(client, db, slug, token, "Maya 7")
+        assert resp.status_code == 200, resp.text
+        assert db.find("quiz_session", token=token)[0]["display_name"] == "Maya 7"
+
     def test_names_are_trimmed_before_storage(self, client: TestClient) -> None:
         db = FakeDB()
         quiz_id, slug = shared_quiz(client, db)

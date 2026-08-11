@@ -431,6 +431,75 @@ def test_delete_account_success(
         app.dependency_overrides.clear()
 
 
+def test_delete_account_revokes_shared_quiz_before_storage_sweep(
+    client: TestClient,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+) -> None:
+    """A still-shared quiz must be flipped to revoked (off the public
+    surface) BEFORE its storage prefix is swept; a plain draft is swept
+    without any state patch. Order is observed through a shared event log."""
+    shared_id = "550e8400-e29b-41d4-a716-446655440201"
+    draft_id = "550e8400-e29b-41d4-a716-446655440202"
+    events: list[tuple[str, str]] = []
+
+    db = AsyncMock()
+    db.get = AsyncMock(
+        return_value=[
+            {"id": shared_id, "state": "shared"},
+            {"id": draft_id, "state": "building"},
+        ]
+    )
+
+    async def record_patch(table: str, data: dict, params: dict) -> list[dict]:
+        assert table == "quiz"
+        assert data["state"] == "revoked"
+        assert data["revoked_at"] is not None
+        assert data["updated_at"] is not None
+        # Conditional write mirroring the revoke endpoint's predicate.
+        assert params == {
+            "id": f"eq.{shared_id}",
+            "owner_id": f"eq.{mock_user.id}",
+            "state": "eq.shared",
+        }
+        events.append(("revoke", params["id"].removeprefix("eq.")))
+        return [{"id": shared_id, "state": "revoked"}]
+
+    db.patch = AsyncMock(side_effect=record_patch)
+
+    async def record_sweep(quiz_id: str) -> None:
+        events.append(("sweep", str(quiz_id)))
+
+    mock_http_response = Mock()
+    mock_http_response.status_code = 200
+    mock_http_response.raise_for_status = Mock()
+    mock_http_client = AsyncMock()
+    mock_http_client.delete = AsyncMock(return_value=mock_http_response)
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with (
+            patch("app.api.profile.get_http_client", return_value=mock_http_client),
+            patch("app.api.profile.get_supabase_client", return_value=db),
+            patch(
+                "app.api.profile.delete_quiz_storage_objects",
+                new=AsyncMock(side_effect=record_sweep),
+            ),
+        ):
+            response = client.delete("/profile", headers=auth_headers)
+        assert response.status_code == 200, response.text
+        # The shared quiz is revoked strictly before its sweep; the draft is
+        # swept with no revoke patch at all.
+        assert events == [
+            ("revoke", shared_id),
+            ("sweep", shared_id),
+            ("sweep", draft_id),
+        ]
+        db.patch.assert_awaited_once()
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_delete_account_http_error(
     client: TestClient,
     mock_user: AuthUser,

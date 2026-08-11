@@ -15,7 +15,9 @@ import { Analytics } from '@services/analytics';
 import { api } from '@services/api';
 import { clearStoredAnswer, uploadSwapPhoto } from '@services/quiz/quizPlay';
 import {
+  clearDraftState,
   createQuizFromLibrary,
+  loadDraftState,
   type CreateQuizOptions,
   type QuizCreationOutcome,
 } from '@services/quiz/quizCreation';
@@ -322,6 +324,13 @@ export function useDeleteQuiz() {
   return useMutation({
     mutationFn: async (quizId: string): Promise<string> => {
       await api.delete(`/quiz/${quizId}`);
+      // If the deleted quiz IS the locally persisted creation draft, drop
+      // that mirror too - otherwise the next creation would resume a
+      // server-deleted draft and 404 on every call.
+      const draft = await loadDraftState();
+      if (draft?.quizId === quizId) {
+        await clearDraftState();
+      }
       return quizId;
     },
     onSuccess: (quizId) => {

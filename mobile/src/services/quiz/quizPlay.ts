@@ -33,7 +33,14 @@ import { getUsedAssetIds, markAssetsUsed, prepareQuizUploadImage } from './quizC
 // Persisted play state
 // ---------------------------------------------------------------------------
 
-const PLAY_STATE_KEY = 'quiz_play_state';
+// Keyed PER QUIZ (R17: independent quizzes): a single shared key would let a
+// second quiz's play state clobber the first's seeding session, permanently
+// blocking share on the first quiz (QUIZ_OWNER_ANSWERS_INCOMPLETE).
+const PLAY_STATE_KEY_PREFIX = 'quiz_play_state:';
+
+function playStateKey(quizId: string): string {
+  return `${PLAY_STATE_KEY_PREFIX}${quizId}`;
+}
 
 /** One graded verdict, as revealed by POST /quiz/{id}/answer. */
 export interface StoredQuizAnswer {
@@ -56,7 +63,7 @@ export interface QuizPlayState {
 
 export async function loadPlayState(quizId: string): Promise<QuizPlayState | null> {
   try {
-    const raw = await getMetadata(PLAY_STATE_KEY);
+    const raw = await getMetadata(playStateKey(quizId));
     if (!raw) return null;
     const parsed = JSON.parse(raw) as QuizPlayState;
     if (
@@ -74,7 +81,7 @@ export async function loadPlayState(quizId: string): Promise<QuizPlayState | nul
 }
 
 export async function savePlayState(state: QuizPlayState): Promise<void> {
-  await setMetadata(PLAY_STATE_KEY, JSON.stringify(state));
+  await setMetadata(playStateKey(state.quizId), JSON.stringify(state));
 }
 
 /**

@@ -232,6 +232,7 @@ BEGIN
   )
   RETURNS VOID
   LANGUAGE sql
+  SET search_path = public
   AS $increment_quiz_funnel$
     INSERT INTO public.quiz_funnel (quiz_id, event, count)
     VALUES (p_quiz_id, p_event, 1)

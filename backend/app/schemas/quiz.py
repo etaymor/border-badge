@@ -17,6 +17,7 @@ server-side from recorded answers.
 """
 
 import base64
+import unicodedata
 from typing import Literal
 from uuid import UUID
 
@@ -338,6 +339,12 @@ class PublicQuizCompleteRequest(BaseModel):
             raise ValueError(
                 f"display_name must be {DISPLAY_NAME_MAX_LENGTH} characters or less"
             )
+        # Format/control characters (Cf/Cc, e.g. zero-width spaces) pass the
+        # length checks and stay distinct after NFKC/casefold, so blank-looking
+        # names could otherwise fill the distinct-name leaderboard cap.
+        normalized = unicodedata.normalize("NFKC", v)
+        if not any(unicodedata.category(c)[0] in ("L", "N") for c in normalized):
+            raise ValueError("display_name must contain at least one letter or number")
         return v
 
 

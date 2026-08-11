@@ -1,6 +1,7 @@
 """User profile endpoints."""
 
 import logging
+from datetime import UTC, datetime
 
 import httpx
 from fastapi import APIRouter, HTTPException, Request, status
@@ -118,9 +119,25 @@ async def delete_account(
     # Quiz tables are backend-only (no RLS user policies): service role.
     quiz_db = get_supabase_client()
     owned_quizzes = await quiz_db.get(
-        "quiz", {"owner_id": f"eq.{user.id}", "select": "id"}
+        "quiz", {"owner_id": f"eq.{user.id}", "select": "id,state"}
     )
     for quiz in owned_quizzes:
+        if quiz.get("state") == "shared":
+            # Take a still-shared quiz off the public surface BEFORE its
+            # photos are swept: the public page serves only state == 'shared',
+            # and the auth-cascade delete below (which would end the share)
+            # runs after the sweep and may fail. Conditional shared -> revoked
+            # write, mirroring POST /quiz/{id}/revoke.
+            now = datetime.now(UTC).isoformat()
+            await quiz_db.patch(
+                "quiz",
+                {"state": "revoked", "revoked_at": now, "updated_at": now},
+                {
+                    "id": f"eq.{quiz['id']}",
+                    "owner_id": f"eq.{user.id}",
+                    "state": "eq.shared",
+                },
+            )
         try:
             await delete_quiz_storage_objects(quiz["id"])
         except QuizStorageDeletionError as exc:

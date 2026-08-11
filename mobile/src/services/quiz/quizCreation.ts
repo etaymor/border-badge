@@ -171,6 +171,46 @@ export async function discardDraft(quizId: string): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// HTTP error classification
+// ---------------------------------------------------------------------------
+
+interface HttpErrorLike {
+  response?: {
+    status?: number;
+    data?: { detail?: string | { code?: string } };
+  };
+}
+
+function httpStatus(error: unknown): number | null {
+  const status = (error as HttpErrorLike)?.response?.status;
+  return typeof status === 'number' ? status : null;
+}
+
+function httpDetailCode(error: unknown): string | null {
+  const detail = (error as HttpErrorLike)?.response?.data?.detail;
+  if (detail && typeof detail === 'object' && typeof detail.code === 'string') {
+    return detail.code;
+  }
+  return null;
+}
+
+/** The server draft no longer exists (owner deleted it / it was purged). */
+function isDraftGoneError(error: unknown): boolean {
+  return httpStatus(error) === 404;
+}
+
+/**
+ * The per-draft classification budget is spent (429 with the explicit code).
+ * NOT a transport failure: retrying never succeeds, and re-classifying only
+ * re-spends budget - the flow must proceed with what is already eligible.
+ */
+function isBudgetExceededError(error: unknown): boolean {
+  return (
+    httpStatus(error) === 429 && httpDetailCode(error) === 'QUIZ_CLASSIFICATION_BUDGET_EXCEEDED'
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Photo cache refresh (KTD1)
 // ---------------------------------------------------------------------------
 
@@ -221,7 +261,14 @@ interface EligibilityResponse {
   budget_remaining: number;
 }
 
-type ClassifyBatchResult = { budgetRemaining: number } | 'unavailable';
+type ClassifyBatchResult =
+  | { budgetRemaining: number }
+  /** Transport/5xx outage - retryable. */
+  | 'unavailable'
+  /** 404: the server draft is gone - clear the local mirror and start fresh. */
+  | 'draft-gone'
+  /** 429 budget-exceeded - terminal for classification; build from what we have. */
+  | 'budget-exceeded';
 
 /** Bounded concurrency for local thumbnail preparation (I/O + native resize). */
 const PREPARE_CONCURRENCY = 6;
@@ -271,7 +318,11 @@ async function classifyBatch(
       quiz_id: quizId,
       images,
     }));
-  } catch {
+  } catch (error) {
+    // A 404 (draft gone) or 429 (budget exceeded) is NOT a transport failure:
+    // retrying can never succeed, so neither maps to the retryable outage.
+    if (isDraftGoneError(error)) return 'draft-gone';
+    if (isBudgetExceededError(error)) return 'budget-exceeded';
     return 'unavailable';
   }
 
@@ -362,13 +413,15 @@ function interruptedOutcome(state: QuizDraftState): QuizCreationOutcome {
 /**
  * Upload the not-yet-uploaded picks via quiz signed URLs, then finalize.
  * Progress is persisted after every successful upload so resuming skips
- * completed photos (KTD7).
+ * completed photos (KTD7). Returns 'draft-gone' when the server draft no
+ * longer exists (404 minting upload URLs or finalizing) - the caller clears
+ * the local mirror and starts a fresh creation instead of retry-looping.
  */
 async function uploadAndFinalize(
   state: QuizDraftState,
   onProgress: ((progress: QuizCreationProgress) => void) | undefined,
   signal: AbortSignal | undefined
-): Promise<QuizCreationOutcome> {
+): Promise<QuizCreationOutcome | 'draft-gone'> {
   const total = state.picks.length;
   const reportBuilding = () =>
     onProgress?.({
@@ -387,7 +440,8 @@ async function uploadAndFinalize(
         { count: pending.length }
       );
       uploads = data.uploads;
-    } catch {
+    } catch (error) {
+      if (isDraftGoneError(error)) return 'draft-gone';
       return interruptedOutcome(state);
     }
 
@@ -437,6 +491,7 @@ async function uploadAndFinalize(
     });
   } catch (error) {
     console.warn('[QuizCreation] Finalize failed:', error instanceof Error ? error.message : error);
+    if (isDraftGoneError(error)) return 'draft-gone';
     return interruptedOutcome(state);
   }
 
@@ -460,11 +515,40 @@ async function uploadAndFinalize(
 export async function createQuizFromLibrary(
   options: CreateQuizOptions = {}
 ): Promise<QuizCreationOutcome> {
+  return runQuizCreation(options, false);
+}
+
+/**
+ * The one draft-gone path (shared by eligibility, upload-urls, and finalize
+ * 404s): the persisted draft references a server draft that no longer exists
+ * (e.g. the owner deleted it from My Quizzes), so resuming it can only 404
+ * forever. Clear the local mirror and start ONE fresh creation; a second
+ * draft-gone in the same run is a genuine server anomaly - surface retryable.
+ */
+async function restartAfterDraftGone(
+  options: CreateQuizOptions,
+  alreadyRestarted: boolean
+): Promise<QuizCreationOutcome> {
+  await clearDraftState();
+  if (alreadyRestarted) {
+    return { status: 'service-error', stage: 'classify' };
+  }
+  return runQuizCreation(options, true);
+}
+
+async function runQuizCreation(
+  options: CreateQuizOptions,
+  restartedAfterDraftGone: boolean
+): Promise<QuizCreationOutcome> {
   const { onProgress, signal } = options;
 
   const persisted = await loadDraftState();
   if (persisted && persisted.picks.length > 0) {
-    return uploadAndFinalize(persisted, onProgress, signal);
+    const outcome = await uploadAndFinalize(persisted, onProgress, signal);
+    if (outcome === 'draft-gone') {
+      return restartAfterDraftGone(options, restartedAfterDraftGone);
+    }
+    return outcome;
   }
 
   // Step 1: bring the photo cache up to date (KTD1).
@@ -520,9 +604,15 @@ export async function createQuizFromLibrary(
   if (firstResult === 'unavailable') {
     return { status: 'service-error', stage: 'classify' };
   }
+  if (firstResult === 'draft-gone') {
+    return restartAfterDraftGone(options, restartedAfterDraftGone);
+  }
   if (signal?.aborted) return { status: 'cancelled' };
 
-  if (eligible.length < QUIZ_MIN_PHOTOS) {
+  // Budget exhaustion is terminal for classification (never retryable):
+  // skip the resample and build from whatever is already eligible - the
+  // minimum-photos check below turns "not enough" into the guided decline.
+  if (firstResult !== 'budget-exceeded' && eligible.length < QUIZ_MIN_PHOTOS) {
     const budgetRemaining = Math.min(
       firstResult.budgetRemaining,
       CLASSIFICATION_BUDGET_PER_QUIZ - classifiedIds.size
@@ -547,9 +637,13 @@ export async function createQuizFromLibrary(
           eligible,
           onProgress
         );
+        if (resampleResult === 'draft-gone') {
+          return restartAfterDraftGone(options, restartedAfterDraftGone);
+        }
         if (resampleResult === 'unavailable' && eligible.length < QUIZ_MIN_PHOTOS) {
           return { status: 'service-error', stage: 'classify' };
         }
+        // 'budget-exceeded' falls through: proceed with the eligible photos.
       }
     }
   }
@@ -578,5 +672,9 @@ export async function createQuizFromLibrary(
   await saveDraftState(state);
 
   // Step 6: upload + finalize (resumable).
-  return uploadAndFinalize(state, onProgress, signal);
+  const outcome = await uploadAndFinalize(state, onProgress, signal);
+  if (outcome === 'draft-gone') {
+    return restartAfterDraftGone(options, restartedAfterDraftGone);
+  }
+  return outcome;
 }

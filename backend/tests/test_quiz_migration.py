@@ -221,6 +221,23 @@ def test_funnel_increment_function_is_service_role_only(sql: str):
     ), "increment_quiz_funnel must grant EXECUTE to service_role"
 
 
+def test_funnel_increment_function_pins_search_path(sql: str):
+    """Migration 0053 retroactively pinned search_path on every LANGUAGE sql
+    function; new functions must ship with it inline so an attacker-controlled
+    search_path can never redirect the upsert's table references."""
+    match = re.search(
+        r"CREATE OR REPLACE FUNCTION public\.increment_quiz_funnel"
+        r"[\s\S]*?AS \$increment_quiz_funnel\$",
+        sql,
+    )
+    assert match, "missing increment_quiz_funnel definition"
+    assert re.search(
+        r"SET\s+search_path\s*=\s*public",
+        match.group(0),
+        re.IGNORECASE,
+    ), "increment_quiz_funnel must SET search_path = public"
+
+
 def test_all_indexes_are_idempotent(sql: str):
     bare = re.findall(r"CREATE (?:UNIQUE )?INDEX (?!IF NOT EXISTS)", sql)
     assert not bare, "every CREATE INDEX must use IF NOT EXISTS"

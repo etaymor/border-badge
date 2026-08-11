@@ -40,6 +40,8 @@ import type { RootStackScreenProps } from '@navigation/types';
 // The creation orchestration drags in the photo-import stack; U5 never runs it.
 jest.mock('@services/quiz/quizCreation', () => ({
   createQuizFromLibrary: jest.fn(),
+  loadDraftState: jest.fn().mockResolvedValue(null),
+  clearDraftState: jest.fn(),
 }));
 
 jest.mock('@services/quiz/quizPlay', () => ({
@@ -461,6 +463,41 @@ describe('QuizResultsScreen', () => {
     // Challenge framing carries the score to beat.
     expect(content.message).toMatch(/3 of 5/);
     shareSpy.mockRestore();
+  });
+
+  it('surfaces a share rejection with an alert carrying the server message', async () => {
+    // e.g. the backend 409s with QUIZ_OWNER_ANSWERS_INCOMPLETE after a swap:
+    // the failure must be visible, not swallowed into a console.warn.
+    mockQuizDetail(makeDetail({ state: 'playable', score_to_beat: { correct: 3, total: 5 } }));
+    mockLoadPlayState.mockResolvedValue(makePlayState(['q0', 'q1', 'q2', 'q3', 'q4']));
+    mockApiPost.mockImplementation((url: string) =>
+      url === `/quiz/${QUIZ_ID}/share`
+        ? Promise.reject(
+            Object.assign(new Error('Request failed with status code 409'), {
+              response: {
+                status: 409,
+                data: {
+                  detail: {
+                    code: 'QUIZ_OWNER_ANSWERS_INCOMPLETE',
+                    message: 'Answer every question (including swapped photos) before sharing.',
+                  },
+                },
+              },
+            })
+          )
+        : Promise.reject(new Error(`Unexpected POST ${url}`))
+    );
+
+    renderResultsScreen();
+
+    await waitFor(() => expect(screen.getByTestId('quiz-share')).toBeTruthy());
+    fireEvent.press(screen.getByTestId('quiz-share'));
+
+    await waitFor(() => expect(mockAlert).toHaveBeenCalledTimes(1));
+    expect(mockAlert).toHaveBeenCalledWith(
+      'Error',
+      expect.stringContaining('Answer every question')
+    );
   });
 
   it('revoke confirms with the disclosure, then calls the revoke mutation', async () => {

@@ -19,7 +19,7 @@ import { renderHook, act, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fetch as expoFetch } from 'expo/fetch';
 
-import { useCreateQuiz, useQuiz } from '@hooks/useQuizzes';
+import { useCreateQuiz, useDeleteQuiz, useQuiz } from '@hooks/useQuizzes';
 import { api } from '@services/api';
 import type { QuizCreationOutcome, QuizCreationProgress } from '@services/quiz/quizCreation';
 import type { CachedPhoto } from '@services/photoImport/types';
@@ -415,6 +415,145 @@ describe('useQuizzes', () => {
       const outcome = await runCreation(queryClient);
 
       expect(outcome).toEqual({ status: 'service-error', stage: 'classify' });
+    });
+
+    it('declines from the already-eligible photos on a 429 budget-exceeded - NOT retryable', async () => {
+      // 60 geo-eligible photos: first batch classifies 50 (4 eligible, below
+      // the minimum), so a resample fires - and the server rejects it with the
+      // explicit budget-exceeded code. Retrying can never succeed, so the flow
+      // must proceed with what is already eligible: 4 < 5 -> guided decline.
+      const photos = Array.from({ length: 60 }, () => makeCachedPhoto());
+      mockGetAllCachedPhotos.mockResolvedValue(photos);
+
+      let eligibilityCalls = 0;
+      mockedApi.post.mockImplementation(async (url: string, body?: unknown) => {
+        if (url === '/quiz') return { data: { id: 'quiz-1', state: 'building' } };
+        if (url === '/quiz/eligibility') {
+          eligibilityCalls += 1;
+          if (eligibilityCalls > 1) {
+            throw Object.assign(new Error('Request failed with status code 429'), {
+              response: {
+                status: 429,
+                data: {
+                  detail: {
+                    code: 'QUIZ_CLASSIFICATION_BUDGET_EXCEEDED',
+                    message: 'This quiz has used its photo-check budget.',
+                  },
+                },
+              },
+            });
+          }
+          // Exactly 4 of the first batch pass the vision gate (below the
+          // 5-photo minimum, so the resample fires - and gets the 429 above).
+          const { images } = body as { images: Array<{ id: string }> };
+          return {
+            data: {
+              results: images.map((image, index) =>
+                index < 4
+                  ? { id: image.id, eligible: true, status: 'eligible' }
+                  : { id: image.id, eligible: false, status: 'ineligible', reason: 'people' }
+              ),
+              classified_count: images.length,
+              budget_remaining: 20,
+            },
+          };
+        }
+        throw new Error(`Unexpected POST ${url}`);
+      });
+      mockedApi.delete.mockResolvedValue({ data: {} });
+
+      const outcome = await runCreation(queryClient);
+
+      // Budget exhaustion is a decline (with the draft deleted), never the
+      // retryable service error that would re-spend budget on every retry.
+      expect(outcome).toEqual({
+        status: 'thin-library',
+        eligibleCount: 4,
+        hasGeoCandidates: true,
+      });
+      expect(mockedApi.delete).toHaveBeenCalledWith('/quiz/quiz-1');
+      expect(eligibilityCalls).toBe(2);
+    });
+
+    it('clears a server-deleted draft on eligibility 404 and restarts with a fresh draft', async () => {
+      // A persisted classifier-retry draft points at a server draft that no
+      // longer exists (deleted from My Quizzes). Its eligibility call 404s;
+      // the flow must drop the stale mirror and build with a NEW server draft
+      // instead of 404-looping as a retryable error.
+      mockMetadataStore.set(
+        'quiz_draft_state',
+        JSON.stringify({ quizId: 'quiz-dead', createdAt: Date.now(), picks: [] })
+      );
+      const photos = Array.from({ length: 8 }, () => makeCachedPhoto());
+      mockGetAllCachedPhotos.mockResolvedValue(photos);
+      const { eligibilityBatches } = installQuizApi({
+        eligibleIds: new Set(photos.slice(0, 6).map((p) => p.id)),
+        quizId: 'quiz-2',
+      });
+      const installed = mockedApi.post.getMockImplementation()!;
+      mockedApi.post.mockImplementation(async (url: string, body?: unknown) => {
+        if (url === '/quiz/eligibility' && (body as { quiz_id: string }).quiz_id === 'quiz-dead') {
+          throw Object.assign(new Error('Request failed with status code 404'), {
+            response: { status: 404, data: { detail: 'Quiz draft not found' } },
+          });
+        }
+        return installed(url, body);
+      });
+
+      const outcome = await runCreation(queryClient);
+
+      expect(outcome).toEqual({ status: 'created', quizId: 'quiz-2', photoCount: 6 });
+      // The dead draft was replaced by a fresh server draft.
+      expect(mockedApi.post).toHaveBeenCalledWith('/quiz');
+      expect(eligibilityBatches.length).toBeGreaterThan(0);
+      // Local draft state is cleared after the successful fresh build.
+      expect(mockMetadataStore.get('quiz_draft_state')).toBeFalsy();
+    });
+  });
+
+  // ============ useDeleteQuiz - local draft cleanup ============
+
+  describe('useDeleteQuiz draft cleanup', () => {
+    async function runDelete(quizId: string) {
+      const { result } = renderHook(() => useDeleteQuiz(), {
+        wrapper: createWrapper(queryClient),
+      });
+      await act(async () => {
+        await result.current.mutateAsync(quizId);
+      });
+    }
+
+    it('clears the persisted local draft when the deleted quiz IS that draft', async () => {
+      mockMetadataStore.set(
+        'quiz_draft_state',
+        JSON.stringify({ quizId: 'quiz-1', createdAt: Date.now(), picks: [] })
+      );
+      mockedApi.delete.mockResolvedValue({ data: {} });
+
+      await runDelete('quiz-1');
+
+      expect(mockedApi.delete).toHaveBeenCalledWith('/quiz/quiz-1');
+      expect(mockMetadataStore.get('quiz_draft_state')).toBeFalsy();
+
+      // The next creation starts completely fresh: a NEW server draft, no
+      // resume of the dead one (which would only 404).
+      const photos = Array.from({ length: 8 }, () => makeCachedPhoto());
+      mockGetAllCachedPhotos.mockResolvedValue(photos);
+      installQuizApi({ eligibleIds: new Set(photos.map((p) => p.id)), quizId: 'quiz-2' });
+
+      const outcome = await runCreation(queryClient);
+      expect(outcome).toMatchObject({ status: 'created', quizId: 'quiz-2' });
+      expect(mockedApi.post).toHaveBeenCalledWith('/quiz');
+    });
+
+    it('keeps the persisted draft when deleting a DIFFERENT quiz', async () => {
+      const draft = { quizId: 'quiz-draft', createdAt: Date.now(), picks: [] };
+      mockMetadataStore.set('quiz_draft_state', JSON.stringify(draft));
+      mockedApi.delete.mockResolvedValue({ data: {} });
+
+      await runDelete('quiz-other');
+
+      expect(JSON.parse(mockMetadataStore.get('quiz_draft_state')!)).toEqual(draft);
     });
   });
 

@@ -173,6 +173,22 @@ export function QuizResultsScreen({ navigation, route }: Props) {
       }
     } catch (error) {
       console.warn('[QuizResults] Share failed:', error instanceof Error ? error.message : error);
+      // Surface the failure (e.g. a 409 QUIZ_OWNER_ANSWERS_INCOMPLETE after a
+      // swap) instead of failing silently - prefer the server's own message.
+      const detail = (error as { response?: { data?: { detail?: unknown } } })?.response?.data
+        ?.detail;
+      const serverMessage =
+        typeof detail === 'string'
+          ? detail
+          : detail && typeof detail === 'object' && 'message' in detail
+            ? (detail as { message?: unknown }).message
+            : null;
+      Alert.alert(
+        'Error',
+        typeof serverMessage === 'string' && serverMessage.length > 0
+          ? serverMessage
+          : 'Could not share your quiz. Please try again.'
+      );
     }
   });
 

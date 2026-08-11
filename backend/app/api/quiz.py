@@ -753,13 +753,21 @@ async def finalize_quiz(
     """Turn a draft's uploaded photos into stored questions (KTD6) and move
     building -> awaiting_owner_play (KTD7).
 
-    All validation happens BEFORE the state transition so a rejected finalize
-    leaves the draft resumable. The transition is the concurrency claim: a
-    conditional write from 'building' -- the loser of a double-finalize gets a
-    409 before inserting anything.
+    All validation happens BEFORE any write so a rejected finalize leaves the
+    draft resumable. Writes are ordered questions-first, state-last: a failed
+    question insert leaves the quiz in 'building' (retryable) rather than
+    stranding an awaiting_owner_play quiz with no questions. The state
+    transition stays the concurrency claim -- a conditional write from
+    'building' -- so exactly one of two racing finalizes wins (the loser 409s
+    on the position-unique constraint or on the zero-row state patch).
     """
     db = get_supabase_client()  # service role: quiz tables are backend-only
-    await _get_owned_quiz(db, quiz_id, user.id)
+    quiz = await _get_owned_quiz(db, quiz_id, user.id)
+    if quiz["state"] != "building":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This quiz has already been finalized.",
+        )
 
     n = len(data.photos)
     if not MIN_QUIZ_PHOTOS <= n <= MAX_QUIZ_PHOTOS:
@@ -783,7 +791,29 @@ async def finalize_quiz(
         db, [country_map[p.country_code] for p in data.photos]
     )
 
-    # Claim the draft: conditional write from 'building' (KTD7).
+    # Questions FIRST, state transition LAST: a failure at any point before
+    # the conditional patch leaves the quiz in 'building' -- retryable --
+    # instead of stranding an awaiting_owner_play quiz with zero questions.
+    # The delete clears any partial rows a prior failed finalize left behind
+    # (the quiz is still 'building', so no committed questions can exist).
+    await db.delete("quiz_question", {"quiz_id": f"eq.{quiz_id}"})
+
+    question_rows = [
+        _build_question_row(quiz_id, position, photo, options, correct_index)
+        for position, (photo, (options, correct_index)) in enumerate(
+            zip(data.photos, option_sets, strict=True)
+        )
+    ]
+    inserted = await db.post("quiz_question", question_rows)
+    if len(inserted) != n:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to store quiz questions",
+        )
+
+    # Claim the draft: conditional write from 'building' (KTD7). Exactly one
+    # finalize wins under concurrency: the loser's insert 409s on the
+    # position-unique constraint, or its patch here matches zero rows.
     claimed = await db.patch(
         "quiz",
         {"state": "awaiting_owner_play", "updated_at": _now_iso()},
@@ -797,19 +827,6 @@ async def finalize_quiz(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="This quiz has already been finalized.",
-        )
-
-    question_rows = [
-        _build_question_row(quiz_id, position, photo, options, correct_index)
-        for position, (photo, (options, correct_index)) in enumerate(
-            zip(data.photos, option_sets, strict=True)
-        )
-    ]
-    inserted = await db.post("quiz_question", question_rows)
-    if len(inserted) != n:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to store quiz questions",
         )
     return _detail_response(claimed[0], sorted(inserted, key=lambda r: r["position"]))
 

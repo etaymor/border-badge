@@ -619,6 +619,36 @@ class TestFinalize:
         assert finalize(client, db, quiz_id).status_code == 200
         resp = finalize(client, db, quiz_id)
         assert resp.status_code == 409
+        # The winner's questions survive the rejected re-finalize untouched.
+        assert len(db.questions(quiz_id)) == 5
+
+    def test_failed_question_insert_leaves_draft_retryable(
+        self, client: TestClient
+    ) -> None:
+        """Finalize is questions-first, state-last: a failure at question
+        insertion must leave the quiz in 'building' so the owner can simply
+        retry -- never awaiting_owner_play with zero questions."""
+        db = FakeDB()
+        quiz_id = db.seed_quiz()
+        real_post = db.post
+
+        async def failing_post(table, data):
+            if table == "quiz_question":
+                raise HTTPException(status_code=500, detail="insert blew up")
+            return await real_post(table, data)
+
+        db.post = failing_post  # type: ignore[method-assign]
+        resp = finalize(client, db, quiz_id)
+        assert resp.status_code == 500
+        assert db.quiz(quiz_id)["state"] == "building"
+        assert db.questions(quiz_id) == []
+
+        # The stranded draft is retryable: the same finalize now succeeds.
+        db.post = real_post  # type: ignore[method-assign]
+        retry = finalize(client, db, quiz_id)
+        assert retry.status_code == 200, retry.text
+        assert db.quiz(quiz_id)["state"] == "awaiting_owner_play"
+        assert len(db.questions(quiz_id)) == 5
 
     def test_options_stored_shuffled_with_server_only_answer_key(
         self, client: TestClient
