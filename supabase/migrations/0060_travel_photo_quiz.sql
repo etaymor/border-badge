@@ -157,6 +157,15 @@ BEGIN
   CREATE INDEX IF NOT EXISTS idx_quiz_session_quiz
     ON public.quiz_session(quiz_id);
 
+  -- Supports the leaderboard read (completed_public_sessions in
+  -- quiz_leaderboard.py), which scans every completed session for a quiz:
+  -- the (quiz_id, completed_at) composite lets that filter use the index
+  -- instead of scanning all of a quiz's sessions. Best-per-name aggregation
+  -- still needs every completed row, so the read stays unbounded (a full
+  -- SQL-side aggregation is a tracked follow-up); this only speeds the scan.
+  CREATE INDEX IF NOT EXISTS idx_quiz_session_quiz_completed
+    ON public.quiz_session (quiz_id, completed_at);
+
   COMMENT ON TABLE public.quiz_session IS
     'Anonymous quiz play sessions. Backend-only (service role). Leaderboard is '
     'derived at read time from completed, non-hidden sessions -- there is no '

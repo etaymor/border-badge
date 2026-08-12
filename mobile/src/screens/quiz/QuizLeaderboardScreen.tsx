@@ -28,7 +28,7 @@ type Props = RootStackScreenProps<'QuizLeaderboard'>;
 export function QuizLeaderboardScreen({ navigation, route }: Props) {
   const { quizId } = route.params;
 
-  const { data, isLoading } = useQuizLeaderboard(quizId);
+  const { data, isLoading, isError, refetch } = useQuizLeaderboard(quizId);
   const hideMutation = useHideQuizSessions(quizId);
 
   const handleHide = useStableCallback((entry: QuizOwnerLeaderboardEntry) => {
@@ -78,6 +78,13 @@ export function QuizLeaderboardScreen({ navigation, route }: Props) {
         {isLoading ? (
           <View style={styles.loading}>
             <ActivityIndicator size="large" color={colors.sunsetGold} />
+          </View>
+        ) : isError ? (
+          <View style={styles.errorState} testID="leaderboard-error">
+            <Text style={styles.body}>
+              We could not load the leaderboard right now. Please try again.
+            </Text>
+            <Button title="Try Again" variant="ghost" onPress={() => refetch()} />
           </View>
         ) : entries.length === 0 ? (
           <Text style={styles.body} testID="leaderboard-empty">
@@ -145,6 +152,10 @@ const styles = StyleSheet.create({
   },
   loading: {
     paddingVertical: 32,
+  },
+  errorState: {
+    paddingVertical: 24,
+    gap: 8,
   },
   scoreCard: {
     backgroundColor: colors.backgroundCard,

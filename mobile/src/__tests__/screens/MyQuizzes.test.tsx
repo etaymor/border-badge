@@ -271,6 +271,30 @@ describe('MyQuizzesScreen', () => {
     });
   });
 
+  it('shows a retryable error state when the quiz list fails to load', async () => {
+    let attempt = 0;
+    mockApiGet.mockImplementation((url: string) => {
+      if (url === '/quiz') {
+        attempt += 1;
+        // Fail first, then succeed so the retry action proves recoverable.
+        if (attempt === 1) return Promise.reject(new Error('network down'));
+        return Promise.resolve({ data: { quizzes: [] } });
+      }
+      return Promise.reject(new Error(`Unexpected GET ${url}`));
+    });
+
+    renderList();
+
+    await waitFor(() => expect(screen.getByTestId('quiz-list-error')).toBeTruthy());
+    // The empty branch must not have rendered in place of the error.
+    expect(screen.queryByTestId('quiz-list-empty')).toBeNull();
+
+    fireEvent.press(within(screen.getByTestId('quiz-list-error')).getByText('Try Again'));
+
+    await waitFor(() => expect(screen.getByTestId('quiz-list-empty')).toBeTruthy());
+    expect(screen.queryByTestId('quiz-list-error')).toBeNull();
+  });
+
   it('shows a second quiz alongside the first with independent data (R17)', async () => {
     mockGetRoutes({
       '/quiz': {
@@ -510,5 +534,28 @@ describe('QuizLeaderboardScreen', () => {
     renderLeaderboard();
 
     await waitFor(() => expect(screen.getByTestId('leaderboard-empty')).toBeTruthy());
+  });
+
+  it('shows a retryable error state when the leaderboard fails to load', async () => {
+    let attempt = 0;
+    mockApiGet.mockImplementation((url: string) => {
+      if (url === '/quiz/quiz-1/leaderboard') {
+        attempt += 1;
+        if (attempt === 1) return Promise.reject(new Error('network down'));
+        return Promise.resolve({ data: makeBoard({ leaderboard: [] }) });
+      }
+      return Promise.reject(new Error(`Unexpected GET ${url}`));
+    });
+
+    renderLeaderboard();
+
+    await waitFor(() => expect(screen.getByTestId('leaderboard-error')).toBeTruthy());
+    // The "no one has played yet" empty branch must not stand in for the error.
+    expect(screen.queryByTestId('leaderboard-empty')).toBeNull();
+
+    fireEvent.press(within(screen.getByTestId('leaderboard-error')).getByText('Try Again'));
+
+    await waitFor(() => expect(screen.getByTestId('leaderboard-empty')).toBeTruthy());
+    expect(screen.queryByTestId('leaderboard-error')).toBeNull();
   });
 });

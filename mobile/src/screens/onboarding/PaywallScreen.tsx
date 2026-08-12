@@ -41,7 +41,13 @@ export function PaywallScreen({ navigation }: Props) {
     // The post-signup flow ends at the first-quiz offer, which owns the
     // finish (useFinishOnboarding) — needsPostSignupFlow stays true until the
     // offer is answered, so the settled order is untouched.
-    navigation.navigate('FirstQuizOffer');
+    //
+    // Use replace, not navigate: the paywall is consumed on present, and
+    // hasPresented.current blocks any re-present. Leaving Paywall in the stack
+    // would let a back-swipe from FirstQuizOffer return to a spent Paywall that
+    // shows nothing (isLoading already false, re-present blocked) — a blank
+    // screen. Replacing removes Paywall so back navigation can't reach it.
+    navigation.replace('FirstQuizOffer');
   }, [presentPaywall, navigation]);
 
   useEffect(() => {

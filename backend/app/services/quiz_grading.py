@@ -53,8 +53,15 @@ async def grade_answer(
 
     Raises 409 if the session already answered this question -- each question
     grades at most once per session (DB-guaranteed by the unique constraint on
-    (session_id, question_id); this pre-check just gives a clean message).
+    (session_id, question_id)). The pre-check gives a clean message on the
+    common path; when a concurrent duplicate slips past it and trips the
+    constraint at insert, that 409 is normalized to the SAME clean message.
     """
+    already_answered = HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail="This question has already been answered in this session.",
+    )
+
     existing = await db.get(
         "quiz_answer",
         {
@@ -64,10 +71,7 @@ async def grade_answer(
         },
     )
     if existing:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="This question has already been answered in this session.",
-        )
+        raise already_answered
 
     correct_index = int(question["correct_index"])
     place_correct = selected_option_index == correct_index
@@ -77,17 +81,28 @@ async def grade_answer(
     if capture_year is not None:
         year_correct = selected_year == capture_year
 
-    await db.post(
-        "quiz_answer",
-        {
-            "session_id": str(session["id"]),
-            "question_id": str(question["id"]),
-            "selected_option_index": selected_option_index,
-            "selected_year": selected_year,
-            "place_correct": place_correct,
-            "year_correct": bool(year_correct),
-        },
-    )
+    try:
+        await db.post(
+            "quiz_answer",
+            {
+                "session_id": str(session["id"]),
+                "question_id": str(question["id"]),
+                "selected_option_index": selected_option_index,
+                "selected_year": selected_year,
+                "place_correct": place_correct,
+                "year_correct": bool(year_correct),
+            },
+        )
+    except HTTPException as exc:
+        # The pre-check and this insert are not atomic: a concurrent duplicate
+        # answer for the same (session, question) can pass the pre-check and
+        # then trip the UNIQUE (session_id, question_id) constraint here.
+        # PostgREST surfaces that 23505 as a 409 with a raw DB detail; convert
+        # it to the same clean, documented "already answered" 409 the pre-check
+        # raises. Any other status re-raises unchanged.
+        if exc.status_code == status.HTTP_409_CONFLICT:
+            raise already_answered from exc
+        raise
 
     # Derive the running score from recorded answers rather than incrementing
     # in place -- concurrent answers converge on the recorded truth.

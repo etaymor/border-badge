@@ -669,6 +669,44 @@ class TestFinalize:
         assert db.quiz(quiz_id)["state"] == "awaiting_owner_play"
         assert len(db.questions(quiz_id)) == 5
 
+    def test_concurrent_finalize_one_wins_one_conflicts(
+        self, client: TestClient
+    ) -> None:
+        """Two racing finalizes on one building draft: the state claim is the
+        concurrency guard, so exactly one wins and the loser 409s WITHOUT
+        deleting the winner's questions (the old questions-first order let the
+        loser wipe them before its state patch failed)."""
+        db = FakeDB()
+        quiz_id = db.seed_quiz()
+
+        # Finalize A wins: it claims the state and stores its questions.
+        assert finalize(client, db, quiz_id).status_code == 200
+        winner_questions = db.questions(quiz_id)
+        assert len(winner_questions) == 5
+        assert db.quiz(quiz_id)["state"] == "awaiting_owner_play"
+
+        # Finalize B raced in behind A: it read the draft while it was still
+        # 'building' (a stale snapshot) but reaches its conditional state-claim
+        # only after A already flipped it to awaiting_owner_play. The claim
+        # matches zero rows, so B 409s -- before its delete/insert can run.
+        real_get = db.get
+
+        async def stale_building_get(table, params=None):
+            rows = await real_get(table, params)
+            if table == "quiz":
+                for r in rows:
+                    r["state"] = "building"
+            return rows
+
+        db.get = stale_building_get  # type: ignore[method-assign]
+        resp = finalize(client, db, quiz_id)
+        assert resp.status_code == 409
+
+        # Exactly one success: the winner's questions and state are untouched.
+        db.get = real_get  # type: ignore[method-assign]
+        assert db.questions(quiz_id) == winner_questions
+        assert db.quiz(quiz_id)["state"] == "awaiting_owner_play"
+
     def test_options_stored_shuffled_with_server_only_answer_key(
         self, client: TestClient
     ) -> None:
@@ -802,6 +840,68 @@ class TestGradingAndSeeding:
         q = db.questions(quiz_id)[0]
         assert answer(client, db, quiz_id, session_id, q).status_code == 200
         assert answer(client, db, quiz_id, session_id, q).status_code == 409
+
+    async def test_constraint_backstop_returns_clean_409(self) -> None:
+        """The pre-check and insert are not atomic: a concurrent duplicate can
+        pass the pre-check and trip the UNIQUE (session_id, question_id)
+        constraint at insert. PostgREST surfaces that as a 409 with a raw DB
+        detail; grade_answer must normalize it to the SAME clean documented
+        message the pre-check raises, and the already-recorded answer (hence
+        the derived score) must be unaffected."""
+        from app.services.quiz_grading import grade_answer
+
+        db = FakeDB()
+        session_id = str(uuid4())
+        question_id = str(uuid4())
+        # A committed graded answer already exists for this (session, question).
+        db.tables["quiz_answer"].append(
+            {
+                "id": str(uuid4()),
+                "session_id": session_id,
+                "question_id": question_id,
+                "selected_option_index": 0,
+                "selected_year": None,
+                "place_correct": True,
+                "year_correct": False,
+            }
+        )
+
+        # Simulate the race window: the pre-check SELECT misses the existing
+        # row (as if the concurrent insert had not been visible at read time),
+        # so grading proceeds to the insert -- which trips the unique
+        # constraint (FakeDB raises the raw-DB 409, like PostgREST does).
+        real_get = db.get
+
+        async def precheck_misses(table, params=None):
+            if table == "quiz_answer" and params and "question_id" in params:
+                return []
+            return await real_get(table, params)
+
+        db.get = precheck_misses  # type: ignore[method-assign]
+
+        with pytest.raises(HTTPException) as exc_info:
+            await grade_answer(
+                db,
+                session={"id": session_id},
+                question={
+                    "id": question_id,
+                    "correct_index": 0,
+                    "options": ["A", "B", "C", "D"],
+                    "capture_year": None,
+                },
+                selected_option_index=1,
+            )
+
+        assert exc_info.value.status_code == 409
+        assert (
+            exc_info.value.detail
+            == "This question has already been answered in this session."
+        )
+        # The insert was rejected: the original answer is the only row, and its
+        # recorded correctness (the score input) is untouched.
+        recorded = db.find("quiz_answer", session_id=session_id)
+        assert len(recorded) == 1
+        assert recorded[0]["place_correct"] is True
 
     def test_final_score_matches_recorded_answers(self, client: TestClient) -> None:
         db = FakeDB()

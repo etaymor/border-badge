@@ -1,6 +1,6 @@
 /* ==============================================
    Atlasi Public Pages - Compiled CSS
-   Generated: 2026-08-11T20:44:03.756Z
+   Generated: 2026-08-12T00:24:49.448Z
    DO NOT EDIT - This file is auto-generated from src/
    ============================================== */
 
@@ -3535,8 +3535,12 @@ body.has-hero .footer-copyright {
 }
 
 .quiz-input:focus {
-  outline: none;
   border-color: var(--color-sunset-gold);
+}
+
+.quiz-input:focus-visible {
+  outline: 2px solid var(--color-sunset-gold);
+  outline-offset: 2px;
 }
 
 /* --- Results ------------------------------------------------------------ */

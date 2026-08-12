@@ -193,7 +193,7 @@ function QuizRow({ quiz, navigation }: QuizRowProps) {
 }
 
 export function MyQuizzesScreen({ navigation }: Props) {
-  const { data: quizzes, isLoading } = useMyQuizzes();
+  const { data: quizzes, isLoading, isError, refetch } = useMyQuizzes();
 
   const handleCreate = useStableCallback(() => {
     navigation.navigate('QuizCreation');
@@ -215,6 +215,13 @@ export function MyQuizzesScreen({ navigation }: Props) {
         {isLoading ? (
           <View style={styles.loading}>
             <ActivityIndicator size="large" color={colors.sunsetGold} />
+          </View>
+        ) : isError ? (
+          <View style={styles.errorState} testID="quiz-list-error">
+            <Text style={styles.body}>
+              We could not load your quizzes right now. Please try again.
+            </Text>
+            <Button title="Try Again" variant="ghost" onPress={() => refetch()} />
           </View>
         ) : !quizzes || quizzes.length === 0 ? (
           <Text style={styles.body} testID="quiz-list-empty">
@@ -251,6 +258,10 @@ const styles = StyleSheet.create({
   },
   loading: {
     paddingVertical: 32,
+  },
+  errorState: {
+    paddingVertical: 24,
+    gap: 8,
   },
   row: {
     backgroundColor: colors.backgroundCard,

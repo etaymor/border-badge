@@ -189,8 +189,12 @@
 }
 
 .quiz-input:focus {
-  outline: none;
   border-color: var(--color-sunset-gold);
+}
+
+.quiz-input:focus-visible {
+  outline: 2px solid var(--color-sunset-gold);
+  outline-offset: 2px;
 }
 
 /* --- Results ------------------------------------------------------------ */

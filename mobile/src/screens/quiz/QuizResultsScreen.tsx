@@ -58,7 +58,12 @@ type Props = RootStackScreenProps<'QuizResults'>;
 export function QuizResultsScreen({ navigation, route }: Props) {
   const { quizId, results } = route.params;
 
-  const { data: quiz } = useQuiz(quizId);
+  const {
+    data: quiz,
+    isError: quizLoadFailed,
+    isFetching: quizFetching,
+    refetch,
+  } = useQuiz(quizId);
   const { data: profile } = useProfile();
   const swapMutation = useSwapQuizQuestion(quizId);
   const removeMutation = useRemoveQuizQuestion(quizId);
@@ -71,6 +76,9 @@ export function QuizResultsScreen({ navigation, route }: Props) {
   const [playState, setPlayState] = useState<QuizPlayState | null>(null);
   const [swapTargetId, setSwapTargetId] = useState<string | null>(null);
   const [swapCandidates, setSwapCandidates] = useState<GeoEligibleCandidate[] | null>(null);
+  // Distinguishes a candidate-load failure from an empty library so the swap
+  // modal can offer retry instead of the "no eligible photos" dead end.
+  const [swapLoadFailed, setSwapLoadFailed] = useState(false);
 
   // The local play state mirrors the seeding session's graded answers; it
   // drives the per-photo review and the "answer the swapped photo" gate.
@@ -99,19 +107,27 @@ export function QuizResultsScreen({ navigation, route }: Props) {
     : 0;
   const needsAnswers = editable && unansweredCount > 0;
 
-  const openSwapPicker = useStableCallback(async (questionId: string) => {
-    setSwapTargetId(questionId);
+  const loadCandidates = useStableCallback(async () => {
     setSwapCandidates(null);
+    setSwapLoadFailed(false);
     try {
       setSwapCandidates(await loadSwapCandidates());
     } catch {
-      setSwapCandidates([]);
+      // A load failure is distinct from an empty library: keep candidates null
+      // and flag the failure so the modal shows a retry, not "none found".
+      setSwapLoadFailed(true);
     }
+  });
+
+  const openSwapPicker = useStableCallback(async (questionId: string) => {
+    setSwapTargetId(questionId);
+    await loadCandidates();
   });
 
   const closeSwapPicker = useStableCallback(() => {
     setSwapTargetId(null);
     setSwapCandidates(null);
+    setSwapLoadFailed(false);
   });
 
   const handlePickCandidate = useStableCallback((candidate: GeoEligibleCandidate) => {
@@ -208,8 +224,28 @@ export function QuizResultsScreen({ navigation, route }: Props) {
     navigation.popToTop();
   });
 
+  const handleBack = useStableCallback(() => {
+    navigation.goBack();
+  });
+
   // Without navigation results, the score pair arrives with the quiz detail.
   if (!scoreToBeat) {
+    // The fetch failed and there is no results param to fall back on: show a
+    // recoverable error instead of a spinner that would never resolve.
+    if (quizLoadFailed && !quizFetching) {
+      return (
+        <Screen>
+          <View style={styles.errorState} testID="quiz-results-error">
+            <Text style={styles.heading}>Something Went Wrong</Text>
+            <Text style={styles.body}>
+              We could not load your quiz right now. Please try again.
+            </Text>
+            <Button title="Try Again" onPress={() => refetch()} testID="quiz-results-retry" />
+            <Button title="Back" variant="ghost" onPress={handleBack} testID="quiz-results-back" />
+          </View>
+        </Screen>
+      );
+    }
     return (
       <Screen>
         <View style={styles.loading} testID="quiz-results-loading">
@@ -346,7 +382,14 @@ export function QuizResultsScreen({ navigation, route }: Props) {
               Choose another geotagged travel photo. You will answer its country and year before the
               quiz can be shared.
             </Text>
-            {swapCandidates === null ? (
+            {swapLoadFailed ? (
+              <View style={styles.pickerError} testID="quiz-swap-error">
+                <Text style={styles.body}>
+                  We could not load your photos right now. Please try again.
+                </Text>
+                <Button title="Try Again" variant="ghost" onPress={loadCandidates} />
+              </View>
+            ) : swapCandidates === null ? (
               <View style={styles.pickerLoading}>
                 <ActivityIndicator size="large" color={colors.sunsetGold} />
               </View>
@@ -392,6 +435,12 @@ const styles = StyleSheet.create({
   loading: {
     flex: 1,
     justifyContent: 'center',
+  },
+  errorState: {
+    flex: 1,
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+    gap: 12,
   },
   heading: {
     fontFamily: fonts.playfair.bold,
@@ -503,6 +552,11 @@ const styles = StyleSheet.create({
   pickerLoading: {
     flex: 1,
     justifyContent: 'center',
+  },
+  pickerError: {
+    flex: 1,
+    justifyContent: 'center',
+    gap: 12,
   },
   candidateGrid: {
     flexDirection: 'row',

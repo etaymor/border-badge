@@ -163,8 +163,8 @@ export function QuizCreationScreen({ navigation }: Props) {
             <Text style={styles.title}>Travel Photo Quiz</Text>
             <Text style={styles.body}>
               We build a quiz from your own travel photos. Allow photo access so we can find
-              geotagged shots from your trips - photos never leave your device until you approve the
-              finished quiz.
+              geotagged shots from your trips. We check your photos on your device to pick the
+              eligible ones, then upload copies of just those photos to build your quiz.
             </Text>
             <Button title="Allow Photo Access" onPress={handleRequestPermission} />
             <Button title="Not Now" variant="ghost" onPress={handleBack} />

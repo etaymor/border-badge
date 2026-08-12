@@ -343,6 +343,19 @@ def test_reserve_daily_classification_is_service_role_only(sql: str):
     ), "reserve_daily_classification must grant EXECUTE to service_role"
 
 
+def test_leaderboard_composite_index_on_session(sql: str):
+    """The leaderboard read (completed_public_sessions in quiz_leaderboard.py)
+    scans every completed session per quiz; a (quiz_id, completed_at) composite
+    index lets that filter use the index instead of a full per-quiz scan. The
+    read stays unbounded on purpose (best-per-name needs every completed row),
+    so this only speeds the scan."""
+    assert re.search(
+        r"CREATE INDEX IF NOT EXISTS \w+\s*"
+        r"ON public\.quiz_session\s*\(\s*quiz_id\s*,\s*completed_at\s*\)",
+        sql,
+    ), "quiz_session needs a (quiz_id, completed_at) index for the leaderboard read"
+
+
 def test_all_indexes_are_idempotent(sql: str):
     bare = re.findall(r"CREATE (?:UNIQUE )?INDEX (?!IF NOT EXISTS)", sql)
     assert not bare, "every CREATE INDEX must use IF NOT EXISTS"

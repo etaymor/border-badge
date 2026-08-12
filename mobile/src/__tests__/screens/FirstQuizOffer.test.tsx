@@ -121,9 +121,10 @@ describe('PaywallScreen hands off to the offer (order preserved)', () => {
     });
   });
 
-  it('navigates to FirstQuizOffer after the paywall resolves, leaving the flow open', async () => {
+  it('replaces to FirstQuizOffer after the paywall resolves, leaving the flow open', async () => {
     const navigation = {
       navigate: jest.fn(),
+      replace: jest.fn(),
     } as unknown as OnboardingStackScreenProps<'Paywall'>['navigation'];
     const route = {
       key: 'test',
@@ -132,9 +133,13 @@ describe('PaywallScreen hands off to the offer (order preserved)', () => {
 
     render(<PaywallScreen navigation={navigation} route={route} />);
 
+    // The paywall is consumed on present and cannot re-present; it hands off
+    // with replace so a back-swipe from the offer cannot land on a spent,
+    // blank paywall.
     await waitFor(() => {
-      expect(navigation.navigate).toHaveBeenCalledWith('FirstQuizOffer');
+      expect(navigation.replace).toHaveBeenCalledWith('FirstQuizOffer');
     });
+    expect(navigation.navigate).not.toHaveBeenCalledWith('FirstQuizOffer');
     // The offer screen owns the finish: the paywall itself must not close
     // the post-signup flow (that is what keeps the settled order intact).
     expect(useAuthStore.getState().needsPostSignupFlow).toBe(true);
