@@ -249,6 +249,85 @@ BEGIN
     TO service_role;
 
   ----------------------------------------------------------------------------
+  -- 6. Concurrency hardening (appended -- 0060 is still unapplied in
+  -- production; precedent: the classified_count ALTER and quiz_funnel above).
+  ----------------------------------------------------------------------------
+
+  -- Fix #18: persist WHICH owner session seeded the score-to-beat, set
+  -- atomically in the same conditional patch that seeds the pair. Rescoring
+  -- after swap/remove rescopes to this session instead of guessing
+  -- min(created_at), which an abandoned earlier owner session could hijack.
+  -- Plain nullable UUID, no FK: loose coupling -- a missing session simply
+  -- disables rescoring, it must never block session cleanup.
+  ALTER TABLE public.quiz
+    ADD COLUMN IF NOT EXISTS seed_session_id UUID;
+
+  COMMENT ON COLUMN public.quiz.seed_session_id IS
+    'Owner session whose first completion seeded the score-to-beat pair; '
+    'rescoring after swap/remove rescopes to this session. No FK on purpose '
+    '(loose coupling); NULL only on legacy rows.';
+
+  -- Fix #7 (mitigation): optimistic version for share-vs-edit exclusion.
+  -- Pre-share edits (swap/remove) bump it with the read version in the
+  -- predicate; share asserts the version it read in its playable->shared
+  -- patch, so a share and a concurrent edit contend on the version.
+  ALTER TABLE public.quiz
+    ADD COLUMN IF NOT EXISTS version INTEGER NOT NULL DEFAULT 0;
+
+  COMMENT ON COLUMN public.quiz.version IS
+    'Optimistic-concurrency counter: bumped by pre-share question edits and '
+    'asserted by share, so a stale share loses its conditional write.';
+
+  -- Fixes #4/#9: durable, atomic global daily classification counter. One
+  -- row per UTC day. Draft deletion cannot erase spend from it (unlike the
+  -- old sum over quiz.classified_count), and the row-locking UPDATE in
+  -- reserve_daily_classification() serializes concurrent reservations so
+  -- the cap can never be overshot by racing workers.
+  CREATE TABLE IF NOT EXISTS public.quiz_daily_classification (
+    day               DATE PRIMARY KEY,
+    classified_count  INTEGER NOT NULL DEFAULT 0
+  );
+
+  COMMENT ON TABLE public.quiz_daily_classification IS
+    'Durable global daily vision-classification spend counter, reserved '
+    'atomically via reserve_daily_classification(). Backend-only (service '
+    'role); survives draft deletion.';
+
+  -- Atomic reserve-or-deny. LANGUAGE plpgsql with a distinct dollar-quote
+  -- tag so it nests inside this DO block. The UPDATE takes a row lock on
+  -- the day row, so concurrent workers serialize: at most one of two racing
+  -- near-cap reservations succeeds.
+  CREATE OR REPLACE FUNCTION public.reserve_daily_classification(
+    p_count INTEGER,
+    p_cap   INTEGER
+  )
+  RETURNS BOOLEAN
+  LANGUAGE plpgsql
+  SET search_path = public
+  AS $reserve_daily_classification$
+  DECLARE reserved INTEGER;
+  BEGIN
+    INSERT INTO public.quiz_daily_classification (day, classified_count)
+      VALUES (CURRENT_DATE, 0)
+      ON CONFLICT (day) DO NOTHING;
+    UPDATE public.quiz_daily_classification
+      SET classified_count = classified_count + p_count
+      WHERE day = CURRENT_DATE AND classified_count + p_count <= p_cap
+      RETURNING classified_count INTO reserved;
+    RETURN reserved IS NOT NULL;
+  END;
+  $reserve_daily_classification$;
+
+  -- PostgREST exposes /rpc/ functions to anon by default (EXECUTE is granted
+  -- to PUBLIC on creation). Reservations are backend-only: revoke from
+  -- everyone, grant back to the service role alone (mirrors
+  -- increment_quiz_funnel above).
+  REVOKE EXECUTE ON FUNCTION public.reserve_daily_classification(INTEGER, INTEGER)
+    FROM PUBLIC, anon, authenticated;
+  GRANT EXECUTE ON FUNCTION public.reserve_daily_classification(INTEGER, INTEGER)
+    TO service_role;
+
+  ----------------------------------------------------------------------------
   -- RLS: backend-only tables, no user-facing policies (mirrors 0057 caches).
   -- Anon/authenticated selects return zero rows; all access via service role.
   ----------------------------------------------------------------------------
@@ -257,5 +336,6 @@ BEGIN
   ALTER TABLE public.quiz_session  ENABLE ROW LEVEL SECURITY;
   ALTER TABLE public.quiz_answer   ENABLE ROW LEVEL SECURITY;
   ALTER TABLE public.quiz_funnel   ENABLE ROW LEVEL SECURITY;
+  ALTER TABLE public.quiz_daily_classification ENABLE ROW LEVEL SECURITY;
 END;
 $migration$;

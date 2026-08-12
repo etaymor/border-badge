@@ -9,7 +9,9 @@ Covers:
 - Transport failures (timeout/network) surface as a retryable "error" status,
   distinct from "ineligible".
 - Server-side budgets: per-draft classification cap (~70) anchored on the quiz
-  row's classified_count, and a DB-derived global daily circuit breaker.
+  row's classified_count, and a global daily circuit breaker reserved
+  atomically through the reserve_daily_classification RPC (durable counter,
+  migration 0060).
 - Request caps mirroring the photos endpoint: <=50 images, per-image and total
   payload size limits (rejected, not truncated -- images ARE the payload here).
 
@@ -85,15 +87,14 @@ def _quiz_row(
     }
 
 
-def _db(
-    draft_row: dict[str, Any] | None = None,
-    day_rows: list[dict[str, Any]] | None = None,
-) -> AsyncMock:
-    """Mock Supabase client emulating the endpoint's two quiz-table reads.
+def _db(draft_row: dict[str, Any] | None = None) -> AsyncMock:
+    """Mock Supabase client emulating the endpoint's quiz-table access.
 
-    The draft fetch filters on id/owner_id/state; the daily-cap aggregate
-    filters on created_at only. The mock honors those filters so ownership and
-    lifecycle-state gating are actually exercised.
+    The draft fetch filters on id/owner_id/state; the mock honors those
+    filters so ownership and lifecycle-state gating are actually exercised.
+    The daily circuit breaker is the reserve_daily_classification RPC, which
+    defaults to a successful (True) reservation; daily-cap tests flip
+    db.rpc.return_value to False.
     """
     db = AsyncMock()
 
@@ -113,11 +114,12 @@ def _db(
             ):
                 return []
             return [draft_row]
-        return day_rows if day_rows is not None else []
+        return []
 
     db.get.side_effect = quiz_get
     db.patch.return_value = [dict(draft_row)] if draft_row else []
     db.post.return_value = [_quiz_row()]
+    db.rpc.return_value = True  # PostgREST scalar boolean body
     return db
 
 
@@ -499,35 +501,83 @@ class TestDraftGating:
 
 
 # ============================================================================
-# Global daily circuit breaker (DB-derived, multi-worker safe)
+# Global daily circuit breaker (atomic reserve_daily_classification RPC:
+# durable counter that draft deletion cannot reset, row-locked so racing
+# workers cannot overshoot the cap)
 # ============================================================================
 
 
 class TestDailyCircuitBreaker:
-    def test_daily_cap_reached_is_service_limit_not_ineligible(
+    def test_denied_daily_reserve_is_service_limit_not_ineligible(
         self, client: TestClient, monkeypatch
     ) -> None:
         monkeypatch.setattr(get_settings(), "quiz_classification_daily_cap", 100)
-        db = _db(
-            _quiz_row(),
-            day_rows=[{"classified_count": 60}, {"classified_count": 40}],
-        )
+        db = _db(_quiz_row())
+        db.rpc.return_value = False  # atomic reserve denied: cap would overshoot
+        images = [{"id": f"img-{i}", "image_base64": VALID_B64} for i in range(20)]
         response, mock_http = _post_eligibility(
-            client, db, _openrouter_response(_model_result())
+            client, db, _openrouter_response(_model_result()), images
         )
         assert response.status_code == 503
         assert "results" not in response.json()
         assert response.headers.get("Retry-After") is not None
         mock_http.post.assert_not_called()
-        db.patch.assert_not_called()
+        # The whole daily decision is ONE atomic RPC: batch size + cap in,
+        # boolean out -- no read-sum-compare the API could race on.
+        db.rpc.assert_awaited_once_with(
+            "reserve_daily_classification",
+            {"p_count": 20, "p_cap": 100},
+        )
+        # Documented ordering: the per-draft optimistic reserve runs BEFORE
+        # the daily reserve, so a denied day never strands global capacity --
+        # it only tightens this draft's own budget.
+        db.patch.assert_awaited_once()
 
-    def test_under_daily_cap_proceeds(self, client: TestClient, monkeypatch) -> None:
+    def test_granted_daily_reserve_proceeds(
+        self, client: TestClient, monkeypatch
+    ) -> None:
         monkeypatch.setattr(get_settings(), "quiz_classification_daily_cap", 100)
-        db = _db(_quiz_row(), day_rows=[{"classified_count": 60}])
+        db = _db(_quiz_row())
+        db.rpc.return_value = True
         response, _ = _post_eligibility(
             client, db, _openrouter_response(_model_result())
         )
         assert response.status_code == 200
+        db.rpc.assert_awaited_once_with(
+            "reserve_daily_classification",
+            {"p_count": 1, "p_cap": 100},
+        )
+
+    @pytest.mark.parametrize(
+        "granted", [[True], [{"reserve_daily_classification": True}]]
+    )
+    def test_wrapped_rpc_true_shapes_proceed(
+        self, client: TestClient, granted: Any
+    ) -> None:
+        """The client wrapper returns the JSON body as-is; wrapped shapes for
+        a granted reservation must not fail closed."""
+        db = _db(_quiz_row())
+        db.rpc.return_value = granted
+        response, _ = _post_eligibility(
+            client, db, _openrouter_response(_model_result())
+        )
+        assert response.status_code == 200
+
+    @pytest.mark.parametrize(
+        "denied", [False, None, [], [False], [{"reserve_daily_classification": False}]]
+    )
+    def test_denied_and_malformed_rpc_shapes_fail_closed(
+        self, client: TestClient, denied: Any
+    ) -> None:
+        """Any non-True reservation result -- including malformed bodies --
+        must trip the breaker, never spend."""
+        db = _db(_quiz_row())
+        db.rpc.return_value = denied
+        response, mock_http = _post_eligibility(
+            client, db, _openrouter_response(_model_result())
+        )
+        assert response.status_code == 503
+        mock_http.post.assert_not_called()
 
 
 # ============================================================================

@@ -101,6 +101,10 @@ class FakeDB:
 
     def __init__(self) -> None:
         self._seq = itertools.count()
+        # Emulates the quiz_daily_classification counter behind
+        # reserve_daily_classification() (migration 0060): one in-memory
+        # "today" bucket, reserved atomically.
+        self.daily_classified = 0
         self.tables: dict[str, list[dict[str, Any]]] = {
             "quiz": [],
             "quiz_question": [],
@@ -145,6 +149,8 @@ class FakeDB:
             "slug": None,
             "score_to_beat_correct": None,
             "score_to_beat_total": None,
+            "seed_session_id": None,
+            "version": 0,
             "classified_count": 0,
             "created_at": f"2026-08-01T00:00:{next(self._seq):02d}+00:00",
             "updated_at": "2026-08-01T00:00:00+00:00",
@@ -228,6 +234,8 @@ class FakeDB:
                 "slug": None,
                 "score_to_beat_correct": None,
                 "score_to_beat_total": None,
+                "seed_session_id": None,
+                "version": 0,
                 "classified_count": 0,
                 "created_at": now,
                 "updated_at": now,
@@ -270,18 +278,29 @@ class FakeDB:
         return updated
 
     async def rpc(self, function, params=None):
-        # Emulates the increment_quiz_funnel() upsert from migration 0060.
-        assert function == "increment_quiz_funnel", f"unsupported rpc {function}"
-        quiz_id = str((params or {})["p_quiz_id"])
-        event = (params or {})["p_event"]
-        for row in self.tables["quiz_funnel"]:
-            if str(row["quiz_id"]) == quiz_id and row["event"] == event:
-                row["count"] += 1
-                return None
-        self.tables["quiz_funnel"].append(
-            {"quiz_id": quiz_id, "event": event, "count": 1}
-        )
-        return None
+        params = params or {}
+        if function == "increment_quiz_funnel":
+            # Emulates the increment_quiz_funnel() upsert from migration 0060.
+            quiz_id = str(params["p_quiz_id"])
+            event = params["p_event"]
+            for row in self.tables["quiz_funnel"]:
+                if str(row["quiz_id"]) == quiz_id and row["event"] == event:
+                    row["count"] += 1
+                    return None
+            self.tables["quiz_funnel"].append(
+                {"quiz_id": quiz_id, "event": event, "count": 1}
+            )
+            return None
+        if function == "reserve_daily_classification":
+            # Emulates the atomic reserve from migration 0060: a scalar
+            # boolean body, True iff the reservation fit under the cap.
+            count = int(params["p_count"])
+            cap = int(params["p_cap"])
+            if self.daily_classified + count > cap:
+                return False
+            self.daily_classified += count
+            return True
+        raise AssertionError(f"unsupported rpc {function}")
 
     async def delete(self, table, params):
         removed = [r for r in self.tables[table] if self._matches(r, params)]
@@ -853,6 +872,65 @@ class TestGradingAndSeeding:
         # First completion time is preserved.
         assert db.find("quiz_session", id=session_id)[0]["completed_at"] == completed_at
 
+    def test_completion_persists_seed_session_id(self, client: TestClient) -> None:
+        """The seeding patch records WHICH session won, atomically with the
+        pair; a replay's completion never overwrites it."""
+        db = FakeDB()
+        quiz_id, session_id, _ = build_playable(client, db, n=5)
+        assert db.quiz(quiz_id)["seed_session_id"] == session_id
+
+        replay_id = play(client, db, quiz_id).json()["session_id"]
+        answer_all(client, db, quiz_id, replay_id)
+        assert complete(client, db, quiz_id, replay_id).status_code == 200
+        assert db.quiz(quiz_id)["seed_session_id"] == session_id
+
+    def test_rescoring_uses_persisted_seed_session_not_earliest_created(
+        self, client: TestClient
+    ) -> None:
+        """An owner session started EARLIER but completed later must never
+        hijack rescoring: swap/remove rescale from quiz.seed_session_id, not
+        from min(created_at) over completed owner sessions."""
+        db = FakeDB()
+        quiz_id = db.seed_quiz()
+        assert finalize(client, db, quiz_id, codes=CODES_10[:6]).status_code == 200
+
+        # Session A is created first, then abandoned mid-run.
+        session_a = play(client, db, quiz_id).json()["session_id"]
+        # Session B seeds: created later, completed first, all correct.
+        session_b = play(client, db, quiz_id).json()["session_id"]
+        answer_all(client, db, quiz_id, session_b)
+        assert complete(client, db, quiz_id, session_b).status_code == 200
+        assert db.quiz(quiz_id)["seed_session_id"] == session_b
+
+        # The abandoned earlier session is now finished -- badly.
+        answer_all(client, db, quiz_id, session_a, wrong_positions=(0, 1))
+        assert complete(client, db, quiz_id, session_a).status_code == 200
+        quiz = db.quiz(quiz_id)
+        assert (quiz["score_to_beat_correct"], quiz["score_to_beat_total"]) == (6, 6)
+
+        # Removing a question rescales from B (the persisted seeder): 5/5.
+        # The legacy min(created_at) pick would have rescaled from A: 3/5.
+        target = next(q for q in db.questions(quiz_id) if q["position"] == 5)
+        resp = call(client, db, "DELETE", f"/quiz/{quiz_id}/questions/{target['id']}")
+        assert resp.status_code == 200, resp.text
+        quiz = db.quiz(quiz_id)
+        assert (quiz["score_to_beat_correct"], quiz["score_to_beat_total"]) == (5, 5)
+
+    def test_legacy_null_seed_session_falls_back_to_first_completed(
+        self, client: TestClient
+    ) -> None:
+        """Rows seeded before seed_session_id existed (none in prod) still
+        rescale from the owner's first completed session."""
+        db = FakeDB()
+        quiz_id, _, _ = build_playable(client, db, n=6, wrong_positions=(2,))
+        db.quiz(quiz_id)["seed_session_id"] = None  # legacy row
+
+        target = next(q for q in db.questions(quiz_id) if q["position"] == 2)
+        resp = call(client, db, "DELETE", f"/quiz/{quiz_id}/questions/{target['id']}")
+        assert resp.status_code == 200, resp.text
+        quiz = db.quiz(quiz_id)
+        assert (quiz["score_to_beat_correct"], quiz["score_to_beat_total"]) == (5, 5)
+
     def test_incomplete_play_cannot_complete(self, client: TestClient) -> None:
         db = FakeDB()
         quiz_id = db.seed_quiz()
@@ -965,6 +1043,35 @@ class TestSwapAndRemove:
         assert resp.status_code == 409
         assert len(db.questions(quiz_id)) == 6
 
+    def test_pre_share_edits_bump_version(self, client: TestClient) -> None:
+        """Swap and remove each claim the edit by bumping quiz.version with
+        the read version in the predicate -- the counter share asserts."""
+        db = FakeDB()
+        quiz_id, _, _ = build_playable(client, db, n=6)
+        assert db.quiz(quiz_id)["version"] == 0
+
+        target = db.questions(quiz_id)[0]
+        resp = call(
+            client,
+            db,
+            "POST",
+            f"/quiz/{quiz_id}/questions/{target['id']}/swap",
+            json={
+                "storage_path": f"quiz/{quiz_id}/replacement.jpg",
+                "country_code": "JP",
+                "capture_year": 2021,
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        assert db.quiz(quiz_id)["version"] == 1
+
+        removable = next(q for q in db.questions(quiz_id) if q["position"] == 5)
+        resp = call(
+            client, db, "DELETE", f"/quiz/{quiz_id}/questions/{removable['id']}"
+        )
+        assert resp.status_code == 200, resp.text
+        assert db.quiz(quiz_id)["version"] == 2
+
     def test_concurrent_share_wins_over_swap(self, client: TestClient) -> None:
         """The pre-share guard is a conditional write: when a concurrent share
         moves the quiz to 'shared' between read and write, the guard updates
@@ -1055,6 +1162,55 @@ class TestShare:
         assert resp.status_code == 409
         assert db.quiz(quiz_id)["slug"] is None
 
+    def test_share_after_edit_reads_bumped_version_and_succeeds(
+        self, client: TestClient
+    ) -> None:
+        """A share issued AFTER an edit settles reads the post-bump version
+        and proceeds normally -- the guard only kills stale interleavings."""
+        db = FakeDB()
+        quiz_id, _, _ = build_playable(client, db, n=6)
+        target = next(q for q in db.questions(quiz_id) if q["position"] == 5)
+        resp = call(client, db, "DELETE", f"/quiz/{quiz_id}/questions/{target['id']}")
+        assert resp.status_code == 200, resp.text
+        assert db.quiz(quiz_id)["version"] == 1
+        resp = share(client, db, quiz_id)
+        assert resp.status_code == 200, resp.text
+        assert db.quiz(quiz_id)["state"] == "shared"
+
+    def test_stale_share_loses_to_concurrent_edit_version_bump(
+        self, client: TestClient
+    ) -> None:
+        """Fix #7 (mitigation): a share that read the quiz BEFORE a
+        concurrent swap/remove bumped the version must lose its conditional
+        playable->shared write and 409 -- never freeze a quiz whose
+        questions are mid-mutation."""
+        db = FakeDB()
+        quiz_id, _, _ = build_playable(client, db, n=5)
+
+        real_patch = db.patch
+        calls = {"n": 0}
+
+        async def racing_patch(table, data, params=None):
+            # The first quiz-table patch share issues is its slug-minting
+            # state write; simulate an edit's version bump landing between
+            # share's owned-quiz read and that write.
+            if table == "quiz" and calls["n"] == 0:
+                calls["n"] += 1
+                await real_patch(
+                    "quiz",
+                    {"version": 1},
+                    {"id": f"eq.{quiz_id}", "version": "eq.0"},
+                )
+            return await real_patch(table, data, params)
+
+        db.patch = racing_patch  # type: ignore[method-assign]
+        resp = share(client, db, quiz_id)
+        assert resp.status_code == 409
+        assert resp.json()["detail"] == "The quiz changed while sharing. Please retry."
+        quiz = db.quiz(quiz_id)
+        assert quiz["state"] == "playable"  # the stale share never committed
+        assert quiz["slug"] is None
+
 
 # ============================================================================
 # Revoke and draft deletion
@@ -1106,6 +1262,63 @@ class TestRevokeAndDelete:
         resp = call(client, db, "DELETE", f"/quiz/{quiz_id}")
         assert resp.status_code == 409
         assert db.find("quiz", id=quiz_id) != []
+
+    def test_delete_claims_row_revoked_before_sweeping_storage(
+        self, client: TestClient
+    ) -> None:
+        """Fix #8: by the time the storage sweep runs, the row must already
+        be claimed ('revoked'), so a concurrent share -- which needs
+        state='playable' -- can no longer commit over vanishing photos."""
+        db = FakeDB()
+        quiz_id, _, _ = build_playable(client, db, n=5)
+        seen: dict[str, Any] = {}
+
+        async def observing_sweep(qid):
+            seen["state_at_sweep"] = db.quiz(quiz_id)["state"]
+
+        with patch(
+            "app.api.quiz.delete_quiz_storage_objects",
+            new=AsyncMock(side_effect=observing_sweep),
+        ):
+            resp = call(client, db, "DELETE", f"/quiz/{quiz_id}")
+        assert resp.status_code == 204
+        assert seen["state_at_sweep"] == "revoked"
+        assert db.find("quiz", id=quiz_id) == []
+
+    def test_concurrent_share_during_delete_conflicts_without_sweeping(
+        self, client: TestClient
+    ) -> None:
+        """Fix #8: a share committing between delete's read and its claim
+        makes the claim update zero rows -- delete must 409 with the photos
+        untouched (the sweep never runs)."""
+        db = FakeDB()
+        quiz_id, _, _ = build_playable(client, db, n=5)
+
+        real_patch = db.patch
+        calls = {"n": 0}
+
+        async def racing_patch(table, data, params=None):
+            # Delete's first quiz-table patch is its claim; simulate the
+            # share going live just before it.
+            if table == "quiz" and calls["n"] == 0:
+                calls["n"] += 1
+                await real_patch(
+                    "quiz",
+                    {"state": "shared", "slug": "e" * 32},
+                    {"id": f"eq.{quiz_id}"},
+                )
+            return await real_patch(table, data, params)
+
+        db.patch = racing_patch  # type: ignore[method-assign]
+        sweep = AsyncMock()
+        with patch("app.api.quiz.delete_quiz_storage_objects", new=sweep):
+            resp = call(client, db, "DELETE", f"/quiz/{quiz_id}")
+        assert resp.status_code == 409
+        assert "Revoke the share link" in resp.json()["detail"]
+        sweep.assert_not_awaited()
+        quiz = db.quiz(quiz_id)
+        assert quiz["state"] == "shared"  # the live link survives intact
+        assert quiz["slug"] == "e" * 32
 
 
 # ============================================================================

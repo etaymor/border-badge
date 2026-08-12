@@ -20,9 +20,12 @@ so spend is bounded server-side twice:
   model for that draft; batches that would exceed the budget are rejected
   BEFORE any model call. The count is reserved with an optimistic-concurrency
   PATCH so concurrent workers cannot double-spend a budget slice.
-- Globally: a daily circuit breaker derived from DB state (sum of
-  classified_count over quizzes created today), so it holds across workers
-  and restarts. Tripping it returns a service-limit error, never "ineligible".
+- Globally: a daily circuit breaker backed by the durable
+  quiz_daily_classification counter, reserved atomically via the
+  reserve_daily_classification() RPC so it holds across workers and restarts,
+  cannot be overshot by concurrent reservations, and cannot be reset by
+  deleting drafts. Tripping it returns a service-limit error, never
+  "ineligible".
 """
 
 import logging
@@ -226,34 +229,9 @@ async def check_photo_eligibility(
             },
         )
 
-    # 3. Global daily circuit breaker, derived from DB state so it holds
-    # across workers. "Quizzes created today" slightly undercounts drafts
-    # that span midnight UTC -- acceptable for a coarse spend breaker.
-    today = datetime.now(UTC).date().isoformat()
-    day_rows = await db.get(
-        "quiz",
-        {"created_at": f"gte.{today}", "select": "classified_count"},
-    )
-    daily_total = sum(int(r.get("classified_count") or 0) for r in day_rows)
-    if daily_total + batch_size > settings.quiz_classification_daily_cap:
-        logger.warning(
-            "Quiz classification daily cap reached: %d + %d > %d",
-            daily_total,
-            batch_size,
-            settings.quiz_classification_daily_cap,
-        )
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=(
-                "Photo checks are temporarily unavailable due to high demand. "
-                "Please try again tomorrow."
-            ),
-            headers={"Retry-After": "3600"},
-        )
-
-    # 4. Reserve the budget BEFORE classifying. The classified_count filter is
-    # an optimistic lock: if another worker reserved concurrently, zero rows
-    # match and the client simply retries.
+    # 3. Reserve the per-draft budget BEFORE classifying. The
+    # classified_count filter is an optimistic lock: if another worker
+    # reserved concurrently, zero rows match and the client simply retries.
     updated = await db.patch(
         "quiz",
         {"classified_count": classified_count + batch_size},
@@ -266,6 +244,47 @@ async def check_photo_eligibility(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Another eligibility check is in progress. Please retry.",
+        )
+
+    # 4. Global daily circuit breaker: an atomic reserve against the durable
+    # quiz_daily_classification counter (migration 0060). The row-locking
+    # UPDATE inside the RPC serializes concurrent workers, so the cap cannot
+    # be overshot; the counter lives in its own table, so deleting drafts
+    # never erases spend from it.
+    #
+    # Ordering choice (deliberate): the per-draft classified_count patch runs
+    # FIRST, the daily reserve second. If the daily reserve is denied here,
+    # the per-draft count was already incremented -- acceptable, since that
+    # only tightens this draft's own budget. The reverse order could strand
+    # reserved GLOBAL daily capacity whenever the per-draft patch 409s, which
+    # would starve every user for the rest of the day.
+    reserved = await db.rpc(
+        "reserve_daily_classification",
+        {
+            "p_count": batch_size,
+            "p_cap": settings.quiz_classification_daily_cap,
+        },
+    )
+    # PostgREST returns a bare JSON boolean for a scalar-returning function;
+    # tolerate wrapped shapes ([true] / [{"reserve_daily_classification":
+    # true}]) defensively so a client-wrapper change fails closed, not open.
+    if isinstance(reserved, list):
+        reserved = reserved[0] if reserved else None
+    if isinstance(reserved, dict):
+        reserved = reserved.get("reserve_daily_classification")
+    if not reserved:
+        logger.warning(
+            "Quiz classification daily cap reached: reserve of %d denied " "(cap %d)",
+            batch_size,
+            settings.quiz_classification_daily_cap,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                "Photo checks are temporarily unavailable due to high demand. "
+                "Please try again tomorrow."
+            ),
+            headers={"Retry-After": "3600"},
         )
 
     # 5. Classify (bounded by the shared vision concurrency semaphore).
@@ -566,9 +585,29 @@ async def _get_owner_session(
     return rows[0]
 
 
-async def _seeding_session(db: SupabaseClient, quiz_id: UUID) -> dict[str, Any] | None:
-    """The owner's FIRST completed session -- the one whose result seeded (or
-    will keep) the score-to-beat. Replays never become the seeding session."""
+async def _seeding_session(
+    db: SupabaseClient, quiz_id: UUID, seed_session_id: str | None = None
+) -> dict[str, Any] | None:
+    """The owner session whose completion seeded (or keeps) the score-to-beat.
+
+    The authoritative source is quiz.seed_session_id, persisted atomically in
+    the same conditional patch that seeds the pair (complete_owner_play), so
+    rescoring after swap/remove always rescopes to the session that actually
+    won the first-completion seed. The min(created_at) fallback exists only
+    for legacy rows with seed_session_id null (none in prod -- 0060 ships the
+    column); without it, an abandoned earlier owner session completed later
+    could hijack rescoring. Replays never become the seeding session.
+    """
+    if seed_session_id:
+        rows = await db.get(
+            "quiz_session",
+            {
+                "id": f"eq.{seed_session_id}",
+                "quiz_id": f"eq.{quiz_id}",
+                "completed_at": "not.is.null",
+            },
+        )
+        return rows[0] if rows else None
     rows = await db.get(
         "quiz_session",
         {"quiz_id": f"eq.{quiz_id}", "completed_at": "not.is.null"},
@@ -597,12 +636,12 @@ async def _recompute_score_to_beat_if_seeded(
         {
             "id": f"eq.{quiz_id}",
             "owner_id": f"eq.{owner_id}",
-            "select": "id,state,score_to_beat_correct",
+            "select": "id,state,score_to_beat_correct,seed_session_id",
         },
     )
     if not rows or rows[0].get("score_to_beat_correct") is None:
         return
-    seeding = await _seeding_session(db, quiz_id)
+    seeding = await _seeding_session(db, quiz_id, rows[0].get("seed_session_id"))
     if seeding is None:
         return
     questions = await _get_questions(db, quiz_id)
@@ -1024,11 +1063,15 @@ async def complete_owner_play(
     )
 
     # Seed score-to-beat exactly once: conditional on the pair being unset.
+    # seed_session_id is persisted atomically in the SAME patch, so rescoring
+    # after swap/remove always rescopes to the session that won this seed --
+    # never an earlier abandoned owner session (see _seeding_session).
     await db.patch(
         "quiz",
         {
             "score_to_beat_correct": correct,
             "score_to_beat_total": total,
+            "seed_session_id": str(session["id"]),
             "updated_at": _now_iso(),
         },
         {
@@ -1069,20 +1112,29 @@ async def complete_owner_play(
 
 
 async def _claim_pre_share_edit(
-    db: SupabaseClient, quiz_id: UUID, user_id: str
+    db: SupabaseClient, quiz_id: UUID, user_id: str, current_version: int
 ) -> None:
     """Conditional-write guard for question edits: only pre-share states pass.
 
     The write itself is the lock -- if a concurrent share (or revoke) moved
-    the quiz out of an editable state, this updates zero rows and the edit
-    loses with a 409 before touching any question.
+    the quiz out of an editable state, or a concurrent edit already bumped
+    the version we read, this updates zero rows and the edit loses with a
+    409 before touching any question.
+
+    The version bump makes share and a concurrent edit contend: share
+    asserts the version IT read in its playable->shared patch, so a share
+    that read the pre-bump version loses its conditional write. Mitigation,
+    not full atomicity -- this bump and the question mutation that follows
+    are still two statements; fully closing that window needs the whole edit
+    in a server-side plpgsql RPC.
     """
     guarded = await db.patch(
         "quiz",
-        {"updated_at": _now_iso()},
+        {"version": current_version + 1, "updated_at": _now_iso()},
         {
             "id": f"eq.{quiz_id}",
             "owner_id": f"eq.{user_id}",
+            "version": f"eq.{current_version}",
             "state": f"in.({','.join(PRE_SHARE_EDITABLE_STATES)})",
         },
     )
@@ -1110,8 +1162,8 @@ async def swap_quiz_question(
     owner-answers-to-questions bijection.
     """
     db = get_supabase_client()  # service role: quiz tables are backend-only
-    await _get_owned_quiz(db, quiz_id, user.id)
-    await _claim_pre_share_edit(db, quiz_id, user.id)
+    quiz = await _get_owned_quiz(db, quiz_id, user.id)
+    await _claim_pre_share_edit(db, quiz_id, user.id, int(quiz.get("version") or 0))
 
     existing = await db.get(
         "quiz_question",
@@ -1167,8 +1219,8 @@ async def remove_quiz_question(
 ) -> QuizDetailResponse:
     """Remove a question pre-share (KTD7); rescales the seeded pair."""
     db = get_supabase_client()  # service role: quiz tables are backend-only
-    await _get_owned_quiz(db, quiz_id, user.id)
-    await _claim_pre_share_edit(db, quiz_id, user.id)
+    quiz = await _get_owned_quiz(db, quiz_id, user.id)
+    await _claim_pre_share_edit(db, quiz_id, user.id, int(quiz.get("version") or 0))
 
     questions = await _get_questions(db, quiz_id)
     if not any(str(q["id"]) == str(question_id) for q in questions):
@@ -1220,7 +1272,7 @@ async def share_quiz(quiz_id: UUID, user: CurrentUser) -> QuizShareResponse:
         )
 
     questions = await _get_questions(db, quiz_id)
-    seeding = await _seeding_session(db, quiz_id)
+    seeding = await _seeding_session(db, quiz_id, quiz.get("seed_session_id"))
     answered_ids: set[str] = set()
     if seeding is not None:
         answers = await db.get(
@@ -1244,7 +1296,11 @@ async def share_quiz(quiz_id: UUID, user: CurrentUser) -> QuizShareResponse:
             },
         )
 
-    # Mint with bounded retry on slug-uniqueness collisions (KTD8).
+    # Mint with bounded retry on slug-uniqueness collisions (KTD8). The
+    # version predicate pairs with _claim_pre_share_edit's bump: a concurrent
+    # swap/remove that committed its guard after our read moved the version,
+    # so this stale share matches zero rows and 409s instead of freezing a
+    # quiz whose questions are mid-mutation.
     for _ in range(_SLUG_MINT_ATTEMPTS):
         slug = _mint_slug()
         try:
@@ -1255,6 +1311,7 @@ async def share_quiz(quiz_id: UUID, user: CurrentUser) -> QuizShareResponse:
                     "id": f"eq.{quiz_id}",
                     "owner_id": f"eq.{user.id}",
                     "state": "eq.playable",
+                    "version": f"eq.{int(quiz.get('version') or 0)}",
                 },
             )
         except HTTPException as exc:
@@ -1362,15 +1419,35 @@ async def delete_quiz(quiz_id: UUID, user: CurrentUser) -> None:
     """Delete a quiz that is not currently shared (drafts included).
 
     A shared quiz must be revoked first -- deletion must never silently take
-    a live share link down a different path than revocation. The storage
-    prefix is emptied (and verified empty) BEFORE the rows go: a storage
-    failure aborts loudly with the quiz row intact as the natural retry
-    surface, never leaving silently orphaned objects. DB cascades then
-    remove questions, sessions, and answers.
+    a live share link down a different path than revocation. Before anything
+    is swept, the row is CLAIMED with a conditional state->'revoked' write:
+    share requires state='playable', so once the claim commits no concurrent
+    share can go live over photos this delete is about to remove. A share
+    that committed first makes the claim update zero rows, and the delete
+    409s having touched nothing. Only then is the storage prefix emptied
+    (and verified empty) BEFORE the rows go: a storage failure aborts loudly
+    with the quiz row intact -- now revoked-but-pending, the same
+    reconciliation retry surface revoke uses. DB cascades then remove
+    questions, sessions, and answers.
     """
     db = get_supabase_client()  # service role: quiz tables are backend-only
     quiz = await _get_owned_quiz(db, quiz_id, user.id)
     if quiz["state"] == "shared":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Revoke the share link before deleting this quiz.",
+        )
+    claimed = await db.patch(
+        "quiz",
+        {"state": "revoked", "revoked_at": _now_iso(), "updated_at": _now_iso()},
+        {
+            "id": f"eq.{quiz_id}",
+            "owner_id": f"eq.{user.id}",
+            "state": "neq.shared",
+        },
+    )
+    if not claimed:
+        # The quiz became shared between the read above and the claim.
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Revoke the share link before deleting this quiz.",
@@ -1392,7 +1469,6 @@ async def delete_quiz(quiz_id: UUID, user: CurrentUser) -> None:
         {
             "id": f"eq.{quiz_id}",
             "owner_id": f"eq.{user.id}",
-            "state": "neq.shared",
         },
     )
     if not removed:

@@ -24,7 +24,14 @@ MIGRATION_PATH = (
     / "0060_travel_photo_quiz.sql"
 )
 
-QUIZ_TABLES = ["quiz", "quiz_question", "quiz_session", "quiz_answer", "quiz_funnel"]
+QUIZ_TABLES = [
+    "quiz",
+    "quiz_question",
+    "quiz_session",
+    "quiz_answer",
+    "quiz_funnel",
+    "quiz_daily_classification",
+]
 
 FUNNEL_EVENTS = {
     "page_view",
@@ -236,6 +243,104 @@ def test_funnel_increment_function_pins_search_path(sql: str):
         match.group(0),
         re.IGNORECASE,
     ), "increment_quiz_funnel must SET search_path = public"
+
+
+def test_seed_session_id_column_added_idempotently(sql: str):
+    """Fix #18: the seeding session is persisted (set atomically with the
+    score-to-beat seed) so rescoring never guesses via min(created_at).
+    Plain nullable UUID, deliberately without an FK (loose coupling)."""
+    match = re.search(
+        r"ALTER TABLE public\.quiz\s+"
+        r"ADD COLUMN IF NOT EXISTS seed_session_id UUID(.*)$",
+        sql,
+        re.MULTILINE,
+    )
+    assert match, "quiz needs an idempotent seed_session_id UUID column"
+    assert "REFERENCES" not in match.group(1).upper(), (
+        "seed_session_id must not carry an FK -- a missing session disables "
+        "rescoring but must never block session cleanup"
+    )
+    assert (
+        "NOT NULL" not in match.group(1).upper()
+    ), "seed_session_id must be nullable (legacy rows seeded before it existed)"
+
+
+def test_version_column_added_idempotently(sql: str):
+    """Fix #7: the optimistic-concurrency counter pre-share edits bump and
+    share asserts, making a stale share lose its conditional write."""
+    assert re.search(
+        r"ALTER TABLE public\.quiz\s+"
+        r"ADD COLUMN IF NOT EXISTS version INTEGER NOT NULL DEFAULT 0",
+        sql,
+    ), "quiz needs an idempotent version INTEGER NOT NULL DEFAULT 0"
+
+
+def test_daily_classification_counter_table_shape(sql: str):
+    """Fixes #4/#9: the durable global daily spend counter -- one row per
+    day, keyed on the date so the reserve function's upsert-then-update is
+    race-free. Lives outside the quiz table so draft deletion cannot erase
+    recorded spend. (RLS-on/no-policies is asserted by the QUIZ_TABLES loops.)
+    """
+    match = re.search(
+        r"CREATE TABLE IF NOT EXISTS public\.quiz_daily_classification\s*\(([^;]*)\);",
+        sql,
+    )
+    assert match, "missing quiz_daily_classification table"
+    body = match.group(1)
+    assert re.search(
+        r"day\s+DATE PRIMARY KEY", body
+    ), "quiz_daily_classification needs day DATE PRIMARY KEY"
+    assert re.search(
+        r"classified_count\s+INTEGER NOT NULL DEFAULT 0", body
+    ), "quiz_daily_classification needs classified_count INTEGER NOT NULL DEFAULT 0"
+
+
+def test_reserve_daily_classification_is_an_atomic_capped_reserve(sql: str):
+    """The API's whole daily decision is ONE function call: insert the day
+    row if absent, then a cap-guarded row-locking UPDATE -- concurrent
+    workers serialize on the row lock, so the cap cannot be overshot."""
+    match = re.search(
+        r"CREATE OR REPLACE FUNCTION public\.reserve_daily_classification\s*"
+        r"\(\s*p_count\s+INTEGER\s*,\s*p_cap\s+INTEGER\s*\)"
+        r"[\s\S]*?\$reserve_daily_classification\$;",
+        sql,
+        re.IGNORECASE,
+    )
+    assert match, "missing reserve_daily_classification(p_count, p_cap)"
+    fn = match.group(0)
+    assert re.search(r"RETURNS\s+BOOLEAN", fn, re.IGNORECASE)
+    assert re.search(
+        r"ON CONFLICT\s*\(\s*day\s*\)\s*DO NOTHING", fn, re.IGNORECASE
+    ), "the day row must be created idempotently (ON CONFLICT (day) DO NOTHING)"
+    assert re.search(
+        r"UPDATE public\.quiz_daily_classification[\s\S]*?"
+        r"WHERE day = CURRENT_DATE AND classified_count \+ p_count <= p_cap",
+        fn,
+    ), "the UPDATE must be cap-guarded so a reserve past the cap matches no row"
+    assert re.search(
+        r"RETURN reserved IS NOT NULL", fn
+    ), "the function must report whether the reservation succeeded"
+    assert re.search(
+        r"SET\s+search_path\s*=\s*public", fn, re.IGNORECASE
+    ), "reserve_daily_classification must SET search_path = public"
+
+
+def test_reserve_daily_classification_is_service_role_only(sql: str):
+    """PostgREST exposes /rpc/ functions to anon by default; the reserve must
+    be callable only through the backend's service role (mirrors
+    increment_quiz_funnel)."""
+    assert re.search(
+        r"REVOKE\s+(EXECUTE\s+)?(ALL\s+)?ON FUNCTION "
+        r"public\.reserve_daily_classification[^;]*FROM\s+PUBLIC",
+        sql,
+        re.IGNORECASE,
+    ), "reserve_daily_classification must revoke EXECUTE from PUBLIC"
+    assert re.search(
+        r"GRANT\s+EXECUTE\s+ON FUNCTION public\.reserve_daily_classification"
+        r"[^;]*TO\s+service_role",
+        sql,
+        re.IGNORECASE,
+    ), "reserve_daily_classification must grant EXECUTE to service_role"
 
 
 def test_all_indexes_are_idempotent(sql: str):
