@@ -70,8 +70,16 @@ def _model_result(
     has_people: bool = False,
     setting: str = "outdoor",
     category: str = "landmark",
+    landscape: str | None = "urban",
 ) -> dict[str, Any]:
-    return {"has_people": has_people, "setting": setting, "category": category}
+    payload: dict[str, Any] = {
+        "has_people": has_people,
+        "setting": setting,
+        "category": category,
+    }
+    if landscape is not None:
+        payload["landscape"] = landscape
+    return payload
 
 
 def _quiz_row(
@@ -263,6 +271,33 @@ class TestEligibilityRules:
         assert result["eligible"] is True
         assert result["status"] == "eligible"
         assert result["reason"] is None
+        assert result["landscape"] == "urban"
+
+    def test_eligible_result_includes_classifier_landscape(
+        self, client: TestClient
+    ) -> None:
+        response, _ = _post_eligibility(
+            client,
+            _db(_quiz_row()),
+            _openrouter_response(
+                _model_result(category="scenery", landscape="prairie")
+            ),
+        )
+        assert response.status_code == 200
+        result = response.json()["results"][0]
+        assert result["eligible"] is True
+        assert result["landscape"] == "prairie"
+
+    def test_missing_landscape_still_eligible(self, client: TestClient) -> None:
+        response, _ = _post_eligibility(
+            client,
+            _db(_quiz_row()),
+            _openrouter_response(_model_result(landscape=None)),
+        )
+        assert response.status_code == 200
+        result = response.json()["results"][0]
+        assert result["eligible"] is True
+        assert result["landscape"] == "other"
 
     def test_other_category_is_ineligible(self, client: TestClient) -> None:
         response, _ = _post_eligibility(
@@ -594,6 +629,27 @@ class TestQuizParseResponse:
         )
         assert result is not None
         assert result.eligible is True
+        assert result.landscape == "urban"
+
+    def test_missing_landscape_defaults_to_other(self) -> None:
+        from app.services.photo_vision.quiz_classifier import QuizEligibilityClassifier
+
+        result = QuizEligibilityClassifier._parse_response(
+            json.dumps(_model_result(landscape=None))
+        )
+        assert result is not None
+        assert result.eligible is True
+        assert result.landscape == "other"
+
+    def test_unknown_landscape_defaults_to_other(self) -> None:
+        from app.services.photo_vision.quiz_classifier import QuizEligibilityClassifier
+
+        result = QuizEligibilityClassifier._parse_response(
+            json.dumps(_model_result(landscape="tundra"))
+        )
+        assert result is not None
+        assert result.eligible is True
+        assert result.landscape == "other"
 
     def test_invalid_json_returns_none(self) -> None:
         from app.services.photo_vision.quiz_classifier import QuizEligibilityClassifier

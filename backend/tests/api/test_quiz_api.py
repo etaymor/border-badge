@@ -50,7 +50,9 @@ COUNTRIES: list[dict[str, str]] = [
     {"code": "US", "name": "United States", "region": "Americas"},
     {"code": "MX", "name": "Mexico", "region": "Americas"},
     {"code": "BR", "name": "Brazil", "region": "Americas"},
-    # Thin region: only two countries, so decoys must fall back to the wider pool.
+    {"code": "BG", "name": "Bulgaria", "region": "Europe"},
+    {"code": "AR", "name": "Argentina", "region": "Americas"},
+    # Thin region historically; decoys now pad from the full table / lookalikes.
     {"code": "NZ", "name": "New Zealand", "region": "Oceania"},
     {"code": "AU", "name": "Australia", "region": "Oceania"},
 ]
@@ -112,6 +114,7 @@ class FakeDB:
             "quiz_answer": [],
             "quiz_funnel": [],
             "country": [dict(c) for c in COUNTRIES],
+            "user_countries": [],
         }
 
     # -- helpers for tests ---------------------------------------------------
@@ -160,6 +163,20 @@ class FakeDB:
         row.update(extra)
         self.tables["quiz"].append(row)
         return row["id"]
+
+    def seed_visited(self, codes: list[str], owner_id: str = TEST_USER_ID) -> None:
+        by_code = {c["code"]: c for c in self.tables["country"]}
+        for code in codes:
+            country = by_code[code]
+            self.tables["user_countries"].append(
+                {
+                    "id": str(uuid4()),
+                    "user_id": owner_id,
+                    "country_id": str(uuid4()),
+                    "status": "visited",
+                    "country": {"code": country["code"], "name": country["name"]},
+                }
+            )
 
     # -- PostgREST emulation -------------------------------------------------
 
@@ -732,7 +749,7 @@ class TestFinalize:
                 assert d not in correct_names  # deduplicated within the quiz
 
     def test_thin_region_falls_back_to_wider_pool(self, client: TestClient) -> None:
-        """Oceania has only 2 countries; decoys must still be 3 distinct."""
+        """Zero stamps still yields 4 distinct options via lookalike padding."""
         db = FakeDB()
         quiz_id = db.seed_quiz()
         assert (
@@ -742,6 +759,42 @@ class TestFinalize:
         assert q["options"][q["correct_index"]] == "New Zealand"
         assert len(set(q["options"])) == 4
         assert all(o in COUNTRY_NAMES for o in q["options"])
+
+    def test_visited_lookalikes_preferred_for_bulgaria_prairie(
+        self, client: TestClient
+    ) -> None:
+        """A Bulgarian prairie photo with US among stamps includes the US."""
+        db = FakeDB()
+        db.seed_visited(["BG", "US", "FR", "JP"])
+        quiz_id = db.seed_quiz()
+        photos = photos_for(quiz_id, ["BG", "IT", "ES", "DE", "PT"])
+        photos[0]["landscape"] = "prairie"
+        assert finalize(client, db, quiz_id, photos=photos).status_code == 200
+        q = db.questions(quiz_id)[0]
+        assert q["options"][q["correct_index"]] == "Bulgaria"
+        decoys = [o for i, o in enumerate(q["options"]) if i != q["correct_index"]]
+        assert "United States" in decoys
+        assert set(decoys) <= {"United States", "France", "Japan"}
+
+    def test_wishlist_is_not_treated_as_visited(self, client: TestClient) -> None:
+        db = FakeDB()
+        db.seed_visited(["BG", "US", "FR", "JP"])
+        db.tables["user_countries"].append(
+            {
+                "id": str(uuid4()),
+                "user_id": TEST_USER_ID,
+                "country_id": str(uuid4()),
+                "status": "wishlist",
+                "country": {"code": "TH", "name": "Thailand"},
+            }
+        )
+        quiz_id = db.seed_quiz()
+        photos = photos_for(quiz_id, ["BG", "IT", "ES", "DE", "PT"])
+        photos[0]["landscape"] = "prairie"
+        assert finalize(client, db, quiz_id, photos=photos).status_code == 200
+        q = db.questions(quiz_id)[0]
+        decoys = [o for i, o in enumerate(q["options"]) if i != q["correct_index"]]
+        assert "Thailand" not in decoys
 
     def test_year_options_bracket_capture_year(self, client: TestClient) -> None:
         db = FakeDB()

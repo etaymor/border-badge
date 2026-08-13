@@ -151,7 +151,7 @@ function installQuizApi({
             errorIds.has(image.id)
               ? { id: image.id, eligible: false, status: 'error', reason: 'unavailable' }
               : eligibleIds.has(image.id)
-                ? { id: image.id, eligible: true, status: 'eligible' }
+                ? { id: image.id, eligible: true, status: 'eligible', landscape: 'prairie' }
                 : { id: image.id, eligible: false, status: 'ineligible', reason: 'people_present' }
           ),
           classified_count: classifiedCount,
@@ -264,11 +264,17 @@ describe('useQuizzes', () => {
       );
       expect(finalizeCall).toBeDefined();
       const { photos: finalized } = finalizeCall![1] as {
-        photos: Array<{ storage_path: string; country_code: string; capture_year: number | null }>;
+        photos: Array<{
+          storage_path: string;
+          country_code: string;
+          capture_year: number | null;
+          landscape: string | null;
+        }>;
       };
       expect(finalized).toHaveLength(6);
       expect(finalized.every((p) => p.country_code === 'FR')).toBe(true);
       expect(finalized.every((p) => p.storage_path.startsWith('quiz/quiz-1/'))).toBe(true);
+      expect(finalized.every((p) => p.landscape === 'prairie')).toBe(true);
 
       // Real progress feel: all three steps reported, in order.
       const seenSteps = progressSteps.map((p) => p.step);

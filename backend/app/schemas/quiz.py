@@ -94,6 +94,7 @@ class QuizEligibilityResult(BaseModel):
     eligible: bool
     status: Literal["eligible", "ineligible", "error"]
     reason: str | None = None
+    landscape: str | None = None
 
 
 class QuizEligibilityResponse(BaseModel):
@@ -131,12 +132,30 @@ class QuizUploadUrlResponse(BaseModel):
     uploads: list[QuizUploadTarget]
 
 
+# Mirrors QUIZ_LANDSCAPE_VALUES in quiz_constants (kept here so schemas
+# do not import the vision service). Invalid values degrade to None.
+_QUIZ_LANDSCAPES = frozenset(
+    {
+        "coastal",
+        "mediterranean",
+        "prairie",
+        "alpine",
+        "desert",
+        "tropical",
+        "temperate_forest",
+        "urban",
+        "other",
+    }
+)
+
+
 class QuizFinalizePhoto(BaseModel):
     """One uploaded quiz photo with its client-resolved ground truth."""
 
     storage_path: str = Field(..., min_length=1, max_length=512)
     country_code: str = Field(..., min_length=2, max_length=2)
     capture_year: int | None = Field(None, ge=1900, le=2100)
+    landscape: str | None = Field(None, max_length=32)
 
     @field_validator("country_code")
     @classmethod
@@ -144,6 +163,16 @@ class QuizFinalizePhoto(BaseModel):
         v = v.strip().upper()
         if not v.isalpha():
             raise ValueError("country_code must be a two-letter ISO code")
+        return v
+
+    @field_validator("landscape")
+    @classmethod
+    def normalize_landscape(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        v = v.strip().lower()
+        if v not in _QUIZ_LANDSCAPES:
+            return None
         return v
 
 

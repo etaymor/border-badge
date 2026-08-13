@@ -44,6 +44,8 @@ export interface QuizPhotoCandidate {
 /** A candidate that passed the geo gate; countryCode is resolved and valid. */
 export interface GeoEligibleCandidate extends QuizPhotoCandidate {
   countryCode: string;
+  /** Scenic lookalike tag from the eligibility classifier; omitted on swaps. */
+  landscape?: string | null;
 }
 
 /** Map a cached library photo to the candidate shape used for selection. */

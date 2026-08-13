@@ -108,6 +108,7 @@ interface DraftPick {
   captureYear: number | null;
   storagePath: string | null;
   uploaded: boolean;
+  landscape?: string | null;
 }
 
 export interface QuizDraftState {
@@ -253,6 +254,7 @@ interface EligibilityResult {
   eligible: boolean;
   status: 'eligible' | 'ineligible' | 'error';
   reason?: string | null;
+  landscape?: string | null;
 }
 
 interface EligibilityResponse {
@@ -336,6 +338,7 @@ async function classifyBatch(
     sawVerdict = true;
     const candidate = byId.get(result.id);
     if (candidate && result.eligible) {
+      candidate.landscape = result.landscape ?? undefined;
       eligible.push(candidate);
     }
   }
@@ -487,6 +490,7 @@ async function uploadAndFinalize(
         storage_path: pick.storagePath,
         country_code: pick.countryCode,
         capture_year: pick.captureYear,
+        landscape: pick.landscape ?? null,
       })),
     });
   } catch (error) {
@@ -667,6 +671,7 @@ async function runQuizCreation(
       captureYear: pick.creationTime > 0 ? new Date(pick.creationTime).getFullYear() : null,
       storagePath: null,
       uploaded: false,
+      landscape: pick.landscape ?? null,
     })),
   };
   await saveDraftState(state);

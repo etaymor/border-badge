@@ -31,6 +31,7 @@ from .quiz_constants import (
     QUIZ_ELIGIBILITY_SYSTEM_PROMPT,
     QUIZ_ELIGIBILITY_USER_PROMPT,
     QUIZ_ELIGIBLE_CATEGORIES,
+    QUIZ_LANDSCAPE_VALUES,
     QUIZ_SETTING_VALUES,
 )
 
@@ -48,6 +49,7 @@ class QuizVisionResult:
     has_people: bool
     setting: str  # outdoor | indoor | unclear
     category: str  # scenery | landmark | building_exterior | other
+    landscape: str = "other"  # scenic lookalike tag; never gates eligibility
 
     @property
     def eligible(self) -> bool:
@@ -129,7 +131,7 @@ class QuizEligibilityClassifier:
                         },
                     ],
                     "temperature": 0.1,
-                    "max_tokens": 100,
+                    "max_tokens": 160,
                     "response_format": QUIZ_ELIGIBILITY_RESPONSE_FORMAT,
                 },
                 headers={
@@ -178,7 +180,8 @@ class QuizEligibilityClassifier:
         ``has_people`` is the safety-critical field, so a missing or non-bool
         value voids the whole verdict. ``setting``/``category`` degrade to
         their most conservative values ("unclear"/"other"), both of which are
-        ineligible.
+        ineligible. ``landscape`` degrades to "other" and never fails a
+        photo closed -- it only ranks decoy countries.
         """
         try:
             data = json.loads(content)
@@ -201,10 +204,15 @@ class QuizEligibilityClassifier:
         if category not in QUIZ_CATEGORY_VALUES:
             category = "other"
 
+        landscape = data.get("landscape")
+        if landscape not in QUIZ_LANDSCAPE_VALUES:
+            landscape = "other"
+
         return QuizVisionResult(
             has_people=has_people,
             setting=setting,
             category=category,
+            landscape=landscape,
         )
 
 

@@ -76,6 +76,7 @@ from app.services.photo_vision.quiz_classifier import (
     QuizImageOutcome,
     classify_quiz_images,
 )
+from app.services.quiz_decoys import QuizDecoyPoolExhausted, build_place_options
 from app.services.quiz_grading import grade_answer
 from app.services.quiz_leaderboard import (
     OWNER_SESSION_TOKEN_PREFIX,
@@ -318,7 +319,12 @@ async def check_photo_eligibility(
             )
         elif outcome.result.eligible:
             results.append(
-                QuizEligibilityResult(id=image.id, eligible=True, status="eligible")
+                QuizEligibilityResult(
+                    id=image.id,
+                    eligible=True,
+                    status="eligible",
+                    landscape=outcome.result.landscape,
+                )
             )
         else:
             if outcome.result.has_people:
@@ -460,48 +466,28 @@ async def _validate_countries(
     return found
 
 
-async def _build_place_options(
+async def _place_options(
     db: SupabaseClient,
     corrects: list[dict[str, Any]],
+    *,
+    owner_id: str,
+    landscapes: list[str | None] | None = None,
     extra_excluded: set[str] | None = None,
 ) -> list[tuple[list[str], int]]:
-    """Generate per-question options (KTD6): the correct country plus three
-    decoys drawn from its region's neighbors in the country table, widening to
-    the full table when the region is thin. Decoys never duplicate any correct
-    answer in the quiz (dedup within the quiz). Options are shuffled ONCE here
-    and stored ordered with a server-only correct index.
-    """
-    excluded = {c["name"] for c in corrects} | set(extra_excluded or ())
-    region_pools: dict[str, list[str]] = {}
-    for region in {c["region"] for c in corrects}:
-        rows = await db.get(
-            "country", {"region": f"eq.{region}", "select": "code,name,region"}
+    """KTD6: shuffled options with a server-only correct index."""
+    try:
+        return await build_place_options(
+            db,
+            corrects,
+            owner_id=owner_id,
+            landscapes=landscapes,
+            extra_excluded=extra_excluded,
         )
-        region_pools[region] = [r["name"] for r in rows]
-
-    wider_pool: list[str] | None = None
-    results: list[tuple[list[str], int]] = []
-    for correct in corrects:
-        candidates = [n for n in region_pools[correct["region"]] if n not in excluded]
-        if len(candidates) < 3:
-            if wider_pool is None:
-                rows = await db.get("country", {"select": "code,name"})
-                wider_pool = [r["name"] for r in rows]
-            seen = set(candidates)
-            for name in wider_pool:
-                if name not in excluded and name not in seen:
-                    candidates.append(name)
-                    seen.add(name)
-        if len(candidates) < 3:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Not enough countries available to build quiz options",
-            )
-        decoys = random.sample(candidates, 3)
-        options = [correct["name"], *decoys]
-        random.shuffle(options)
-        results.append((options, options.index(correct["name"])))
-    return results
+    except QuizDecoyPoolExhausted as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Not enough countries available to build quiz options",
+        ) from e
 
 
 def _year_options(capture_year: int) -> list[int]:
@@ -837,8 +823,11 @@ async def finalize_quiz(
         _validate_capture_year(photo)
 
     country_map = await _validate_countries(db, [p.country_code for p in data.photos])
-    option_sets = await _build_place_options(
-        db, [country_map[p.country_code] for p in data.photos]
+    option_sets = await _place_options(
+        db,
+        [country_map[p.country_code] for p in data.photos],
+        owner_id=str(user.id),
+        landscapes=[p.landscape for p in data.photos],
     )
 
     # Claim the draft FIRST: conditional write from 'building' (KTD7). This is
@@ -1218,7 +1207,13 @@ async def swap_quiz_question(
     ]
     other_correct_names = {q["options"][q["correct_index"]] for q in others}
     options, correct_index = (
-        await _build_place_options(db, [correct], extra_excluded=other_correct_names)
+        await _place_options(
+            db,
+            [correct],
+            owner_id=str(user.id),
+            landscapes=[data.landscape],
+            extra_excluded=other_correct_names,
+        )
     )[0]
 
     await db.patch(

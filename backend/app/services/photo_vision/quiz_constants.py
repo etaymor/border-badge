@@ -29,6 +29,20 @@ QUIZ_CATEGORY_VALUES: list[str] = [
 # "unclear" is a valid model answer but never passes the outdoor gate.
 QUIZ_SETTING_VALUES: list[str] = ["outdoor", "indoor", "unclear"]
 
+# Scenic lookalike tags used to rank quiz decoy countries. "other" is a
+# truthful fallback and never contributes a landscape match score.
+QUIZ_LANDSCAPE_VALUES: list[str] = [
+    "coastal",
+    "mediterranean",
+    "prairie",
+    "alpine",
+    "desert",
+    "tropical",
+    "temperate_forest",
+    "urban",
+    "other",
+]
+
 # OpenRouter structured output schema for quiz eligibility (strict JSON,
 # mirroring the shape of CLASSIFICATION_RESPONSE_FORMAT without sharing it).
 QUIZ_ELIGIBILITY_RESPONSE_FORMAT = {
@@ -60,14 +74,32 @@ QUIZ_ELIGIBILITY_RESPONSE_FORMAT = {
                         "other",
                     ],
                 },
+                "landscape": {
+                    "type": "string",
+                    "enum": [
+                        "coastal",
+                        "mediterranean",
+                        "prairie",
+                        "alpine",
+                        "desert",
+                        "tropical",
+                        "temperate_forest",
+                        "urban",
+                        "other",
+                    ],
+                    "description": (
+                        "Dominant outdoor scenery, used to pick lookalike "
+                        "decoy countries. Streets and architecture are urban."
+                    ),
+                },
             },
-            "required": ["has_people", "setting", "category"],
+            "required": ["has_people", "setting", "category", "landscape"],
             "additionalProperties": False,
         },
     },
 }
 
-QUIZ_ELIGIBILITY_SYSTEM_PROMPT = """You are screening travel photos for a "guess where this was taken" quiz. Answer three questions about the photo.
+QUIZ_ELIGIBILITY_SYSTEM_PROMPT = """You are screening travel photos for a "guess where this was taken" quiz. Answer four questions about the photo.
 
 1. has_people: Are ANY people visible? Count faces, bodies, silhouettes, reflections, and partial body parts (hands, feet, shoulders), however small, blurred, or distant. When in doubt, answer true.
 
@@ -79,9 +111,20 @@ QUIZ_ELIGIBILITY_SYSTEM_PROMPT = """You are screening travel photos for a "guess
 - building_exterior: the outside of buildings, streets, plazas, facades, architecture
 - other: anything else -- food, interiors, objects, vehicles, animals, documents, screenshots, art close-ups
 
+4. landscape: the dominant outdoor scenery a traveler would confuse with another country. Pick one:
+- coastal: beaches, sea cliffs, harbors, ocean
+- mediterranean: dry hills, chaparral, terracotta, olive country
+- prairie: rolling grassland, steppe, open plains
+- alpine: peaks, snow, mountain valleys
+- desert: sand, canyons, arid scrub
+- tropical: jungle, palms, rainforest, atolls
+- temperate_forest: woods, lakes, green countryside
+- urban: streets, plazas, architecture, city fabric
+- other: none of the above, or you cannot tell
+
 Answer strictly in the requested JSON format."""
 
 QUIZ_ELIGIBILITY_USER_PROMPT = (
     "Screen this travel photo: any people visible, indoor or outdoor, "
-    "and which category?"
+    "which category, and which landscape?"
 )
