@@ -11,6 +11,8 @@ OUTDOOR, and falls in one of the three allowed categories below. Everything
 else -- including "unclear" answers -- fails closed to ineligible.
 """
 
+from app.core.quiz_landscape import QUIZ_LANDSCAPE_VALUES
+
 # Categories the quiz accepts (R2). "other" exists in the schema so the model
 # always has a truthful answer; it is never eligible.
 QUIZ_ELIGIBLE_CATEGORIES: set[str] = {
@@ -28,20 +30,6 @@ QUIZ_CATEGORY_VALUES: list[str] = [
 
 # "unclear" is a valid model answer but never passes the outdoor gate.
 QUIZ_SETTING_VALUES: list[str] = ["outdoor", "indoor", "unclear"]
-
-# Scenic lookalike tags used to rank quiz decoy countries. "other" is a
-# truthful fallback and never contributes a landscape match score.
-QUIZ_LANDSCAPE_VALUES: list[str] = [
-    "coastal",
-    "mediterranean",
-    "prairie",
-    "alpine",
-    "desert",
-    "tropical",
-    "temperate_forest",
-    "urban",
-    "other",
-]
 
 # OpenRouter structured output schema for quiz eligibility (strict JSON,
 # mirroring the shape of CLASSIFICATION_RESPONSE_FORMAT without sharing it).
@@ -76,17 +64,7 @@ QUIZ_ELIGIBILITY_RESPONSE_FORMAT = {
                 },
                 "landscape": {
                     "type": "string",
-                    "enum": [
-                        "coastal",
-                        "mediterranean",
-                        "prairie",
-                        "alpine",
-                        "desert",
-                        "tropical",
-                        "temperate_forest",
-                        "urban",
-                        "other",
-                    ],
+                    "enum": list(QUIZ_LANDSCAPE_VALUES),
                     "description": (
                         "Dominant outdoor scenery, used to pick lookalike "
                         "decoy countries. Streets and architecture are urban."

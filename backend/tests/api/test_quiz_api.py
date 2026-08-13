@@ -33,28 +33,153 @@ from tests.conftest import OTHER_USER_ID, TEST_USER_ID, mock_auth_dependency
 # ============================================================================
 
 COUNTRIES: list[dict[str, str]] = [
-    {"code": "FR", "name": "France", "region": "Europe"},
-    {"code": "IT", "name": "Italy", "region": "Europe"},
-    {"code": "ES", "name": "Spain", "region": "Europe"},
-    {"code": "DE", "name": "Germany", "region": "Europe"},
-    {"code": "PT", "name": "Portugal", "region": "Europe"},
-    {"code": "CH", "name": "Switzerland", "region": "Europe"},
-    {"code": "AT", "name": "Austria", "region": "Europe"},
-    {"code": "GB", "name": "United Kingdom", "region": "Europe"},
-    {"code": "GR", "name": "Greece", "region": "Europe"},
-    {"code": "NL", "name": "Netherlands", "region": "Europe"},
-    {"code": "JP", "name": "Japan", "region": "Asia"},
-    {"code": "TH", "name": "Thailand", "region": "Asia"},
-    {"code": "VN", "name": "Vietnam", "region": "Asia"},
-    {"code": "KR", "name": "South Korea", "region": "Asia"},
-    {"code": "US", "name": "United States", "region": "Americas"},
-    {"code": "MX", "name": "Mexico", "region": "Americas"},
-    {"code": "BR", "name": "Brazil", "region": "Americas"},
-    {"code": "BG", "name": "Bulgaria", "region": "Europe"},
-    {"code": "AR", "name": "Argentina", "region": "Americas"},
-    # Thin region historically; decoys now pad from the full table / lookalikes.
-    {"code": "NZ", "name": "New Zealand", "region": "Oceania"},
-    {"code": "AU", "name": "Australia", "region": "Oceania"},
+    {
+        "id": "c-fr",
+        "code": "FR",
+        "name": "France",
+        "region": "Europe",
+        "subregion": "Core Europe",
+    },
+    {
+        "id": "c-it",
+        "code": "IT",
+        "name": "Italy",
+        "region": "Europe",
+        "subregion": "Southern Europe",
+    },
+    {
+        "id": "c-es",
+        "code": "ES",
+        "name": "Spain",
+        "region": "Europe",
+        "subregion": "Southern Europe",
+    },
+    {
+        "id": "c-de",
+        "code": "DE",
+        "name": "Germany",
+        "region": "Europe",
+        "subregion": "Core Europe",
+    },
+    {
+        "id": "c-pt",
+        "code": "PT",
+        "name": "Portugal",
+        "region": "Europe",
+        "subregion": "Southern Europe",
+    },
+    {
+        "id": "c-ch",
+        "code": "CH",
+        "name": "Switzerland",
+        "region": "Europe",
+        "subregion": "Core Europe",
+    },
+    {
+        "id": "c-at",
+        "code": "AT",
+        "name": "Austria",
+        "region": "Europe",
+        "subregion": "Core Europe",
+    },
+    {
+        "id": "c-gb",
+        "code": "GB",
+        "name": "United Kingdom",
+        "region": "Europe",
+        "subregion": "British Isles",
+    },
+    {
+        "id": "c-gr",
+        "code": "GR",
+        "name": "Greece",
+        "region": "Europe",
+        "subregion": "Southern Europe",
+    },
+    {
+        "id": "c-nl",
+        "code": "NL",
+        "name": "Netherlands",
+        "region": "Europe",
+        "subregion": "Core Europe",
+    },
+    {
+        "id": "c-jp",
+        "code": "JP",
+        "name": "Japan",
+        "region": "Asia",
+        "subregion": "East & Southeast Asia",
+    },
+    {
+        "id": "c-th",
+        "code": "TH",
+        "name": "Thailand",
+        "region": "Asia",
+        "subregion": "East & Southeast Asia",
+    },
+    {
+        "id": "c-vn",
+        "code": "VN",
+        "name": "Vietnam",
+        "region": "Asia",
+        "subregion": "East & Southeast Asia",
+    },
+    {
+        "id": "c-kr",
+        "code": "KR",
+        "name": "South Korea",
+        "region": "Asia",
+        "subregion": "East & Southeast Asia",
+    },
+    {
+        "id": "c-us",
+        "code": "US",
+        "name": "United States",
+        "region": "Americas",
+        "subregion": "North America",
+    },
+    {
+        "id": "c-mx",
+        "code": "MX",
+        "name": "Mexico",
+        "region": "Americas",
+        "subregion": "North America",
+    },
+    {
+        "id": "c-br",
+        "code": "BR",
+        "name": "Brazil",
+        "region": "Americas",
+        "subregion": "South America",
+    },
+    {
+        "id": "c-bg",
+        "code": "BG",
+        "name": "Bulgaria",
+        "region": "Europe",
+        "subregion": "Eastern Europe",
+    },
+    {
+        "id": "c-ar",
+        "code": "AR",
+        "name": "Argentina",
+        "region": "Americas",
+        "subregion": "South America",
+    },
+    {
+        "id": "c-nz",
+        "code": "NZ",
+        "name": "New Zealand",
+        "region": "Oceania",
+        "subregion": "Australia & New Zealand",
+    },
+    {
+        "id": "c-au",
+        "code": "AU",
+        "name": "Australia",
+        "region": "Oceania",
+        "subregion": "Australia & New Zealand",
+    },
 ]
 
 COUNTRY_NAMES = {c["name"] for c in COUNTRIES}
@@ -172,9 +297,8 @@ class FakeDB:
                 {
                     "id": str(uuid4()),
                     "user_id": owner_id,
-                    "country_id": str(uuid4()),
+                    "country_id": country["id"],
                     "status": "visited",
-                    "country": {"code": country["code"], "name": country["name"]},
                 }
             )
 
@@ -774,18 +898,18 @@ class TestFinalize:
         assert q["options"][q["correct_index"]] == "Bulgaria"
         decoys = [o for i, o in enumerate(q["options"]) if i != q["correct_index"]]
         assert "United States" in decoys
-        assert set(decoys) <= {"United States", "France", "Japan"}
+        assert "Thailand" not in decoys
 
     def test_wishlist_is_not_treated_as_visited(self, client: TestClient) -> None:
         db = FakeDB()
         db.seed_visited(["BG", "US", "FR", "JP"])
+        th = next(c for c in db.tables["country"] if c["code"] == "TH")
         db.tables["user_countries"].append(
             {
                 "id": str(uuid4()),
                 "user_id": TEST_USER_ID,
-                "country_id": str(uuid4()),
+                "country_id": th["id"],
                 "status": "wishlist",
-                "country": {"code": "TH", "name": "Thailand"},
             }
         )
         quiz_id = db.seed_quiz()

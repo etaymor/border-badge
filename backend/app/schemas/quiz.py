@@ -23,6 +23,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator
 
+from app.core.quiz_landscape import QUIZ_LANDSCAPE_SET
+
 # Mirrors MAX_VISION_IMAGES_PER_REQUEST in schemas/photos.py: one vision call
 # per image, so this is also the per-request classification-cost envelope.
 MAX_QUIZ_ELIGIBILITY_IMAGES = 50
@@ -132,23 +134,6 @@ class QuizUploadUrlResponse(BaseModel):
     uploads: list[QuizUploadTarget]
 
 
-# Mirrors QUIZ_LANDSCAPE_VALUES in quiz_constants (kept here so schemas
-# do not import the vision service). Invalid values degrade to None.
-_QUIZ_LANDSCAPES = frozenset(
-    {
-        "coastal",
-        "mediterranean",
-        "prairie",
-        "alpine",
-        "desert",
-        "tropical",
-        "temperate_forest",
-        "urban",
-        "other",
-    }
-)
-
-
 class QuizFinalizePhoto(BaseModel):
     """One uploaded quiz photo with its client-resolved ground truth."""
 
@@ -171,7 +156,7 @@ class QuizFinalizePhoto(BaseModel):
         if v is None:
             return None
         v = v.strip().lower()
-        if v not in _QUIZ_LANDSCAPES:
+        if v not in QUIZ_LANDSCAPE_SET:
             return None
         return v
 

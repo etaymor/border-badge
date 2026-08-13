@@ -7,13 +7,20 @@ answer identical questions.
 
 from __future__ import annotations
 
+import asyncio
 import random
 from typing import Any
 
+from app.core.quiz_landscape import DISTINCTIVE_LANDSCAPES
 from app.db.session import SupabaseClient
 from app.services.country_landscapes import landscapes_for
 
 DECOYS_PER_QUESTION = 3
+# When an unused unvisited distinctive lookalike exists, keep one slot for it
+# so leftover stamps are not copy-pasted onto every question.
+MAX_VISITED_WHEN_LOOKALIKE = 2
+
+CountryRow = tuple[str, str, str | None]  # code, name, subregion
 
 
 class QuizDecoyPoolExhausted(Exception):
@@ -24,18 +31,23 @@ def score_country(
     code: str,
     photo_landscape: str | None,
     correct_code: str,
+    *,
+    candidate_subregion: str | None = None,
+    correct_subregion: str | None = None,
 ) -> int:
     """Rank a candidate against the photo and the correct country.
 
-    2 — country is tagged with the photo's landscape.
-    1 — country shares any biome with the correct country.
-    0 — otherwise.
+    2 — photo tag is distinctive and the candidate country has it.
+    1 — candidate and correct country share a distinctive biome.
+    0 — otherwise. urban/coastal/other never award a photo-match score.
     """
-    biomes = landscapes_for(code)
+    biomes = landscapes_for(code, candidate_subregion)
     landscape = _usable_landscape(photo_landscape)
     if landscape and landscape in biomes:
         return 2
-    if biomes & landscapes_for(correct_code):
+    if _distinctive(biomes) & _distinctive(
+        landscapes_for(correct_code, correct_subregion)
+    ):
         return 1
     return 0
 
@@ -45,36 +57,58 @@ def pick_decoys(
     correct_code: str,
     correct_name: str,
     photo_landscape: str | None,
-    countries: list[tuple[str, str]],
+    countries: list[CountryRow],
     visited_codes: set[str],
     excluded_names: set[str],
+    used_names: set[str] | None = None,
     rng: random.Random | None = None,
 ) -> list[str]:
-    """Return three decoy country names, preferring visited lookalikes.
+    """Return three decoy country names, preferring unused visited lookalikes.
 
-    ``excluded_names`` must already include every other question's correct
-    answer. The correct country itself is never a decoy.
+    Caps visited fill at two when an unused unvisited distinctive lookalike
+    exists, so each question can take a fresh scenic distractor. ``used_names``
+    are deprioritized within a score bucket, not hard-excluded.
     """
     picker = rng or random.Random()
+    used = used_names or set()
     blocked = set(excluded_names) | {correct_name}
+    subregions = {code: sub for code, _name, sub in countries}
 
     visited: list[tuple[int, str]] = []
     unvisited: list[tuple[int, str]] = []
-    for code, name in countries:
+    for code, name, subregion in countries:
         if name in blocked:
             continue
-        scored = (score_country(code, photo_landscape, correct_code), name)
+        scored = (
+            score_country(
+                code,
+                photo_landscape,
+                correct_code,
+                candidate_subregion=subregion,
+                correct_subregion=subregions.get(correct_code),
+            ),
+            name,
+        )
         if code in visited_codes:
             visited.append(scored)
         else:
             unvisited.append(scored)
 
-    decoys = _sample_ranked(visited, DECOYS_PER_QUESTION, picker)
+    unused_unvisited_lookalikes = [
+        item for item in unvisited if item[0] >= 1 and item[1] not in used
+    ]
+    visited_limit = (
+        MAX_VISITED_WHEN_LOOKALIKE
+        if unused_unvisited_lookalikes
+        else DECOYS_PER_QUESTION
+    )
+
+    decoys = _sample_ranked(visited, visited_limit, picker, used)
     if len(decoys) < DECOYS_PER_QUESTION:
         already = set(decoys)
         pad_pool = [(s, n) for s, n in unvisited if n not in already]
         decoys.extend(
-            _sample_ranked(pad_pool, DECOYS_PER_QUESTION - len(decoys), picker)
+            _sample_ranked(pad_pool, DECOYS_PER_QUESTION - len(decoys), picker, used)
         )
 
     if len(decoys) < DECOYS_PER_QUESTION:
@@ -85,17 +119,22 @@ def pick_decoys(
 
 
 def _usable_landscape(landscape: str | None) -> str | None:
-    if landscape is None or landscape == "other":
+    if landscape not in DISTINCTIVE_LANDSCAPES:
         return None
     return landscape
+
+
+def _distinctive(biomes: frozenset[str]) -> frozenset[str]:
+    return biomes & DISTINCTIVE_LANDSCAPES
 
 
 def _sample_ranked(
     pool: list[tuple[int, str]],
     n: int,
     rng: random.Random,
+    used_names: set[str],
 ) -> list[str]:
-    """Take ``n`` names, highest score first, random among ties."""
+    """Take ``n`` names, highest score first; unused before used in a bucket."""
     if n <= 0 or not pool:
         return []
     by_score: dict[int, list[str]] = {2: [], 1: [], 0: []}
@@ -104,39 +143,38 @@ def _sample_ranked(
 
     picked: list[str] = []
     for score in (2, 1, 0):
-        need = n - len(picked)
-        if need <= 0:
-            break
-        bucket = by_score[score]
-        if len(bucket) <= need:
-            picked.extend(bucket)
-        else:
-            picked.extend(rng.sample(bucket, need))
+        unused = [name for name in by_score[score] if name not in used_names]
+        reused = [name for name in by_score[score] if name in used_names]
+        for bucket in (unused, reused):
+            need = n - len(picked)
+            if need <= 0:
+                return picked
+            if len(bucket) <= need:
+                picked.extend(bucket)
+            else:
+                picked.extend(rng.sample(bucket, need))
     return picked
 
 
-def parse_visited_codes(rows: list[dict[str, Any]]) -> set[str]:
-    """Extract ISO codes from ``user_countries`` rows with a nested country."""
+def visited_codes_from_rows(
+    country_rows: list[dict[str, Any]],
+    visited_rows: list[dict[str, Any]],
+) -> set[str]:
+    """Join visited ``country_id`` rows onto the country table in process."""
+    id_to_code = {
+        str(row["id"]): str(row["code"]).upper()
+        for row in country_rows
+        if row.get("id") and row.get("code")
+    }
     codes: set[str] = set()
-    for row in rows:
-        nested = row.get("country")
-        if isinstance(nested, dict):
-            code = nested.get("code")
-            if isinstance(code, str) and code:
-                codes.add(code.upper())
+    for row in visited_rows:
+        country_id = row.get("country_id")
+        if country_id is None:
+            continue
+        code = id_to_code.get(str(country_id))
+        if code:
+            codes.add(code)
     return codes
-
-
-async def fetch_visited_codes(db: SupabaseClient, owner_id: str) -> set[str]:
-    rows = await db.get(
-        "user_countries",
-        {
-            "user_id": f"eq.{owner_id}",
-            "status": "eq.visited",
-            "select": "country_id,country:country_id(code,name)",
-        },
-    )
-    return parse_visited_codes(rows)
 
 
 async def build_place_options(
@@ -159,12 +197,25 @@ async def build_place_options(
     if len(landscapes) != len(corrects):
         raise ValueError("landscapes must align with corrects")
 
-    country_rows = await db.get("country", {"select": "code,name"})
-    countries = [(r["code"], r["name"]) for r in country_rows]
-    visited_codes = await fetch_visited_codes(db, owner_id)
+    country_rows, visited_rows = await asyncio.gather(
+        db.get("country", {"select": "id,code,name,subregion"}),
+        db.get(
+            "user_countries",
+            {
+                "user_id": f"eq.{owner_id}",
+                "status": "eq.visited",
+                "select": "country_id",
+            },
+        ),
+    )
+    countries: list[CountryRow] = [
+        (r["code"], r["name"], r.get("subregion")) for r in country_rows
+    ]
+    visited_codes = visited_codes_from_rows(country_rows, visited_rows)
 
     excluded = {c["name"] for c in corrects} | set(extra_excluded or ())
     picker = rng or random.Random()
+    used_names: set[str] = set()
     results: list[tuple[list[str], int]] = []
     for correct, landscape in zip(corrects, landscapes, strict=True):
         decoys = pick_decoys(
@@ -174,8 +225,10 @@ async def build_place_options(
             countries=countries,
             visited_codes=visited_codes,
             excluded_names=excluded,
+            used_names=used_names,
             rng=picker,
         )
+        used_names.update(decoys)
         options = [correct["name"], *decoys]
         picker.shuffle(options)
         results.append((options, options.index(correct["name"])))
