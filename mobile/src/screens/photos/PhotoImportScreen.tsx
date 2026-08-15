@@ -465,7 +465,6 @@ export function PhotoImportScreen({ navigation, route }: Props) {
           isPremium={isPremium}
           canImportPhotos={canImportPhotos}
           fetchingSuggestions={fetchingSuggestions}
-          suggestionsProgress={suggestionDispatch.progress ?? null}
           clusterItems={clusterItems}
           renderClusterItem={renderClusterItem}
           onUpgrade={() => rootNavigation.navigate('PaywallModal', { feature: 'photoImport' })}

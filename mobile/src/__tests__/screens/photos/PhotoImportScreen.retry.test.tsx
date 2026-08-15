@@ -29,7 +29,11 @@ import React from 'react';
 
 import { usePlaceSuggestions } from '../../../screens/photos/usePlaceSuggestions';
 import { useClusterItems } from '../../../screens/photos/useClusterItems';
+import type { ClusterDisplayItem } from '../../../screens/photos/photoImportHelpers';
 import { api } from '@services/api';
+// The real controller (a module-level singleton), imported from its own module
+// so the blanket '@services/photoImport' mock below does not swallow it.
+import { suggestionDispatch } from '@services/photoImport/suggestionDispatch';
 import {
   getCachedSuggestions,
   cacheSuggestions,
@@ -210,11 +214,44 @@ function useComposition(candidate: TripCandidateDisplay, clusters: LocationClust
 }
 
 /** Ids of every cluster currently rendered as the terminal lookup-failed card. */
-const lookupFailedIds = (items: ReturnType<typeof useComposition>['clusterItems']) =>
+const lookupFailedIds = (items: ClusterDisplayItem[]) =>
   items.flatMap((item) => (item.type === 'lookup-failed' ? [item.cluster.id] : []));
+
+/** Ids of every cluster currently rendered as a NON-terminal pending row (R10). */
+const pendingIds = (items: ClusterDisplayItem[]) =>
+  items.flatMap((item) => (item.type === 'pending' ? [item.cluster.id] : []));
+
+/**
+ * Find the row rendered for a cluster id.
+ *
+ * The switch is EXHAUSTIVE on purpose. The previous inline version ended in a
+ * bare `return i.cluster.id === id` fallthrough, so when the `pending` variant
+ * landed it began matching pending rows with no signal that it had: an
+ * assertion expecting `lookup-failed` would report `pending` from a helper that
+ * looked like it only ever produced terminal states, pointing the reader at the
+ * wrong part of the system. Matching pending is now explicit, and adding a
+ * variant without a branch fails compile instead of silently widening the match.
+ */
+const rowFor = (items: ClusterDisplayItem[], id: string) =>
+  items.find((item) => {
+    switch (item.type) {
+      case 'suggestion':
+        return item.data.cluster_id === id;
+      case 'merged-suggestion':
+        return item.data.clusterIds.includes(id);
+      case 'lookup-failed':
+      case 'photos-only':
+      case 'pending':
+        return item.cluster.id === id;
+    }
+  });
 
 beforeEach(() => {
   jest.clearAllMocks();
+  // The dispatch controller is a module-level singleton (KTD21), so a test that
+  // throws mid-`act` would otherwise strand an owner and report "still fetching"
+  // into every later test in this file.
+  suggestionDispatch.resetForTests();
   mockedGetCachedSuggestions.mockResolvedValue(new Map());
   mockedCacheSuggestions.mockResolvedValue(undefined as never);
 });
@@ -273,12 +310,7 @@ describe('PhotoImportScreen retry e2e (U8 -> U9 -> U10)', () => {
       result.current.setFetchingSuggestions(false);
     });
 
-    const byCluster = (id: string) =>
-      result.current.clusterItems.find((i) => {
-        if (i.type === 'suggestion') return i.data.cluster_id === id;
-        if (i.type === 'merged-suggestion') return i.data.clusterIds.includes(id);
-        return i.cluster.id === id;
-      });
+    const byCluster = (id: string) => rowFor(result.current.clusterItems, id);
 
     // c-matched -> matched; c-empty -> no-place-found; c-failed -> lookup-failed.
     expect(byCluster('c-matched')?.type).toBe('suggestion');
@@ -369,12 +401,7 @@ describe('PhotoImportScreen retry e2e (U8 -> U9 -> U10)', () => {
       result.current.setFetchingSuggestions(false);
     });
 
-    const byCluster = (id: string) =>
-      result.current.clusterItems.find((i) => {
-        if (i.type === 'suggestion') return i.data.cluster_id === id;
-        if (i.type === 'merged-suggestion') return i.data.clusterIds.includes(id);
-        return i.cluster.id === id;
-      });
+    const byCluster = (id: string) => rowFor(result.current.clusterItems, id);
 
     expect(byCluster('c-failed')?.type).toBe('lookup-failed');
 
@@ -417,7 +444,7 @@ describe('suggestion fetch reports in-progress for its whole duration (R1/R2)', 
    * clusters that are merely still on the wire and paints a wall of
    * "Couldn't check this location" — and each Retry buys the same lookup twice.
    */
-  it('withholds still-pending clusters mid-dispatch, then reconciles the un-responded one to lookup-failed', async () => {
+  it('renders still-unanswered clusters as pending mid-dispatch, then reconciles the un-responded one to lookup-failed', async () => {
     const a = makeCluster('c-a', 35.01, 139.01);
     const b = makeCluster('c-b', 35.02, 139.02);
     const allClusters = [a, b]; // one chunk (CHUNK_SIZE is 5)
@@ -454,7 +481,17 @@ describe('suggestion fetch reports in-progress for its whole duration (R1/R2)', 
 
     // In flight and healthy: nothing has failed, so nothing may be shown failed.
     expect(lookupFailedIds(result.current.clusterItems)).toEqual([]);
-    expect(result.current.clusterItems).toHaveLength(0);
+    // U8/R10 — REWRITTEN TRIPWIRE. This assertion used to be
+    // `expect(result.current.clusterItems).toHaveLength(0)`: an accepted but
+    // unanswered cluster was WITHHELD, which is what left a hundred-location
+    // import showing the ~2 rows of the live batch and blank space for the rest.
+    // It is not deleted, because its real content — nothing may be painted as
+    // the terminal "Couldn't check this location" while the request is genuinely
+    // in flight (R2) — still holds and is asserted above. What changes is the
+    // other half: every ENQUEUED, unresolved cluster is now visible as a
+    // non-terminal pending row, in canonical order, including clusters queued
+    // behind the live batches.
+    expect(pendingIds(result.current.clusterItems)).toEqual(['c-a', 'c-b']);
     expect(result.current.reportedFetching).toBe(true);
 
     // Settle the dispatch: c-a is answered with a place, c-b is not answered at all.
@@ -468,12 +505,7 @@ describe('suggestion fetch reports in-progress for its whole duration (R1/R2)', 
       await fetchPromise;
     });
 
-    const byCluster = (id: string) =>
-      result.current.clusterItems.find((i) => {
-        if (i.type === 'suggestion') return i.data.cluster_id === id;
-        if (i.type === 'merged-suggestion') return i.data.clusterIds.includes(id);
-        return i.cluster.id === id;
-      });
+    const byCluster = (id: string) => rowFor(result.current.clusterItems, id);
 
     // The reconciliation role of the flag STAYS (KTD3): once dispatch settles, an
     // unresolved and unclaimed cluster IS lookup-failed, with retry enabled.
@@ -546,16 +578,131 @@ describe('suggestion fetch reports in-progress for its whole duration (R1/R2)', 
       await fetchPromise;
     });
 
-    const byCluster = (id: string) =>
-      result.current.clusterItems.find((i) => {
-        if (i.type === 'suggestion') return i.data.cluster_id === id;
-        if (i.type === 'merged-suggestion') return i.data.clusterIds.includes(id);
-        return i.cluster.id === id;
-      });
+    const byCluster = (id: string) => rowFor(result.current.clusterItems, id);
 
     expect(result.current.reportedFetching).toBe(false);
     expect(byCluster('c-a')?.type).toBe('suggestion');
     expect(byCluster('c-b')?.type).toBe('suggestion');
+  });
+
+  /**
+   * R10, against the REAL controller. Dispatch puts one batch on the wire at a
+   * time (FIRST_CHUNK_SIZE 2, then CHUNK_SIZE 5), so `inFlightClusterIds` holds
+   * two of these eight clusters. Sourcing pending rows from the in-flight set
+   * would show two rows and six blanks — the reported defect, at 100 clusters
+   * roughly 15 rows and 85 blanks. Pending comes from the ENQUEUED set, which
+   * accepts every cluster up front.
+   */
+  it('renders every enqueued cluster as pending, including batches not yet dispatched', async () => {
+    const allClusters = Array.from({ length: 8 }, (_, i) =>
+      makeCluster(`c-${i}`, 35 + i * 0.01, 139 + i * 0.01)
+    );
+    const lookup = new Map(allClusters.map((c) => [c.id, c]));
+    mockedGetFullCluster.mockImplementation((id: string) => lookup.get(id));
+
+    // Hold the FIRST batch open so nothing has resolved when we assert.
+    let resolveFirst!: (value: unknown) => void;
+    mockedApi.post.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveFirst = resolve as (value: unknown) => void;
+        })
+    );
+
+    const candidate = buildCandidate(allClusters.map((c) => c.id));
+    const queryClient = createTestQueryClient();
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+
+    const { result } = renderHook(() => useComposition(candidate, allClusters), { wrapper });
+
+    let fetchPromise!: Promise<unknown>;
+    await act(async () => {
+      fetchPromise = result.current.fetchSuggestions(candidate);
+    });
+    await waitFor(() => {
+      expect(mockedApi.post).toHaveBeenCalledTimes(1);
+    });
+
+    // Only the opening batch is on the wire...
+    expect(result.current.suggestionDispatch.inFlightClusterIds.size).toBeLessThan(
+      allClusters.length
+    );
+    // ...but EVERY cluster is a visible pending row, in canonical order.
+    expect(pendingIds(result.current.clusterItems)).toEqual(allClusters.map((c) => c.id));
+
+    // Drain so the controller does not stay parked into the next test.
+    await act(async () => {
+      resolveFirst({ data: { suggestions: [], failed_cluster_count: 0 } });
+      await fetchPromise;
+    });
+  });
+
+  /**
+   * R11 + R9: a row resolving mid-dispatch swaps its card IN PLACE, keeps its
+   * neighbours' positions, and becomes actionable (a `suggestion` row carries
+   * the confirm/edit affordances) while the rest are still pending.
+   */
+  it('resolves a pending row in place without reordering, while others stay pending', async () => {
+    const allClusters = Array.from({ length: 6 }, (_, i) =>
+      makeCluster(`c-${i}`, 35 + i * 0.01, 139 + i * 0.01)
+    );
+    const lookup = new Map(allClusters.map((c) => [c.id, c]));
+    mockedGetFullCluster.mockImplementation((id: string) => lookup.get(id));
+
+    // First batch (c-0, c-1) answers: c-1 with a place, c-0 with an empty list.
+    // The second batch is held open, so c-2..c-5 stay pending.
+    let resolveSecond!: (value: unknown) => void;
+    mockedApi.post
+      .mockResolvedValueOnce({
+        data: {
+          suggestions: [
+            { cluster_id: 'c-0', photo_ids: ['photo-c-0'], places: [] },
+            { cluster_id: 'c-1', photo_ids: ['photo-c-1'], places: [placeFor('c-1')] },
+          ],
+          failed_cluster_count: 0,
+        },
+      })
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveSecond = resolve as (value: unknown) => void;
+          })
+      );
+
+    const candidate = buildCandidate(allClusters.map((c) => c.id));
+    const queryClient = createTestQueryClient();
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+
+    const { result } = renderHook(() => useComposition(candidate, allClusters), { wrapper });
+
+    let fetchPromise!: Promise<unknown>;
+    await act(async () => {
+      fetchPromise = result.current.fetchSuggestions(candidate);
+    });
+    await waitFor(() => {
+      expect(mockedApi.post).toHaveBeenCalledTimes(2);
+    });
+
+    const rows = result.current.clusterItems;
+    // Order is unchanged and no row was removed.
+    expect(rows).toHaveLength(6);
+    expect(rows.map((row) => allClusters.find((c) => rowFor(rows, c.id) === row)?.id)).toEqual(
+      allClusters.map((c) => c.id)
+    );
+    // c-0 answered empty -> terminal no-place-found; c-1 answered with a place ->
+    // matched and actionable; the undispatched rest are still pending.
+    expect(rowFor(rows, 'c-0')?.type).toBe('photos-only');
+    expect(rowFor(rows, 'c-1')?.type).toBe('suggestion');
+    expect(pendingIds(rows)).toEqual(['c-2', 'c-3', 'c-4', 'c-5']);
+
+    await act(async () => {
+      resolveSecond({ data: { suggestions: [], failed_cluster_count: 0 } });
+      await fetchPromise;
+    });
   });
 });
 

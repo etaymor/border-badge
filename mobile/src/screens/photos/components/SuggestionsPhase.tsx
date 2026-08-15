@@ -23,11 +23,6 @@ export interface SuggestionsPhaseProps {
   isPremium: boolean;
   canImportPhotos: boolean;
   fetchingSuggestions: boolean;
-  suggestionsProgress: {
-    clustersCompleted: number;
-    clustersTotal: number;
-    percentage: number;
-  } | null;
   clusterItems: ClusterDisplayItem[];
   renderClusterItem: ListRenderItem<ClusterDisplayItem>;
   onUpgrade: () => void;
@@ -40,19 +35,30 @@ export function SuggestionsPhase({
   isPremium,
   canImportPhotos,
   fetchingSuggestions,
-  suggestionsProgress,
   clusterItems,
   renderClusterItem,
   onUpgrade,
 }: SuggestionsPhaseProps) {
-  // The progress header now renders for the WHOLE fetch, including the
-  // pre-dispatch window (SQLite cache read + vision prep) where the chunked
-  // mutation has no progress yet. Fall back to the candidate's own cluster count
-  // so the spinner still carries a count instead of a bare "Searching...".
+  // ONE progress source (U8). The header used to read the dispatch controller's
+  // own counters while the list rendered a different set of rows, so the two
+  // disagreed: the controller counts only the uncached clusters it dispatched,
+  // the list shows every cluster including cached and dismissed ones. Both now
+  // derive from the rendered rows, so "N of M" is literally "M rows, N of them
+  // no longer pending".
+  const pendingCount = clusterItems.filter((item) => item.type === 'pending').length;
+  const totalCount = clusterItems.length;
+  const settledCount = totalCount - pendingCount;
+  const percentage = totalCount > 0 ? Math.round((settledCount / totalCount) * 100) : 0;
+
+  // The progress header renders for the WHOLE fetch, including the pre-dispatch
+  // window (SQLite cache read + vision prep) where no cluster has been accepted
+  // yet and there are no rows at all. Fall back to the candidate's own cluster
+  // count so the spinner still carries a count instead of a bare "Searching...".
   const clusterCount = selectedCandidate.locationClusterIds.length;
-  const progressLabel = suggestionsProgress
-    ? `Processing ${suggestionsProgress.clustersCompleted} of ${suggestionsProgress.clustersTotal} locations`
-    : `Preparing ${clusterCount} ${clusterCount === 1 ? 'location' : 'locations'}`;
+  const progressLabel =
+    totalCount > 0
+      ? `Processing ${settledCount} of ${totalCount} locations`
+      : `Preparing ${clusterCount} ${clusterCount === 1 ? 'location' : 'locations'}`;
 
   return (
     <View style={styles.listContainer}>
@@ -74,17 +80,25 @@ export function SuggestionsPhase({
         </View>
       )}
 
+      {/* R28: the ONE announcing surface. Individual rows are marked
+          non-announcing (SwipeToSkipCard), so a hundred simultaneous
+          resolutions produce one polite header update, not a hundred. Same
+          role + live-region pairing the persistent scan banner already uses. */}
       {fetchingSuggestions && (
-        <View style={styles.progressHeader}>
+        <View
+          style={styles.progressHeader}
+          accessibilityRole="progressbar"
+          accessibilityLiveRegion="polite"
+          accessibilityLabel={progressLabel}
+          accessibilityValue={{ min: 0, max: 100, now: percentage }}
+        >
           <View style={styles.progressLabelRow}>
             <ActivityIndicator size="small" color={colors.sunsetGold} />
             <Text style={styles.progressLabel}>{progressLabel}</Text>
           </View>
-          {suggestionsProgress && (
+          {totalCount > 0 && (
             <View style={styles.progressBar}>
-              <View
-                style={[styles.progressFill, { width: `${suggestionsProgress.percentage}%` }]}
-              />
+              <View style={[styles.progressFill, { width: `${percentage}%` }]} />
             </View>
           )}
         </View>
@@ -102,17 +116,29 @@ export function SuggestionsPhase({
               return item.data.cluster_id;
             case 'lookup-failed':
             case 'photos-only':
+            case 'pending':
               return item.cluster.id;
           }
         }}
+        // Recycling pools are keyed by item type, so `pending` gets its own pool
+        // and a resolved card is never handed a pending cell's layout.
         getItemType={(item) => item.type}
         ListEmptyComponent={
-          fetchingSuggestions ? (
+          // The old "Finding nearby places..." spinner is unreachable now: every
+          // accepted cluster is a pending ROW, so a running dispatch always has
+          // rows once it has accepted anything. What is left is the zero-cluster
+          // case — a candidate whose clusters were all skipped or dismissed —
+          // which needs an explanation rather than blank space. While a fetch is
+          // still in its pre-dispatch window nothing has been accepted yet, and
+          // the progress header above already carries the spinner and the count,
+          // so this stays out of the way.
+          fetchingSuggestions ? null : (
             <View style={styles.loadingContainer}>
-              <ActivityIndicator size="large" color={colors.sunsetGold} />
-              <Text style={styles.loadingText}>Finding nearby places...</Text>
+              <Text style={styles.loadingText}>
+                {"No locations left to review — they've all been skipped for this trip."}
+              </Text>
             </View>
-          ) : null
+          )
         }
       />
     </View>

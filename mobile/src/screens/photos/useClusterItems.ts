@@ -28,6 +28,9 @@ const EMPTY_FAILED_CLUSTER_IDS: FailedClusterIds = new Map();
 /** Stable empty Set so an undefined `retryingClusterIds` doesn't churn the memo. */
 const EMPTY_RETRYING_CLUSTER_IDS: Set<string> = new Set();
 
+/** Stable empty Set for an absent `enqueuedClusterIds` (nothing accepted yet). */
+const EMPTY_ENQUEUED_CLUSTER_IDS: ReadonlySet<string> = new Set();
+
 interface UseClusterItemsOptions {
   selectedCandidate: TripCandidateDisplay | null;
   clusterDisplays: Map<string, LocationClusterDisplay>;
@@ -40,10 +43,13 @@ interface UseClusterItemsOptions {
    * every owner's signal together, because the screen only knows about the
    * fetches it started itself.
    *
-   * It has exactly ONE role left (KTD3): the Phase-1 reconciliation sweep. Once
+   * It has TWO roles (KTD3 + KTD22): the Phase-1 reconciliation sweep (once
    * dispatch has settled, a cluster with neither a response nor a failure entry
-   * becomes `lookup-failed`. It no longer withholds already-answered
-   * no-place-found rows — an empty response is terminal and renders at once.
+   * becomes `lookup-failed`), and the same-place merge gate (merging is
+   * suppressed until settle, R23). It no longer withholds already-answered
+   * no-place-found rows — an empty response is terminal and renders at once —
+   * and it no longer withholds unresolved clusters either: those are `pending`
+   * rows now (R10).
    */
   fetchingSuggestions: boolean;
   /**
@@ -71,6 +77,15 @@ export function useClusterItems({
   // Clusters whose place lookup failed (KTD6) — drives the `lookup-failed`
   // terminal state. Undefined-safe: an empty Map means "nothing failed".
   const failedClusterIds = suggestionDispatch.failedClusterIds ?? EMPTY_FAILED_CLUSTER_IDS;
+  // KTD7/R10: every cluster the controller has ACCEPTED, in flight or merely
+  // queued behind the live batches. Pending rows come from HERE, never from
+  // `inFlightClusterIds`.
+  const enqueuedClusterIds = suggestionDispatch.enqueuedClusterIds ?? EMPTY_ENQUEUED_CLUSTER_IDS;
+  // R1/KTD13 + KTD22: "all owners settled". The consumer's `fetchingSuggestions`
+  // already ORs the screen's own flag with `ownerCount > 0`; the explicit
+  // `ownerCount` term keeps this honest if a future caller passes a narrower
+  // signal. Gates BOTH the Phase-1 reconciliation sweep and the same-place merge.
+  const allOwnersSettled = !fetchingSuggestions && (suggestionDispatch.ownerCount ?? 0) === 0;
 
   // Memoize the merged suggestions Map separately to avoid rebuilding on every clusterItems recomputation
   // This Map only needs to rebuild when the suggestion sources change, not when dismissedClusterIds changes
@@ -123,6 +138,11 @@ export function useClusterItems({
       string,
       { cluster: LocationClusterDisplay; retryDisabled: boolean }
     >();
+    // R10: clusters the controller has ACCEPTED but nothing has resolved yet.
+    // Rendered as a pending row so every location is visible from the first
+    // frame and resolves IN PLACE (R11), instead of the screen sitting empty
+    // until each batch lands.
+    const pendingClusters = new Map<string, LocationClusterDisplay>();
 
     // Sub-clusters from a manual split always render as their own card, even if
     // they share a top place_id with another cluster. Grouping them would undo
@@ -162,20 +182,28 @@ export function useClusterItems({
         // behind the global fetch flag — that gate made an already-answered
         // cluster stay invisible behind slower ones.
         photosOnlyClusters.set(clusterId, cluster);
-      } else if (!fetchingSuggestions) {
+      } else if (allOwnersSettled) {
         // ADV-5 reconciliation invariant: the fetch is DONE, yet this cluster
         // has NEITHER a response (not in suggestionsMap / cache) NOR a failure
         // entry — the mutation never enumerated it (dropped during chunk
-        // assembly, omitted from uncachedClusters, partial-batch edge). It must
-        // NOT be confidently labeled no-place-found (no empty response ever
-        // arrived). Route it to lookup-failed with retry ENABLED so the user can
-        // recover it, never to photos-only.
+        // assembly, omitted from uncachedClusters, partial-batch edge), or
+        // dispatch settled without ever answering it (R2). It must NOT be
+        // confidently labeled no-place-found (no empty response ever arrived).
+        // Route it to lookup-failed with retry ENABLED so the user can recover
+        // it, never to photos-only. Ordered BEFORE the pending arm: once every
+        // owner has settled there is nothing left to wait for.
         lookupFailedClusters.set(clusterId, { cluster, retryDisabled: false });
+      } else if (enqueuedClusterIds.has(clusterId)) {
+        // pending (R10): accepted by the controller, not yet resolved and not
+        // yet failed. Rendered as a pending ROW rather than withheld — the old
+        // withhold left ~85 of 100 locations invisible behind the live batches
+        // (B5's over-correction). Never `lookup-failed` (R2): its lookup has not
+        // failed, it simply has not answered.
+        pendingClusters.set(clusterId, cluster);
       }
-      // else: fetch is still in flight and this cluster is unresolved (no
-      // response, no failure). Withhold it — don't flash no-place-found OR
-      // lookup-failed mid-fetch (B5). It will be classified once the fetch
-      // resolves it (empty response) or fails it (failedClusterIds).
+      // else: dispatch is still running but has not accepted this cluster yet
+      // (the pre-dispatch cache-read / vision-prep window). Withhold it — it has
+      // no state to show and asserting one would be a guess.
     }
 
     // Phase 2: Build display items in CANONICAL cluster order (KTD5/R11),
@@ -211,7 +239,27 @@ export function useClusterItems({
         const photosOnlyCluster = photosOnlyClusters.get(clusterId);
         if (photosOnlyCluster) {
           items.push({ type: 'photos-only', cluster: photosOnlyCluster });
+          continue;
         }
+        const pendingCluster = pendingClusters.get(clusterId);
+        if (pendingCluster) {
+          // Emitted from the SAME canonical pass as every other state, so the
+          // row occupies its final slot from the first frame and resolving only
+          // swaps the card that renders there (R11).
+          items.push({ type: 'pending', cluster: pendingCluster });
+        }
+        continue;
+      }
+
+      // KTD22 / R23: same-place merging is SUPPRESSED until every owner has
+      // settled. Merging is the one list behavior that REMOVES a row — the
+      // second cluster to claim a place disappears into the first's card — and
+      // doing that progressively makes rows vanish mid-scroll, or surfaces a
+      // merged card for a place the user already confirmed and saved. Rows
+      // never moving is worth more than merging early; one predictable collapse
+      // at settle is not.
+      if (!allOwnersSettled) {
+        items.push({ type: 'suggestion', data: entry.suggestion, cluster: entry.cluster });
         continue;
       }
 
@@ -263,7 +311,8 @@ export function useClusterItems({
     suggestionsMap,
     clusterDisplays,
     dismissedClusterIdsInternal,
-    fetchingSuggestions,
+    allOwnersSettled,
+    enqueuedClusterIds,
     failedClusterIds,
     retryingClusterIds,
   ]);

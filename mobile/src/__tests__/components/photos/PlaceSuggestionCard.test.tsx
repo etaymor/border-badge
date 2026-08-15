@@ -237,4 +237,60 @@ describe('PlaceSuggestionCard', () => {
       expect.objectContaining({ suggested_rank: 1, alternatives_viewed: 1 })
     );
   });
+
+  it('does not carry alternatives-viewed provenance into a recycled cell (U8)', () => {
+    // The previous cluster's viewed-index tracking lived in a plain ref that had
+    // to be reassigned from useRecyclingState's onReset — a write during render,
+    // which React Compiler may memoize around. When that write is skipped the
+    // card reports the PREVIOUS cluster's viewed count as this cluster's
+    // provenance, silently corrupting the photo_import eval metadata.
+    //
+    // The recycled cluster deliberately has the SAME number of options as the
+    // one before it, so a leaked viewed-set is invisible to the index-reset
+    // assertion above and only this count catches it.
+    const onConfirm = jest.fn();
+    const threeA = [
+      buildPlace({ place_id: 'ChIJ_a1', name: 'A One' }),
+      buildPlace({ place_id: 'ChIJ_a2', name: 'A Two' }),
+      buildPlace({ place_id: 'ChIJ_a3', name: 'A Three' }),
+    ];
+    const threeB = [
+      buildPlace({ place_id: 'ChIJ_b1', name: 'B One' }),
+      buildPlace({ place_id: 'ChIJ_b2', name: 'B Two' }),
+      buildPlace({ place_id: 'ChIJ_b3', name: 'B Three' }),
+    ];
+
+    const { getByLabelText, rerender } = render(
+      <PlaceSuggestionCard
+        suggestion={buildSuggestion(threeA, 'cluster-a')}
+        previewUris={['https://example.com/p1.jpg']}
+        onConfirm={onConfirm}
+        onReject={jest.fn()}
+        onPhotoPress={jest.fn()}
+      />
+    );
+
+    // Cycle through all three on cluster-a: viewed = 3.
+    fireEvent.press(getByLabelText('Next suggestion'));
+    fireEvent.press(getByLabelText('Next suggestion'));
+
+    // The pooled cell is handed to cluster-b WITHOUT remounting.
+    rerender(
+      <PlaceSuggestionCard
+        suggestion={buildSuggestion(threeB, 'cluster-b')}
+        previewUris={['https://example.com/p2.jpg']}
+        onConfirm={onConfirm}
+        onReject={jest.fn()}
+        onPhotoPress={jest.fn()}
+      />
+    );
+
+    // Confirmed without cycling: the user viewed exactly ONE option here.
+    fireEvent.press(getByLabelText('Confirm place suggestion'));
+    expect(onConfirm).toHaveBeenLastCalledWith(
+      expect.objectContaining({ cluster_id: 'cluster-b' }),
+      expect.objectContaining({ place_id: 'ChIJ_b1' }),
+      { suggested_rank: 1, alternatives_count: 3, alternatives_viewed: 1 }
+    );
+  });
 });
