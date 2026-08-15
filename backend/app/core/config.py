@@ -126,6 +126,19 @@ class Settings(BaseSettings):
         le=60.0,
         description="Timeout for processing a single cluster (includes retries)",
     )
+    vision_max_concurrent_requests: int = Field(
+        default=5,
+        ge=1,
+        le=50,
+        description=(
+            "U12: max concurrent vision (OpenRouter) calls a single "
+            "suggest-places request may have in flight. A full batch is 5 "
+            "clusters x up to 3 images = 15 images, so 15 classifies a batch "
+            "in ONE concurrency wave instead of three. Default stays at the "
+            "historical value (5); raise it only after reading the "
+            "vision-vs-search split off the place_matcher_phase_metrics line."
+        ),
+    )
     places_rank_distance_weight: float = Field(
         default=1.0,
         ge=0.0,

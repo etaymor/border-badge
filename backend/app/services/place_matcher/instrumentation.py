@@ -108,6 +108,29 @@ SITES: tuple[str, ...] = (
     SITE_ENRICHMENT,
 )
 
+# U12 vision-null outcomes. A classification that returns nothing costs the
+# cluster its business-name and landmark signals and drops it back to a
+# distance-ranked result — a silent degradation that a bare null COUNT cannot
+# explain. These say WHY the null happened, so a rise after the concurrency
+# bound is widened is attributable (timeouts) rather than merely visible.
+# Static strings only — no coordinate, cluster id, or place id (R27).
+VISION_NULL_TIMEOUT = "timeout"
+VISION_NULL_HTTP_ERROR = "http_error"
+VISION_NULL_REQUEST_ERROR = "request_error"
+VISION_NULL_EMPTY_RESPONSE = "empty_response"
+VISION_NULL_NO_API_KEY = "no_api_key"
+VISION_NULL_EXCEPTION = "exception"
+VISION_NULL_UNKNOWN = "unknown"
+VISION_NULL_REASONS: tuple[str, ...] = (
+    VISION_NULL_TIMEOUT,
+    VISION_NULL_HTTP_ERROR,
+    VISION_NULL_REQUEST_ERROR,
+    VISION_NULL_EMPTY_RESPONSE,
+    VISION_NULL_NO_API_KEY,
+    VISION_NULL_EXCEPTION,
+    VISION_NULL_UNKNOWN,
+)
+
 
 @dataclass
 class RequestMetrics:
@@ -139,6 +162,10 @@ class RequestMetrics:
     vision_images_attempted: int = 0
     vision_images_null: int = 0
     vision_total_ms: float = 0.0
+    # Why the null images were null (U12). Sums to vision_images_null.
+    vision_null_reasons: dict[str, int] = field(
+        default_factory=lambda: {reason: 0 for reason in VISION_NULL_REASONS}
+    )
 
     # Live/peak outbound concurrency. asyncio is single-threaded here, so a
     # plain counter is exact without a lock.
@@ -225,6 +252,7 @@ class RequestMetrics:
                 ),
                 "images_attempted": self.vision_images_attempted,
                 "images_null": self.vision_images_null,
+                "null_reasons": dict(self.vision_null_reasons),
                 "total_ms": round(self.vision_total_ms, 1),
             },
         }
@@ -342,8 +370,14 @@ def record_vision(
     images_attempted: int,
     images_null: int,
     total_ms: float,
+    null_reasons: dict[str, int] | None = None,
 ) -> None:
-    """Record the vision aggregates (drives the R18 vision-null rate)."""
+    """Record the vision aggregates (drives the R18 vision-null rate).
+
+    ``null_reasons`` (U12) attributes the null images to the outcome that
+    produced them — a timeout under a widened concurrency bound is otherwise
+    indistinguishable from a model that simply had nothing to say.
+    """
     metrics = _metrics_var.get()
     if metrics is None:
         return
@@ -352,3 +386,10 @@ def record_vision(
     metrics.vision_images_attempted += images_attempted
     metrics.vision_images_null += images_null
     metrics.vision_total_ms += total_ms
+    for reason, count in (null_reasons or {}).items():
+        if not count:
+            continue
+        key = reason if reason in VISION_NULL_REASONS else VISION_NULL_UNKNOWN
+        metrics.vision_null_reasons[key] = (
+            metrics.vision_null_reasons.get(key, 0) + count
+        )
