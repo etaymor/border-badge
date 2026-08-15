@@ -111,7 +111,29 @@ The photo import pipeline optionally uses computer vision to improve place match
 
 - Requires `OPENROUTER_API_KEY` env var
 - Uses `MULTIMODAL_MODEL` for model selection (default: `google/gemini-2.5-flash-lite`)
-- Cost: ~$0.00008 per photo at 768px via OpenRouter
+- Cost: ~$0.00023 per photo at 768px via OpenRouter (~2.2k prompt + ~37
+  completion tokens, measured 2026-08-15)
+
+### Why a Flash *Lite* model
+
+Benchmarked 2026-08-15 against the quiz eligibility payload on 5 hand-labelled
+photos. Gemini 2.5, 3.1, and 3.5 Flash Lite each scored 5/5 on both
+eligibility and people-detection at ~1s per image, so 2.5 stays as the
+cheapest and fastest of an indistinguishable set. 3.1 Flash Lite (~2x cost)
+and 3.5 Flash Lite (~2.4x) are drop-in `MULTIMODAL_MODEL` swaps if a larger
+labelled set ever shows a real difference.
+
+**Reasoning-model gotcha — read before switching to a Gemini 3.x Flash tier.**
+Those models reason on every request and OpenRouter rejects any attempt to
+disable it (`reasoning.enabled=false`, `reasoning.max_tokens=0`, and
+`reasoning_effort=none` all return HTTP 400 "Reasoning is mandatory for this
+endpoint"). Reasoning burns ~85-155 tokens out of `max_tokens` *before* any
+content, so an undersized budget returns HTTP 200 with `finish_reason="length"`
+and a truncated preamble instead of JSON — a silent parse failure, not an
+error. For the fail-closed quiz gate that reads as "every photo ineligible".
+The vision call sites budget `VISION_MAX_TOKENS` (`app/core/llm_utils.py`)
+specifically so an env-var-only model swap survives this; they also measured
+~2x slower against a 5s timeout, and ~4x the cost.
 
 ## Photo Trips Feature
 

@@ -685,3 +685,57 @@ class TestQuizParseResponse:
         assert result is not None
         assert result.category == "other"
         assert result.eligible is False
+
+
+class TestReasoningTokenBudget:
+    """Guard the max_tokens headroom that keeps MULTIMODAL_MODEL swappable.
+
+    The default model does not reason, but the setting is env-configurable
+    with no code change, and the Gemini 3.x Flash tiers reason on every
+    request and refuse to have it disabled. Their reasoning tokens are drawn
+    from ``max_tokens`` before any content is emitted, so a budget sized only
+    for the ~40-token JSON verdict truncates the response mid-preamble.
+    Because the gate is fail-closed, that surfaces as "every photo is
+    ineligible" rather than as an error -- silent, and indistinguishable from
+    a user whose photos genuinely don't qualify.
+    """
+
+    # Largest reasoning burn observed against the live quiz payload was ~155
+    # tokens; the floor keeps a wide margin over it plus the JSON verdict.
+    MIN_SAFE_MAX_TOKENS = 512
+
+    def test_request_budgets_max_tokens_above_reasoning_burn(
+        self, client: TestClient
+    ) -> None:
+        """The outgoing payload must leave room for reasoning + the verdict."""
+        response, mock_http = _post_eligibility(
+            client,
+            _db(_quiz_row()),
+            _openrouter_response(_model_result()),
+        )
+        assert response.status_code == 200
+
+        payload = mock_http.post.call_args.kwargs["json"]
+        assert payload["max_tokens"] >= self.MIN_SAFE_MAX_TOKENS, (
+            "max_tokens is too small to survive the model's mandatory "
+            "reasoning pass; every photo would fail closed to ineligible"
+        )
+
+    def test_truncated_preamble_is_ineligible_not_eligible(
+        self, client: TestClient
+    ) -> None:
+        """Reproduces the undersized-budget symptom: a length-truncated reply.
+
+        The model returns HTTP 200 with a partial preamble instead of JSON.
+        That must fail closed to ineligible, never eligible-by-default.
+        """
+        response, _ = _post_eligibility(
+            client,
+            _db(_quiz_row()),
+            _openrouter_response("Here is the JSON requested:"),
+        )
+
+        assert response.status_code == 200
+        results = response.json()["results"]
+        assert len(results) == 1
+        assert results[0]["status"] == "ineligible"

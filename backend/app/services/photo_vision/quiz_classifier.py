@@ -22,7 +22,11 @@ import httpx
 
 from app.core.config import get_settings
 from app.core.http_client import get_http_client
-from app.core.llm_utils import OPENROUTER_API_URL, extract_content
+from app.core.llm_utils import (
+    OPENROUTER_API_URL,
+    VISION_MAX_TOKENS,
+    extract_content,
+)
 
 from .classifier import MAX_CONCURRENT_VISION_REQUESTS
 from .quiz_constants import (
@@ -78,7 +82,7 @@ class QuizEligibilityClassifier:
     """Classify one image for quiz eligibility via OpenRouter.
 
     Mirrors :class:`PhotoClassifier`'s call path (same model, headers, and
-    ~$0.00008/photo cost at 768px) with the quiz prompt and strict schema.
+    ~$0.00023/photo cost at 768px) with the quiz prompt and strict schema.
     """
 
     def __init__(self, timeout: float = 5.0) -> None:
@@ -131,7 +135,7 @@ class QuizEligibilityClassifier:
                         },
                     ],
                     "temperature": 0.1,
-                    "max_tokens": 160,
+                    "max_tokens": VISION_MAX_TOKENS,
                     "response_format": QUIZ_ELIGIBILITY_RESPONSE_FORMAT,
                 },
                 headers={

@@ -60,6 +60,12 @@ class Settings(BaseSettings):
     # OpenRouter Configuration (for traveler classification)
     openrouter_api_key: str = Field(default="", repr=False)
     openrouter_model: str = "google/gemini-2.5-flash-lite"
+    # Deliberately a Flash *Lite*: the Gemini 3.x Flash tiers reason on every
+    # request and refuse to have it disabled, which costs latency and tokens
+    # without measurably helping this workload (see VISION_MAX_TOKENS before
+    # pointing MULTIMODAL_MODEL at one). Benchmarked 2026-08-15 on 5 labelled
+    # photos: 2.5/3.1/3.5 Flash Lite each scored 5/5 on eligibility and
+    # people-detection, so 2.5 wins on being the cheapest and fastest.
     multimodal_model: str = "google/gemini-2.5-flash-lite"
 
     # Analytics
@@ -306,8 +312,17 @@ class Settings(BaseSettings):
             "server-side against the quiz row's classified_count."
         ),
     )
+    # 50k/day is ~1k quiz creations at the typical 50-image first batch. At
+    # measured 2.5 Flash Lite rates (~2.2k prompt + ~37 completion tokens per
+    # 768px photo) that is ~$0.00023/photo, so a ~$12/day ceiling. Sized as an
+    # abuse circuit breaker, not a demand throttle: normal traffic should never
+    # reach it, so a trip means a farming loop, not a good day. Revisit this
+    # number if MULTIMODAL_MODEL changes — a Gemini 3.x Flash tier would put
+    # the same cap near $45/day. Raising past 1_000_000 requires
+    # lifting `le` below — an out-of-range env value fails validation at
+    # startup and takes the whole API down rather than degrading.
     quiz_classification_daily_cap: int = Field(
-        default=2000,
+        default=50_000,
         ge=0,
         le=1_000_000,
         description=(

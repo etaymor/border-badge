@@ -9,7 +9,11 @@ import httpx
 
 from app.core.config import get_settings
 from app.core.http_client import get_http_client
-from app.core.llm_utils import OPENROUTER_API_URL, extract_content
+from app.core.llm_utils import (
+    OPENROUTER_API_URL,
+    VISION_MAX_TOKENS,
+    extract_content,
+)
 
 from .constants import (
     CLASSIFICATION_RESPONSE_FORMAT,
@@ -79,12 +83,13 @@ class VisionResult:
 
 
 class PhotoClassifier:
-    """Classify photos using Gemini Flash Lite via OpenRouter.
+    """Classify photos using the configured multimodal model via OpenRouter.
 
     Sends 1 representative photo per cluster for vision analysis.
     Returns category, detected text, and confidence level.
 
-    Cost: ~$0.00008 per photo at 768px (well within $0.25 budget).
+    Cost: ~$0.00023 per photo at 768px on Gemini 2.5 Flash Lite (measured
+    2026-08-15; well within the $0.25 budget).
     """
 
     def __init__(self, timeout: float = 5.0) -> None:
@@ -132,7 +137,7 @@ class PhotoClassifier:
                         },
                     ],
                     "temperature": 0.1,
-                    "max_tokens": 300,
+                    "max_tokens": VISION_MAX_TOKENS,
                     "response_format": CLASSIFICATION_RESPONSE_FORMAT,
                 },
                 headers={

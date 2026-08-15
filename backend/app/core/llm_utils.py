@@ -5,6 +5,29 @@ import re
 # OpenRouter API endpoint
 OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
 
+# Token budget for the vision classifier call sites.
+#
+# The verdicts themselves are tiny (~37 completion tokens on the current
+# Flash Lite model), so this ceiling is not about the answer -- it is headroom
+# that keeps MULTIMODAL_MODEL safe to repoint at a *reasoning* model by env
+# var alone, with no code change.
+#
+# Why that matters: Gemini 3.x Flash reasons on every request and refuses to
+# have it disabled -- `reasoning: {enabled: false}`, `reasoning: {max_tokens:
+# 0}`, and `reasoning_effort: "none"` all return HTTP 400 "Reasoning is
+# mandatory for this endpoint and cannot be disabled." It spends ~85-155
+# tokens reasoning before emitting any content, drawn from `max_tokens`.
+#
+# An undersized budget then fails silently rather than loudly: the response
+# comes back 200 with finish_reason="length" and a truncated preamble ("Here
+# is the JSON"), which every parser here treats as unusable. For the
+# fail-closed quiz gate that reads as "ineligible", so a too-small budget
+# would quietly mark *every* photo ineligible instead of erroring.
+#
+# Callers pay only for tokens actually generated, so the ceiling is free on
+# the non-reasoning models we actually run.
+VISION_MAX_TOKENS = 1024
+
 # Patterns for parsing LLM JSON responses
 CODE_FENCE_PATTERN = re.compile(r"^```(?:\w+)?\s*\n?(.*?)\n?```\s*$", re.DOTALL)
 TRAILING_COMMA_PATTERN = re.compile(r",\s*([}\]])")
