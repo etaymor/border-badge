@@ -20,8 +20,7 @@
 import { renderHook } from '@testing-library/react-native';
 
 import { useClusterItems } from '../../../screens/photos/useClusterItems';
-import type { useSuggestPlacesChunked } from '../../../hooks/usePhotoImport';
-import type { FailedClusterIds } from '../../../hooks/usePhotoImport';
+import type { FailedClusterIds, SuggestionDispatchState } from '../../../hooks/usePhotoImport';
 import type {
   ClusterSuggestion,
   LocationClusterDisplay,
@@ -72,29 +71,30 @@ const buildCandidate = (clusterIds: string[]): TripCandidateDisplay => ({
 });
 
 /**
- * Build a fake suggestPlacesMutation exposing only the fields useClusterItems
- * reads: isPending, partialResults, data, and (U8/U9) failedClusterIds.
+ * Build a fake `suggestionDispatch` snapshot exposing only the fields
+ * useClusterItems reads: isDispatching, partialResults, data, and (U8/U9)
+ * failedClusterIds.
  */
 const buildMutation = (opts: {
   isPending?: boolean;
   partialResults?: ClusterSuggestion[];
   suggestions?: ClusterSuggestion[];
   failedClusterIds?: FailedClusterIds;
-}): ReturnType<typeof useSuggestPlacesChunked> => {
+}): SuggestionDispatchState => {
   const { isPending = false, partialResults = [], suggestions, failedClusterIds } = opts;
   return {
-    isPending,
+    isDispatching: isPending,
     partialResults,
     data: suggestions ? { suggestions } : undefined,
     failedClusterIds: failedClusterIds ?? new Map(),
-    // Remaining mutation fields are not read by the hook; cast through unknown.
-  } as unknown as ReturnType<typeof useSuggestPlacesChunked>;
+    // Remaining snapshot fields are not read by the hook; cast through unknown.
+  } as unknown as SuggestionDispatchState;
 };
 
 const renderItems = (params: {
   clusterIds: string[];
   clusters: LocationClusterDisplay[];
-  mutation: ReturnType<typeof useSuggestPlacesChunked>;
+  mutation: SuggestionDispatchState;
   cachedSuggestions?: ClusterSuggestion[];
   dismissed?: Set<string>;
   fetching?: boolean;
@@ -107,7 +107,7 @@ const renderItems = (params: {
     useClusterItems({
       selectedCandidate: buildCandidate(params.clusterIds),
       clusterDisplays,
-      suggestPlacesMutation: params.mutation,
+      suggestionDispatch: params.mutation,
       cachedSuggestions: params.cachedSuggestions ?? [],
       dismissedClusterIdsInternal: params.dismissed ?? new Set(),
       fetchingSuggestions: params.fetching ?? false,

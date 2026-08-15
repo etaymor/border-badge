@@ -295,7 +295,8 @@ export function usePhotoImportWorkflow({
   // Place Suggestions Hook
   // ==========================================================================
   const {
-    suggestPlacesMutation,
+    suggestionDispatch,
+    resetSuggestionDispatch,
     cachedSuggestions,
     fetchSuggestions,
     fetchForClusters,
@@ -341,7 +342,7 @@ export function usePhotoImportWorkflow({
   // ==========================================================================
   // Workflow Analytics Hook
   // ==========================================================================
-  const apiSuggestionsData = suggestPlacesMutation.data?.suggestions;
+  const apiSuggestionsData = suggestionDispatch.data?.suggestions;
 
   const { incrementConfirmed, incrementRejected, incrementHidden } = useWorkflowAnalytics({
     phase,
@@ -486,7 +487,7 @@ export function usePhotoImportWorkflow({
     beginFetchOwner,
     endFetchOwner,
     fetchSuggestions,
-    resetSuggestPlacesMutation: suggestPlacesMutation.reset,
+    resetSuggestPlacesMutation: resetSuggestionDispatch,
     clearFetchedCache,
   });
 
@@ -544,7 +545,7 @@ export function usePhotoImportWorkflow({
     selectedTripId,
     clusterDisplays,
     manualSearchCluster,
-    suggestPlacesMutation,
+    suggestionDispatch,
     cachedSuggestions,
     // R1/KTD13: the single honest in-progress signal — the OR of every dispatch
     // owner (auto-start, selectTrip, switchCandidate, the fetch itself, manual

@@ -15,6 +15,7 @@ The photo import feature allows users to scan their device photo library and aut
 - `photoCacheDbSuggestions.ts` - Processed clusters, cached suggestions with TTL
 - `photoBackgroundSync.ts` - Silent background cache refresh on app foreground (1hr interval)
 - `visionPhoto.ts` - Select representative photos, resize to 768px, base64 encode for vision API
+- `suggestionDispatch.ts` - Module-level singleton owning place-suggestion dispatch (see "Suggestion dispatch controller")
 - `types.ts`, `errors.ts`, `index.ts`
 
 ### Mobile Screen Components (`mobile/src/screens/photos/components/`)
@@ -29,7 +30,7 @@ The photo import feature allows users to scan their device photo library and aut
 ### Mobile Hooks (`mobile/src/screens/photos/`)
 
 - `usePhotoScan.ts` - Scan workflow with progress tracking
-- `usePlaceSuggestions.ts` - Fetch place suggestions with chunking, caching, and vision data
+- `usePlaceSuggestions.ts` - Suggestion-fetch policy: SQLite cache read/write discipline, premium gating, analytics, candidate-stale guarding. Chunking and dispatch live in `suggestionDispatch` (below)
 - `useEntryCreation.ts` - Create entries from confirmed suggestions
 - `usePhotoImportWorkflow.ts` - Orchestrates multi-phase workflow
 - `useWorkflowAnalytics.ts`, `useAutoStartWorkflow.ts`, `useClusterItems.ts`, `useScanLifecycle.ts`, `useWorkflowNavigation.ts`
@@ -38,6 +39,39 @@ The photo import feature allows users to scan their device photo library and aut
 
 - `usePhotoTrips.ts` - Access photo-discovered trips from SQLite cache with search/filter by country
 - `useMultiClusterUpload.ts` - Manage concurrent photo uploads from multiple location clusters
+
+### Suggestion dispatch controller
+
+`mobile/src/services/photoImport/suggestionDispatch.ts` is a **module-level singleton** that owns everything about _getting suggestions onto the wire_: batch planning, cluster claiming, abort, progress accounting, and failure attribution. It follows the same shape as `photoScanService` — the service owns the state machine, React subscribes to it — so dispatch state survives navigating away from the photo import screen and back. It replaced a chunked React Query mutation, which used none of React Query's affordances (no query key, no cache, no retry, no dedup).
+
+**Ownership split**
+
+| Concern                                                                                        | Owner                 |
+| ---------------------------------------------------------------------------------------------- | --------------------- |
+| Batch planning, claiming, abort, progress, failure attribution, the HTTP call                  | `suggestionDispatch`  |
+| Cache read/write discipline, premium gating, analytics, candidate-stale guard, retry spinner    | `usePlaceSuggestions` |
+
+**All three fetch paths go through it**
+
+| Path          | Entry point            | Controller call                                          |
+| ------------- | ---------------------- | -------------------------------------------------------- |
+| Main dispatch | `fetchSuggestions`     | `dispatch()` — plans batches, dispatches one at a time    |
+| Manual split  | `fetchForClusters`     | `claim()` -> `dispatchBatch()` -> `releaseClaim()`        |
+| Scoped retry  | `retryFailedClusters`  | `claim()` -> `dispatchBatch()` -> `releaseClaim()`        |
+
+**Batch plan.** `planSuggestionBatches()` splits clusters into a small opening batch (`FIRST_CHUNK_SIZE = 2`) followed by full-size ones (`CHUNK_SIZE = 5`), so time-to-first-suggestion is not gated on a full batch's on-device preparation. Preparation is pipelined exactly one batch ahead and serialized on a per-dispatch tail: Expo's async function queue is serial at the native layer, so extra preparation workers buy no parallelism. A preparation failure never rejects — the batch dispatches without vision images.
+
+**Three cluster sets.** These are distinct on purpose:
+
+- `enqueuedClusterIds` - every cluster the controller has _accepted_, resolved or not. Source of the pending rows: on a 100-cluster import all 100 are enqueued from the first frame, while only ~2-5 are on the wire. Sourcing pending rows from the in-flight set instead would leave the screen mostly empty.
+- `inFlightClusterIds` - clusters with a request actually outstanding. Drives retry/split claim deduplication: `claim()` returns only the ids it could take, so a double-tapped retry, or a retry racing the main dispatch, cannot double-fire or double-cache.
+- `dispatchedAndResolvedClusterIds` - clusters whose batch received a response. This is the **cache-write allow-list**: a suggestion cache row may be written for a cluster only on positive evidence that a response covering it arrived, so a cluster in a batch that threw — or in a batch that never went out after a fatal quota/rate-limit error — can never be cached as `[]` for its TTL.
+
+**Failure attribution.** A non-fatal batch error records that batch's clusters in `failedClusterIds` with retry enabled and the loop continues. A fatal error (429, or a 503 carrying `Retry-After` — quota is the only 503 that does) records the current batch _and every batch not yet dispatched_ with retry disabled, then re-throws. `failedClusterIds` survives the throw; `progress` is cleared.
+
+**Dispatch owner count.** `beginOwner()` / `endOwner()` implement the "is a fetch in progress?" signal as a count, not a boolean, because several call sites can start overlapping fetches; settled means _all_ owners released. The counter lives on the singleton so the two callbacks have stable identity for the five call sites that take them as props, and `reset()` deliberately does not zero it — a parked owner still holds its slot.
+
+**React seam.** `useSuggestionDispatch()` (`mobile/src/hooks/usePhotoImport.ts`) subscribes a component to the controller's snapshot via `useSyncExternalStore`. Actions are stable methods on the singleton, imported directly rather than threaded through props.
 
 ### Backend Place Matcher (`backend/app/services/place_matcher/`)
 

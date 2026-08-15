@@ -18,8 +18,7 @@ import type {
   LocationClusterDisplay,
   TripCandidateDisplay,
 } from '@services/photoImport';
-import type { useSuggestPlacesChunked } from '@hooks/usePhotoImport';
-import type { FailedClusterIds } from '@hooks/usePhotoImport';
+import type { FailedClusterIds, SuggestionDispatchState } from '@hooks/usePhotoImport';
 import type { ClusterDisplayItem } from './photoImportHelpers';
 import { createMergedSuggestion } from './photoImportHelpers';
 
@@ -32,7 +31,8 @@ const EMPTY_RETRYING_CLUSTER_IDS: Set<string> = new Set();
 interface UseClusterItemsOptions {
   selectedCandidate: TripCandidateDisplay | null;
   clusterDisplays: Map<string, LocationClusterDisplay>;
-  suggestPlacesMutation: ReturnType<typeof useSuggestPlacesChunked>;
+  /** Live snapshot of the `suggestionDispatch` controller (U14). */
+  suggestionDispatch: SuggestionDispatchState;
   cachedSuggestions: ClusterSuggestion[];
   dismissedClusterIdsInternal: Set<string>;
   /**
@@ -57,19 +57,20 @@ interface UseClusterItemsOptions {
 export function useClusterItems({
   selectedCandidate,
   clusterDisplays,
-  suggestPlacesMutation,
+  suggestionDispatch,
   cachedSuggestions,
   dismissedClusterIdsInternal,
   fetchingSuggestions,
   retryingClusterIds = EMPTY_RETRYING_CLUSTER_IDS,
 }: UseClusterItemsOptions): ClusterDisplayItem[] {
-  // Extract stable values from mutation to avoid re-renders when mutation object reference changes
-  const suggestionsIsPending = suggestPlacesMutation.isPending;
-  const suggestionsPartialResults = suggestPlacesMutation.partialResults;
-  const suggestionsData = suggestPlacesMutation.data;
+  // Extract the individual fields the memos depend on, so a snapshot change
+  // that touches an unrelated field does not rebuild the item list.
+  const suggestionsIsPending = suggestionDispatch.isDispatching;
+  const suggestionsPartialResults = suggestionDispatch.partialResults;
+  const suggestionsData = suggestionDispatch.data;
   // Clusters whose place lookup failed (KTD6) — drives the `lookup-failed`
   // terminal state. Undefined-safe: an empty Map means "nothing failed".
-  const failedClusterIds = suggestPlacesMutation.failedClusterIds ?? EMPTY_FAILED_CLUSTER_IDS;
+  const failedClusterIds = suggestionDispatch.failedClusterIds ?? EMPTY_FAILED_CLUSTER_IDS;
 
   // Memoize the merged suggestions Map separately to avoid rebuilding on every clusterItems recomputation
   // This Map only needs to rebuild when the suggestion sources change, not when dismissedClusterIds changes

@@ -95,7 +95,7 @@ export function PhotoImportScreen({ navigation, route }: Props) {
     selectedTripId,
     clusterDisplays,
     manualSearchCluster,
-    suggestPlacesMutation,
+    suggestionDispatch,
     cachedSuggestions,
     fetchingSuggestions,
     retryingClusterIds,
@@ -274,14 +274,14 @@ export function PhotoImportScreen({ navigation, route }: Props) {
         onCreateTrip={handleCreateTrip}
         index={index}
         selectedTripId={rememberedTripId}
-        isLoadingSuggestions={suggestPlacesMutation.isPending}
+        isLoadingSuggestions={suggestionDispatch.isDispatching}
       />
     ),
     [
       handleSelectTripForCandidate,
       handleCreateTrip,
       rememberedTripId,
-      suggestPlacesMutation.isPending,
+      suggestionDispatch.isDispatching,
     ]
   );
 
@@ -289,7 +289,7 @@ export function PhotoImportScreen({ navigation, route }: Props) {
   const clusterItems = useClusterItems({
     selectedCandidate,
     clusterDisplays,
-    suggestPlacesMutation,
+    suggestionDispatch,
     cachedSuggestions,
     dismissedClusterIdsInternal,
     fetchingSuggestions,
@@ -465,7 +465,7 @@ export function PhotoImportScreen({ navigation, route }: Props) {
           isPremium={isPremium}
           canImportPhotos={canImportPhotos}
           fetchingSuggestions={fetchingSuggestions}
-          suggestionsProgress={suggestPlacesMutation.progress ?? null}
+          suggestionsProgress={suggestionDispatch.progress ?? null}
           clusterItems={clusterItems}
           renderClusterItem={renderClusterItem}
           onUpgrade={() => rootNavigation.navigate('PaywallModal', { feature: 'photoImport' })}

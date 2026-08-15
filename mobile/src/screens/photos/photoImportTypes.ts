@@ -4,7 +4,7 @@
 
 import type { SelectedPlace } from '@components/places';
 import type { ClusterUploadState } from '@hooks/useMultiClusterUpload';
-import type { useSuggestPlacesChunked } from '@hooks/usePhotoImport';
+import type { SuggestionDispatchState } from '@hooks/usePhotoImport';
 import type {
   ScanProgress,
   TripCandidateDisplay,
@@ -59,7 +59,12 @@ export interface PhotoImportWorkflowResult {
   selectedTripId: string | null;
   clusterDisplays: Map<string, LocationClusterDisplay>;
   manualSearchCluster: LocationCluster | null;
-  suggestPlacesMutation: ReturnType<typeof useSuggestPlacesChunked>;
+  /**
+   * Live snapshot of the `suggestionDispatch` controller (U14): dispatch
+   * progress, partial and final results, failure attribution, and the enqueued
+   * / in-flight / dispatched-and-resolved cluster sets.
+   */
+  suggestionDispatch: SuggestionDispatchState;
   /** Suggestions loaded from SQLite cache (merged with API results in UI) */
   cachedSuggestions: ClusterSuggestion[];
   /** Timestamp of last successful import, null if never imported */

@@ -456,9 +456,9 @@ describe('usePlaceSuggestions.retryFailedClusters (U10)', () => {
     });
 
     // The fatal 429 recorded quota-1 with retryDisabled=true.
-    expect(
-      result.current.suggestPlacesMutation.failedClusterIds.get('quota-1')?.retryDisabled
-    ).toBe(true);
+    expect(result.current.suggestionDispatch.failedClusterIds.get('quota-1')?.retryDisabled).toBe(
+      true
+    );
 
     mockedApi.post.mockClear();
 
@@ -503,7 +503,7 @@ describe('usePlaceSuggestions.retryFailedClusters (U10)', () => {
     expect(
       result.current.cachedSuggestions.find((s) => s.cluster_id === 'stale-1')
     ).toBeUndefined();
-    expect(result.current.suggestPlacesMutation.failedClusterIds.has('stale-1')).toBe(false);
+    expect(result.current.suggestionDispatch.failedClusterIds.has('stale-1')).toBe(false);
   });
 
   it('CANDIDATE-STALE: switch-away-then-back to the SAME candidate keeps the result (live-ref check)', async () => {
@@ -1123,5 +1123,52 @@ describe('usePlaceSuggestions pipelined preparation (U5)', () => {
     expect(firstBody.clusters[0].vision_images_base64).toBeUndefined();
     expect(firstBody.clusters[1].vision_images_base64).toEqual(['ok-image']);
     expect(result.current.isFetchingSuggestions).toBe(false);
+  });
+});
+
+// ---- Callback identity across the dispatch seam (U14) -----------------------
+
+describe('usePlaceSuggestions callback identity (U14)', () => {
+  const buildCandidate = (clusterIds: string[], id = 'cand-identity') => ({
+    id,
+    countryCode: 'JP',
+    dateRange: { start: new Date(), end: new Date() },
+    photoIds: [],
+    photoCount: clusterIds.length,
+    previewUris: [],
+    previewAssetIds: [],
+    locationClusterIds: clusterIds,
+  });
+
+  it('keeps the retry callback stable across dispatch progress updates', async () => {
+    // Enough clusters for several batches, so the controller publishes progress,
+    // partial results, and claim-set changes mid-run. Before U14 the retry
+    // callback depended on the mutation's state container and was rebuilt on
+    // every one of those updates.
+    const clusters = Array.from({ length: FIRST_CHUNK_SIZE + CHUNK_SIZE * 2 }, (_, i) =>
+      makeCluster(`ident-${i}`, 35 + i * 0.01, 139)
+    );
+    mockedApi.post.mockResolvedValue({ data: { suggestions: [], failed_cluster_count: 0 } });
+
+    const { result } = setup(clusters);
+    const before = {
+      retryFailedClusters: result.current.retryFailedClusters,
+      fetchForClusters: result.current.fetchForClusters,
+      beginFetchOwner: result.current.beginFetchOwner,
+      endFetchOwner: result.current.endFetchOwner,
+    };
+
+    await act(async () => {
+      await result.current.fetchSuggestions(buildCandidate(clusters.map((c) => c.id)));
+    });
+
+    // The dispatch really did publish intermediate state.
+    expect(mockedApi.post).toHaveBeenCalledTimes(planSuggestionBatches(clusters).length);
+    expect(result.current.retryFailedClusters).toBe(before.retryFailedClusters);
+    expect(result.current.fetchForClusters).toBe(before.fetchForClusters);
+    // The owner-count callbacks are controller methods, so they are stable for
+    // the five call sites that take them as props.
+    expect(result.current.beginFetchOwner).toBe(before.beginFetchOwner);
+    expect(result.current.endFetchOwner).toBe(before.endFetchOwner);
   });
 });

@@ -12,13 +12,12 @@ import { useCallback, useRef, useState } from 'react';
 import { Alert } from 'react-native';
 import { AxiosError } from 'axios';
 
+import { useSuggestionDispatch } from '@hooks/usePhotoImport';
 import {
-  useSuggestPlacesChunked,
+  suggestionDispatch,
   RateLimitError,
   QuotaExhaustedError,
-  SUGGEST_PLACES_TIMEOUT_MS,
-} from '@hooks/usePhotoImport';
-import { api } from '@services/api';
+} from '@services/photoImport/suggestionDispatch';
 import {
   getFullCluster,
   getCachedSuggestions,
@@ -28,7 +27,6 @@ import {
   type LocationCluster,
   type ClusterSuggestion,
   type PlaceSuggestion,
-  type PlaceSuggestionResponse,
 } from '@services/photoImport';
 import { getVisionImagesForCluster } from '@services/photoImport/visionPhoto';
 import { Analytics, calculateApiPercentiles } from '@services/analytics';
@@ -97,7 +95,12 @@ export function usePlaceSuggestions({
   clusterLookupRef,
   currentCandidateIdRef,
 }: UsePlaceSuggestionsOptions) {
-  const suggestPlacesMutation = useSuggestPlacesChunked();
+  // Live snapshot of the dispatch controller (KTD21). The controller is a
+  // module-level singleton, so this hook only READS its state — chunking,
+  // claiming, abort, progress, and failure attribution are its business, while
+  // cache discipline, entitlement, analytics, and candidate-stale guarding
+  // stay here (KTD15).
+  const dispatchState = useSuggestionDispatch();
 
   // Premium subscription state
   const isPremium = useIsPremium();
@@ -121,15 +124,8 @@ export function usePlaceSuggestions({
   // no-place-found card during a retry (KTD7 / C4).
   const [retryingClusterIds, setRetryingClusterIds] = useState<Set<string>>(() => new Set());
 
-  // Own in-flight guard for the retry path (KTD7), distinct from the
-  // candidate-stale guard (`currentCandidateIdRef`/`isStaleRequest`). Holds the
-  // cluster ids whose retry API call is currently in flight so a double-tap
-  // doesn't double-fire and a retry-vs-active-fetch race (I5) can't cause a
-  // double `cacheSuggestions` write.
-  const retryInFlightRef = useRef<Set<string>>(new Set());
-
   // ==========================================================================
-  // Dispatch owner count (R1 / KTD13)
+  // Dispatch owner count (R1 / KTD13) — owned by the controller
   // ==========================================================================
   // The "is a suggestion fetch in progress?" signal is a COUNT of concurrent
   // owners, not a boolean. Several independent call sites can start a fetch and
@@ -148,24 +144,20 @@ export function usePlaceSuggestions({
   // the network) still holds its slot, because the bracket is around the whole
   // body rather than around the network call.
   //
+  // The counter lives on the singleton (U14/KTD21) rather than in this hook, so
+  // `beginFetchOwner` / `endFetchOwner` have STABLE identity across progress
+  // updates — five call sites take them as props — and so an owner claimed
+  // before a navigation is still counted after it.
+  //
   // The retry path (`retryFailedClusters`) deliberately does NOT take a slot: it
   // is scoped to explicit clusters and drives its own per-cluster spinner via
   // `retryingClusterIds`. Taking a global slot would re-hide every healthy
   // photos-only / no-place-found card during a retry (KTD7 / C4).
-  const [fetchOwnerCount, setFetchOwnerCount] = useState(0);
-
-  /** Claim a dispatch owner slot. Always pair with `endFetchOwner` in a finally. */
-  const beginFetchOwner = useCallback(() => {
-    setFetchOwnerCount((count) => count + 1);
-  }, []);
-
-  /** Release a dispatch owner slot. Clamped so a stray release can't go negative. */
-  const endFetchOwner = useCallback(() => {
-    setFetchOwnerCount((count) => Math.max(0, count - 1));
-  }, []);
+  const beginFetchOwner = suggestionDispatch.beginOwner;
+  const endFetchOwner = suggestionDispatch.endOwner;
 
   /** True while ANY owner has an unsettled suggestion fetch (R1). */
-  const isFetchingSuggestions = fetchOwnerCount > 0;
+  const isFetchingSuggestions = dispatchState.ownerCount > 0;
 
   /**
    * Fetch place suggestions for a candidate.
@@ -311,9 +303,9 @@ export function usePlaceSuggestions({
         if (__DEV__) {
           logger.log('[PhotoImport] All clusters cached - no API call needed');
         }
-        // Reset mutation state and mark as fetched (only if still current)
+        // Reset dispatch state and mark as fetched (only if still current)
         if (!isStaleRequest()) {
-          suggestPlacesMutation.reset();
+          suggestionDispatch.reset();
           fetchedCandidatesRef.current.add(candidate.id);
 
           // Track analytics for cache hits (100% cache hit rate, no API times)
@@ -344,16 +336,17 @@ export function usePlaceSuggestions({
       }
 
       try {
-        // U5/R5. Preparation is PER BATCH, not up front. The mutation dispatches
-        // batch one while batch two is still being encoded; previously every
-        // uncached cluster was prepared before the first request went out, which
-        // on a large trip is minutes of zero network. `mapClusterToApiPayload`
-        // with no images builds the cheap skeleton (ids, centroid, photo
-        // coordinates); `prepareBatch` attaches the expensive base64 vision
-        // images to just the batch about to be dispatched.
+        // U5/R5. Preparation is PER BATCH, not up front. The controller
+        // dispatches batch one while batch two is still being encoded;
+        // previously every uncached cluster was prepared before the first
+        // request went out, which on a large trip is minutes of zero network.
+        // `mapClusterToApiPayload` with no images builds the cheap skeleton
+        // (ids, centroid, photo coordinates); `prepareBatch` attaches the
+        // expensive base64 vision images to just the batch about to be
+        // dispatched.
         const clustersById = new Map(uncachedClusters.map((c) => [c.id, c]));
 
-        const result = await suggestPlacesMutation.mutateAsync({
+        const result = await suggestionDispatch.dispatch({
           clusters: uncachedClusters.map((c) => mapClusterToApiPayload(c, [])),
           prepareBatch: async (batch) => {
             const batchClusters = batch
@@ -379,21 +372,25 @@ export function usePlaceSuggestions({
           });
         }
 
-        // Cache the fresh API results to SQLite
-        // Only cache clusters that have a corresponding suggestion in the response.
-        // When failed_cluster_count > 0, missing clusters failed transiently —
-        // caching [] for them would prevent re-querying on the next attempt.
-        // Additionally exclude any cluster whose CHUNK failed (failedClusterIds):
-        // the failed_cluster_count guard only covers per-cluster timeouts, so a
-        // failed chunk's clusters would otherwise be cached as [] for 24h (KTD8).
+        // Cache the fresh API results to SQLite.
+        //
+        // R20: a cache row is written for a cluster ONLY on positive evidence
+        // that a response covering it arrived. `dispatchedAndResolvedIds` is the
+        // controller's allow-list of exactly those clusters, so a cluster in a
+        // batch that threw, or in a batch that never went out at all (fatal
+        // abort), can never be written as `[]` for 24h (KTD8).
+        //
+        // On top of the allow-list: when failed_cluster_count > 0, a cluster the
+        // response omitted failed transiently within an otherwise-successful
+        // batch — caching [] for it would prevent re-querying on the next
+        // attempt. `failedClusterIds` is read from the RESOLVED RESULT (fresh,
+        // synchronous), never from React state, which is a render behind.
         const respondedClusterIds = new Set(result.suggestions.map((s) => s.cluster_id));
-        // Read the failed ids from the resolved result (fresh, synchronous) — the
-        // mutation's `failedClusterIds` state is captured stale in this closure
-        // because it is set during the awaited mutateAsync we just resolved.
         const failedClusterIds = result.failedClusterIds;
         const suggestionsToCache = uncachedClusters
           .filter(
             (cluster) =>
+              result.dispatchedAndResolvedIds.has(cluster.id) &&
               !failedClusterIds.has(cluster.id) &&
               (respondedClusterIds.has(cluster.id) || result.failed_cluster_count === 0)
           )
@@ -438,8 +435,11 @@ export function usePlaceSuggestions({
           }
         }
 
-        // Track analytics with cache metrics and API timing
-        const failedChunks = suggestPlacesMutation.progress?.failedChunks ?? 0;
+        // Track analytics with cache metrics and API timing. `failedChunks` is
+        // read LIVE from the controller: the previous read went through the
+        // mutation object captured in this closure, which predates the dispatch
+        // it is describing and therefore always reported 0.
+        const failedChunks = suggestionDispatch.getState().progress?.failedChunks ?? 0;
         const apiTimes = result.chunkResponseTimes ?? [];
         const percentiles = apiTimes.length > 0 ? calculateApiPercentiles(apiTimes) : null;
 
@@ -464,7 +464,7 @@ export function usePlaceSuggestions({
       } catch (error) {
         if (__DEV__) console.error('[PhotoImport] Suggestion error:', error);
 
-        // M1: no Alert here. The chunked mutation records every un-responded
+        // M1: no Alert here. The controller records every un-responded
         // cluster into `failedClusterIds` (KTD6/KTD10) before a fatal 429/503
         // re-throws, and non-fatal chunk failures populate it too — so
         // `useClusterItems` already surfaces each failure as a `lookup-failed`
@@ -482,14 +482,10 @@ export function usePlaceSuggestions({
 
       return undefined;
     },
-    [
-      suggestPlacesMutation,
-      clusterLookupRef,
-      isPremium,
-      canImportPhotos,
-      incrementPhotoImportUsage,
-      currentCandidateIdRef,
-    ]
+    // The controller is a module singleton, so it is NOT a dependency: this
+    // callback no longer churns on every progress update the way it did when it
+    // depended on the mutation's state container.
+    [clusterLookupRef, isPremium, canImportPhotos, incrementPhotoImportUsage, currentCandidateIdRef]
   );
 
   /**
@@ -524,8 +520,10 @@ export function usePlaceSuggestions({
    * Fetch place suggestions for specific clusters (e.g., after manual split).
    * Bypasses candidate-level caching since these are new synthetic clusters.
    *
-   * Uses a direct API call instead of the shared mutation to avoid replacing
-   * existing suggestion data for other clusters.
+   * Dispatches as a SCOPED single batch through the controller
+   * (`claim` -> `dispatchBatch` -> `releaseClaim`) so it shares the claim sets,
+   * the timeout, and the response partition with the other two paths — while
+   * leaving the main dispatch's partial results and failure attribution alone.
    *
    * Owns a dispatch slot for its whole duration (R1/KTD13) so a split that
    * overlaps the main dispatch cannot make the main dispatch look settled, and
@@ -546,26 +544,30 @@ export function usePlaceSuggestions({
       const isStaleRequest = () =>
         currentCandidateIdRef != null && currentCandidateIdRef.current !== requestCandidateId;
 
+      // Claim synchronously, before the first await, so a split cannot re-buy a
+      // cluster another path already has on the wire (KTD7).
+      const claimedIds = suggestionDispatch.claim(clusters.map((c) => c.id));
+      if (claimedIds.length === 0) return;
+      const claimed = new Set(claimedIds);
+      const toDispatch = clusters.filter((c) => claimed.has(c.id));
+
       beginFetchOwner();
       try {
-        const visionImages = await prepareVisionImagesBounded(clusters);
-        const response = await api.post(
-          '/photos/suggest-places',
-          {
-            clusters: clusters.map((c, i) => mapClusterToApiPayload(c, visionImages[i])),
+        const { response: result, respondedIds } = await suggestionDispatch.dispatchBatch({
+          clusterIds: claimedIds,
+          prepare: async () => {
+            const visionImages = await prepareVisionImagesBounded(toDispatch);
+            return toDispatch.map((c, i) => mapClusterToApiPayload(c, visionImages[i]));
           },
-          { timeout: SUGGEST_PLACES_TIMEOUT_MS }
-        );
-        const result = response.data as PlaceSuggestionResponse;
+        });
 
         // Cache results to SQLite — skip clusters missing due to transient failures.
-        // Unlike fetchSuggestions there is no chunk concept here (a single raw
-        // api.post), so the only lookup-failure signals are (a) a thrown error for
-        // the whole call — handled by the catch below, which caches nothing — and
-        // (b) failed_cluster_count for per-cluster timeouts, excluded here. A
-        // transiently-failed split cluster must never be written as [] (KTD8/B1).
-        const respondedIds = new Set(result.suggestions.map((s) => s.cluster_id));
-        const toCache = clusters
+        // This is a single batch, so the only lookup-failure signals are (a) a
+        // thrown error for the whole call — handled by the catch below, which
+        // caches nothing — and (b) failed_cluster_count for per-cluster timeouts,
+        // excluded here. A transiently-failed split cluster must never be written
+        // as [] (KTD8/B1/R20).
+        const toCache = toDispatch
           .filter((cluster) => respondedIds.has(cluster.id) || result.failed_cluster_count === 0)
           .map((cluster) => {
             const suggestion = result.suggestions.find((s) => s.cluster_id === cluster.id);
@@ -615,6 +617,7 @@ export function usePlaceSuggestions({
           );
         }
       } finally {
+        suggestionDispatch.releaseClaim(claimedIds);
         endFetchOwner();
       }
     },
@@ -623,8 +626,9 @@ export function usePlaceSuggestions({
 
   /**
    * Retry the place lookup for an EXPLICIT list of previously-failed clusters
-   * (U10 / KTD7, KTD8, KTD10, M1). Modeled on `fetchForClusters` (raw api.post,
-   * bypasses candidate-level caching), but:
+   * (U10 / KTD7, KTD8, KTD10, M1). Dispatches as a scoped single batch through
+   * the controller, like `fetchForClusters`, and bypasses candidate-level
+   * caching, but:
    *
    *  - Scope: re-fetches ONLY the passed ids — chunk-1 successes are never
    *    re-requested. ids are resolved to LocationClusters via `clusterLookupRef`.
@@ -635,9 +639,9 @@ export function usePlaceSuggestions({
    *    cache, so they normally miss and re-fetch — which is correct.
    *  - retryDisabled no-op (KTD10): clusters whose failure is `retryDisabled`
    *    (429/503) are filtered out BEFORE fetching — no API call fires for them.
-   *  - Own in-flight guard (KTD7): `retryInFlightRef` prevents a double-tap from
-   *    double-firing and a retry-vs-active-fetch race (I5) from double-caching.
-   *    Separate from the candidate-stale guard below.
+   *  - In-flight guard (KTD7): the controller's in-flight claim set prevents a
+   *    double-tap from double-firing and a retry-vs-active-fetch race (I5) from
+   *    double-caching. Separate from the candidate-stale guard below.
    *  - Candidate-stale guard: if the user switches candidates while a retry is in
    *    flight, the resolved result must NOT write the old cluster's state into the
    *    new candidate (switchCandidate resets failedClusterIds/cachedSuggestions).
@@ -657,7 +661,10 @@ export function usePlaceSuggestions({
       if (clusterIds.length === 0) return;
 
       const currentClusterLookup = clusterLookupRef.current;
-      const failedInfo = suggestPlacesMutation.failedClusterIds ?? new Map();
+      // Read failure metadata LIVE from the controller rather than from a
+      // rendered snapshot: this callback must not depend on the dispatch state
+      // container, or its identity churns on every progress update.
+      const failedInfo = suggestionDispatch.getState().failedClusterIds;
 
       // Candidate-stale guard: capture the active candidate at entry and compare
       // against the LIVE ref at each resolution point. If the user switched
@@ -669,26 +676,26 @@ export function usePlaceSuggestions({
       const isStaleRetry = () =>
         currentCandidateIdRef != null && currentCandidateIdRef.current !== retryCandidateId;
 
-      // Resolve ids -> clusters, skipping: (a) ids already retrying (own
-      // in-flight guard, KTD7), (b) retryDisabled (429/503) failures (KTD10), and
-      // (c) ids that don't resolve to a known cluster. The guard check + claim
-      // happens SYNCHRONOUSLY here (before any await) so a double-tap / a
-      // retry-vs-retry race (I5) can't slip two calls past the check and
-      // double-fire / double-cache.
-      const toRetry: LocationCluster[] = [];
+      // Resolve ids -> clusters, skipping: (a) retryDisabled (429/503) failures
+      // (KTD10) and (b) ids that don't resolve to a known cluster. Then claim
+      // through the controller, which drops anything another path already has on
+      // the wire. Both steps run SYNCHRONOUSLY here (before any await) so a
+      // double-tap / a retry-vs-retry race (I5) can't slip two calls past the
+      // check and double-fire / double-cache.
+      const candidates: LocationCluster[] = [];
       for (const id of clusterIds) {
-        if (retryInFlightRef.current.has(id)) continue;
         if (failedInfo.get(id)?.retryDisabled) continue;
         const cluster = getFullCluster(id, currentClusterLookup);
-        if (cluster) toRetry.push(cluster);
+        if (cluster) candidates.push(cluster);
       }
 
-      if (toRetry.length === 0) return;
+      const claimedIds = suggestionDispatch.claim(candidates.map((c) => c.id));
+      if (claimedIds.length === 0) return;
+      const claimed = new Set(claimedIds);
+      const toRetry = candidates.filter((c) => claimed.has(c.id));
 
-      // Claim the ids synchronously (in-flight guard) + flag as retrying
-      // (spinner) before any await. The `finally` releases them.
-      const claimedIds = toRetry.map((c) => c.id);
-      for (const id of claimedIds) retryInFlightRef.current.add(id);
+      // Flag the claimed ids as retrying (per-cluster spinner) before any await.
+      // The `finally` releases both the claim and the spinner.
       setRetryingClusterIds((prev) => {
         const next = new Set(prev);
         for (const id of claimedIds) next.add(id);
@@ -736,23 +743,19 @@ export function usePlaceSuggestions({
         // the SQLite row already exists for a later return).
         if (cachedHits.length > 0 && !isStaleRetry()) {
           setCachedSuggestions((prev) => [...prev, ...cachedHits]);
-          suggestPlacesMutation.clearFailedClusterIds(cachedHits.map((s) => s.cluster_id));
+          suggestionDispatch.clearFailedClusterIds(cachedHits.map((s) => s.cluster_id));
           for (const s of cachedHits) pendingIds.delete(s.cluster_id);
         }
 
         if (uncached.length === 0) return;
 
-        const visionImages = await prepareVisionImagesBounded(uncached);
-        const response = await api.post(
-          '/photos/suggest-places',
-          {
-            clusters: uncached.map((c, i) => mapClusterToApiPayload(c, visionImages[i])),
+        const { response: result, respondedIds } = await suggestionDispatch.dispatchBatch({
+          clusterIds: uncached.map((c) => c.id),
+          prepare: async () => {
+            const visionImages = await prepareVisionImagesBounded(uncached);
+            return uncached.map((c, i) => mapClusterToApiPayload(c, visionImages[i]));
           },
-          { timeout: SUGGEST_PLACES_TIMEOUT_MS }
-        );
-        const result = response.data as PlaceSuggestionResponse;
-
-        const respondedIds = new Set(result.suggestions.map((s) => s.cluster_id));
+        });
 
         // Per-cluster partition: succeeded (responded) vs re-failed (no
         // response — e.g. a per-cluster timeout in failed_cluster_count).
@@ -794,7 +797,7 @@ export function usePlaceSuggestions({
 
             // Resolved -> remove from failedClusterIds so useClusterItems
             // reclassifies them as matched / no-place-found.
-            suggestPlacesMutation.clearFailedClusterIds(succeeded.map((c) => c.id));
+            suggestionDispatch.clearFailedClusterIds(succeeded.map((c) => c.id));
             for (const c of succeeded) pendingIds.delete(c.id);
           }
         }
@@ -802,7 +805,7 @@ export function usePlaceSuggestions({
         // Re-failed clusters stay lookup-failed (retry still enabled, no cap) —
         // but not if the candidate changed (don't pollute the new candidate).
         if (reFailed.length > 0 && !isStaleRetry()) {
-          suggestPlacesMutation.addFailedClusterIds(
+          suggestionDispatch.addFailedClusterIds(
             reFailed.map((c) => ({ id: c.id, retryDisabled: false }))
           );
         }
@@ -814,15 +817,15 @@ export function usePlaceSuggestions({
         // api.post throw can't wrongly re-fail a resolved cluster.
         if (__DEV__) console.error('[PhotoImport] retryFailedClusters error:', error);
         if (pendingIds.size > 0 && !isStaleRetry()) {
-          suggestPlacesMutation.addFailedClusterIds(
+          suggestionDispatch.addFailedClusterIds(
             [...pendingIds].map((id) => ({ id, retryDisabled: false }))
           );
         }
       } finally {
-        // Release the in-flight + retrying state for these ids. (Always release,
-        // even on a stale retry — the spinner/guard for the claimed ids must
-        // clear regardless of whether the candidate changed.)
-        for (const id of claimedIds) retryInFlightRef.current.delete(id);
+        // Release the in-flight claim + retrying state for these ids. (Always
+        // release, even on a stale retry — the spinner/claim for the claimed ids
+        // must clear regardless of whether the candidate changed.)
+        suggestionDispatch.releaseClaim(claimedIds);
         setRetryingClusterIds((prev) => {
           const next = new Set(prev);
           for (const id of claimedIds) next.delete(id);
@@ -830,7 +833,11 @@ export function usePlaceSuggestions({
         });
       }
     },
-    [clusterLookupRef, suggestPlacesMutation, currentCandidateIdRef]
+    // The controller is a module singleton and `clusterLookupRef` /
+    // `currentCandidateIdRef` are refs, so this callback's identity is STABLE
+    // across progress updates. It previously depended on the mutation's state
+    // container and churned on every batch.
+    [clusterLookupRef, currentCandidateIdRef]
   );
 
   /**
@@ -843,7 +850,15 @@ export function usePlaceSuggestions({
   }, []);
 
   return {
-    suggestPlacesMutation,
+    /**
+     * Live snapshot of the dispatch controller (U14). The adapter surface every
+     * downstream consumer reads: `isDispatching`, `partialResults`, `data`,
+     * `progress`, `failedClusterIds`, and the enqueued / in-flight /
+     * dispatched-and-resolved cluster sets.
+     */
+    suggestionDispatch: dispatchState,
+    /** Abort any running dispatch and clear all dispatch state. */
+    resetSuggestionDispatch: suggestionDispatch.reset,
     cachedSuggestions,
     fetchSuggestions,
     fetchForClusters,

@@ -193,7 +193,7 @@ function useComposition(candidate: TripCandidateDisplay, clusters: LocationClust
   const clusterItems = useClusterItems({
     selectedCandidate: candidate,
     clusterDisplays,
-    suggestPlacesMutation: suggestions.suggestPlacesMutation,
+    suggestionDispatch: suggestions.suggestionDispatch,
     cachedSuggestions: suggestions.cachedSuggestions,
     dismissedClusterIdsInternal: new Set(),
     fetchingSuggestions: fetchingSuggestions || reportedFetching,
@@ -326,7 +326,7 @@ describe('PhotoImportScreen retry e2e (U8 -> U9 -> U10)', () => {
       call[0].map((s) => s.cluster_id)
     );
     expect(retryCachedIds).toContain('c-failed');
-    expect(result.current.suggestPlacesMutation.failedClusterIds.has('c-failed')).toBe(false);
+    expect(result.current.suggestionDispatch.failedClusterIds.has('c-failed')).toBe(false);
   });
 
   it('retry that fails AGAIN keeps the cluster lookup-failed (retry-enabled, no cap); no-place-found persists', async () => {
@@ -534,10 +534,10 @@ describe('suggestion fetch reports in-progress for its whole duration (R1/R2)', 
       expect(mockedGetCachedSuggestions).toHaveBeenCalledTimes(1);
     });
 
-    // Pre-dispatch window: the mutation has not started, so it cannot be the
-    // source of the in-progress signal.
+    // Pre-dispatch window: the controller has not started dispatching, so it
+    // cannot be the source of the in-progress signal.
     expect(mockedApi.post).not.toHaveBeenCalled();
-    expect(result.current.suggestPlacesMutation.isPending).toBe(false);
+    expect(result.current.suggestionDispatch.isDispatching).toBe(false);
     expect(lookupFailedIds(result.current.clusterItems)).toEqual([]);
     expect(result.current.reportedFetching).toBe(true);
 

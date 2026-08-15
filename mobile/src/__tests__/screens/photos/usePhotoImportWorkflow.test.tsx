@@ -172,10 +172,40 @@ jest.mock('../../../services/photoImport', () => {
 // Import actual error classes to use in tests - these are the same classes used by the real code
 const actualPhotoImportHooks = jest.requireActual('../../../hooks/usePhotoImport');
 
+// The dispatch controller is a module-level singleton (U14/KTD21), so it is
+// stubbed here the way the chunked mutation used to be: the workflow tests only
+// care that a dispatch was requested, not how it batches.
+jest.mock('../../../services/photoImport/suggestionDispatch', () => {
+  const actual = jest.requireActual('../../../services/photoImport/suggestionDispatch');
+  return {
+    ...actual,
+    suggestionDispatch: {
+      dispatch: jest.fn(),
+      dispatchBatch: jest.fn(),
+      claim: jest.fn((ids: string[]) => ids),
+      releaseClaim: jest.fn(),
+      clearFailedClusterIds: jest.fn(),
+      addFailedClusterIds: jest.fn(),
+      beginOwner: jest.fn(),
+      endOwner: jest.fn(),
+      reset: jest.fn(),
+      getState: jest.fn(() => ({ progress: null, failedClusterIds: new Map() })),
+      subscribe: jest.fn(() => () => undefined),
+    },
+  };
+});
+
+const mockSuggestionDispatchController = jest.requireMock(
+  '../../../services/photoImport/suggestionDispatch'
+).suggestionDispatch as {
+  dispatch: jest.Mock;
+  reset: jest.Mock;
+};
+
 jest.mock('../../../hooks/usePhotoImport', () => {
   const actual = jest.requireActual('../../../hooks/usePhotoImport');
   return {
-    useSuggestPlacesChunked: jest.fn(),
+    useSuggestionDispatch: jest.fn(),
     RateLimitError: actual.RateLimitError,
     QuotaExhaustedError: actual.QuotaExhaustedError,
   };
@@ -304,11 +334,16 @@ function createMockCluster(id: string) {
 
 describe('usePhotoImportWorkflow', () => {
   let queryClient: QueryClient;
-  const mockSuggestPlacesMutation = {
-    mutateAsync: jest.fn(),
-    reset: jest.fn(),
+  const mockSuggestionDispatchState = {
+    isDispatching: false,
     progress: null,
     partialResults: [],
+    data: null,
+    failedClusterIds: new Map(),
+    enqueuedClusterIds: new Set<string>(),
+    inFlightClusterIds: new Set<string>(),
+    dispatchedAndResolvedClusterIds: new Set<string>(),
+    ownerCount: 0,
   };
 
   beforeEach(() => {
@@ -326,9 +361,9 @@ describe('usePhotoImportWorkflow', () => {
 
     // Default mocks
     mockedOnboardingStore.useOnboardingStore.mockReturnValue('US');
-    mockedPhotoImportHooks.useSuggestPlacesChunked.mockReturnValue(
-      mockSuggestPlacesMutation as unknown as ReturnType<
-        typeof photoImportHooks.useSuggestPlacesChunked
+    mockedPhotoImportHooks.useSuggestionDispatch.mockReturnValue(
+      mockSuggestionDispatchState as unknown as ReturnType<
+        typeof photoImportHooks.useSuggestionDispatch
       >
     );
     mockedPhotoImport.getLastImportTime.mockResolvedValue(null);
@@ -626,7 +661,7 @@ describe('usePhotoImportWorkflow', () => {
       const mockCandidate = createMockTripCandidate('trip-1');
       const mockCluster = createMockCluster('cluster-1');
       mockedPhotoImport.getFullCluster.mockReturnValue(mockCluster);
-      mockSuggestPlacesMutation.mutateAsync.mockResolvedValue({
+      mockSuggestionDispatchController.dispatch.mockResolvedValue({
         suggestions: [
           {
             cluster_id: 'cluster-1',
@@ -663,13 +698,13 @@ describe('usePhotoImportWorkflow', () => {
 
       expect(result.current.phase).toBe('suggestions');
       expect(result.current.selectedTripId).toBe('trip-123');
-      expect(mockSuggestPlacesMutation.mutateAsync).toHaveBeenCalled();
+      expect(mockSuggestionDispatchController.dispatch).toHaveBeenCalled();
     });
 
     it('handles quota exhausted error', async () => {
       const mockCandidate = createMockTripCandidate('trip-1');
       mockedPhotoImport.getFullCluster.mockReturnValue(createMockCluster('cluster-1'));
-      mockSuggestPlacesMutation.mutateAsync.mockRejectedValue(
+      mockSuggestionDispatchController.dispatch.mockRejectedValue(
         new actualPhotoImportHooks.QuotaExhaustedError()
       );
 
@@ -698,7 +733,7 @@ describe('usePhotoImportWorkflow', () => {
     it('handles rate limit error', async () => {
       const mockCandidate = createMockTripCandidate('trip-1');
       mockedPhotoImport.getFullCluster.mockReturnValue(createMockCluster('cluster-1'));
-      mockSuggestPlacesMutation.mutateAsync.mockRejectedValue(
+      mockSuggestionDispatchController.dispatch.mockRejectedValue(
         new actualPhotoImportHooks.RateLimitError(30)
       );
 
@@ -746,7 +781,7 @@ describe('usePhotoImportWorkflow', () => {
       };
 
       mockedPhotoImport.getFullCluster.mockReturnValue(mockCluster);
-      mockSuggestPlacesMutation.mutateAsync.mockResolvedValue({ suggestions: [] });
+      mockSuggestionDispatchController.dispatch.mockResolvedValue({ suggestions: [] });
 
       const { result } = renderHook(() => usePhotoImportWorkflow({}), {
         wrapper: createWrapper(queryClient),
@@ -810,7 +845,7 @@ describe('usePhotoImportWorkflow', () => {
         if (clusterId === 'cluster-2') return clusterTwo;
         return undefined;
       });
-      mockSuggestPlacesMutation.mutateAsync.mockResolvedValue({ suggestions: [] });
+      mockSuggestionDispatchController.dispatch.mockResolvedValue({ suggestions: [] });
       mockUploadPhotos.mockResolvedValue({
         mediaIds: ['media-1', 'media-2'],
         failedCount: 0,
@@ -926,7 +961,7 @@ describe('usePhotoImportWorkflow', () => {
       };
 
       mockedPhotoImport.getFullCluster.mockReturnValue(mockCluster);
-      mockSuggestPlacesMutation.mutateAsync.mockResolvedValue({ suggestions: [] });
+      mockSuggestionDispatchController.dispatch.mockResolvedValue({ suggestions: [] });
       mockUploadPhotos.mockResolvedValue({ mediaIds: ['media-1'], failedCount: 0 });
 
       const { result } = renderHook(() => usePhotoImportWorkflow({}), {
@@ -992,7 +1027,7 @@ describe('usePhotoImportWorkflow', () => {
       };
 
       mockedPhotoImport.getFullCluster.mockReturnValue(mockCluster);
-      mockSuggestPlacesMutation.mutateAsync.mockResolvedValue({ suggestions: [] });
+      mockSuggestionDispatchController.dispatch.mockResolvedValue({ suggestions: [] });
       mockUploadPhotos.mockResolvedValue({ mediaIds: [], failedCount: 0 });
 
       const { result } = renderHook(() => usePhotoImportWorkflow({}), {
@@ -1049,7 +1084,7 @@ describe('usePhotoImportWorkflow', () => {
       };
 
       mockedPhotoImport.getFullCluster.mockReturnValue(mockCluster);
-      mockSuggestPlacesMutation.mutateAsync.mockResolvedValue({ suggestions: [] });
+      mockSuggestionDispatchController.dispatch.mockResolvedValue({ suggestions: [] });
       mockUploadPhotos.mockResolvedValue({ mediaIds: [], failedCount: 0 });
 
       const { result } = renderHook(() => usePhotoImportWorkflow({}), {
@@ -1093,7 +1128,7 @@ describe('usePhotoImportWorkflow', () => {
       };
 
       mockedPhotoImport.getFullCluster.mockReturnValue(mockCluster);
-      mockSuggestPlacesMutation.mutateAsync.mockResolvedValue({ suggestions: [] });
+      mockSuggestionDispatchController.dispatch.mockResolvedValue({ suggestions: [] });
       mockUploadPhotos.mockResolvedValue({ mediaIds: [], failedCount: 0 });
 
       const { result } = renderHook(() => usePhotoImportWorkflow({}), {
@@ -1136,7 +1171,7 @@ describe('usePhotoImportWorkflow', () => {
         ],
       };
       mockedPhotoImport.getFullCluster.mockReturnValue(mockCluster);
-      mockSuggestPlacesMutation.mutateAsync.mockResolvedValue({ suggestions: [] });
+      mockSuggestionDispatchController.dispatch.mockResolvedValue({ suggestions: [] });
 
       const { result } = renderHook(() => usePhotoImportWorkflow({}), {
         wrapper: createWrapper(queryClient),
@@ -1236,7 +1271,7 @@ describe('usePhotoImportWorkflow', () => {
       };
 
       mockedPhotoImport.getFullCluster.mockReturnValue(mockCluster);
-      mockSuggestPlacesMutation.mutateAsync.mockResolvedValue({ suggestions: [] });
+      mockSuggestionDispatchController.dispatch.mockResolvedValue({ suggestions: [] });
       mockUploadPhotos.mockResolvedValue({ mediaIds: [], failedCount: 0 });
 
       const { result } = renderHook(() => usePhotoImportWorkflow({}), {
@@ -1299,7 +1334,7 @@ describe('usePhotoImportWorkflow', () => {
       };
 
       mockedPhotoImport.getFullCluster.mockReturnValue(mockCluster);
-      mockSuggestPlacesMutation.mutateAsync.mockResolvedValue({ suggestions: [] });
+      mockSuggestionDispatchController.dispatch.mockResolvedValue({ suggestions: [] });
       mockUploadPhotos.mockResolvedValue({ mediaIds: [], failedCount: 0 });
 
       const { result } = renderHook(() => usePhotoImportWorkflow({}), {
@@ -1345,7 +1380,7 @@ describe('usePhotoImportWorkflow', () => {
       };
 
       mockedPhotoImport.getFullCluster.mockReturnValue(mockCluster);
-      mockSuggestPlacesMutation.mutateAsync.mockResolvedValue({ suggestions: [] });
+      mockSuggestionDispatchController.dispatch.mockResolvedValue({ suggestions: [] });
       mockUploadPhotos.mockResolvedValue({ mediaIds: [], failedCount: 0 });
 
       const { result } = renderHook(() => usePhotoImportWorkflow({}), {
@@ -1395,7 +1430,7 @@ describe('usePhotoImportWorkflow', () => {
     it('returns to candidates phase and resets state', async () => {
       const mockCandidate = createMockTripCandidate('trip-1');
       mockedPhotoImport.getFullCluster.mockReturnValue(createMockCluster('cluster-1'));
-      mockSuggestPlacesMutation.mutateAsync.mockResolvedValue({ suggestions: [] });
+      mockSuggestionDispatchController.dispatch.mockResolvedValue({ suggestions: [] });
 
       const { result } = renderHook(() => usePhotoImportWorkflow({}), {
         wrapper: createWrapper(queryClient),
@@ -1415,7 +1450,7 @@ describe('usePhotoImportWorkflow', () => {
       expect(result.current.phase).toBe('candidates');
       expect(result.current.selectedCandidate).toBeNull();
       expect(result.current.selectedTripId).toBeNull();
-      expect(mockSuggestPlacesMutation.reset).toHaveBeenCalled();
+      expect(mockSuggestionDispatchController.reset).toHaveBeenCalled();
     });
   });
 
@@ -1423,7 +1458,7 @@ describe('usePhotoImportWorkflow', () => {
     it('returns to trip-selection phase and resets suggestions', async () => {
       const mockCandidate = createMockTripCandidate('trip-1');
       mockedPhotoImport.getFullCluster.mockReturnValue(createMockCluster('cluster-1'));
-      mockSuggestPlacesMutation.mutateAsync.mockResolvedValue({ suggestions: [] });
+      mockSuggestionDispatchController.dispatch.mockResolvedValue({ suggestions: [] });
 
       const { result } = renderHook(() => usePhotoImportWorkflow({}), {
         wrapper: createWrapper(queryClient),
@@ -1446,7 +1481,7 @@ describe('usePhotoImportWorkflow', () => {
 
       expect(result.current.phase).toBe('trip-selection');
       expect(result.current.selectedTripId).toBeNull();
-      expect(mockSuggestPlacesMutation.reset).toHaveBeenCalled();
+      expect(mockSuggestionDispatchController.reset).toHaveBeenCalled();
     });
   });
 
@@ -1505,7 +1540,7 @@ describe('usePhotoImportWorkflow', () => {
         isIncremental: false,
       };
       mockedPhotoImport.getFullCluster.mockReturnValue(createMockCluster('cluster-1'));
-      mockSuggestPlacesMutation.mutateAsync.mockResolvedValue({ suggestions: [] });
+      mockSuggestionDispatchController.dispatch.mockResolvedValue({ suggestions: [] });
 
       const { result } = renderHook(() => usePhotoImportWorkflow({}), {
         wrapper: createWrapper(queryClient),
