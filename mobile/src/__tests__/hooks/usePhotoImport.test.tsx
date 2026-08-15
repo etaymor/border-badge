@@ -6,6 +6,7 @@ import {
   useSuggestPlaces,
   useSuggestPlacesChunked,
   CHUNK_SIZE,
+  RateLimitError,
   SUGGEST_PLACES_TIMEOUT_MS,
 } from '../../hooks/usePhotoImport';
 import { api } from '../../services/api';
@@ -174,6 +175,61 @@ describe('usePhotoImport', () => {
 
       expect(caughtError).not.toBeNull();
       expect(caughtError!.message).toBe('Rate limit exceeded');
+    });
+
+    // The backend derives Retry-After from the limiter window it configures, so
+    // the header is the authoritative wait. The 60s default is only a fallback
+    // for a 429 that arrives without one (e.g. from an intermediary).
+    describe('429 Retry-After', () => {
+      const CLUSTERS = {
+        clusters: [
+          {
+            id: 'cluster-1',
+            centroid: { latitude: 35.6762, longitude: 139.6503 },
+            photos: [{ asset_id: 'photo-1', latitude: 35.6762, longitude: 139.6503 }],
+          },
+        ],
+      };
+
+      const rateLimit = async (headers: Record<string, string>): Promise<RateLimitError> => {
+        const err = new AxiosError('too many requests');
+        // @ts-expect-error - minimal AxiosError response shape for the test
+        err.response = { status: 429, headers };
+        mockedApi.post.mockRejectedValueOnce(err);
+
+        const { result } = renderHook(() => useSuggestPlaces(), {
+          wrapper: createWrapper(queryClient),
+        });
+
+        let caught: unknown;
+        await act(async () => {
+          try {
+            await result.current.mutateAsync(CLUSTERS);
+          } catch (e) {
+            caught = e;
+          }
+        });
+        expect(caught).toBeInstanceOf(RateLimitError);
+        return caught as RateLimitError;
+      };
+
+      it('uses the header value rather than the built-in default', async () => {
+        const caught = await rateLimit({ 'retry-after': '60' });
+
+        expect(caught.retryAfterSeconds).toBe(60);
+      });
+
+      it('honors a header that differs from the default', async () => {
+        const caught = await rateLimit({ 'retry-after': '3600' });
+
+        expect(caught.retryAfterSeconds).toBe(3600);
+      });
+
+      it('falls back to 60 seconds only when the header is absent', async () => {
+        const caught = await rateLimit({});
+
+        expect(caught.retryAfterSeconds).toBe(60);
+      });
     });
   });
 

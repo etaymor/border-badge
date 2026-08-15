@@ -10,6 +10,7 @@ import httpx
 from tenacity import (
     retry,
     retry_if_exception_type,
+    retry_if_not_exception_type,
     stop_after_attempt,
     wait_exponential,
 )
@@ -220,10 +221,16 @@ class SearchMixin:
         # Radii exhausted without reaching the threshold.
         return build(stopped_early=False)
 
+    # Retry a slow upstream, but NOT a saturated local connection pool.
+    # `httpx.PoolTimeout` subclasses `httpx.TimeoutException`, so without the
+    # exclusion a request that could not get a connection would be retried
+    # twice more -- each attempt queueing for the same exhausted pool, so pool
+    # pressure would generate more pool pressure.
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=0.5, min=0.5, max=5),
-        retry=retry_if_exception_type(httpx.TimeoutException),
+        retry=retry_if_exception_type(httpx.TimeoutException)
+        & retry_if_not_exception_type(httpx.PoolTimeout),
         reraise=True,
     )
     async def _execute_search(
@@ -337,6 +344,13 @@ class SearchMixin:
                 on_source=record_cache_lookup,
             )
 
+        except httpx.PoolTimeout:
+            # Local pool saturation, not a slow upstream. Handled ahead of
+            # TimeoutException (which it subclasses) so it is neither retried
+            # nor counted as a Google search timeout -- counting it there would
+            # inflate the upstream-latency metric with a purely local signal.
+            logger.warning("Places connection pool saturated; search not issued")
+            raise
         except httpx.TimeoutException:
             # Never log coordinates (PII) - use hash for debugging
             record_retry(RETRY_SEARCH_TIMEOUT)
