@@ -25,7 +25,17 @@ interface CachedPhotoRow {
   longitude: number;
   geohash: string;
   country_code: string | null;
+  width?: number | null;
+  height?: number | null;
 }
+
+/**
+ * Columns selected for every CachedPhoto read. Kept in one place so the
+ * width/height migration can't be applied to some read paths and missed on
+ * others (a row read without them would silently fall back to a probe decode).
+ */
+const CACHED_PHOTO_COLUMNS =
+  'id, uri, filename, creation_time, latitude, longitude, geohash, country_code, width, height';
 
 /** Convert a snake_case SQLite row to a camelCase CachedPhoto. */
 function toCachedPhoto(row: CachedPhotoRow): CachedPhoto {
@@ -38,16 +48,21 @@ function toCachedPhoto(row: CachedPhotoRow): CachedPhoto {
     longitude: row.longitude,
     geohash: row.geohash,
     countryCode: row.country_code,
+    // Rows written before the width/height migration read as NULL. Left
+    // undefined (not 0) so vision preparation falls back to probing the file
+    // rather than treating them as a zero-sized image (U5/R7).
+    width: row.width ?? undefined,
+    height: row.height ?? undefined,
   };
 }
 
 const DB_NAME = 'photos.db';
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 
 /**
  * SQLite has a default limit of 999 bound parameters per query.
  * All batch operations use sizes well under this limit:
- * - cachePhotos: 50 rows × 9 params = 450 params
+ * - cachePhotos: 50 rows × 11 params = 550 params
  * - cacheSuggestions: 50 rows × 3 params = 150 params
  * - removeCachedPhotos: 100 IDs = 100 params
  * - getCachedSuggestions: 100 IDs = 100 params
@@ -180,7 +195,9 @@ async function initSchema(conn: SQLite.SQLiteDatabase): Promise<void> {
       longitude REAL NOT NULL,
       geohash TEXT NOT NULL,
       country_code TEXT,
-      cached_at INTEGER NOT NULL
+      cached_at INTEGER NOT NULL,
+      width INTEGER,
+      height INTEGER
     );
 
     CREATE TABLE IF NOT EXISTS photo_cache_metadata (
@@ -247,6 +264,14 @@ async function initSchema(conn: SQLite.SQLiteDatabase): Promise<void> {
   // MediaLibrary. Nullable so pre-existing rows read as [] (retry unavailable
   // for them, placeholder still applies) — see getTripSegments.
   await addColumnIfMissing(conn, 'cached_trip_segments', 'preview_asset_ids', 'TEXT');
+
+  // U5/R7. Pixel dimensions let vision preparation decide whether an image is
+  // above the 768px cap without decoding it a second time. The suggestions path
+  // reads clusters from this cache rather than from live library assets, so the
+  // dimensions have to live here to be usable. Nullable: rows written before
+  // this migration read as NULL and fall back to the probe.
+  await addColumnIfMissing(conn, 'cached_photos', 'width', 'INTEGER');
+  await addColumnIfMissing(conn, 'cached_photos', 'height', 'INTEGER');
 
   // Store schema version for future migrations. Uses the unlocked helper: the
   // handle is not published yet, so no other writer can reach it, and taking the
@@ -341,7 +366,7 @@ export async function cachePhotos(photos: CachedPhoto[]): Promise<void> {
     await database.withTransactionAsync(async () => {
       for (let i = 0; i < photos.length; i += BATCH_SIZE) {
         const batch = photos.slice(i, i + BATCH_SIZE);
-        const placeholders = batch.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
+        const placeholders = batch.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
         const values = batch.flatMap((p) => [
           p.id,
           p.uri,
@@ -352,11 +377,13 @@ export async function cachePhotos(photos: CachedPhoto[]): Promise<void> {
           p.geohash,
           p.countryCode,
           now,
+          p.width ?? null,
+          p.height ?? null,
         ]);
 
         await database.runAsync(
           `INSERT OR REPLACE INTO cached_photos
-         (id, uri, filename, creation_time, latitude, longitude, geohash, country_code, cached_at)
+         (id, uri, filename, creation_time, latitude, longitude, geohash, country_code, cached_at, width, height)
          VALUES ${placeholders}`,
           values
         );
@@ -372,7 +399,7 @@ export async function cachePhotos(photos: CachedPhoto[]): Promise<void> {
 export async function getAllCachedPhotos(): Promise<CachedPhoto[]> {
   const database = await getDb();
   const rows = await database.getAllAsync<CachedPhotoRow>(
-    'SELECT id, uri, filename, creation_time, latitude, longitude, geohash, country_code FROM cached_photos ORDER BY creation_time DESC'
+    `SELECT ${CACHED_PHOTO_COLUMNS} FROM cached_photos ORDER BY creation_time DESC`
   );
 
   return rows.map(toCachedPhoto);
@@ -384,7 +411,7 @@ export async function getAllCachedPhotos(): Promise<CachedPhoto[]> {
 export async function getCachedPhotosByCountry(countryCode: string): Promise<CachedPhoto[]> {
   const database = await getDb();
   const rows = await database.getAllAsync<CachedPhotoRow>(
-    'SELECT id, uri, filename, creation_time, latitude, longitude, geohash, country_code FROM cached_photos WHERE country_code = ? ORDER BY creation_time DESC',
+    `SELECT ${CACHED_PHOTO_COLUMNS} FROM cached_photos WHERE country_code = ? ORDER BY creation_time DESC`,
     [countryCode]
   );
 
@@ -480,7 +507,7 @@ export async function getPhotosNearLocation(
   // Query all photos whose geohash (precision 7) starts with any of these precision-6 prefixes
   const conditions = allHashes.map(() => "geohash LIKE ? || '%'").join(' OR ');
   const rows = await database.getAllAsync<CachedPhotoRow>(
-    `SELECT id, uri, filename, creation_time, latitude, longitude, geohash, country_code FROM cached_photos WHERE ${conditions} ORDER BY creation_time DESC`,
+    `SELECT ${CACHED_PHOTO_COLUMNS} FROM cached_photos WHERE ${conditions} ORDER BY creation_time DESC`,
     allHashes
   );
 

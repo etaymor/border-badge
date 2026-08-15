@@ -37,6 +37,42 @@ export interface PlaceSuggestionProgress {
 export const CHUNK_SIZE = 5;
 
 /**
+ * Size of the FIRST batch (U5/R24).
+ *
+ * Time-to-first-suggestion is gated by one batch's on-device preparation plus
+ * one batch's round trip, and at the full CHUNK_SIZE that sum lands right on the
+ * target. Dispatching a smaller opening batch cuts both halves: two clusters is
+ * two vision preparations instead of five, and the backend still resolves them
+ * in a single concurrency round. One would be marginally faster still, but it
+ * pays a whole extra request's overhead per cluster and leaves most of the
+ * backend's per-request concurrency idle, so the ramp starts at two and every
+ * subsequent batch runs at full CHUNK_SIZE.
+ */
+export const FIRST_CHUNK_SIZE = 2;
+
+/**
+ * Split clusters into dispatch batches: a small first batch, then full-size
+ * ones (U5/R24). Exported so tests derive batch boundaries from the real plan
+ * instead of hardcoding them.
+ */
+export function planSuggestionBatches<T>(items: T[]): T[][] {
+  if (items.length === 0) return [];
+
+  const batches: T[][] = [];
+  let index = 0;
+  // Only ramp when there is something left over — otherwise a 2-cluster import
+  // would be split into two requests for no gain.
+  if (items.length > FIRST_CHUNK_SIZE) {
+    batches.push(items.slice(0, FIRST_CHUNK_SIZE));
+    index = FIRST_CHUNK_SIZE;
+  }
+  for (; index < items.length; index += CHUNK_SIZE) {
+    batches.push(items.slice(index, index + CHUNK_SIZE));
+  }
+  return batches;
+}
+
+/**
  * Per-request timeout for place suggestions (ms).
  *
  * The shared api client's 30s default is tuned for ordinary CRUD. A suggestion
@@ -68,6 +104,22 @@ export interface ChunkedPlaceSuggestionResult extends PlaceSuggestionResponse {
    * the mutation happened to begin.
    */
   firstSuggestionAt: number | null;
+}
+
+/** One cluster payload as sent to `/photos/suggest-places`. */
+export type PlaceSuggestionCluster = PlaceSuggestionRequest['clusters'][number];
+
+/**
+ * Input to the chunked mutation.
+ *
+ * `clusters` is the canonical dispatch order. When `prepareBatch` is supplied
+ * the entries may be SKELETONS — everything except the expensive
+ * `vision_images_base64` — and the heavy encoding is attached per batch right
+ * before that batch is dispatched (U5/R5). Without it, `clusters` must already
+ * be complete payloads and is sent as-is.
+ */
+export interface ChunkedPlaceSuggestionRequest extends PlaceSuggestionRequest {
+  prepareBatch?: (batch: PlaceSuggestionCluster[]) => Promise<PlaceSuggestionCluster[]>;
 }
 
 /** Metadata for a cluster whose place lookup failed (chunk-level failure). */
@@ -138,17 +190,6 @@ export function useSuggestPlaces() {
 }
 
 /**
- * Split an array into chunks of specified size.
- */
-function chunkArray<T>(array: T[], size: number): T[][] {
-  const chunks: T[][] = [];
-  for (let i = 0; i < array.length; i += size) {
-    chunks.push(array.slice(i, i + size));
-  }
-  return chunks;
-}
-
-/**
  * Hook for chunked place suggestions with progress tracking.
  *
  * Sends clusters in batches to show incremental progress and results.
@@ -175,10 +216,12 @@ export function useSuggestPlacesChunked() {
   }, []);
 
   const mutation = useMutation({
-    mutationFn: async (data: PlaceSuggestionRequest): Promise<ChunkedPlaceSuggestionResult> => {
+    mutationFn: async (
+      data: ChunkedPlaceSuggestionRequest
+    ): Promise<ChunkedPlaceSuggestionResult> => {
       const clusters = data.clusters;
       const totalClusters = clusters.length;
-      const chunks = chunkArray(clusters, CHUNK_SIZE);
+      const chunks = planSuggestionBatches(clusters);
       const allSuggestions: ClusterSuggestion[] = [];
       let failedChunkCount = 0;
       let failedClusterCount = 0;
@@ -208,6 +251,41 @@ export function useSuggestPlacesChunked() {
         failedClusters: 0,
       });
 
+      // ── Pipelined preparation (U5/R5) ────────────────────────────────
+      // Preparation runs ONE batch ahead of dispatch: batch N's request is in
+      // flight while batch N+1 is being encoded, instead of every batch being
+      // prepared before the first request goes out. The preparations are
+      // CHAINED rather than started in parallel, so the number of concurrent
+      // on-device preparation workers is unchanged — Expo's async function
+      // queue is serial at the native layer, so extra workers buy no
+      // parallelism and only deepen a queue shared with other modules (KTD10).
+      let prepareTail: Promise<unknown> = Promise.resolve();
+      const startPreparing = (
+        batch: PlaceSuggestionCluster[]
+      ): Promise<PlaceSuggestionCluster[]> => {
+        const prepare = data.prepareBatch;
+        if (!prepare) return Promise.resolve(batch);
+        const run = prepareTail.then(
+          () => prepare(batch),
+          () => prepare(batch)
+        );
+        prepareTail = run.then(
+          () => undefined,
+          () => undefined
+        );
+        // A preparation failure must never reject the pipeline: the batch still
+        // dispatches, just without its vision images.
+        return run.catch((error) => {
+          if (__DEV__) {
+            console.warn('[PhotoImport] Batch preparation failed, dispatching without it', error);
+          }
+          return batch;
+        });
+      };
+
+      let pendingPayload: Promise<PlaceSuggestionCluster[]> | null =
+        chunks.length > 0 ? startPreparing(chunks[0]) : null;
+
       for (let i = 0; i < chunks.length; i++) {
         // Check for abort between chunks
         if (abortRef.current) {
@@ -215,7 +293,14 @@ export function useSuggestPlacesChunked() {
         }
 
         const chunk = chunks[i];
-        const clustersProcessed = i * CHUNK_SIZE;
+        const clustersProcessed = chunks.slice(0, i).reduce((sum, c) => sum + c.length, 0);
+
+        // Kick off the NEXT batch's preparation before waiting on this one's
+        // payload, so it overlaps this batch's round trip. Exactly one batch is
+        // prepared ahead, so at most the in-flight batch and its successor hold
+        // encoded payloads.
+        const payloadPromise = pendingPayload;
+        pendingPayload = i + 1 < chunks.length ? startPreparing(chunks[i + 1]) : null;
 
         setProgress({
           clustersTotal: totalClusters,
@@ -225,13 +310,26 @@ export function useSuggestPlacesChunked() {
           failedClusters: failedClusterCount,
         });
 
+        // Wait only for THIS batch's payload. `startPreparing` never rejects,
+        // so a preparation failure degrades to a vision-less dispatch rather
+        // than failing the batch.
+        let payload: PlaceSuggestionCluster[] | null = payloadPromise
+          ? await payloadPromise
+          : chunk;
+
         const chunkStartTime = Date.now();
         try {
-          const response = await api.post(
+          const request = api.post(
             '/photos/suggest-places',
-            { clusters: chunk },
+            { clusters: payload },
             { timeout: SUGGEST_PLACES_TIMEOUT_MS }
           );
+          // The base64 vision images are by far the largest allocation in this
+          // loop. Drop our reference the moment the request is issued so an
+          // already-dispatched batch is not pinned for the whole round trip or
+          // across the batches that follow it.
+          payload = null;
+          const response = await request;
           const chunkDurationMs = Date.now() - chunkStartTime;
           chunkResponseTimes.push(chunkDurationMs);
           const responseData = response.data as PlaceSuggestionResponse;

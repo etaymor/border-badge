@@ -213,6 +213,79 @@ describe('prepareVisionImage', () => {
     expect(result).toBeNull();
     expect(mockManipulate).not.toHaveBeenCalled();
   });
+
+  // ── U5/R7: cached dimensions replace the probe decode ────────────────────
+  describe('cached dimensions (U5/R7)', () => {
+    it('does NOT probe when the dimensions are already known', async () => {
+      mockManipulate.mockResolvedValue({ uri: 'resized.jpg', base64: 'abc123' });
+
+      const result = await prepareVisionImage('file://photo.jpg', { width: 1600, height: 900 });
+
+      expect(result).toBe('abc123');
+      expect(mockGetSize).not.toHaveBeenCalled();
+      expect(mockManipulate).toHaveBeenCalledWith(
+        'file://photo.jpg',
+        [{ resize: { width: 768 } }],
+        {
+          format: 'jpeg',
+          compress: 0.8,
+          base64: true,
+        }
+      );
+    });
+
+    it('does NOT upscale a cached photo that is already under the cap', async () => {
+      mockManipulate.mockResolvedValue({ uri: 'same.jpg', base64: 'abc123' });
+
+      await prepareVisionImage('file://small.jpg', { width: 640, height: 480 });
+
+      // An unconditional resize action would UPSCALE this to 768px and inflate
+      // the payload toward the reject threshold.
+      expect(mockManipulate).toHaveBeenCalledWith('file://small.jpg', [], {
+        format: 'jpeg',
+        compress: 0.8,
+        base64: true,
+      });
+      expect(mockGetSize).not.toHaveBeenCalled();
+    });
+
+    it('falls back to the probe for a row predating the migration', async () => {
+      mockGetSize.mockImplementation((_uri, success) => success(1600, 900));
+      mockManipulate.mockResolvedValue({ uri: 'resized.jpg', base64: 'abc123' });
+
+      // width/height are undefined on rows written before the migration.
+      const result = await prepareVisionImage('file://legacy.jpg', {
+        width: undefined,
+        height: undefined,
+      });
+
+      expect(mockGetSize).toHaveBeenCalledTimes(1);
+      expect(result).toBe('abc123');
+      expect(mockManipulate).toHaveBeenCalledWith(
+        'file://legacy.jpg',
+        [{ resize: { width: 768 } }],
+        { format: 'jpeg', compress: 0.8, base64: true }
+      );
+    });
+
+    it('falls back to the probe when a stored dimension is zero or partial', async () => {
+      mockGetSize.mockImplementation((_uri, success) => success(900, 1600));
+      mockManipulate.mockResolvedValue({ uri: 'resized.jpg', base64: 'abc123' });
+
+      await prepareVisionImage('file://zero.jpg', { width: 0, height: 1600 });
+
+      expect(mockGetSize).toHaveBeenCalledTimes(1);
+      expect(mockManipulate).toHaveBeenCalledWith(
+        'file://zero.jpg',
+        [{ resize: { height: 768 } }],
+        {
+          format: 'jpeg',
+          compress: 0.8,
+          base64: true,
+        }
+      );
+    });
+  });
 });
 
 describe('getVisionImagesForCluster', () => {
@@ -239,6 +312,34 @@ describe('getVisionImagesForCluster', () => {
     const images = await getVisionImagesForCluster(cluster, 3);
 
     expect(images).toEqual(['a1', 'a2', 'a3']);
+  });
+
+  it('U5/R7: uses each photo cached dimensions instead of decoding again', async () => {
+    const p1 = { ...createPhoto('p1', 35.6762, 139.6503, 1), width: 1600, height: 900 };
+    const p2 = { ...createPhoto('p2', 35.6763, 139.6503, 0), width: 900, height: 1600 };
+    const cluster = createCluster([p1, p2], 35.6762, 139.6503);
+
+    mockManipulate.mockResolvedValue({ uri: '1.jpg', base64: 'a1' });
+
+    const images = await getVisionImagesForCluster(cluster, 3);
+
+    expect(images).toEqual(['a1', 'a1']);
+    expect(mockGetSize).not.toHaveBeenCalled();
+    const resizeActions = mockManipulate.mock.calls.map((call) => call[1]);
+    expect(resizeActions).toContainEqual([{ resize: { width: 768 } }]);
+    expect(resizeActions).toContainEqual([{ resize: { height: 768 } }]);
+  });
+
+  it('U5/R7: still probes photos cached before the dimensions migration', async () => {
+    const p1 = createPhoto('p1', 35.6762, 139.6503, 0);
+    const cluster = createCluster([p1], 35.6762, 139.6503);
+
+    mockManipulate.mockResolvedValue({ uri: '1.jpg', base64: 'a1' });
+
+    const images = await getVisionImagesForCluster(cluster, 3);
+
+    expect(images).toEqual(['a1']);
+    expect(mockGetSize).toHaveBeenCalledTimes(1);
   });
 
   it('filters failed/empty image preparations', async () => {

@@ -31,6 +31,9 @@ function cachedPhotoToPhotoWithLocation(cached: CachedPhoto): PhotoWithLocation 
       latitude: cached.latitude,
       longitude: cached.longitude,
     },
+    // U5/R7: carried through so vision preparation can skip the probe decode.
+    width: cached.width,
+    height: cached.height,
   };
 }
 
@@ -62,6 +65,8 @@ export function photoToCachedPhoto(
     longitude: photo.location.longitude,
     geohash: hash,
     countryCode: countryCode ?? null,
+    width: photo.width,
+    height: photo.height,
   };
 }
 

@@ -15,6 +15,8 @@ import { AxiosError } from 'axios';
 import React from 'react';
 
 import { usePlaceSuggestions } from '../../../screens/photos/usePlaceSuggestions';
+import { CHUNK_SIZE, FIRST_CHUNK_SIZE, planSuggestionBatches } from '@hooks/usePhotoImport';
+import { getVisionImagesForCluster } from '@services/photoImport/visionPhoto';
 import { useIsPremium, useCanImportPhotos } from '@stores/subscriptionStore';
 import { api } from '@services/api';
 import { Analytics } from '@services/analytics';
@@ -994,6 +996,132 @@ describe('usePlaceSuggestions dispatch owner accounting (R1/KTD13)', () => {
     expect(mockedCacheSuggestions).toHaveBeenCalled();
     // ...but the old candidate's sub-cluster was NOT appended to the new one.
     expect(result.current.cachedSuggestions.map((s) => s.cluster_id)).not.toContain('split-stale');
+    expect(result.current.isFetchingSuggestions).toBe(false);
+  });
+});
+
+// ---- Pipelined preparation (U5 / R5, R24) ----------------------------------
+
+describe('usePlaceSuggestions pipelined preparation (U5)', () => {
+  const mockedGetVisionImages = getVisionImagesForCluster as jest.MockedFunction<
+    typeof getVisionImagesForCluster
+  >;
+
+  const buildCandidate = (clusterIds: string[], id = 'cand-pipeline') => ({
+    id,
+    countryCode: 'JP',
+    dateRange: { start: new Date(), end: new Date() },
+    photoIds: [],
+    photoCount: clusterIds.length,
+    previewUris: [],
+    previewAssetIds: [],
+    locationClusterIds: clusterIds,
+  });
+
+  afterEach(() => {
+    mockedGetVisionImages.mockResolvedValue([]);
+  });
+
+  it('dispatches the first batch while later batches are still being prepared', async () => {
+    // Enough clusters to span two batches under the U5 ramp (2, then 5).
+    const clusters = Array.from({ length: FIRST_CHUNK_SIZE + CHUNK_SIZE }, (_, i) =>
+      makeCluster(`pipe-${i}`, 35 + i * 0.01, 139)
+    );
+    const firstBatchIds = new Set(planSuggestionBatches(clusters)[0].map((c) => c.id));
+
+    let releaseLaterPrep!: () => void;
+    const laterPrepGate = new Promise<void>((resolve) => {
+      releaseLaterPrep = resolve;
+    });
+    let laterPrepFinished = false;
+    let laterPrepStarted = false;
+
+    mockedGetVisionImages.mockImplementation(async (cluster) => {
+      if (firstBatchIds.has(cluster.id)) return ['first-batch-image'];
+      laterPrepStarted = true;
+      await laterPrepGate;
+      laterPrepFinished = true;
+      return ['later-batch-image'];
+    });
+
+    const observed: { laterPrepStarted?: boolean; laterPrepFinished?: boolean } = {};
+    mockedApi.post.mockImplementation(async () => {
+      if (mockedApi.post.mock.calls.length === 1) {
+        observed.laterPrepStarted = laterPrepStarted;
+        observed.laterPrepFinished = laterPrepFinished;
+      }
+      return { data: { suggestions: [], failed_cluster_count: 0 } };
+    });
+
+    const { result } = setup(clusters);
+
+    let done!: Promise<unknown>;
+    await act(async () => {
+      done = result.current.fetchSuggestions(buildCandidate(clusters.map((c) => c.id)));
+      // Flush up to the point where batch two's preparation is the only thing
+      // outstanding.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    // Batch one's request went out before batch two finished preparing...
+    expect(mockedApi.post).toHaveBeenCalledTimes(1);
+    expect(observed.laterPrepFinished).toBe(false);
+    // ...and batch two's preparation had already begun by then.
+    expect(observed.laterPrepStarted).toBe(true);
+    // The owner slot stays claimed across the WHOLE pipeline, including while
+    // later batches are still being prepared.
+    expect(result.current.isFetchingSuggestions).toBe(true);
+
+    await act(async () => {
+      releaseLaterPrep();
+      await done;
+    });
+
+    expect(mockedApi.post).toHaveBeenCalledTimes(2);
+    // Only the batch about to be dispatched carries encoded images.
+    const firstBody = mockedApi.post.mock.calls[0][1] as {
+      clusters: { id: string; vision_images_base64?: string[] }[];
+    };
+    expect(firstBody.clusters.map((c) => c.id)).toEqual([...firstBatchIds]);
+    expect(
+      firstBody.clusters.every((c) => c.vision_images_base64?.[0] === 'first-batch-image')
+    ).toBe(true);
+    const secondBody = mockedApi.post.mock.calls[1][1] as {
+      clusters: { id: string; vision_images_base64?: string[] }[];
+    };
+    expect(
+      secondBody.clusters.every((c) => c.vision_images_base64?.[0] === 'later-batch-image')
+    ).toBe(true);
+    // Released once ALL of it settled.
+    expect(result.current.isFetchingSuggestions).toBe(false);
+  });
+
+  it('a preparation failure for one cluster does not reject the pipeline', async () => {
+    const clusters = Array.from({ length: FIRST_CHUNK_SIZE + 1 }, (_, i) =>
+      makeCluster(`fail-${i}`, 35 + i * 0.01, 139)
+    );
+
+    mockedGetVisionImages.mockImplementation(async (cluster) => {
+      if (cluster.id === 'fail-0') throw new Error('decode exploded');
+      return ['ok-image'];
+    });
+    mockedApi.post.mockResolvedValue({ data: { suggestions: [], failed_cluster_count: 0 } });
+
+    const { result } = setup(clusters);
+
+    await act(async () => {
+      await result.current.fetchSuggestions(buildCandidate(clusters.map((c) => c.id)));
+    });
+
+    // Both batches still dispatched; the failing cluster simply went without
+    // vision images.
+    expect(mockedApi.post).toHaveBeenCalledTimes(2);
+    const firstBody = mockedApi.post.mock.calls[0][1] as {
+      clusters: { id: string; vision_images_base64?: string[] }[];
+    };
+    expect(firstBody.clusters.map((c) => c.id)).toEqual(['fail-0', 'fail-1']);
+    expect(firstBody.clusters[0].vision_images_base64).toBeUndefined();
+    expect(firstBody.clusters[1].vision_images_base64).toEqual(['ok-image']);
     expect(result.current.isFetchingSuggestions).toBe(false);
   });
 });

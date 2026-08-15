@@ -235,6 +235,102 @@ describe('photoCacheDb', () => {
 
       expect(result[0].countryCode).toBeNull();
     });
+
+    // ── U5/R7: photo dimensions persisted on the cache ──────────────────
+    describe('photo dimensions (U5/R7)', () => {
+      it('adds the width/height columns for databases predating the migration', async () => {
+        await photoCacheDb.getLastImportTime();
+
+        const alters = mockDb.execAsync.mock.calls
+          .map((call: unknown[]) => String(call[0]))
+          .filter((sql: string) => sql.startsWith('ALTER TABLE cached_photos'));
+        expect(alters).toContain('ALTER TABLE cached_photos ADD COLUMN width INTEGER');
+        expect(alters).toContain('ALTER TABLE cached_photos ADD COLUMN height INTEGER');
+      });
+
+      it('writes width and height with the cached photo', async () => {
+        await photoCacheDb.cachePhotos([
+          {
+            id: 'photo-dim',
+            uri: 'file://photo-dim.jpg',
+            filename: 'photo-dim.jpg',
+            creationTime: 1700000000000,
+            latitude: 35.6762,
+            longitude: 139.6503,
+            geohash: 'xn76urx',
+            countryCode: 'JP',
+            width: 4032,
+            height: 3024,
+          },
+        ]);
+
+        const insert = mockDb.runAsync.mock.calls.find(
+          (call: unknown[]) =>
+            typeof call[0] === 'string' && call[0].includes('INSERT OR REPLACE INTO cached_photos')
+        );
+        expect(String(insert[0])).toContain('width, height');
+        expect(insert[1]).toEqual(expect.arrayContaining([4032, 3024]));
+      });
+
+      it('writes NULL dimensions for a photo whose size is unknown', async () => {
+        await photoCacheDb.cachePhotos([
+          {
+            id: 'photo-nodim',
+            uri: 'file://photo-nodim.jpg',
+            filename: 'photo-nodim.jpg',
+            creationTime: 1700000000000,
+            latitude: 35.6762,
+            longitude: 139.6503,
+            geohash: 'xn76urx',
+            countryCode: 'JP',
+          },
+        ]);
+
+        const insert = mockDb.runAsync.mock.calls.find(
+          (call: unknown[]) =>
+            typeof call[0] === 'string' && call[0].includes('INSERT OR REPLACE INTO cached_photos')
+        );
+        expect((insert[1] as unknown[]).slice(-2)).toEqual([null, null]);
+      });
+
+      it('reads dimensions back, and leaves pre-migration rows undefined', async () => {
+        mockDb.getAllAsync.mockResolvedValue([
+          {
+            id: 'photo-new',
+            uri: 'file://new.jpg',
+            filename: 'new.jpg',
+            creation_time: 1700000000000,
+            latitude: 35,
+            longitude: 139,
+            geohash: 'xn76urx',
+            country_code: 'JP',
+            width: 4032,
+            height: 3024,
+          },
+          {
+            id: 'photo-legacy',
+            uri: 'file://legacy.jpg',
+            filename: 'legacy.jpg',
+            creation_time: 1699999999999,
+            latitude: 35,
+            longitude: 139,
+            geohash: 'xn76urx',
+            country_code: 'JP',
+            width: null,
+            height: null,
+          },
+        ]);
+
+        const result = await photoCacheDb.getAllCachedPhotos();
+
+        expect(result[0].width).toBe(4032);
+        expect(result[0].height).toBe(3024);
+        // Left undefined (not 0) so vision preparation falls back to the probe.
+        expect(result[1].width).toBeUndefined();
+        expect(result[1].height).toBeUndefined();
+        expect(mockDb.getAllAsync).toHaveBeenCalledWith(expect.stringContaining('width, height'));
+      });
+    });
   });
 
   describe('getCachedPhotosByCountry', () => {
@@ -623,7 +719,7 @@ describe('photoCacheDb', () => {
       // Schema version should be stored
       expect(mockDb.runAsync).toHaveBeenCalledWith(
         'INSERT OR REPLACE INTO photo_cache_metadata (key, value) VALUES (?, ?)',
-        ['schema_version', '3']
+        ['schema_version', '4']
       );
     });
 

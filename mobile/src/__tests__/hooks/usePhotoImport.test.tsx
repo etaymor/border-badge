@@ -6,6 +6,9 @@ import {
   useSuggestPlaces,
   useSuggestPlacesChunked,
   CHUNK_SIZE,
+  FIRST_CHUNK_SIZE,
+  planSuggestionBatches,
+  type PlaceSuggestionCluster,
   RateLimitError,
   SUGGEST_PLACES_TIMEOUT_MS,
 } from '../../hooks/usePhotoImport';
@@ -234,8 +237,9 @@ describe('usePhotoImport', () => {
   });
 
   describe('useSuggestPlacesChunked - failedClusterIds (KTD6/KTD8/KTD10)', () => {
-    // Chunk boundaries are derived from the real CHUNK_SIZE rather than hardcoded,
-    // so tuning it (as the timeout fix did) can't silently invalidate these tests.
+    // Chunk boundaries are derived from the real batch plan rather than
+    // hardcoded, so tuning CHUNK_SIZE (as the timeout fix did) or the U5 first-
+    // batch ramp can't silently invalidate these tests.
     const buildClusters = (count: number) =>
       Array.from({ length: count }, (_, i) => ({
         id: `cluster-${i}`,
@@ -243,9 +247,13 @@ describe('usePhotoImport', () => {
         photos: [{ asset_id: `photo-${i}`, latitude: 35, longitude: 139 }],
       }));
 
-    /** Cluster ids belonging to the nth (0-indexed) chunk. */
+    /** Enough clusters to produce EXACTLY `batches` dispatch batches. */
+    const buildClustersForBatches = (batches: number) =>
+      buildClusters(FIRST_CHUNK_SIZE + (batches - 1) * CHUNK_SIZE);
+
+    /** Cluster ids belonging to the nth (0-indexed) dispatch batch. */
     const chunkIds = (clusters: { id: string }[], n: number) =>
-      clusters.slice(n * CHUNK_SIZE, (n + 1) * CHUNK_SIZE).map((c) => c.id);
+      planSuggestionBatches(clusters)[n].map((c) => c.id);
 
     const suggestionsFor = (ids: string[]) =>
       ids.map((id) => ({ cluster_id: id, photo_ids: [`photo-${id}`], places: [] }));
@@ -262,7 +270,7 @@ describe('usePhotoImport', () => {
     const makeQuotaError = () => makeAxiosError(503, { 'retry-after': '3600' });
 
     it('records exactly chunk-2 cluster IDs in failedClusterIds when chunk-2 throws (non-fatal)', async () => {
-      const clusters = buildClusters(CHUNK_SIZE * 2); // exactly two chunks
+      const clusters = buildClustersForBatches(2); // exactly two batches
       const chunk1Ids = chunkIds(clusters, 0);
       const chunk2Ids = chunkIds(clusters, 1);
 
@@ -295,7 +303,7 @@ describe('usePhotoImport', () => {
     });
 
     it('records remaining clusters with retryDisabled=true when a chunk throws 503 (quota)', async () => {
-      const clusters = buildClusters(CHUNK_SIZE * 2);
+      const clusters = buildClustersForBatches(2);
       const chunk1Ids = chunkIds(clusters, 0);
       const chunk2Ids = chunkIds(clusters, 1);
 
@@ -330,7 +338,7 @@ describe('usePhotoImport', () => {
     });
 
     it('records remaining clusters with retryDisabled=true when a chunk throws 429 (rate limit)', async () => {
-      const clusters = buildClusters(CHUNK_SIZE * 2);
+      const clusters = buildClustersForBatches(2);
       const chunk1Ids = chunkIds(clusters, 0);
       const chunk2Ids = chunkIds(clusters, 1);
 
@@ -363,7 +371,7 @@ describe('usePhotoImport', () => {
     });
 
     it('records ALL remaining clusters (current + later chunks) on a fatal error in an early chunk', async () => {
-      const clusters = buildClusters(CHUNK_SIZE * 3); // exactly three chunks
+      const clusters = buildClustersForBatches(3); // exactly three batches
       const chunk2Ids = chunkIds(clusters, 1);
       const chunk3Ids = chunkIds(clusters, 2);
 
@@ -395,7 +403,7 @@ describe('usePhotoImport', () => {
     });
 
     it('leaves failedClusterIds empty when all chunks succeed', async () => {
-      const clusters = buildClusters(CHUNK_SIZE * 2);
+      const clusters = buildClustersForBatches(2);
       mockedApi.post
         .mockResolvedValueOnce({
           data: {
@@ -422,7 +430,7 @@ describe('usePhotoImport', () => {
     });
 
     it('clears failedClusterIds on reset', async () => {
-      const clusters = buildClusters(CHUNK_SIZE * 2);
+      const clusters = buildClustersForBatches(2);
       mockedApi.post
         .mockResolvedValueOnce({
           data: {
@@ -452,7 +460,7 @@ describe('usePhotoImport', () => {
       // upstream, neither of which is a quota problem. Treating every 503 as fatal
       // showed "Daily limit reached" and hid the Retry button, so a transient
       // outage looked permanent. Only the quota 503 carries Retry-After.
-      const clusters = buildClusters(CHUNK_SIZE * 2);
+      const clusters = buildClustersForBatches(2);
       const chunk1Ids = chunkIds(clusters, 0);
       const chunk2Ids = chunkIds(clusters, 1);
 
@@ -483,6 +491,183 @@ describe('usePhotoImport', () => {
       for (const id of chunk2Ids) {
         expect(failed.get(id)).toEqual({ retryDisabled: false });
       }
+    });
+  });
+
+  // ── U5: first-batch ramp + pipelined preparation ────────────────────────
+  describe('useSuggestPlacesChunked - batch ramp and pipelined preparation (U5)', () => {
+    const buildClusters = (count: number) =>
+      Array.from({ length: count }, (_, i) => ({
+        id: `cluster-${i}`,
+        centroid: { latitude: 35 + i * 0.001, longitude: 139 + i * 0.001 },
+        photos: [{ asset_id: `photo-${i}`, latitude: 35, longitude: 139 }],
+      }));
+
+    const buildClustersForBatches = (batches: number) =>
+      buildClusters(FIRST_CHUNK_SIZE + (batches - 1) * CHUNK_SIZE);
+
+    function deferred<T>() {
+      let resolve!: (value: T) => void;
+      const promise = new Promise<T>((r) => {
+        resolve = r;
+      });
+      return { promise, resolve };
+    }
+
+    const emptyResponse = { data: { suggestions: [], failed_cluster_count: 0 } };
+
+    it('R24: dispatches a SMALLER first batch, then full-size batches', () => {
+      const batches = planSuggestionBatches(buildClusters(FIRST_CHUNK_SIZE + CHUNK_SIZE * 2));
+
+      expect(batches).toHaveLength(3);
+      expect(batches[0]).toHaveLength(FIRST_CHUNK_SIZE);
+      expect(batches[0].length).toBeLessThan(batches[1].length);
+      expect(batches[1]).toHaveLength(CHUNK_SIZE);
+      expect(batches[2]).toHaveLength(CHUNK_SIZE);
+      // Every cluster is dispatched exactly once, in order.
+      expect(batches.flat().map((c) => c.id)).toEqual(
+        buildClusters(FIRST_CHUNK_SIZE + CHUNK_SIZE * 2).map((c) => c.id)
+      );
+    });
+
+    it('R24: does not split an import that already fits in the first batch', () => {
+      expect(planSuggestionBatches(buildClusters(FIRST_CHUNK_SIZE))).toHaveLength(1);
+      expect(planSuggestionBatches([])).toEqual([]);
+    });
+
+    it('R5: issues the first request BEFORE later batches finish preparing', async () => {
+      const clusters = buildClustersForBatches(2);
+      const gate = deferred<void>();
+      let secondPreparationDone = false;
+      let preparationsStartedAtFirstPost = -1;
+
+      const prepareBatch = jest.fn(async (batch: PlaceSuggestionCluster[]) => {
+        if (prepareBatch.mock.calls.length === 2) {
+          await gate.promise;
+          secondPreparationDone = true;
+        }
+        return batch;
+      });
+
+      mockedApi.post.mockImplementation(async () => {
+        if (mockedApi.post.mock.calls.length === 1) {
+          preparationsStartedAtFirstPost = prepareBatch.mock.calls.length;
+          // The first request is in flight while batch two is still encoding.
+          expect(secondPreparationDone).toBe(false);
+          gate.resolve();
+        }
+        return emptyResponse;
+      });
+
+      const { result } = renderHook(() => useSuggestPlacesChunked(), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      await act(async () => {
+        await result.current.mutateAsync({ clusters, prepareBatch });
+      });
+
+      // Batch two's preparation had already STARTED when batch one dispatched:
+      // preparation overlaps the round trip instead of preceding every request.
+      expect(preparationsStartedAtFirstPost).toBe(2);
+      expect(secondPreparationDone).toBe(true);
+      expect(mockedApi.post).toHaveBeenCalledTimes(2);
+    });
+
+    it('retains only in-flight payloads: prepares at most one batch ahead and keeps none after dispatch', async () => {
+      const clusters = buildClustersForBatches(3);
+      const preparedAtEachPost: number[] = [];
+
+      const prepareBatch = jest.fn(async (batch: PlaceSuggestionCluster[]) =>
+        batch.map((c) => ({ ...c, vision_images_base64: [`payload-${c.id}`] }))
+      );
+
+      mockedApi.post.mockImplementation(async () => {
+        preparedAtEachPost.push(prepareBatch.mock.calls.length);
+        return emptyResponse;
+      });
+
+      const { result } = renderHook(() => useSuggestPlacesChunked(), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      let resolved: unknown;
+      await act(async () => {
+        resolved = await result.current.mutateAsync({ clusters, prepareBatch });
+      });
+
+      expect(mockedApi.post).toHaveBeenCalledTimes(3);
+      // At each dispatch at most ONE further batch has been prepared, so the
+      // pipeline never runs ahead of what is in flight.
+      preparedAtEachPost.forEach((preparedCount, dispatchIndex) => {
+        expect(preparedCount - dispatchIndex).toBeLessThanOrEqual(2);
+      });
+      expect(prepareBatch).toHaveBeenCalledTimes(3);
+
+      // Nothing the mutation exposes after the run still carries an encoded
+      // payload — dispatched batches are released, not accumulated.
+      expect(JSON.stringify(resolved)).not.toContain('payload-');
+      expect(JSON.stringify(result.current.partialResults)).not.toContain('payload-');
+      expect(JSON.stringify(result.current.progress)).not.toContain('payload-');
+    });
+
+    it('sends each batch ONLY its own prepared payload', async () => {
+      const clusters = buildClustersForBatches(2);
+      const prepareBatch = jest.fn(async (batch: PlaceSuggestionCluster[]) =>
+        batch.map((c) => ({ ...c, vision_images_base64: [`image-${c.id}`] }))
+      );
+      mockedApi.post.mockResolvedValue(emptyResponse);
+
+      const { result } = renderHook(() => useSuggestPlacesChunked(), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      await act(async () => {
+        await result.current.mutateAsync({ clusters, prepareBatch });
+      });
+
+      const batches = planSuggestionBatches(clusters);
+      mockedApi.post.mock.calls.forEach((call, i) => {
+        const body = call[1] as { clusters: { id: string; vision_images_base64: string[] }[] };
+        expect(body.clusters.map((c) => c.id)).toEqual(batches[i].map((c) => c.id));
+        expect(body.clusters.map((c) => c.vision_images_base64[0])).toEqual(
+          batches[i].map((c) => `image-${c.id}`)
+        );
+      });
+    });
+
+    it('dispatches the batch anyway when its preparation fails', async () => {
+      const clusters = buildClustersForBatches(2);
+      const prepareBatch = jest.fn(async (batch: PlaceSuggestionCluster[]) => {
+        if (prepareBatch.mock.calls.length === 1) {
+          throw new Error('image decode failed');
+        }
+        return batch;
+      });
+      mockedApi.post.mockResolvedValue(emptyResponse);
+
+      const { result } = renderHook(() => useSuggestPlacesChunked(), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      let caught: Error | null = null;
+      await act(async () => {
+        try {
+          await result.current.mutateAsync({ clusters, prepareBatch });
+        } catch (e) {
+          caught = e as Error;
+        }
+      });
+
+      // The pipeline does not reject, and the un-prepared batch still goes out
+      // (without vision images) rather than being dropped.
+      expect(caught).toBeNull();
+      expect(mockedApi.post).toHaveBeenCalledTimes(2);
+      const firstBody = mockedApi.post.mock.calls[0][1] as { clusters: { id: string }[] };
+      expect(firstBody.clusters.map((c) => c.id)).toEqual(
+        planSuggestionBatches(clusters)[0].map((c) => c.id)
+      );
+      expect(result.current.failedClusterIds.size).toBe(0);
     });
   });
 });

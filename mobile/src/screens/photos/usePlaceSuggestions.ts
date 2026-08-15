@@ -45,6 +45,17 @@ function isPlaceSuggestion(item: unknown): item is PlaceSuggestion {
   return typeof obj.place_id === 'string' && typeof obj.name === 'string';
 }
 
+/**
+ * Prepare vision images for a set of clusters with bounded concurrency.
+ *
+ * The worker count is deliberately NOT raised (U5): Expo's async function queue
+ * is serial at the native layer, so extra workers deliver no parallelism and
+ * would only deepen a queue shared with other native modules (KTD10). The win
+ * comes from overlapping preparation with dispatch instead.
+ *
+ * A cluster whose preparation throws yields an empty image list rather than
+ * rejecting — one bad photo must not take its batch down with it.
+ */
 async function prepareVisionImagesBounded(
   clusters: LocationCluster[],
   maxConcurrency: number = VISION_PREP_CONCURRENCY
@@ -59,7 +70,14 @@ async function prepareVisionImagesBounded(
     while (true) {
       const index = nextIndex++;
       if (index >= clusters.length) break;
-      results[index] = await getVisionImagesForCluster(clusters[index]);
+      try {
+        results[index] = await getVisionImagesForCluster(clusters[index]);
+      } catch (error) {
+        if (__DEV__) {
+          console.warn('[PhotoImport] Vision preparation failed for cluster', error);
+        }
+        results[index] = [];
+      }
     }
   }
 
@@ -326,11 +344,32 @@ export function usePlaceSuggestions({
       }
 
       try {
-        // Prepare vision images with bounded concurrency to reduce memory pressure.
-        const visionImages = await prepareVisionImagesBounded(uncachedClusters);
+        // U5/R5. Preparation is PER BATCH, not up front. The mutation dispatches
+        // batch one while batch two is still being encoded; previously every
+        // uncached cluster was prepared before the first request went out, which
+        // on a large trip is minutes of zero network. `mapClusterToApiPayload`
+        // with no images builds the cheap skeleton (ids, centroid, photo
+        // coordinates); `prepareBatch` attaches the expensive base64 vision
+        // images to just the batch about to be dispatched.
+        const clustersById = new Map(uncachedClusters.map((c) => [c.id, c]));
 
         const result = await suggestPlacesMutation.mutateAsync({
-          clusters: uncachedClusters.map((c, i) => mapClusterToApiPayload(c, visionImages[i])),
+          clusters: uncachedClusters.map((c) => mapClusterToApiPayload(c, [])),
+          prepareBatch: async (batch) => {
+            const batchClusters = batch
+              .map((payload) => clustersById.get(payload.id))
+              .filter((c): c is LocationCluster => c !== undefined);
+            const visionImages = await prepareVisionImagesBounded(batchClusters);
+            const imagesByClusterId = new Map(
+              batchClusters.map((c, i) => [c.id, visionImages[i] ?? []])
+            );
+            return batch.map((payload) => {
+              const images = imagesByClusterId.get(payload.id);
+              return images && images.length > 0
+                ? { ...payload, vision_images_base64: images }
+                : payload;
+            });
+          },
         });
 
         if (__DEV__) {
@@ -462,6 +501,12 @@ export function usePlaceSuggestions({
    * across the entire pre-dispatch window (cache read + vision prep), which is
    * where a large import spends its first seconds, and false again on every
    * early return that never dispatches at all (R1).
+   *
+   * U5 pipelines preparation with dispatch INSIDE this bracket: the single
+   * `mutateAsync` await spans every batch, so the owner slot stays claimed while
+   * later batches are still being prepared and is released only once all of it
+   * has settled. Interleaving preparation and dispatch must never move work
+   * outside this `try`.
    */
   const fetchSuggestions = useCallback(
     async (candidate: TripCandidateDisplay): Promise<{ gatedByPremium: true } | undefined> => {
