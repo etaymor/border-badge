@@ -31,8 +31,14 @@ export interface UseWorkflowNavigationOptions {
   setSelectedTripId: (tripId: string | null) => void;
   /** Set phase state */
   setPhase: (phase: ImportPhase) => void;
-  /** Set fetching suggestions flag (covers entire fetch lifecycle including cache + vision prep) */
-  setFetchingSuggestions: (value: boolean) => void;
+  /**
+   * Claim a dispatch owner slot (R1/KTD13). Each navigation path that starts a
+   * fetch is its own owner and must release its slot in a `finally`, so an
+   * overlapping owner can never be made to look settled by this one finishing.
+   */
+  beginFetchOwner: () => void;
+  /** Release this path's dispatch owner slot. Always paired in a `finally`. */
+  endFetchOwner: () => void;
   /** Fetch suggestions for a candidate */
   fetchSuggestions: (
     candidate: TripCandidateDisplay
@@ -70,7 +76,8 @@ export function useWorkflowNavigation({
   setSelectedCandidate,
   setSelectedTripId,
   setPhase,
-  setFetchingSuggestions,
+  beginFetchOwner,
+  endFetchOwner,
   fetchSuggestions,
   resetSuggestPlacesMutation,
   clearFetchedCache,
@@ -143,7 +150,7 @@ export function useWorkflowNavigation({
 
       setSelectedTripId(tripIdToSelect);
       setPhase('suggestions');
-      setFetchingSuggestions(true);
+      beginFetchOwner();
 
       // Persist the candidate selection for this destination trip
       setLastSelectedCandidateId(tripIdToSelect, candidateToUse.id).catch(() => {
@@ -159,7 +166,7 @@ export function useWorkflowNavigation({
           });
         }
       } finally {
-        setFetchingSuggestions(false);
+        endFetchOwner();
       }
     },
     [
@@ -171,7 +178,8 @@ export function useWorkflowNavigation({
       currentCandidateIdRef,
       setSelectedTripId,
       setPhase,
-      setFetchingSuggestions,
+      beginFetchOwner,
+      endFetchOwner,
     ]
   );
 
@@ -224,7 +232,7 @@ export function useWorkflowNavigation({
 
       // Update selected candidate
       setSelectedCandidate(newCandidate);
-      setFetchingSuggestions(true);
+      beginFetchOwner();
 
       // Persist the selection for this destination trip
       setLastSelectedCandidateId(selectedTripId, newCandidate.id).catch(() => {
@@ -241,7 +249,7 @@ export function useWorkflowNavigation({
           });
         }
       } finally {
-        setFetchingSuggestions(false);
+        endFetchOwner();
       }
 
       // Note: fetchSuggestions handles its own state updates via React Query mutation.
@@ -258,7 +266,8 @@ export function useWorkflowNavigation({
       handlePremiumGate,
       currentCandidateIdRef,
       setSelectedCandidate,
-      setFetchingSuggestions,
+      beginFetchOwner,
+      endFetchOwner,
     ]
   );
 

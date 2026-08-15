@@ -96,7 +96,6 @@ export function usePhotoImportWorkflow({
   const [selectedTripId, setSelectedTripId] = useState<string | null>(tripId ?? null);
   const [lastImportTime, setLastImportTimeState] = useState<number | null>(null);
   const [isIncremental, setIsIncremental] = useState<boolean>(false);
-  const [fetchingSuggestions, setFetchingSuggestions] = useState(false);
 
   // Scan failure state: set when scan completes with no usable results, cleared after alert shown
   const [scanFailure, setScanFailure] = useState<{
@@ -303,6 +302,9 @@ export function usePhotoImportWorkflow({
     retryFailedClusters,
     retryingClusterIds,
     clearFetchedCache,
+    isFetchingSuggestions,
+    beginFetchOwner,
+    endFetchOwner,
     isPremium,
     canImportPhotos,
   } = usePlaceSuggestions({
@@ -481,7 +483,8 @@ export function usePhotoImportWorkflow({
     setSelectedCandidate,
     setSelectedTripId,
     setPhase,
-    setFetchingSuggestions,
+    beginFetchOwner,
+    endFetchOwner,
     fetchSuggestions,
     resetSuggestPlacesMutation: suggestPlacesMutation.reset,
     clearFetchedCache,
@@ -503,6 +506,8 @@ export function usePhotoImportWorkflow({
     startScan,
     handlePremiumGate,
     fetchSuggestions,
+    beginFetchOwner,
+    endFetchOwner,
     setClusterLookup,
     setClusterDisplays,
     photoLookupRef,
@@ -541,7 +546,11 @@ export function usePhotoImportWorkflow({
     manualSearchCluster,
     suggestPlacesMutation,
     cachedSuggestions,
-    fetchingSuggestions,
+    // R1/KTD13: the single honest in-progress signal — the OR of every dispatch
+    // owner (auto-start, selectTrip, switchCandidate, the fetch itself, manual
+    // split). The screen no longer keeps a second boolean of its own: one owner
+    // finishing must never make an overlapping owner look settled.
+    fetchingSuggestions: isFetchingSuggestions,
     retryingClusterIds,
     lastImportTime,
     isIncremental,

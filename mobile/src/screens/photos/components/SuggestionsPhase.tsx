@@ -45,6 +45,15 @@ export function SuggestionsPhase({
   renderClusterItem,
   onUpgrade,
 }: SuggestionsPhaseProps) {
+  // The progress header now renders for the WHOLE fetch, including the
+  // pre-dispatch window (SQLite cache read + vision prep) where the chunked
+  // mutation has no progress yet. Fall back to the candidate's own cluster count
+  // so the spinner still carries a count instead of a bare "Searching...".
+  const clusterCount = selectedCandidate.locationClusterIds.length;
+  const progressLabel = suggestionsProgress
+    ? `Processing ${suggestionsProgress.clustersCompleted} of ${suggestionsProgress.clustersTotal} locations`
+    : `Preparing ${clusterCount} ${clusterCount === 1 ? 'location' : 'locations'}`;
+
   return (
     <View style={styles.listContainer}>
       {selectedTripName && <Text style={styles.tripName}>{selectedTripName}</Text>}
@@ -69,11 +78,7 @@ export function SuggestionsPhase({
         <View style={styles.progressHeader}>
           <View style={styles.progressLabelRow}>
             <ActivityIndicator size="small" color={colors.sunsetGold} />
-            <Text style={styles.progressLabel}>
-              {suggestionsProgress
-                ? `Processing ${suggestionsProgress.clustersCompleted} of ${suggestionsProgress.clustersTotal} locations`
-                : 'Searching for places...'}
-            </Text>
+            <Text style={styles.progressLabel}>{progressLabel}</Text>
           </View>
           {suggestionsProgress && (
             <View style={styles.progressBar}>

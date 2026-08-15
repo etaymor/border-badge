@@ -1,8 +1,14 @@
 /**
  * Hook to build the merged list of cluster display items for the suggestions phase.
  *
- * Combines cached suggestions with API results, groups clusters that resolved
- * to the same place, and appends photos-only clusters after loading completes.
+ * Combines cached suggestions with API results and groups clusters that resolved
+ * to the same place.
+ *
+ * KTD5 / R11 — CANONICAL ORDER: every item is emitted in the candidate's own
+ * `locationClusterIds` order, whatever state the cluster is in. Rows therefore
+ * keep their position for the whole session: a row that resolves from withheld
+ * to matched / no-place-found / lookup-failed changes appearance IN PLACE
+ * instead of teleporting to the end of the list as results stream in.
  */
 
 import { useMemo } from 'react';
@@ -29,6 +35,16 @@ interface UseClusterItemsOptions {
   suggestPlacesMutation: ReturnType<typeof useSuggestPlacesChunked>;
   cachedSuggestions: ClusterSuggestion[];
   dismissedClusterIdsInternal: Set<string>;
+  /**
+   * True while ANY dispatch owner is unsettled (R1/KTD13) — the consumer ORs
+   * every owner's signal together, because the screen only knows about the
+   * fetches it started itself.
+   *
+   * It has exactly ONE role left (KTD3): the Phase-1 reconciliation sweep. Once
+   * dispatch has settled, a cluster with neither a response nor a failure entry
+   * becomes `lookup-failed`. It no longer withholds already-answered
+   * no-place-found rows — an empty response is terminal and renders at once.
+   */
   fetchingSuggestions: boolean;
   /**
    * Cluster ids whose U10 scoped retry is currently in flight (per-cluster
@@ -95,13 +111,17 @@ export function useClusterItems({
       { suggestion: ClusterSuggestion; cluster: LocationClusterDisplay }
     >();
     // Clusters that resolved to a real empty response (place lookup succeeded,
-    // found nothing) — the genuine no-place-found state.
-    const photosOnlyClusters: LocationClusterDisplay[] = [];
+    // found nothing) — the genuine no-place-found state. Keyed by cluster id so
+    // Phase 2 can emit them in canonical order (KTD5).
+    const photosOnlyClusters = new Map<string, LocationClusterDisplay>();
     // Clusters whose place lookup FAILED (in failedClusterIds) OR were never
     // enumerated by the mutation at all (ADV-5) — the terminal lookup-failed
     // state. retryDisabled comes from the failure metadata; a never-enumerated
     // cluster gets retry ENABLED (it was never actually attempted).
-    const lookupFailedClusters: { cluster: LocationClusterDisplay; retryDisabled: boolean }[] = [];
+    const lookupFailedClusters = new Map<
+      string,
+      { cluster: LocationClusterDisplay; retryDisabled: boolean }
+    >();
 
     // Sub-clusters from a manual split always render as their own card, even if
     // they share a top place_id with another cluster. Grouping them would undo
@@ -129,14 +149,18 @@ export function useClusterItems({
         // lookup-failed: the cluster's chunk threw. Do NOT fall through to
         // photos-only — that would re-introduce B1 (a transient failure shown
         // as a confident "No place found"). Terminal: render even mid-fetch.
-        lookupFailedClusters.push({
+        lookupFailedClusters.set(clusterId, {
           cluster,
           retryDisabled: failedClusterIds.get(clusterId)?.retryDisabled ?? false,
         });
       } else if (suggestion) {
         // no-place-found: a real (empty) response actually arrived for this
         // cluster — the only honest source of a confident "No place found".
-        photosOnlyClusters.push(cluster);
+        // TERMINAL (R3/KTD3): emitted the moment its own response lands, even
+        // while other clusters are still on the wire. It is never withheld
+        // behind the global fetch flag — that gate made an already-answered
+        // cluster stay invisible behind slower ones.
+        photosOnlyClusters.set(clusterId, cluster);
       } else if (!fetchingSuggestions) {
         // ADV-5 reconciliation invariant: the fetch is DONE, yet this cluster
         // has NEITHER a response (not in suggestionsMap / cache) NOR a failure
@@ -145,7 +169,7 @@ export function useClusterItems({
         // NOT be confidently labeled no-place-found (no empty response ever
         // arrived). Route it to lookup-failed with retry ENABLED so the user can
         // recover it, never to photos-only.
-        lookupFailedClusters.push({ cluster, retryDisabled: false });
+        lookupFailedClusters.set(clusterId, { cluster, retryDisabled: false });
       }
       // else: fetch is still in flight and this cluster is unresolved (no
       // response, no failure). Withhold it — don't flash no-place-found OR
@@ -153,16 +177,42 @@ export function useClusterItems({
       // resolves it (empty response) or fails it (failedClusterIds).
     }
 
-    // Phase 2: Build display items, merging clusters with same top place
+    // Phase 2: Build display items in CANONICAL cluster order (KTD5/R11),
+    // merging clusters with the same top place. Every state — matched,
+    // lookup-failed, no-place-found — is emitted from this single ordered pass,
+    // so a row resolving mid-session changes appearance in place rather than
+    // being appended after the matched rows and teleporting.
     const items: ClusterDisplayItem[] = [];
     const processedGroupKeys = new Set<string>();
 
-    // Process in order of original cluster sequence for consistent ordering
     for (const clusterId of selectedCandidate.locationClusterIds) {
       if (dismissedClusterIdsInternal.has(clusterId)) continue;
 
       const entry = clusterSuggestionMap.get(clusterId);
-      if (!entry) continue; // Will be handled in photos-only pass
+      if (!entry) {
+        // Not matched. Emit the cluster's terminal state at ITS position, or
+        // withhold it (no entry in either map) while it is still unresolved.
+        const failedEntry = lookupFailedClusters.get(clusterId);
+        if (failedEntry) {
+          // Lookup-failed is TERMINAL — its fetch already finished (chunk threw)
+          // or it was never enumerated. It is NOT withheld during a *subsequent*
+          // fetch: unlike a still-unresolved cluster it has no pending
+          // resolution to wait for, and hiding it would make it silently vanish
+          // again (B1).
+          items.push({
+            type: 'lookup-failed',
+            cluster: failedEntry.cluster,
+            retryDisabled: failedEntry.retryDisabled,
+            isRetrying: retryingClusterIds.has(failedEntry.cluster.id),
+          });
+          continue;
+        }
+        const photosOnlyCluster = photosOnlyClusters.get(clusterId);
+        if (photosOnlyCluster) {
+          items.push({ type: 'photos-only', cluster: photosOnlyCluster });
+        }
+        continue;
+      }
 
       const groupKey = groupKeyFor(clusterId, entry.suggestion.places[0].place_id);
       if (processedGroupKeys.has(groupKey)) continue;
@@ -203,33 +253,6 @@ export function useClusterItems({
             }
           }
         }
-      }
-    }
-
-    // Lookup-failed clusters are TERMINAL — their fetch already finished (chunk
-    // threw) or they were never enumerated (classified only when the fetch is
-    // done, see Phase 1). They are NOT withheld during a *subsequent* fetch:
-    // unlike a genuine no-place-found (which could still flip to matched while a
-    // fetch is in flight), a failed cluster has no pending resolution to wait
-    // for, and hiding it would make it silently vanish again (B1). Emit them.
-    for (const { cluster, retryDisabled } of lookupFailedClusters) {
-      items.push({
-        type: 'lookup-failed',
-        cluster,
-        retryDisabled,
-        isRetrying: retryingClusterIds.has(cluster.id),
-      });
-    }
-
-    // Add photos-only (genuine no-place-found) clusters at the end — but only
-    // after loading is complete. While suggestions are being fetched (cache
-    // check, vision prep, or API call), a cluster without a suggestion hasn't
-    // been resolved yet and showing "No place found nearby" is misleading (B5).
-    // Note: Phase 1 only enters a cluster here when a real empty response
-    // arrived, so this withhold is a belt-and-suspenders guard for that path.
-    if (!fetchingSuggestions) {
-      for (const cluster of photosOnlyClusters) {
-        items.push({ type: 'photos-only', cluster });
       }
     }
 

@@ -15,6 +15,7 @@ import { AxiosError } from 'axios';
 import React from 'react';
 
 import { usePlaceSuggestions } from '../../../screens/photos/usePlaceSuggestions';
+import { useIsPremium, useCanImportPhotos } from '@stores/subscriptionStore';
 import { api } from '@services/api';
 import { Analytics } from '@services/analytics';
 import {
@@ -775,5 +776,224 @@ describe('usePlaceSuggestions - timing instrumentation (U15)', () => {
     for (const forbidden of ['c-1', 'ChIJ_', '35.1', '139.1']) {
       expect(serialized).not.toContain(forbidden);
     }
+  });
+});
+
+// ---- Dispatch owner accounting (U2 / R1 / KTD13) ---------------------------
+
+describe('usePlaceSuggestions dispatch owner accounting (R1/KTD13)', () => {
+  const buildCandidate = (clusterIds: string[], id = 'cand-owner') => ({
+    id,
+    countryCode: 'JP',
+    dateRange: { start: new Date(), end: new Date() },
+    photoIds: [],
+    photoCount: clusterIds.length,
+    previewUris: [],
+    previewAssetIds: [],
+    locationClusterIds: clusterIds,
+  });
+
+  const placeFor = (id: string) => ({
+    place_id: `ChIJ_${id}`,
+    name: `Place ${id}`,
+    address: '1 St',
+    location: { latitude: 35, longitude: 139 },
+    category: 'place',
+    distance_m: 10,
+    types: ['point_of_interest'],
+  });
+
+  // `jest.clearAllMocks()` clears usage data but keeps a `mockReturnValue`, so
+  // the premium-gate test below would leak a gated user into its neighbours.
+  afterEach(() => {
+    (useIsPremium as jest.MockedFunction<typeof useIsPremium>).mockReturnValue(true);
+    (useCanImportPhotos as jest.MockedFunction<typeof useCanImportPhotos>).mockReturnValue(true);
+  });
+
+  it('settles after the already-processed early return', async () => {
+    const c1 = makeCluster('own-1', 35.1, 139.1);
+    mockedGetCachedSuggestions.mockResolvedValue(new Map([['own-1', [placeFor('own-1')]]]));
+
+    const { result } = setup([c1]);
+    const candidate = buildCandidate(['own-1']);
+
+    await act(async () => {
+      await result.current.fetchSuggestions(candidate);
+    });
+    expect(result.current.isFetchingSuggestions).toBe(false);
+
+    // Second call short-circuits on `fetchedCandidatesRef` before any await.
+    await act(async () => {
+      await result.current.fetchSuggestions(candidate);
+    });
+    expect(result.current.isFetchingSuggestions).toBe(false);
+  });
+
+  it('settles after the no-clusters early return', async () => {
+    // getFullCluster resolves nothing for this candidate's ids.
+    mockedGetFullCluster.mockImplementation(() => undefined);
+    const { result } = setup([]);
+
+    await act(async () => {
+      await result.current.fetchSuggestions(buildCandidate(['missing-1']));
+    });
+
+    expect(mockedApi.post).not.toHaveBeenCalled();
+    expect(result.current.isFetchingSuggestions).toBe(false);
+  });
+
+  it('settles after the gatedByPremium early return', async () => {
+    (useIsPremium as jest.MockedFunction<typeof useIsPremium>).mockReturnValue(false);
+    (useCanImportPhotos as jest.MockedFunction<typeof useCanImportPhotos>).mockReturnValue(false);
+
+    const c1 = makeCluster('gated-1', 35.1, 139.1);
+    const { result } = setup([c1]);
+
+    let outcome: { gatedByPremium: true } | undefined;
+    await act(async () => {
+      outcome = await result.current.fetchSuggestions(buildCandidate(['gated-1']));
+    });
+
+    expect(outcome).toEqual({ gatedByPremium: true });
+    expect(result.current.isFetchingSuggestions).toBe(false);
+  });
+
+  it('settles after the all-cached early return', async () => {
+    const c1 = makeCluster('cached-only', 35.1, 139.1);
+    mockedGetCachedSuggestions.mockResolvedValue(
+      new Map([['cached-only', [placeFor('cached-only')]]])
+    );
+
+    const { result } = setup([c1]);
+
+    await act(async () => {
+      await result.current.fetchSuggestions(buildCandidate(['cached-only']));
+    });
+
+    expect(mockedApi.post).not.toHaveBeenCalled();
+    expect(result.current.isFetchingSuggestions).toBe(false);
+  });
+
+  it('settles after a fetch that THROWS out of fetchSuggestions', async () => {
+    // The SQLite cache read sits outside the hook's internal try/catch, so a
+    // rejection there propagates out of fetchSuggestions. The owner must still
+    // be released — a stranded owner would withhold terminal rows forever.
+    const c1 = makeCluster('throw-1', 35.1, 139.1);
+    mockedGetCachedSuggestions.mockRejectedValueOnce(new Error('sqlite exploded'));
+
+    const { result } = setup([c1]);
+
+    await act(async () => {
+      await expect(result.current.fetchSuggestions(buildCandidate(['throw-1']))).rejects.toThrow(
+        'sqlite exploded'
+      );
+    });
+
+    expect(result.current.isFetchingSuggestions).toBe(false);
+  });
+
+  it('stays in progress until BOTH overlapping owners settle (KTD13)', async () => {
+    const a = makeCluster('overlap-a', 35.1, 139.1);
+    const b = makeCluster('overlap-b', 35.2, 139.2);
+
+    let resolveFirst!: (value: unknown) => void;
+    let resolveSecond!: (value: unknown) => void;
+    mockedApi.post
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveFirst = resolve as (value: unknown) => void;
+          })
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveSecond = resolve as (value: unknown) => void;
+          })
+      );
+
+    const { result } = setup([a, b]);
+
+    let firstDone!: Promise<unknown>;
+    let secondDone!: Promise<unknown>;
+    await act(async () => {
+      firstDone = result.current.fetchForClusters([a]);
+      secondDone = result.current.fetchForClusters([b]);
+    });
+
+    expect(result.current.isFetchingSuggestions).toBe(true);
+
+    // First owner settles — the second is still on the wire, so "settled" must
+    // NOT be reported (a plain boolean would flip false here).
+    await act(async () => {
+      resolveFirst({
+        data: {
+          suggestions: [
+            { cluster_id: 'overlap-a', photo_ids: ['photo-overlap-a'], places: [placeFor('a')] },
+          ],
+          failed_cluster_count: 0,
+        },
+      });
+      await firstDone;
+    });
+    expect(result.current.isFetchingSuggestions).toBe(true);
+
+    await act(async () => {
+      resolveSecond({
+        data: {
+          suggestions: [
+            { cluster_id: 'overlap-b', photo_ids: ['photo-overlap-b'], places: [placeFor('b')] },
+          ],
+          failed_cluster_count: 0,
+        },
+      });
+      await secondDone;
+    });
+    expect(result.current.isFetchingSuggestions).toBe(false);
+  });
+
+  it('does NOT append a split result into the candidate the user switched to', async () => {
+    const split = makeCluster('split-stale', 35.1, 139.1);
+
+    let resolveApi!: (value: unknown) => void;
+    mockedApi.post.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveApi = resolve as (value: unknown) => void;
+        })
+    );
+
+    const ref = { current: 'cand-A' } as React.RefObject<string | null>;
+    const { result } = setup([split], ref);
+
+    let splitDone!: Promise<unknown>;
+    await act(async () => {
+      splitDone = result.current.fetchForClusters([split]);
+    });
+
+    // User switches candidates while the split lookup is in flight.
+    ref.current = 'cand-B';
+
+    await act(async () => {
+      resolveApi({
+        data: {
+          suggestions: [
+            {
+              cluster_id: 'split-stale',
+              photo_ids: ['photo-split-stale'],
+              places: [placeFor('split-stale')],
+            },
+          ],
+          failed_cluster_count: 0,
+        },
+      });
+      await splitDone;
+    });
+
+    // The SQLite write still happened (location-keyed, useful on return)...
+    expect(mockedCacheSuggestions).toHaveBeenCalled();
+    // ...but the old candidate's sub-cluster was NOT appended to the new one.
+    expect(result.current.cachedSuggestions.map((s) => s.cluster_id)).not.toContain('split-stale');
+    expect(result.current.isFetchingSuggestions).toBe(false);
   });
 });

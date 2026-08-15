@@ -13,6 +13,8 @@
  *  - ADV-5 reconciliation: a never-enumerated cluster -> lookup-failed
  *    (retry-enabled), never a confident no-place-found; rendered set ==
  *    (input - dismissed)
+ *  - KTD3/R3: an empty response renders no-place-found IMMEDIATELY; the loading
+ *    flag never withholds an already-answered cluster
  */
 
 import { renderHook } from '@testing-library/react-native';
@@ -345,6 +347,36 @@ describe('useClusterItems three-state model', () => {
     expect(classify({ type: 'photos-only' })).toBe('empty');
   });
 
+  it('renders a no-place-found cluster the moment its empty response arrives, mid-fetch (R3/KTD3)', () => {
+    // KTD3: an empty response is a TERMINAL, honest result — the server answered
+    // this cluster and found nothing. The withholding gate held every photos-only
+    // row back until the WHOLE fetch settled, so an already-answered cluster
+    // stayed invisible behind slower ones. It must render as soon as its own
+    // response lands.
+    //
+    // The flag's other coupling is unaffected: c-pending has no response yet and
+    // stays withheld (that half of the flag's role stays — see the B5 test above).
+    const answered = buildCluster('c-empty');
+    const pending = buildCluster('c-pending');
+
+    const items = renderItems({
+      clusterIds: ['c-empty', 'c-pending'],
+      clusters: [answered, pending],
+      mutation: buildMutation({
+        isPending: true,
+        partialResults: [buildSuggestion('c-empty', [])],
+      }),
+      fetching: true,
+    });
+
+    const rendered = items.map((item) =>
+      item.type === 'photos-only' || item.type === 'lookup-failed'
+        ? { id: item.cluster.id, type: item.type }
+        : { id: '(grouped)', type: item.type }
+    );
+    expect(rendered).toEqual([{ id: 'c-empty', type: 'photos-only' }]);
+  });
+
   it('still surfaces a failed cluster as lookup-failed during an active fetch (terminal)', () => {
     // lookup-failed is terminal for that cluster — its fetch already failed —
     // so it should render even while a subsequent/other fetch is in flight.
@@ -360,5 +392,111 @@ describe('useClusterItems three-state model', () => {
 
     expect(items).toHaveLength(1);
     expect(items[0].type).toBe('lookup-failed');
+  });
+  it('emits every state in canonical cluster order, whatever the state mix (KTD5/R11)', () => {
+    // Candidate order is deliberately interleaved: failed, empty, matched,
+    // empty, matched. Pre-U2 the list came out as matched-first, then all
+    // failed, then all photos-only — so a row's position depended on its state.
+    const ids = ['c-failed', 'c-empty-1', 'c-matched-1', 'c-empty-2', 'c-matched-2'];
+    const clusters = ids.map(buildCluster);
+
+    const suggestions = [
+      buildSuggestion('c-empty-1', []),
+      buildSuggestion('c-empty-2', []),
+      buildSuggestion('c-matched-1', [buildPlace({ place_id: 'ChIJ_m1' })]),
+      buildSuggestion('c-matched-2', [buildPlace({ place_id: 'ChIJ_m2' })]),
+    ];
+    const failedClusterIds: FailedClusterIds = new Map([['c-failed', { retryDisabled: false }]]);
+
+    const items = renderItems({
+      clusterIds: ids,
+      clusters,
+      mutation: buildMutation({ suggestions, failedClusterIds }),
+    });
+
+    const rendered = items.map((item) =>
+      item.type === 'suggestion'
+        ? item.data.cluster_id
+        : item.type === 'merged-suggestion'
+          ? item.data.primaryClusterId
+          : item.cluster.id
+    );
+    expect(rendered).toEqual(ids);
+  });
+
+  it('does not move a row when it resolves to no-place-found (R11)', () => {
+    // c-slow is unresolved on the first pass (withheld) and answers empty on the
+    // second. Its neighbours must not shift, and it must land in its own slot
+    // rather than being appended after the matched rows.
+    const ids = ['c-matched', 'c-slow', 'c-tail'];
+    const clusters = ids.map(buildCluster);
+
+    const before = renderItems({
+      clusterIds: ids,
+      clusters,
+      mutation: buildMutation({
+        isPending: true,
+        partialResults: [
+          buildSuggestion('c-matched', [buildPlace({ place_id: 'ChIJ_a' })]),
+          buildSuggestion('c-tail', [buildPlace({ place_id: 'ChIJ_b' })]),
+        ],
+      }),
+      fetching: true,
+    });
+    expect(before.map((i) => (i.type === 'suggestion' ? i.data.cluster_id : 'other'))).toEqual([
+      'c-matched',
+      'c-tail',
+    ]);
+
+    const after = renderItems({
+      clusterIds: ids,
+      clusters,
+      mutation: buildMutation({
+        isPending: true,
+        partialResults: [
+          buildSuggestion('c-matched', [buildPlace({ place_id: 'ChIJ_a' })]),
+          buildSuggestion('c-slow', []),
+          buildSuggestion('c-tail', [buildPlace({ place_id: 'ChIJ_b' })]),
+        ],
+      }),
+      fetching: true,
+    });
+
+    const rendered = after.map((item) =>
+      item.type === 'suggestion'
+        ? item.data.cluster_id
+        : item.type === 'merged-suggestion'
+          ? item.data.primaryClusterId
+          : item.cluster.id
+    );
+    // c-slow lands BETWEEN its neighbours, not appended at the end.
+    expect(rendered).toEqual(['c-matched', 'c-slow', 'c-tail']);
+    expect(after[1].type).toBe('photos-only');
+  });
+
+  it('keeps a lookup-failed row in place instead of appending it after matched rows (R11)', () => {
+    const ids = ['c-head', 'c-broken', 'c-tail'];
+    const clusters = ids.map(buildCluster);
+    const suggestions = [
+      buildSuggestion('c-head', [buildPlace({ place_id: 'ChIJ_head' })]),
+      buildSuggestion('c-tail', [buildPlace({ place_id: 'ChIJ_tail' })]),
+    ];
+    const failedClusterIds: FailedClusterIds = new Map([['c-broken', { retryDisabled: false }]]);
+
+    const items = renderItems({
+      clusterIds: ids,
+      clusters,
+      mutation: buildMutation({ suggestions, failedClusterIds }),
+    });
+
+    const rendered = items.map((item) =>
+      item.type === 'suggestion'
+        ? item.data.cluster_id
+        : item.type === 'merged-suggestion'
+          ? item.data.primaryClusterId
+          : item.cluster.id
+    );
+    expect(rendered).toEqual(ids);
+    expect(items[1].type).toBe('lookup-failed');
   });
 });

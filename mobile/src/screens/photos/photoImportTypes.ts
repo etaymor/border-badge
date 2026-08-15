@@ -73,7 +73,12 @@ export interface PhotoImportWorkflowResult {
   /** Clear the scan failure after showing alert */
   clearScanFailure: () => void;
 
-  /** True from when suggestions fetch starts (including cache check + vision prep) until it completes */
+  /**
+   * True while ANY dispatch owner has an unsettled suggestion fetch (R1/KTD13):
+   * auto-start, selectTrip, switchCandidate, the fetch itself, or a manual
+   * split. Covers each owner's whole duration — SQLite cache check and vision
+   * prep included — and reports settled only once EVERY owner has settled.
+   */
   fetchingSuggestions: boolean;
 
   /**

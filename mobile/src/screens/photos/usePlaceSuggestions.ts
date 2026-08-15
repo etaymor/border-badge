@@ -110,6 +110,45 @@ export function usePlaceSuggestions({
   // double `cacheSuggestions` write.
   const retryInFlightRef = useRef<Set<string>>(new Set());
 
+  // ==========================================================================
+  // Dispatch owner count (R1 / KTD13)
+  // ==========================================================================
+  // The "is a suggestion fetch in progress?" signal is a COUNT of concurrent
+  // owners, not a boolean. Several independent call sites can start a fetch and
+  // two of them can overlap (a manual split or an auto-start alongside the main
+  // dispatch). With a plain boolean the first owner to finish flips it false,
+  // which fires `useClusterItems`' reconciliation sweep against the other
+  // owner's still-in-flight clusters and paints them as `lookup-failed`.
+  //
+  // "Settled" therefore means ALL owners settled (count back to 0). Every owner
+  // MUST claim its slot synchronously before its first await and release it in a
+  // `finally` that spans the whole body, including every early return and every
+  // thrown path — a stranded owner would permanently withhold terminal rows.
+  //
+  // NOTE: paused / awaiting-something is NOT settled. An owner that is parked
+  // (holding the SQLite cache read open, waiting on vision prep, or waiting on
+  // the network) still holds its slot, because the bracket is around the whole
+  // body rather than around the network call.
+  //
+  // The retry path (`retryFailedClusters`) deliberately does NOT take a slot: it
+  // is scoped to explicit clusters and drives its own per-cluster spinner via
+  // `retryingClusterIds`. Taking a global slot would re-hide every healthy
+  // photos-only / no-place-found card during a retry (KTD7 / C4).
+  const [fetchOwnerCount, setFetchOwnerCount] = useState(0);
+
+  /** Claim a dispatch owner slot. Always pair with `endFetchOwner` in a finally. */
+  const beginFetchOwner = useCallback(() => {
+    setFetchOwnerCount((count) => count + 1);
+  }, []);
+
+  /** Release a dispatch owner slot. Clamped so a stray release can't go negative. */
+  const endFetchOwner = useCallback(() => {
+    setFetchOwnerCount((count) => Math.max(0, count - 1));
+  }, []);
+
+  /** True while ANY owner has an unsettled suggestion fetch (R1). */
+  const isFetchingSuggestions = fetchOwnerCount > 0;
+
   /**
    * Fetch place suggestions for a candidate.
    * Checks SQLite cache first, only fetching uncached clusters from API.
@@ -119,8 +158,12 @@ export function usePlaceSuggestions({
    * during an async operation, results are discarded to prevent race conditions.
    *
    * Returns undefined on success, or { gatedByPremium: true } if user hit premium limit.
+   *
+   * The owner bracket lives in the `fetchSuggestions` wrapper below, so EVERY
+   * early return here (already processed / no clusters / stale / gatedByPremium /
+   * all cached) and every throw still reports settled exactly once.
    */
-  const fetchSuggestions = useCallback(
+  const runFetchSuggestions = useCallback(
     async (candidate: TripCandidateDisplay): Promise<{ gatedByPremium: true } | undefined> => {
       // Capture the candidate ID at the start to detect stale responses
       const requestCandidateId = candidate.id;
@@ -411,75 +454,127 @@ export function usePlaceSuggestions({
   );
 
   /**
+   * Public entry point: claims a dispatch owner slot for the WHOLE duration of
+   * the fetch — synchronously, BEFORE the SQLite cache read and vision prep, not
+   * when the network call starts — and releases it exactly once in `finally`.
+   *
+   * The mutation's own `isPending` is deliberately NOT the signal: it is false
+   * across the entire pre-dispatch window (cache read + vision prep), which is
+   * where a large import spends its first seconds, and false again on every
+   * early return that never dispatches at all (R1).
+   */
+  const fetchSuggestions = useCallback(
+    async (candidate: TripCandidateDisplay): Promise<{ gatedByPremium: true } | undefined> => {
+      beginFetchOwner();
+      try {
+        return await runFetchSuggestions(candidate);
+      } finally {
+        endFetchOwner();
+      }
+    },
+    [runFetchSuggestions, beginFetchOwner, endFetchOwner]
+  );
+
+  /**
    * Fetch place suggestions for specific clusters (e.g., after manual split).
    * Bypasses candidate-level caching since these are new synthetic clusters.
    *
    * Uses a direct API call instead of the shared mutation to avoid replacing
    * existing suggestion data for other clusters.
+   *
+   * Owns a dispatch slot for its whole duration (R1/KTD13) so a split that
+   * overlaps the main dispatch cannot make the main dispatch look settled, and
+   * so its own pre-dispatch vision prep is reported as in progress.
+   *
+   * Candidate-stale guard: the split's sub-clusters belong to the candidate that
+   * was active when the split happened. If the user switches candidates while
+   * this call is in flight, appending the result would inject the OLD
+   * candidate's sub-clusters into the NEW candidate's suggestions (switching
+   * resets `cachedSuggestions`). The SQLite cache write still happens — it is
+   * location-keyed and useful when the user returns.
    */
-  const fetchForClusters = useCallback(async (clusters: LocationCluster[]) => {
-    if (clusters.length === 0) return;
+  const fetchForClusters = useCallback(
+    async (clusters: LocationCluster[]) => {
+      if (clusters.length === 0) return;
 
-    try {
-      const visionImages = await prepareVisionImagesBounded(clusters);
-      const response = await api.post(
-        '/photos/suggest-places',
-        {
-          clusters: clusters.map((c, i) => mapClusterToApiPayload(c, visionImages[i])),
-        },
-        { timeout: SUGGEST_PLACES_TIMEOUT_MS }
-      );
-      const result = response.data as PlaceSuggestionResponse;
+      const requestCandidateId = currentCandidateIdRef?.current ?? null;
+      const isStaleRequest = () =>
+        currentCandidateIdRef != null && currentCandidateIdRef.current !== requestCandidateId;
 
-      // Cache results to SQLite — skip clusters missing due to transient failures.
-      // Unlike fetchSuggestions there is no chunk concept here (a single raw
-      // api.post), so the only lookup-failure signals are (a) a thrown error for
-      // the whole call — handled by the catch below, which caches nothing — and
-      // (b) failed_cluster_count for per-cluster timeouts, excluded here. A
-      // transiently-failed split cluster must never be written as [] (KTD8/B1).
-      const respondedIds = new Set(result.suggestions.map((s) => s.cluster_id));
-      const toCache = clusters
-        .filter((cluster) => respondedIds.has(cluster.id) || result.failed_cluster_count === 0)
-        .map((cluster) => {
-          const suggestion = result.suggestions.find((s) => s.cluster_id === cluster.id);
-          return {
-            cluster_id: cluster.id,
-            location_key: clusterLocationKey(cluster.centroid),
-            places: suggestion?.places ?? [],
-          };
-        });
-      await cacheSuggestions(toCache);
-
-      // Add to in-memory cached suggestions for immediate display
-      const newSuggestions: ClusterSuggestion[] = result.suggestions.map((s) => ({
-        cluster_id: s.cluster_id,
-        photo_ids: s.photo_ids,
-        places: s.places,
-      }));
-      setCachedSuggestions((prev) => [...prev, ...newSuggestions]);
-    } catch (error) {
-      if (__DEV__) console.error('[PhotoImport] fetchForClusters error:', error);
-
-      if (error instanceof AxiosError && error.response?.status === 503) {
-        Alert.alert(
-          'Service Temporarily Unavailable',
-          'The place suggestion service has reached its daily limit. Please try again tomorrow.'
+      beginFetchOwner();
+      try {
+        const visionImages = await prepareVisionImagesBounded(clusters);
+        const response = await api.post(
+          '/photos/suggest-places',
+          {
+            clusters: clusters.map((c, i) => mapClusterToApiPayload(c, visionImages[i])),
+          },
+          { timeout: SUGGEST_PLACES_TIMEOUT_MS }
         );
-      } else if (error instanceof AxiosError && error.response?.status === 429) {
-        const retryAfter = error.response.headers['retry-after'];
-        const retrySeconds = retryAfter ? parseInt(retryAfter, 10) : 60;
-        Alert.alert(
-          'Too Many Requests',
-          `Please wait ${isNaN(retrySeconds) ? 60 : retrySeconds} seconds before trying again.`
-        );
-      } else {
-        Alert.alert(
-          'Failed to Get Suggestions',
-          'Unable to find place suggestions for the split clusters. You can add entries manually.'
-        );
+        const result = response.data as PlaceSuggestionResponse;
+
+        // Cache results to SQLite — skip clusters missing due to transient failures.
+        // Unlike fetchSuggestions there is no chunk concept here (a single raw
+        // api.post), so the only lookup-failure signals are (a) a thrown error for
+        // the whole call — handled by the catch below, which caches nothing — and
+        // (b) failed_cluster_count for per-cluster timeouts, excluded here. A
+        // transiently-failed split cluster must never be written as [] (KTD8/B1).
+        const respondedIds = new Set(result.suggestions.map((s) => s.cluster_id));
+        const toCache = clusters
+          .filter((cluster) => respondedIds.has(cluster.id) || result.failed_cluster_count === 0)
+          .map((cluster) => {
+            const suggestion = result.suggestions.find((s) => s.cluster_id === cluster.id);
+            return {
+              cluster_id: cluster.id,
+              location_key: clusterLocationKey(cluster.centroid),
+              places: suggestion?.places ?? [],
+            };
+          });
+        await cacheSuggestions(toCache);
+
+        // Candidate-stale guard: never append the old candidate's split
+        // sub-clusters into the candidate the user switched to.
+        if (isStaleRequest()) {
+          if (__DEV__) {
+            logger.log('[PhotoImport] Discarding stale split results for:', requestCandidateId);
+          }
+          return;
+        }
+
+        // Add to in-memory cached suggestions for immediate display
+        const newSuggestions: ClusterSuggestion[] = result.suggestions.map((s) => ({
+          cluster_id: s.cluster_id,
+          photo_ids: s.photo_ids,
+          places: s.places,
+        }));
+        setCachedSuggestions((prev) => [...prev, ...newSuggestions]);
+      } catch (error) {
+        if (__DEV__) console.error('[PhotoImport] fetchForClusters error:', error);
+
+        if (error instanceof AxiosError && error.response?.status === 503) {
+          Alert.alert(
+            'Service Temporarily Unavailable',
+            'The place suggestion service has reached its daily limit. Please try again tomorrow.'
+          );
+        } else if (error instanceof AxiosError && error.response?.status === 429) {
+          const retryAfter = error.response.headers['retry-after'];
+          const retrySeconds = retryAfter ? parseInt(retryAfter, 10) : 60;
+          Alert.alert(
+            'Too Many Requests',
+            `Please wait ${isNaN(retrySeconds) ? 60 : retrySeconds} seconds before trying again.`
+          );
+        } else {
+          Alert.alert(
+            'Failed to Get Suggestions',
+            'Unable to find place suggestions for the split clusters. You can add entries manually.'
+          );
+        }
+      } finally {
+        endFetchOwner();
       }
-    }
-  }, []);
+    },
+    [currentCandidateIdRef, beginFetchOwner, endFetchOwner]
+  );
 
   /**
    * Retry the place lookup for an EXPLICIT list of previously-failed clusters
@@ -711,6 +806,10 @@ export function usePlaceSuggestions({
     retryingClusterIds,
     clearFetchedCache,
     fetchedCandidatesRef,
+    // Dispatch owner state (R1/KTD13): true while ANY owner is unsettled.
+    isFetchingSuggestions,
+    beginFetchOwner,
+    endFetchOwner,
     // Premium gating state
     isPremium,
     canImportPhotos,

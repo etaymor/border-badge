@@ -55,6 +55,16 @@ export interface UseAutoStartWorkflowOptions {
   fetchSuggestions: (
     candidate: TripCandidateDisplay
   ) => Promise<{ gatedByPremium: true } | undefined>;
+  /**
+   * Claim a dispatch owner slot (R1/KTD13). Auto-start is the path that opens an
+   * already-imported trip, and it previously reported NOTHING for its whole
+   * duration — so every cluster still on the wire was reconciled to
+   * `lookup-failed`. It owns a slot across its entire async body, cache read and
+   * segmentation included, not just around `fetchSuggestions`.
+   */
+  beginFetchOwner: () => void;
+  /** Release auto-start's dispatch owner slot. Always paired in a `finally`. */
+  endFetchOwner: () => void;
   /** Set cluster lookup state */
   setClusterLookup: (lookup: Map<string, LocationCluster>) => void;
   /** Set cluster displays state */
@@ -96,6 +106,8 @@ export function useAutoStartWorkflow({
   startScan,
   handlePremiumGate,
   fetchSuggestions,
+  beginFetchOwner,
+  endFetchOwner,
   setClusterLookup,
   setClusterDisplays,
   photoLookupRef,
@@ -132,7 +144,7 @@ export function useAutoStartWorkflow({
     if (canAutoStart) {
       autoStartAttemptedRef.current = true;
 
-      (async () => {
+      const runAutoStart = async () => {
         if (__DEV__) {
           console.log('[PhotoImport][AutoStart] Starting sequence');
         }
@@ -300,6 +312,21 @@ export function useAutoStartWorkflow({
           startScan(false).catch(() => {
             /* error handled by scan hook */
           });
+        }
+      };
+
+      // R1/KTD13: claim the dispatch owner slot around the ENTIRE sequence and
+      // release it exactly once. Every branch above returns early — unmounted,
+      // premium gate before the fetch, premium gate after the fetch, the
+      // subscription-still-loading bail, and all three scan fallbacks — and a
+      // stranded owner would withhold every terminal row for the rest of the
+      // session, so the release must not live at any single return site.
+      (async () => {
+        beginFetchOwner();
+        try {
+          await runAutoStart();
+        } finally {
+          endFetchOwner();
         }
       })();
     }
