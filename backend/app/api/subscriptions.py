@@ -1,7 +1,9 @@
 """Subscription management API endpoints."""
 
 import logging
+from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import Any
 
 import httpx
 from fastapi import APIRouter, HTTPException, Request
@@ -35,6 +37,71 @@ FREE_LIMITS = {
     "photo_import": 1,
     "entries_per_trip": 10,
 }
+
+# Columns that describe a caller's photo-import entitlement. Kept next to the
+# limits so the endpoint that enforces them (POST /photos/suggest-places) reads
+# the same shape this module writes.
+PHOTO_IMPORT_PROFILE_COLUMNS = (
+    "subscription_status,usage_photo_import_count,usage_photo_import_trip_id"
+)
+
+
+@dataclass(frozen=True)
+class PhotoImportEntitlement:
+    """A caller's right to run a photo import, as the server knows it.
+
+    The consumed trip is recorded server-side alongside the counter (U16/KTD23)
+    so the exemption that lets a user finish the import they already paid for
+    has the same lifetime as the charge: it survives reinstall, a device change,
+    and any client-side marker being cleared.
+    """
+
+    subscription_status: str
+    photo_import_count: int
+    consumed_trip_id: str | None
+
+    @property
+    def is_premium(self) -> bool:
+        return self.subscription_status in ("premium", "trial")
+
+    @property
+    def limit(self) -> int:
+        return FREE_LIMITS["photo_import"]
+
+    def allows(self, trip_id: str | None) -> bool:
+        """Whether this caller may run matching for `trip_id`."""
+        if self.is_premium:
+            return True
+        if self.photo_import_count < self.limit:
+            return True
+        # R17: the already-counted trip stays completable, on any device.
+        if trip_id is None or self.consumed_trip_id is None:
+            return False
+        return str(trip_id).lower() == str(self.consumed_trip_id).lower()
+
+
+async def read_photo_import_entitlement(
+    db: Any, user_id: str
+) -> PhotoImportEntitlement:
+    """Read a user's photo-import entitlement from their profile row.
+
+    A missing profile row is treated as a brand-new free user (count 0), which
+    matches how entry-limit enforcement reads a missing profile. Database
+    failures are NOT swallowed here — the caller decides how to fail.
+    """
+    result = await db.get(
+        "user_profile",
+        params={
+            "select": PHOTO_IMPORT_PROFILE_COLUMNS,
+            "user_id": f"eq.{user_id}",
+        },
+    )
+    profile = result[0] if result else {}
+    return PhotoImportEntitlement(
+        subscription_status=profile.get("subscription_status") or "free",
+        photo_import_count=profile.get("usage_photo_import_count") or 0,
+        consumed_trip_id=profile.get("usage_photo_import_trip_id"),
+    )
 
 
 @router.get("/status", response_model=SubscriptionInfo)
@@ -79,7 +146,7 @@ async def get_usage_limits(
     result = await db.get(
         "user_profile",
         params={
-            "select": "usage_share_extension_count,usage_photo_import_count,usage_share_extension_period_start",
+            "select": "usage_share_extension_count,usage_photo_import_count,usage_share_extension_period_start,usage_photo_import_trip_id",
             "user_id": f"eq.{user.id}",
         },
     )
@@ -115,6 +182,10 @@ async def get_usage_limits(
         share_extension_period_start=period_start,
         photo_import_count=profile.get("usage_photo_import_count") or 0,
         photo_import_limit=FREE_LIMITS["photo_import"],
+        # R17: the trip the consumed import was spent on. The client needs it at
+        # every gate that guards entry to matching so a user who has used their
+        # free import can still finish that one trip.
+        photo_import_trip_id=profile.get("usage_photo_import_trip_id"),
         entries_per_trip_limit=FREE_LIMITS["entries_per_trip"],
     )
 
@@ -132,15 +203,21 @@ async def increment_usage(
 
     # SECURITY: Use separate functions instead of dynamic column name
     rpc_name = ""
+    rpc_args: dict[str, Any] = {"p_user_id": user.id}
     if body.feature == "share_extension":
         rpc_name = "increment_share_extension_usage"
     elif body.feature == "photo_import":
         rpc_name = "increment_photo_import_usage"
+        # Record WHICH trip consumed the import. The RPC keeps the first trip
+        # it is told about and does not re-charge for that same trip, so a
+        # re-entry after reinstall neither costs a second import nor loses the
+        # R17 exemption.
+        rpc_args["p_trip_id"] = str(body.trip_id) if body.trip_id else None
     else:
         raise HTTPException(status_code=400, detail="Invalid feature")
 
     try:
-        result = await db.rpc(rpc_name, {"p_user_id": user.id})
+        result = await db.rpc(rpc_name, rpc_args)
     except Exception as e:
         logger.error(f"RPC {rpc_name} failed for user {user.id}: {e}")
         raise HTTPException(

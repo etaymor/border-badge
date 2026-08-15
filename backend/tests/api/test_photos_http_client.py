@@ -68,6 +68,29 @@ def _reset_limiter():
     limiter.reset()
 
 
+@pytest.fixture(autouse=True)
+def _entitled_caller():
+    """Give every caller in this file a premium entitlement.
+
+    The endpoint checks the caller's photo-import entitlement before any paid
+    call (U16), which is a database read. These tests are about the HTTP client
+    and the limiter, so the entitlement is stubbed rather than exercised --
+    see `test_photos_entitlement.py` for the enforcement itself.
+    """
+    db = AsyncMock()
+    db.get = AsyncMock(
+        return_value=[
+            {
+                "subscription_status": "premium",
+                "usage_photo_import_count": 0,
+                "usage_photo_import_trip_id": None,
+            }
+        ]
+    )
+    with patch("app.api.photos.get_supabase_client", return_value=db):
+        yield
+
+
 def _post_suggest(client: TestClient, headers: dict[str, str]):
     return client.post(
         "/photos/suggest-places", json={"clusters": [CLUSTER]}, headers=headers

@@ -10,13 +10,21 @@ tracking), this provides better accuracy without significant privacy concerns.
 
 import base64
 from datetime import datetime
+from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.schemas.entries import EntryType
 
 # Input validation constants
-MAX_CLUSTERS_PER_REQUEST = 100
+#
+# The ceiling is a small multiple of the client's real batch size (U16). The
+# mobile client sends CHUNK_SIZE = 5 clusters per request (first batch 2), so
+# nothing legitimate needs more than a handful; the previous ceiling of 100 was
+# headroom no caller used and every cluster in it fans out to a metered Google
+# call. Over the ceiling the request is REJECTED (422), never truncated —
+# silently dropping clusters would report success for work never done.
+MAX_CLUSTERS_PER_REQUEST = 25
 # Per-cluster cap is generous: a "cluster" is photos at one ~150m geohash cell,
 # which can be a wedding venue, all-day museum, or burst-mode beach session —
 # easily hundreds of photos at one place. The request-wide cap is the real ceiling.
@@ -124,6 +132,25 @@ class PlaceSuggestionRequest(BaseModel):
     clusters: list[PhotoCluster] = Field(
         ..., min_length=1, max_length=MAX_CLUSTERS_PER_REQUEST
     )
+    trip_id: UUID | None = Field(
+        None,
+        description=(
+            "Trip this import is matching for. Optional on the wire so an "
+            "older client still works, but a free-tier caller who has already "
+            "consumed their lifetime photo import MUST send it: the R17 "
+            "exemption that lets them finish that same trip is granted by "
+            "comparing this against the consumed trip recorded server-side."
+        ),
+    )
+
+    @property
+    def vision_image_count(self) -> int:
+        """Total vision images in the request — a metered per-image cost."""
+        return sum(
+            len(c.vision_images_base64)
+            for c in self.clusters
+            if c.vision_images_base64 is not None
+        )
 
     @field_validator("clusters")
     @classmethod

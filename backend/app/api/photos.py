@@ -9,10 +9,15 @@ import logging
 
 import httpx
 from fastapi import APIRouter, HTTPException, Request, status
+from limits import RateLimitItem, RateLimitItemPerMinute
 
+from app.api.subscriptions import read_photo_import_entitlement
+from app.api.utils import get_token_from_request
+from app.core.config import get_settings
 from app.core.http_client import get_places_client
-from app.core.security import CurrentUser
-from app.main import limiter, register_rate_limit_window
+from app.core.security import AuthUser, CurrentUser
+from app.db.session import get_supabase_client
+from app.main import get_rate_limit_key, limiter, register_rate_limit_window
 from app.schemas.photos import (
     ClusterSuggestion,
     PlaceSuggestionRequest,
@@ -26,7 +31,7 @@ from app.services.place_matcher import (
     RateLimitError,
     SlotUnavailableError,
 )
-from app.services.place_matcher.instrumentation import request_metrics
+from app.services.place_matcher.instrumentation import record_retry, request_metrics
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/photos", tags=["photos"])
@@ -68,6 +73,142 @@ SUGGEST_PLACES_LIMITS = f"{SUGGEST_PLACES_RATE_LIMIT};{SUGGEST_PLACES_BURST_LIMI
 # not tell the client to wait a minute.
 register_rate_limit_window(f"{router.prefix}/suggest-places", SUGGEST_PLACES_RATE_LIMIT)
 
+# U16: the limits above count REQUESTS, and a request is not a unit of cost.
+# Every cluster in a request fans out to Google, and every attached vision image
+# is a separate metered call, so a caller staying inside 40 requests/minute can
+# still drive an order of magnitude more paid calls than an honest import by
+# filling each request to the per-request ceiling. These two budgets meter the
+# actual cost drivers on the SAME limiter storage and strategy as the request
+# limits above -- one accounting mechanism, three windows.
+#
+# Per KTD17 the cost budgets are settings-driven (they are an operational dial,
+# tuned against observed spend) while the plain request-rate limit stays a
+# module constant.
+_COST_BUDGET_SCOPES = {
+    "clusters": "photos:suggest-places:clusters",
+    "vision_images": "photos:suggest-places:vision-images",
+}
+
+
+def _cost_budget_items() -> dict[str, RateLimitItem]:
+    """Per-minute budget windows for this route's two cost drivers."""
+    settings = get_settings()
+    return {
+        "clusters": RateLimitItemPerMinute(
+            settings.suggest_places_cluster_budget_per_minute
+        ),
+        "vision_images": RateLimitItemPerMinute(
+            settings.suggest_places_vision_image_budget_per_minute
+        ),
+    }
+
+
+def _consume_cost_budget(
+    request: Request, cluster_count: int, vision_image_count: int
+) -> None:
+    """Charge this request's real cost against the caller's rolling budgets.
+
+    Both budgets are TESTED before either is charged, so a request rejected on
+    its vision images does not silently burn the caller's cluster allowance.
+
+    Raises:
+        HTTPException: 429 when either budget is exhausted. This is a traffic
+            rejection like the request-rate 429 beside it, so it carries a
+            truthful `Retry-After` of that budget's window. (Entitlement
+            rejections are a different condition and carry no header at all --
+            see `_enforce_photo_import_entitlement`.)
+    """
+    if not limiter.enabled:
+        return
+
+    key = get_rate_limit_key(request)
+    items = _cost_budget_items()
+    charges = [
+        (driver, items[driver], _COST_BUDGET_SCOPES[driver], cost)
+        for driver, cost in (
+            ("clusters", cluster_count),
+            ("vision_images", vision_image_count),
+        )
+        if cost > 0
+    ]
+
+    for driver, item, scope, cost in charges:
+        if not limiter.limiter.test(item, scope, key, cost=cost):
+            record_retry(f"cost_budget_{driver}")
+            # R27: aggregate counts only -- no cluster ids, coordinates, or
+            # place ids in an always-on log line.
+            logger.warning(
+                "Photo import cost budget exhausted for user key %s: "
+                "driver=%s requested=%d budget=%s",
+                key,
+                driver,
+                cost,
+                item.amount,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=(
+                    "Photo import cost budget exceeded. "
+                    "Please wait a moment and try again."
+                ),
+                headers={"Retry-After": str(item.get_expiry())},
+            )
+
+    for _driver, item, scope, cost in charges:
+        limiter.limiter.hit(item, scope, key, cost=cost)
+
+
+async def _enforce_photo_import_entitlement(
+    request: Request, data: PlaceSuggestionRequest, user: AuthUser
+) -> None:
+    """Reject a caller with no right to run this import, before any paid call.
+
+    KTD23: server-side enforcement is authoritative and the device marker is a
+    fast path. This endpoint fronts two metered paid APIs, so the check runs
+    ahead of both vision classification and place matching.
+
+    Raises:
+        HTTPException: 402 when the caller has consumed their free import and
+            this is not the trip that consumed it; 503 (header-less, i.e.
+            transient by the client's quota-vs-transient rule) when the
+            entitlement itself could not be read.
+    """
+    token = get_token_from_request(request)
+    db = get_supabase_client(user_token=token)
+
+    try:
+        entitlement = await read_photo_import_entitlement(db, str(user.id))
+    except Exception as e:
+        logger.warning(
+            "Photo import entitlement lookup failed for user %s: %s", user.id, e
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Unable to verify photo import access. Please try again.",
+        ) from e
+
+    if entitlement.allows(data.trip_id):
+        return
+
+    record_retry("entitlement_denied")
+    logger.info("Photo import entitlement exhausted for user %s", user.id)
+    # 402, deliberately NOT a 503 with `Retry-After`: waiting changes nothing
+    # here, and the client reads a 503 carrying that header as an upstream
+    # quota wall. This is an upgrade prompt, not a retry hint.
+    raise HTTPException(
+        status_code=status.HTTP_402_PAYMENT_REQUIRED,
+        detail={
+            "code": "PHOTO_IMPORT_LIMIT_REACHED",
+            "message": (
+                f"Free tier includes {entitlement.limit} photo import. "
+                "Upgrade to premium for unlimited photo imports."
+            ),
+            "limit": entitlement.limit,
+            "current_count": entitlement.photo_import_count,
+            "consumed_trip_id": entitlement.consumed_trip_id,
+        },
+    )
+
 
 @router.post("/suggest-places", response_model=PlaceSuggestionResponse)
 @limiter.limit(SUGGEST_PLACES_LIMITS)
@@ -86,7 +227,9 @@ async def suggest_places(
     improve accuracy.
 
     Rate limited per user (see SUGGEST_PLACES_LIMITS) to control vision API
-    costs: a sustained per-minute limit plus a per-second burst cap.
+    costs: a sustained per-minute limit plus a per-second burst cap, and (U16)
+    rolling per-minute budgets on the actual cost drivers -- clusters and
+    vision images. Free-tier entitlement is enforced here, before any paid call.
     """
     logger.info(
         f"Processing {len(data.clusters)} clusters for user {user.id}",
@@ -98,6 +241,10 @@ async def suggest_places(
     # `create_task` time, so a context entered later would leave the vision
     # aggregates recording into nothing. Emits one metrics line on exit (U15).
     with request_metrics():
+        # Both gates run BEFORE any paid call. Cheapest first: the budget check
+        # is in-process, the entitlement check costs one database read.
+        _consume_cost_budget(request, len(data.clusters), data.vision_image_count)
+        await _enforce_photo_import_entitlement(request, data, user)
         return await _suggest_places(data)
 
 

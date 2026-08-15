@@ -151,6 +151,31 @@ class Settings(BaseSettings):
             "rare. This is the dial-down lever if the bound needs rolling back."
         ),
     )
+    suggest_places_cluster_budget_per_minute: int = Field(
+        default=400,
+        ge=1,
+        le=100_000,
+        description=(
+            "U16: rolling per-minute budget of CLUSTERS one caller may submit "
+            "to /photos/suggest-places. The request-rate limit counts requests, "
+            "so it bounds traffic but not spend: every cluster fans out to "
+            "Google. Sized above one full honest import inside a single minute "
+            "(~100 clusters) with headroom, and far below what the per-request "
+            "ceiling times the request rate would otherwise permit."
+        ),
+    )
+    suggest_places_vision_image_budget_per_minute: int = Field(
+        default=600,
+        ge=1,
+        le=100_000,
+        description=(
+            "U16: rolling per-minute budget of VISION IMAGES one caller may "
+            "submit to /photos/suggest-places. Vision is the second metered "
+            "paid API on this route and is billed per image, so it needs its "
+            "own budget: a caller can stay under the cluster budget while "
+            "attaching three images to every cluster."
+        ),
+    )
     vision_max_concurrent_requests: int = Field(
         default=5,
         ge=1,
