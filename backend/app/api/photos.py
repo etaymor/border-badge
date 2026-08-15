@@ -24,6 +24,7 @@ from app.services.place_matcher import (
     PlaceMatcher,
     QuotaExhaustedError,
     RateLimitError,
+    SlotUnavailableError,
 )
 from app.services.place_matcher.instrumentation import request_metrics
 
@@ -41,12 +42,35 @@ router = APIRouter(prefix="/photos", tags=["photos"])
 # cost; until then, treat this number as a spend lever, not just a traffic one.)
 SUGGEST_PLACES_RATE_LIMIT = "40/minute"
 
-# Give this route's 429s a truthful Retry-After, derived from the same constant.
+# Burst cap alongside the sustained limit (U7). The limiter uses a FIXED
+# window, so a caller that fills one window just before it rolls and fills the
+# next just after issues ~2x the nominal rate back-to-back -- 80 requests in a
+# moment, each of which fans out to Google. This second, short window bounds
+# what any instant can cost regardless of where the minute boundary falls.
+#
+# 5/second sits comfortably above the client's planned concurrency of 3 (so
+# honest traffic is never rejected) and far below the sustained 40/minute, so
+# it can only fire on a genuine burst.
+SUGGEST_PLACES_BURST_LIMIT = "5/second"
+
+# Both limits on one decorator: slowapi parses a ";"-joined spec into separate
+# windows, so this stays a single source of truth for the pair.
+SUGGEST_PLACES_LIMITS = f"{SUGGEST_PLACES_RATE_LIMIT};{SUGGEST_PLACES_BURST_LIMIT}"
+
+# NOTE: these limits, like the outbound concurrency bound in the place matcher,
+# are PER PROCESS. Adding a uvicorn worker or a replica multiplies the accepted
+# request rate and the outbound Google fan-out together, so capacity has to be
+# reasoned about as one number rather than two independent ones.
+
+# Give this route's 429s a truthful Retry-After. The registered window is the
+# SUSTAINED one and acts as the fallback; when the burst cap is what fired, the
+# handler prefers the tripped limit's own (1s) window so a momentary burst does
+# not tell the client to wait a minute.
 register_rate_limit_window(f"{router.prefix}/suggest-places", SUGGEST_PLACES_RATE_LIMIT)
 
 
 @router.post("/suggest-places", response_model=PlaceSuggestionResponse)
-@limiter.limit(SUGGEST_PLACES_RATE_LIMIT)
+@limiter.limit(SUGGEST_PLACES_LIMITS)
 async def suggest_places(
     request: Request,  # Required for rate limiter
     data: PlaceSuggestionRequest,
@@ -61,8 +85,8 @@ async def suggest_places(
     images), runs vision classification in parallel with place matching to
     improve accuracy.
 
-    Rate limited per user (see SUGGEST_PLACES_RATE_LIMIT) to control vision
-    API costs.
+    Rate limited per user (see SUGGEST_PLACES_LIMITS) to control vision API
+    costs: a sustained per-minute limit plus a per-second burst cap.
     """
     logger.info(
         f"Processing {len(data.clusters)} clusters for user {user.id}",
@@ -118,6 +142,17 @@ async def _suggest_places(data: PlaceSuggestionRequest) -> PlaceSuggestionRespon
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Too many requests to places service. Please wait a moment and try again.",
             headers={"Retry-After": "60"},
+        ) from e
+    except SlotUnavailableError as e:
+        # U7: OUR concurrency bound was saturated, not Google's quota. Same
+        # shape as pool exhaustion below and deliberately header-less for the
+        # same reason: the mobile client tells a quota 503 from a transient one
+        # by the presence of `Retry-After`, and this is a seconds-long local
+        # blip the client should retry, not a day-long quota wall.
+        logger.warning("Places outbound concurrency saturated; rejecting request")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Place suggestion service is busy. Please try again in a moment.",
         ) from e
     except ConfigurationError as e:
         logger.error(f"Place matcher configuration error: {e}")

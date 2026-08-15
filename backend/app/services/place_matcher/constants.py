@@ -4,8 +4,54 @@ from enum import Enum
 
 from app.services.photo_vision.constants import VISION_TO_PLACE_TYPES
 
-# Concurrency limit for parallel Places API calls
+# Concurrency limit for parallel Places API calls made by ONE request. Also the
+# fallback default for the `places_max_concurrent_requests` setting (U7): an
+# older/partial settings object degrades to today's behaviour, never to an
+# unbounded fan-out.
 MAX_CONCURRENT_PLACES_REQUESTS = 5
+
+# ============================================================================
+# Outbound concurrency bounds (U7)
+# ============================================================================
+
+# PER-PROCESS ceiling on concurrent outbound Google Places calls, shared by
+# every in-flight request. NOTE: per *process*. Adding a uvicorn worker or a
+# replica multiplies this ceiling (and the route's request-rate limit) by the
+# worker count -- the two scale together, so a capacity change has to be
+# reasoned about as one number, not two.
+#
+# Sizing (KTD9). The per-request search and enrichment semaphores run as
+# SEQUENTIAL PHASES, not nested: enrichment executes at the top level of the
+# cluster-processing flow after the per-cluster gather completes, outside any
+# semaphore block. Peak outbound concurrency is therefore
+# MAX_CONCURRENT_PLACES_REQUESTS (5) per request, and roughly 15 at the planned
+# client concurrency of 3 -- not 25. This ceiling is set at that figure so the
+# planned client shape is served without queueing, while a fourth or fifth
+# concurrent request queues instead of multiplying the fan-out.
+#
+# Two neighbours constrain it:
+#   * U4's private Places pool holds PLACES_MAX_CONNECTIONS = 20 connections.
+#     Staying below that keeps pool exhaustion (a header-less 503) rare, so
+#     raising this above ~15 means raising the pool first.
+#   * The rate-limit circuit breaker trips at RATE_LIMIT_BREAKER_THRESHOLD (8)
+#     upstream 429s in a 10s window. A ceiling above that keeps the breaker
+#     reachable inside a single saturated wave; a ceiling below 8 would make it
+#     structurally untrippable.
+MAX_CONCURRENT_PLACES_REQUESTS_PROCESS = 15
+
+# How long a caller may wait for a process-wide slot before giving up.
+#
+# THE THIRD BUDGET. A cluster's clock is composed of three independent
+# allowances: this slot wait, the retry-backoff share
+# (RETRY_BUDGET_FRACTION_OF_CLUSTER_TIMEOUT of the cluster timeout), and the
+# per-cluster timeout itself. The slot wait is deliberately short and fails
+# FAST and RETRYABLE (SlotUnavailableError -> the cluster is reported as failed
+# and the client may retry it) rather than letting a starved cluster spend its
+# whole 15s budget queuing and surface as an indistinguishable timeout.
+#
+# 2.0s matches PLACES_POOL_TIMEOUT_SECONDS: both bound a purely LOCAL
+# saturation wait, so neither queue can silently dominate the other.
+PLACES_SLOT_WAIT_CEILING_SECONDS = 2.0
 
 # Maximum length for place names/addresses (defense against absurdly long strings)
 MAX_PLACE_NAME_LENGTH = 200

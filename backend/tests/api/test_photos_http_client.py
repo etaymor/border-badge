@@ -19,7 +19,11 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from app.api.photos import SUGGEST_PLACES_RATE_LIMIT
+from app.api.photos import (
+    SUGGEST_PLACES_BURST_LIMIT,
+    SUGGEST_PLACES_LIMITS,
+    SUGGEST_PLACES_RATE_LIMIT,
+)
 from app.core import http_client as http_client_module
 from app.core.config import get_settings
 from app.core.http_client import (
@@ -285,9 +289,16 @@ class TestRateLimitRetryAfter:
         mock_user: AuthUser,
         auth_headers: dict[str, str],
     ) -> None:
-        expected = rate_limit_window_seconds(SUGGEST_PLACES_RATE_LIMIT)
+        """A rejection reports the window of the limit that actually fired.
+
+        A back-to-back loop trips the U7 burst cap first, so the honest wait is
+        that limit's (1s) window -- reporting the sustained per-minute window
+        here would idle the client for a minute over a momentary burst.
+        """
+        expected = rate_limit_window_seconds(SUGGEST_PLACES_BURST_LIMIT)
         app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
         rate_limited = None
+        attempts = 0
         try:
             with (
                 patch("app.api.photos.PlaceMatcher", _RecordingMatcher),
@@ -297,6 +308,7 @@ class TestRateLimitRetryAfter:
                 ),
             ):
                 for _ in range(80):
+                    attempts += 1
                     response = _post_suggest(client, auth_headers)
                     if response.status_code == 429:
                         rate_limited = response
@@ -310,3 +322,66 @@ class TestRateLimitRetryAfter:
         assert body["retry_after"] == expected
         # The window is an upper bound on the wait, not the exact reset.
         assert body["retry_after_is_upper_bound"] is True
+        # And it really was the burst cap: the sustained per-minute allowance
+        # was nowhere near exhausted when the rejection came.
+        assert attempts < int(SUGGEST_PLACES_RATE_LIMIT.split("/")[0])
+
+
+class TestBurstCap:
+    """A fixed window admits ~2x the nominal rate across its boundary (U7)."""
+
+    def test_route_declares_both_a_sustained_and_a_burst_window(self) -> None:
+        from limits import parse_many
+
+        # The spec pairs the two windows...
+        assert sorted(
+            item.get_expiry() for item in parse_many(SUGGEST_PLACES_LIMITS)
+        ) == [1, 60]
+        # ...and the route is actually registered with both of them.
+        registered = limiter._route_limits["app.api.photos.suggest_places"]
+        assert sorted(limit.limit.get_expiry() for limit in registered) == [
+            1,
+            60,
+        ], "the route lost its per-second burst window"
+
+    def test_burst_cap_is_above_client_concurrency_and_below_sustained_rate(
+        self,
+    ) -> None:
+        burst = int(SUGGEST_PLACES_BURST_LIMIT.split("/")[0])
+        sustained = int(SUGGEST_PLACES_RATE_LIMIT.split("/")[0])
+        # Above the planned client concurrency of 3, so honest traffic is never
+        # rejected...
+        assert burst > 3
+        # ...and far below the sustained allowance, so it fires only on a burst
+        # (a cap at or above 40/second could never fire before the minute one).
+        assert burst < sustained
+
+    def test_a_burst_is_rejected_while_the_minute_allowance_remains(
+        self,
+        client: TestClient,
+        mock_user: AuthUser,
+        auth_headers: dict[str, str],
+    ) -> None:
+        burst = int(SUGGEST_PLACES_BURST_LIMIT.split("/")[0])
+        sustained = int(SUGGEST_PLACES_RATE_LIMIT.split("/")[0])
+        app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+        statuses: list[int] = []
+        try:
+            with (
+                patch("app.api.photos.PlaceMatcher", _RecordingMatcher),
+                patch(
+                    "app.api.photos.classify_cluster_photos",
+                    new=AsyncMock(return_value={}),
+                ),
+            ):
+                for _ in range(burst + 1):
+                    statuses.append(_post_suggest(client, auth_headers).status_code)
+        finally:
+            app.dependency_overrides.clear()
+
+        # Everything inside the burst allowance is served...
+        assert statuses[:burst] == [200] * burst
+        # ...and the request past it is rejected, even though the sustained
+        # per-minute allowance still has plenty left.
+        assert statuses[-1] == 429
+        assert len(statuses) < sustained

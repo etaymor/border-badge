@@ -58,7 +58,7 @@ from .constants import (
     RATE_LIMIT_BREAKER_WINDOW_SECONDS,
     RETRY_BUDGET_FRACTION_OF_CLUSTER_TIMEOUT,
 )
-from .exceptions import QuotaExhaustedError, RateLimitError
+from .exceptions import QuotaExhaustedError, RateLimitError, SlotUnavailableError
 
 logger = logging.getLogger(__name__)
 
@@ -241,6 +241,11 @@ async def with_google_retry(
       pressure would generate more pool pressure. It is also not counted as a
       rate-limit or upstream-timeout signal, which would mix a purely local
       condition into the upstream-latency metrics.
+    * :class:`SlotUnavailableError` (U7) — the process-wide outbound bound had
+      no free slot within its wait ceiling. Local saturation again: retrying
+      re-joins the same queue, and counting it upstream would let our own bound
+      trip the circuit breaker. The ranking input it costs IS attributed, since
+      the caller degrades to an un-enriched/absent result either way.
 
     Args:
         operation: Zero-argument async callable performing the attempt.
@@ -277,6 +282,12 @@ async def with_google_retry(
         except RateLimitError as error:
             rate_limit_breaker.record_rate_limit()
             last_error = error
+        except SlotUnavailableError:
+            # U7: our own concurrency bound, not upstream. Never retried (the
+            # retry would re-queue behind the same saturation) and never fed to
+            # the breaker; only the lost ranking input is counted.
+            instrumentation.record_dropped_ranking_input(site)
+            raise
         except httpx.PoolTimeout:
             # U4: never retried, never counted. Checked BEFORE TimeoutException,
             # which it subclasses.

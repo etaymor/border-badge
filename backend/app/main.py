@@ -90,6 +90,13 @@ def get_rate_limit_key(request: Request) -> str:
 # The limiter's built-in header injection stays OFF: in the installed version it
 # raises on handlers that return Pydantic models, which is nearly every route
 # here. `Retry-After` is set by `rate_limit_exceeded_handler` below instead.
+#
+# NOTE: the default storage is in-memory, so every limit registered against this
+# instance is PER PROCESS. Adding a uvicorn worker or a replica multiplies the
+# accepted request rate by the worker count -- and, for the photo-import route,
+# multiplies the process-wide outbound Google fan-out
+# (`MAX_CONCURRENT_PLACES_REQUESTS_PROCESS`) along with it. The two scale
+# together and have to be reasoned about as one capacity number.
 limiter = Limiter(key_func=get_rate_limit_key)
 
 
@@ -136,6 +143,25 @@ def register_rate_limit_window(path: str, limit_spec: str) -> None:
 def retry_after_seconds_for_path(path: str) -> int | None:
     """Registered Retry-After budget for `path`, or None if unregistered."""
     return _rate_limit_windows.get(path)
+
+
+def tripped_limit_window_seconds(exc: RateLimitExceeded) -> int | None:
+    """Window length of the specific limit that rejected the request.
+
+    A route may carry more than one limit (U7 pairs a sustained per-minute
+    limit with a per-second burst cap). The registered per-path window is the
+    SUSTAINED one, so reporting it for a burst rejection would tell the client
+    to wait a minute for a window that reopens in a second. The tripped limit
+    knows its own window, so it is preferred when it is readable.
+
+    Defensive by construction: the attribute chain is the rate-limit library's
+    internal shape, so anything unexpected falls back to the registered window.
+    """
+    try:
+        expiry = exc.limit.limit.get_expiry()  # type: ignore[union-attr]
+    except Exception:
+        return None
+    return expiry if isinstance(expiry, int) and expiry > 0 else None
 
 
 # Import API router after limiter is defined so other modules can safely
@@ -333,17 +359,20 @@ async def rate_limit_exceeded_handler(
 
     `RateLimitExceeded` carries no retry-after attribute, so before this the
     header was never sent and clients fell back to a hard-coded guess. The wait
-    is derived from the window we configured for the path (see
-    `register_rate_limit_window`). Because the limiter uses a fixed window and
-    does not expose the reset instant, the value is an **upper bound** on the
-    wait, not the exact reset -- the response says so explicitly.
+    comes from the limit that actually fired, falling back to the window we
+    configured for the path (see `register_rate_limit_window`). Because the
+    limiter uses a fixed window and does not expose the reset instant, the value
+    is an **upper bound** on the wait, not the exact reset -- the response says
+    so explicitly.
     """
     from fastapi.responses import JSONResponse
 
     route = request.scope.get("route")
     path = getattr(route, "path", None) or request.url.path
-    retry_after = getattr(exc, "retry_after", None) or retry_after_seconds_for_path(
-        path
+    retry_after = (
+        getattr(exc, "retry_after", None)
+        or tripped_limit_window_seconds(exc)
+        or retry_after_seconds_for_path(path)
     )
     headers = {"Retry-After": str(retry_after)} if retry_after else {}
 

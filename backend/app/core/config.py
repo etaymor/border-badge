@@ -126,6 +126,31 @@ class Settings(BaseSettings):
         le=60.0,
         description="Timeout for processing a single cluster (includes retries)",
     )
+    places_max_concurrent_requests: int = Field(
+        default=5,
+        ge=1,
+        le=50,
+        description=(
+            "U7: max concurrent outbound Google Places calls ONE suggest-places "
+            "request may have in flight (its share of the process-wide bound). "
+            "Default is the historical MAX_CONCURRENT_PLACES_REQUESTS constant. "
+            "Raise it in step with VISION_MAX_CONCURRENT_REQUESTS: cutting the "
+            "vision wait shortens the window the search phase hides behind."
+        ),
+    )
+    places_max_concurrent_requests_process: int = Field(
+        default=15,
+        ge=1,
+        le=100,
+        description=(
+            "U7: PER-PROCESS ceiling on concurrent outbound Google Places calls "
+            "across every in-flight request. Adding a worker or replica "
+            "multiplies this and the route's request-rate limit together. Sized "
+            "for the planned client concurrency of 3 x 5 = 15, and kept below "
+            "the private Places pool (20 connections) so pool exhaustion stays "
+            "rare. This is the dial-down lever if the bound needs rolling back."
+        ),
+    )
     vision_max_concurrent_requests: int = Field(
         default=5,
         ge=1,

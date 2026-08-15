@@ -10,12 +10,12 @@ from typing import Any
 from app.services.photo_vision import VisionResult
 from app.services.photo_vision.constants import VISION_TO_PLACE_TYPES
 
-from ._matcher_search import TieredSearchResult
+from ._matcher_search import TieredSearchResult, resolve_places_concurrency
 from .constants import (
     MAX_CONCURRENT_PLACES_REQUESTS,
     MAX_SUGGESTIONS_PER_CLUSTER,
 )
-from .exceptions import QuotaExhaustedError, RateLimitError
+from .exceptions import QuotaExhaustedError, RateLimitError, SlotUnavailableError
 from .instrumentation import (
     PHASE_BACKFILL,
     PHASE_ENRICHMENT,
@@ -87,8 +87,17 @@ class ClusterProcessingMixin:
                 f"{c['centroid']['longitude']:.4f}), photos={len(c.get('photos', []))}"
             )
 
-        # Bounded concurrency to respect Google Places API rate limits
-        semaphore = asyncio.Semaphore(MAX_CONCURRENT_PLACES_REQUESTS)
+        # This request's SHARE of the global outbound bound (U7). It is the
+        # OUTER of two bounds: the process-wide ceiling is acquired inside, in
+        # `places_outbound_slot`, around the outbound call itself. Sizing the
+        # share below that ceiling is what stops one large request from holding
+        # every global slot while another request's clusters make no progress.
+        # The module constant remains the fallback when settings carry no
+        # usable value (and remains patchable in tests).
+        per_request_limit, _process_limit = resolve_places_concurrency(
+            self._settings, default_per_request=MAX_CONCURRENT_PLACES_REQUESTS
+        )
+        semaphore = asyncio.Semaphore(per_request_limit)
         cluster_timeout = self._settings.places_cluster_timeout_seconds
         # Share of the per-cluster budget that jittered retry backoff may spend
         # (U3). Stated in constants as RETRY_BUDGET_FRACTION_OF_CLUSTER_TIMEOUT.
@@ -113,6 +122,22 @@ class ClusterProcessingMixin:
             working, and a tiered search that legitimately needs most of the budget
             leaves no slack to absorb that. The timeout is meant to bound a slow
             *search*, not to punish a cluster for its position in the queue.
+
+            THREE BUDGETS, composed in this order (U7):
+
+            1. **Per-request share wait** — queuing on the semaphore below.
+               Unbounded in time and charged to NOBODY's clock, because it is
+               charged BEFORE the per-cluster timeout starts (this line).
+            2. **Process-wide slot wait** — inside each outbound call, bounded
+               by ``PLACES_SLOT_WAIT_CEILING_SECONDS`` (2s). On expiry the call
+               raises ``SlotUnavailableError``: the cluster fails FAST and
+               retryable instead of spending its whole budget queuing.
+            3. **Retry backoff + outbound work** — the per-cluster timeout,
+               within which jittered backoff may spend at most
+               ``RETRY_BUDGET_FRACTION_OF_CLUSTER_TIMEOUT`` (40%, U3).
+
+            (2) is the only one of the three that consumes (3), and it is
+            deliberately small relative to it.
             """
             async with semaphore:
                 # Retry backoff and this timeout are ONE budget (U3): the scope
@@ -284,7 +309,11 @@ class ClusterProcessingMixin:
                             f"'{text_query}' found {len(places)} quality places"
                         )
                     return cluster_id, places
-                except (RateLimitError, QuotaExhaustedError) as e:
+                except (
+                    RateLimitError,
+                    QuotaExhaustedError,
+                    SlotUnavailableError,
+                ) as e:
                     # R27: no cluster id on an always-on log line.
                     logger.warning(
                         f"Text search unavailable ({type(e).__name__}), "
@@ -459,7 +488,11 @@ class ClusterProcessingMixin:
                         if places:
                             places = self._filter_low_quality_places(places)
                         return cluster_id, places
-                    except (RateLimitError, QuotaExhaustedError) as e:
+                    except (
+                        RateLimitError,
+                        QuotaExhaustedError,
+                        SlotUnavailableError,
+                    ) as e:
                         # R27: no cluster id on an always-on log line.
                         logger.warning(
                             f"Popularity probe unavailable ({type(e).__name__})"

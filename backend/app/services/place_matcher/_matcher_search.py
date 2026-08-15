@@ -3,10 +3,15 @@
 import asyncio
 import hashlib
 import logging
+import weakref
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
+
+from app.core.config import get_settings
 
 from .cache import places_cache
 from .constants import (
@@ -16,10 +21,12 @@ from .constants import (
     ENRICH_FIELD_MASK,
     INSTITUTIONAL_TYPES,
     MAX_CONCURRENT_PLACES_REQUESTS,
+    MAX_CONCURRENT_PLACES_REQUESTS_PROCESS,
     MAX_PLACES_PER_SEARCH,
     NEARBY_SEARCH_URL,
     NON_TOURIST_TYPES,
     PLACE_DETAILS_URL,
+    PLACES_SLOT_WAIT_CEILING_SECONDS,
     SEARCH_RADII_METERS,
     SEARCHABLE_PLACE_TYPES,
     TEXT_SEARCH_URL,
@@ -27,7 +34,12 @@ from .constants import (
     WIDE_FIELD_MASK,
     DensityLevel,
 )
-from .exceptions import ConfigurationError, QuotaExhaustedError, RateLimitError
+from .exceptions import (
+    ConfigurationError,
+    QuotaExhaustedError,
+    RateLimitError,
+    SlotUnavailableError,
+)
 from .instrumentation import (
     METHOD_NEARBY,
     METHOD_PLACE_DETAILS,
@@ -36,12 +48,14 @@ from .instrumentation import (
     RETRY_QUOTA_EXHAUSTED,
     RETRY_RATE_LIMITED,
     RETRY_SEARCH_TIMEOUT,
+    RETRY_SLOT_UNAVAILABLE,
     SITE_ENRICHMENT,
     SITE_NEARBY,
     SITE_POPULARITY_PROBE,
     SITE_TEXT_SEARCH,
     SOURCE_API,
     SOURCE_L2,
+    SOURCE_SINGLE_FLIGHT,
     record_cache_lookup,
     record_dropped_ranking_input,
     record_retry,
@@ -73,6 +87,183 @@ def _type_set_hash(types: list[str]) -> str:
 # Precomputed once: every Nearby/Text search currently uses the full type set, so
 # there is no need to re-hash it on each (hot-path) search call.
 _SEARCHABLE_TYPE_SET_HASH = _type_set_hash(SEARCHABLE_PLACE_TYPES)
+
+
+# ---------------------------------------------------------------------------
+# Bounded outbound concurrency (U7)
+# ---------------------------------------------------------------------------
+
+
+def _positive_int(value: Any) -> int | None:
+    """Return ``value`` when it is a usable positive int, else None.
+
+    Deliberately an ``isinstance`` check rather than ``int(value)``: a
+    ``MagicMock`` settings stand-in coerces to 1 under ``int()``, which would
+    silently pin the bound to 1 wherever settings are mocked.
+    """
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value if value >= 1 else None
+
+
+def resolve_places_concurrency(
+    settings: Any | None = None,
+    *,
+    default_per_request: int = MAX_CONCURRENT_PLACES_REQUESTS,
+) -> tuple[int, int]:
+    """Return the ``(per_request, process_wide)`` Places concurrency bounds.
+
+    Both come from settings and fall back to the module constants when the
+    field is absent or unusable, so an older settings object degrades to
+    today's behaviour rather than to an unbounded fan-out. The per-request
+    bound is clamped to the process-wide ceiling: a misconfigured value must
+    never let one caller hold every global slot.
+
+    ``default_per_request`` lets a caller supply its own module-level fallback
+    so the bound stays patchable where it is used.
+    """
+    if settings is None:
+        settings = get_settings()
+
+    per_request = (
+        _positive_int(getattr(settings, "places_max_concurrent_requests", None))
+        or default_per_request
+    )
+    process_wide = (
+        _positive_int(getattr(settings, "places_max_concurrent_requests_process", None))
+        or MAX_CONCURRENT_PLACES_REQUESTS_PROCESS
+    )
+    return min(per_request, process_wide), process_wide
+
+
+# PER-PROCESS outbound bound, keyed by event loop so a semaphore is never
+# awaited from a loop other than the one it was created on (each test gets its
+# own loop), and rebuilt when the configured limit changes.
+#
+# NOTE: per *process*, exactly like the route's request-rate limit in
+# `app.api.photos`. A uvicorn worker or replica added on either side multiplies
+# BOTH the accepted request rate and this outbound fan-out, so capacity changes
+# have to be reasoned about as one number.
+_process_semaphores: weakref.WeakKeyDictionary[
+    asyncio.AbstractEventLoop, tuple[int, asyncio.Semaphore]
+] = weakref.WeakKeyDictionary()
+
+
+def _get_process_semaphore(limit: int) -> asyncio.Semaphore:
+    """Return the process-wide Places semaphore for the running loop."""
+    loop = asyncio.get_running_loop()
+    entry = _process_semaphores.get(loop)
+    if entry is not None and entry[0] == limit:
+        return entry[1]
+    semaphore = asyncio.Semaphore(limit)
+    _process_semaphores[loop] = (limit, semaphore)
+    return semaphore
+
+
+@asynccontextmanager
+async def places_outbound_slot() -> AsyncIterator[None]:
+    """Hold one process-wide slot for the duration of ONE outbound Google call.
+
+    Placed around the outbound call ONLY. Wrapping the cached lookup instead
+    would make pure cache hits and single-flight waiters consume global slots
+    while doing no network work — throttling exactly the callers that cost
+    nothing.
+
+    Acquisition has its own short ceiling
+    (:data:`PLACES_SLOT_WAIT_CEILING_SECONDS`) and raises
+    :class:`SlotUnavailableError` when it expires, so a starved cluster fails
+    fast and retryable instead of spending its whole per-cluster budget queuing
+    and surfacing as an indistinguishable timeout.
+    """
+    _, process_limit = resolve_places_concurrency()
+    semaphore = _get_process_semaphore(process_limit)
+    try:
+        await asyncio.wait_for(
+            semaphore.acquire(), timeout=PLACES_SLOT_WAIT_CEILING_SECONDS
+        )
+    except TimeoutError as e:
+        # R27: static text only — no coordinate, cluster id, or place id.
+        record_retry(RETRY_SLOT_UNAVAILABLE)
+        logger.warning(
+            "No Places outbound slot within %.1fs (process bound %d)",
+            PLACES_SLOT_WAIT_CEILING_SECONDS,
+            process_limit,
+        )
+        raise SlotUnavailableError(
+            "No outbound Places slot available; try again shortly"
+        ) from e
+    try:
+        yield
+    finally:
+        semaphore.release()
+
+
+# Process-wide single-flight for finalist enrichment, keyed by event loop.
+# Values map a Google place id to the in-flight lookup's future.
+_details_in_flight_by_loop: weakref.WeakKeyDictionary[
+    asyncio.AbstractEventLoop, dict[str, asyncio.Future[dict[str, Any] | None]]
+] = weakref.WeakKeyDictionary()
+
+
+def _details_in_flight() -> dict[str, asyncio.Future[dict[str, Any] | None]]:
+    """Return the running loop's in-flight Place Details map."""
+    loop = asyncio.get_running_loop()
+    in_flight = _details_in_flight_by_loop.get(loop)
+    if in_flight is None:
+        in_flight = {}
+        _details_in_flight_by_loop[loop] = in_flight
+    return in_flight
+
+
+async def _details_single_flight(
+    place_id: str,
+    fetch: Callable[[], Awaitable[dict[str, Any] | None]],
+) -> dict[str, Any] | None:
+    """Single-flight one place's Details lookup across the whole process (U7).
+
+    The Nearby/Text search path has had single-flight since day one; the
+    enrichment path had none, so two concurrent batches containing clusters at
+    the same venue each bought the same (Enterprise-SKU) Place Details call.
+    The first caller owns the lookup and the rest await its result.
+
+    Owner failures resolve waiters with ``None`` rather than an exception:
+    enrichment is best-effort, so a waiter degrades to the un-enriched
+    first-pass ranking exactly as it would have on its own failure — and a
+    future nobody awaits never logs a stray "exception was never retrieved".
+    """
+    in_flight = _details_in_flight()
+    existing = in_flight.get(place_id)
+    if existing is not None:
+        record_cache_lookup(SOURCE_SINGLE_FLIGHT)
+        try:
+            return await existing
+        except asyncio.CancelledError:
+            current = asyncio.current_task()
+            # Distinguish "the owner was cancelled" from "WE were cancelled".
+            # Only the former is safe to recover from.
+            if current is not None and current.cancelling() > 0:
+                raise
+            return await fetch()
+
+    loop = asyncio.get_running_loop()
+    future: asyncio.Future[dict[str, Any] | None] = loop.create_future()
+    in_flight[place_id] = future
+    try:
+        result = await fetch()
+    except asyncio.CancelledError:
+        in_flight.pop(place_id, None)
+        if not future.done():
+            future.cancel()
+        raise
+    except BaseException:
+        in_flight.pop(place_id, None)
+        if not future.done():
+            future.set_result(None)
+        raise
+    in_flight.pop(place_id, None)
+    if not future.done():
+        future.set_result(result)
+    return result
 
 
 @dataclass
@@ -270,29 +461,32 @@ class SearchMixin:
 
         async def fetch_from_api() -> list[dict]:
             """Fetch places from Google Places API."""
-            with track_outbound(METHOD_NEARBY):
-                response = await self._client.post(
-                    NEARBY_SEARCH_URL,
-                    json={
-                        "maxResultCount": MAX_PLACES_PER_SEARCH,
-                        "rankPreference": "DISTANCE",
-                        "locationRestriction": {
-                            "circle": {
-                                "center": {
-                                    "latitude": latitude,
-                                    "longitude": longitude,
-                                },
-                                "radius": radius,
-                            }
+            # U7: the process-wide slot is held around the outbound call only,
+            # so an L1/L2 hit or a single-flight wait costs no global slot.
+            async with places_outbound_slot():
+                with track_outbound(METHOD_NEARBY):
+                    response = await self._client.post(
+                        NEARBY_SEARCH_URL,
+                        json={
+                            "maxResultCount": MAX_PLACES_PER_SEARCH,
+                            "rankPreference": "DISTANCE",
+                            "locationRestriction": {
+                                "circle": {
+                                    "center": {
+                                        "latitude": latitude,
+                                        "longitude": longitude,
+                                    },
+                                    "radius": radius,
+                                }
+                            },
+                            "includedTypes": SEARCHABLE_PLACE_TYPES,
                         },
-                        "includedTypes": SEARCHABLE_PLACE_TYPES,
-                    },
-                    headers={
-                        "Content-Type": "application/json",
-                        "X-Goog-Api-Key": self._settings.google_places_api_key,
-                        "X-Goog-FieldMask": WIDE_FIELD_MASK,
-                    },
-                )
+                        headers={
+                            "Content-Type": "application/json",
+                            "X-Goog-Api-Key": self._settings.google_places_api_key,
+                            "X-Goog-FieldMask": WIDE_FIELD_MASK,
+                        },
+                    )
 
             if response.status_code == 429:
                 # Parse response to differentiate rate limit vs quota exhaustion
@@ -423,28 +617,30 @@ class SearchMixin:
         cache_key = f"text_{text_query}_{round(latitude, 5)}_{round(longitude, 5)}"
 
         async def fetch_from_api() -> list[dict]:
-            with track_outbound(METHOD_TEXT_SEARCH):
-                response = await self._client.post(
-                    TEXT_SEARCH_URL,
-                    json={
-                        "textQuery": text_query,
-                        "maxResultCount": MAX_PLACES_PER_SEARCH,
-                        "locationBias": {
-                            "circle": {
-                                "center": {
-                                    "latitude": latitude,
-                                    "longitude": longitude,
-                                },
-                                "radius": radius,
-                            }
+            # U7: process-wide slot around the outbound call only.
+            async with places_outbound_slot():
+                with track_outbound(METHOD_TEXT_SEARCH):
+                    response = await self._client.post(
+                        TEXT_SEARCH_URL,
+                        json={
+                            "textQuery": text_query,
+                            "maxResultCount": MAX_PLACES_PER_SEARCH,
+                            "locationBias": {
+                                "circle": {
+                                    "center": {
+                                        "latitude": latitude,
+                                        "longitude": longitude,
+                                    },
+                                    "radius": radius,
+                                }
+                            },
                         },
-                    },
-                    headers={
-                        "Content-Type": "application/json",
-                        "X-Goog-Api-Key": self._settings.google_places_api_key,
-                        "X-Goog-FieldMask": WIDE_FIELD_MASK,
-                    },
-                )
+                        headers={
+                            "Content-Type": "application/json",
+                            "X-Goog-Api-Key": self._settings.google_places_api_key,
+                            "X-Goog-FieldMask": WIDE_FIELD_MASK,
+                        },
+                    )
 
             if response.status_code == 429:
                 error_reason = self._parse_error_reason(response)
@@ -519,29 +715,31 @@ class SearchMixin:
         )
 
         async def fetch_from_api() -> list[dict]:
-            with track_outbound(METHOD_POPULARITY_PROBE):
-                response = await self._client.post(
-                    NEARBY_SEARCH_URL,
-                    json={
-                        "maxResultCount": MAX_PLACES_PER_SEARCH,
-                        "rankPreference": "POPULARITY",
-                        "locationRestriction": {
-                            "circle": {
-                                "center": {
-                                    "latitude": latitude,
-                                    "longitude": longitude,
-                                },
-                                "radius": radius,
-                            }
+            # U7: process-wide slot around the outbound call only.
+            async with places_outbound_slot():
+                with track_outbound(METHOD_POPULARITY_PROBE):
+                    response = await self._client.post(
+                        NEARBY_SEARCH_URL,
+                        json={
+                            "maxResultCount": MAX_PLACES_PER_SEARCH,
+                            "rankPreference": "POPULARITY",
+                            "locationRestriction": {
+                                "circle": {
+                                    "center": {
+                                        "latitude": latitude,
+                                        "longitude": longitude,
+                                    },
+                                    "radius": radius,
+                                }
+                            },
+                            "includedTypes": SEARCHABLE_PLACE_TYPES,
                         },
-                        "includedTypes": SEARCHABLE_PLACE_TYPES,
-                    },
-                    headers={
-                        "Content-Type": "application/json",
-                        "X-Goog-Api-Key": self._settings.google_places_api_key,
-                        "X-Goog-FieldMask": WIDE_FIELD_MASK,
-                    },
-                )
+                        headers={
+                            "Content-Type": "application/json",
+                            "X-Goog-Api-Key": self._settings.google_places_api_key,
+                            "X-Goog-FieldMask": WIDE_FIELD_MASK,
+                        },
+                    )
 
             if response.status_code == 429:
                 error_reason = self._parse_error_reason(response)
@@ -610,17 +808,19 @@ class SearchMixin:
         if not self._settings.google_places_api_key or not place_ids:
             return {}
 
-        # Bound concurrency to the same limit as the wide searches so a deep
-        # finalist set never bursts past the API rate limit.
-        semaphore = asyncio.Semaphore(MAX_CONCURRENT_PLACES_REQUESTS)
+        # This request's SHARE of the global bound (U7). It bounds one request;
+        # the process-wide ceiling is acquired inside, around the outbound call.
+        per_request_limit, _ = resolve_places_concurrency(self._settings)
+        semaphore = asyncio.Semaphore(per_request_limit)
 
-        async def fetch_one(place_id: str) -> tuple[str, dict[str, Any]] | None:
+        async def fetch_ratings(place_id: str) -> dict[str, Any] | None:
+            """Owner path for one place: L2 lookup, else one paid Details call."""
             # Persistent by-ID cache stores full Place Details dicts; reuse the
             # rating fields when present to avoid a paid call.
             cached = await get_place_details_cache(place_id)
             if cached is not None and cached.get("userRatingCount") is not None:
                 record_cache_lookup(SOURCE_L2)
-                return place_id, {
+                return {
                     "rating": cached.get("rating"),
                     "userRatingCount": cached.get("userRatingCount"),
                 }
@@ -630,18 +830,21 @@ class SearchMixin:
             async def attempt() -> httpx.Response | None:
                 # The semaphore is INSIDE the attempt so a backoff sleep
                 # releases the slot instead of holding it idle while waiting.
+                # Acquired outer-to-inner: this request's share first, then the
+                # process-wide slot around the call itself.
                 async with semaphore:
                     try:
-                        with track_outbound(METHOD_PLACE_DETAILS):
-                            response = await self._client.get(
-                                f"{PLACE_DETAILS_URL}/{place_id}",
-                                headers={
-                                    "X-Goog-Api-Key": (
-                                        self._settings.google_places_api_key
-                                    ),
-                                    "X-Goog-FieldMask": ENRICH_FIELD_MASK,
-                                },
-                            )
+                        async with places_outbound_slot():
+                            with track_outbound(METHOD_PLACE_DETAILS):
+                                response = await self._client.get(
+                                    f"{PLACE_DETAILS_URL}/{place_id}",
+                                    headers={
+                                        "X-Goog-Api-Key": (
+                                            self._settings.google_places_api_key
+                                        ),
+                                        "X-Goog-FieldMask": ENRICH_FIELD_MASK,
+                                    },
+                                )
                     except (httpx.TimeoutException, httpx.RequestError) as e:
                         # R27: the place id never reaches a default-level log line.
                         logger.warning(f"Rating enrichment request failed: {e}")
@@ -671,7 +874,7 @@ class SearchMixin:
                     # rate limit reaches the retry loop.
                     retry_on_timeout=False,
                 )
-            except (RateLimitError, QuotaExhaustedError):
+            except (RateLimitError, QuotaExhaustedError, SlotUnavailableError):
                 # Already counted as a dropped ranking input by the retry
                 # wrapper. Degrade to the un-enriched first-pass ranking rather
                 # than failing every other finalist in the batch.
@@ -690,6 +893,16 @@ class SearchMixin:
             # set_place_details_cache merges onto any existing full-details blob,
             # so this preserves (and is preserved by) social-ingest writes.
             await set_place_details_cache(place_id, ratings)
+            return ratings
+
+        async def fetch_one(place_id: str) -> tuple[str, dict[str, Any]] | None:
+            # Single-flight across the whole process: concurrent batches with
+            # clusters at the same venue buy this place's details ONCE.
+            ratings = await _details_single_flight(
+                place_id, lambda: fetch_ratings(place_id)
+            )
+            if ratings is None:
+                return None
             return place_id, ratings
 
         # One retry budget for the whole enrichment fan-out. Tasks copy the

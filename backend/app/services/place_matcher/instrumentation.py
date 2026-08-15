@@ -85,12 +85,18 @@ RETRY_QUOTA_EXHAUSTED = "quota_exhausted"
 # otherwise a quiet breaker and a quiet upstream look identical in the line.
 RETRY_CIRCUIT_OPEN = "circuit_open"
 RETRY_BUDGET_EXHAUSTED = "retry_budget_exhausted"
+# U7: an outbound call abandoned because no process-wide slot came free within
+# the wait ceiling. Also a decision WE made, and the one signal that says the
+# module-level concurrency bound — not Google, not the pool — is the binding
+# constraint, so it is the number to read before raising that bound.
+RETRY_SLOT_UNAVAILABLE = "slot_unavailable"
 RETRY_KINDS: tuple[str, ...] = (
     RETRY_SEARCH_TIMEOUT,
     RETRY_RATE_LIMITED,
     RETRY_QUOTA_EXHAUSTED,
     RETRY_CIRCUIT_OPEN,
     RETRY_BUDGET_EXHAUSTED,
+    RETRY_SLOT_UNAVAILABLE,
 )
 
 # U3 call sites. A ranking input that never arrived is attributed to the site
