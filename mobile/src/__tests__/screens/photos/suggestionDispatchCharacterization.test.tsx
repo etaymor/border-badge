@@ -272,7 +272,24 @@ describe('CHARACTERIZATION: main dispatch (fetchSuggestions)', () => {
     expect(mockedApi.post).toHaveBeenCalledTimes(FIXED_BATCHES.length);
   });
 
-  it('fatal 429 attributes the current batch AND every undispatched batch, then stops', async () => {
+  // RE-RECORDED at U6 (KTD6). This is the ONE characterization assertion the
+  // unit deliberately changes, and only in two places, both of which were
+  // artifacts of the fatal re-throw rather than properties worth preserving:
+  //
+  //  (a) attribution no longer spills onto the batches that never went out. The
+  //      old code marked "this batch plus everything after it" retry-DISABLED by
+  //      slicing the batch plan at the loop index — a dispatch frontier that only
+  //      exists while dispatch is sequential. A cluster that was never sent has
+  //      not been rate limited; it is left unattributed so the settle sweep
+  //      renders it lookup-failed with retry ENABLED (R2).
+  //  (b) the successful batch's cache row now survives. The re-throw discarded
+  //      the whole result, so a rate limit halfway through an import threw away
+  //      the lookups the user had already paid for and re-bought them on return.
+  //
+  // Everything else about this recording is unchanged: the same two requests go
+  // out in the same order, the third batch is still never dispatched, and no
+  // never-dispatched cluster is ever written to the cache.
+  it('fatal 429 attributes only the rejected batch, keeps earlier results, then stops', async () => {
     const err = new AxiosError('rate limited');
     err.response = {
       status: 429,
@@ -292,18 +309,24 @@ describe('CHARACTERIZATION: main dispatch (fetchSuggestions)', () => {
       await result.current.fetchSuggestions(buildCandidate(FIXED_CLUSTERS));
     });
 
-    // Batch 3 is never dispatched.
+    // Batch 3 is never dispatched. (unchanged)
     expect(dispatchedIdSequence()).toEqual([FIXED_BATCHES[0], FIXED_BATCHES[1]]);
 
-    // Batch 2 AND batch 3 are attributed, with retry DISABLED.
+    // Batch 2 — the batch that was actually rejected — is attributed with retry
+    // DISABLED. Batch 3, which never went out, is left unattributed here; the
+    // settle sweep gives it retry-ENABLED lookup-failed instead.
     const failed = result.current.suggestionDispatch.failedClusterIds;
-    expect([...failed.keys()].sort()).toEqual([...FIXED_BATCHES[1], ...FIXED_BATCHES[2]].sort());
-    for (const id of [...FIXED_BATCHES[1], ...FIXED_BATCHES[2]]) {
+    expect([...failed.keys()].sort()).toEqual([...FIXED_BATCHES[1]].sort());
+    for (const id of FIXED_BATCHES[1]) {
       expect(failed.get(id)).toEqual({ retryDisabled: true });
     }
+    for (const id of FIXED_BATCHES[2]) {
+      expect(failed.has(id)).toBe(false);
+    }
 
-    // Nothing is written to cache for a never-dispatched cluster (R20).
-    expect(cacheWriteSequence()).toEqual([]);
+    // Nothing is written to cache for a never-dispatched cluster (R20) — the
+    // whole point of the allow-list. Batch 1 answered, so its rows are kept.
+    expect(cacheWriteSequence()).toEqual([[...FIXED_BATCHES[0]]]);
     expect(result.current.isFetchingSuggestions).toBe(false);
   });
 

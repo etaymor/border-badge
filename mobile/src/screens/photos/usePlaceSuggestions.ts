@@ -374,16 +374,28 @@ export function usePlaceSuggestions({
 
         // Cache the fresh API results to SQLite.
         //
-        // R20: a cache row is written for a cluster ONLY on positive evidence
-        // that a response covering it arrived. `dispatchedAndResolvedIds` is the
-        // controller's allow-list of exactly those clusters, so a cluster in a
-        // batch that threw, or in a batch that never went out at all (fatal
-        // abort), can never be written as `[]` for 24h (KTD8).
+        // R20/KTD14 — this is an ALLOW-LIST, and every term is positive
+        // evidence about THAT cluster:
         //
-        // On top of the allow-list: when failed_cluster_count > 0, a cluster the
-        // response omitted failed transiently within an otherwise-successful
-        // batch — caching [] for it would prevent re-querying on the next
-        // attempt. `failedClusterIds` is read from the RESOLVED RESULT (fresh,
+        //  1. `dispatchedAndResolvedIds` — the controller saw a response for the
+        //     batch carrying it. A cluster in a batch that threw, or in a batch
+        //     a fatal stop or an abort kept off the wire entirely, is absent.
+        //  2. not in `failedClusterIds` — its batch was not attributed a
+        //     failure.
+        //  3. `respondedClusterIds` — the response carried a row for it
+        //     specifically, so an empty `places` list means "looked, found
+        //     nothing" rather than "never answered".
+        //
+        // The old third term had an escape hatch — `|| failed_cluster_count === 0`
+        // — that admitted EVERY uncached cluster whenever the run happened to
+        // report no per-cluster failures. That was a proxy for full coverage,
+        // and both concurrency and partial resolution invalidate it: a run
+        // stopped by a 429 can easily have a zero failure count while whole
+        // batches never went out, and those clusters would have been written as
+        // `[]` and cached for 24h — indistinguishable from a genuine
+        // no-place-found (KTD8).
+        //
+        // `failedClusterIds` is read from the RESOLVED RESULT (fresh,
         // synchronous), never from React state, which is a render behind.
         const respondedClusterIds = new Set(result.suggestions.map((s) => s.cluster_id));
         const failedClusterIds = result.failedClusterIds;
@@ -392,7 +404,7 @@ export function usePlaceSuggestions({
             (cluster) =>
               result.dispatchedAndResolvedIds.has(cluster.id) &&
               !failedClusterIds.has(cluster.id) &&
-              (respondedClusterIds.has(cluster.id) || result.failed_cluster_count === 0)
+              respondedClusterIds.has(cluster.id)
           )
           .map((cluster) => {
             const suggestion = result.suggestions.find((s) => s.cluster_id === cluster.id);
@@ -423,11 +435,56 @@ export function usePlaceSuggestions({
           return undefined;
         }
 
-        // Mark candidate as processed
-        fetchedCandidatesRef.current.add(candidate.id);
+        // Mark candidate as processed — but ONLY when the run actually covered
+        // every uncached cluster (U6/KTD6).
+        //
+        // This marker short-circuits `fetchSuggestions` for the rest of the
+        // session. Setting it on any resolution was safe while dispatch either
+        // ran the whole plan or threw; with partial resolution it is not. A run
+        // stopped by a 429 leaves whole batches un-dispatched, and marking the
+        // candidate fetched would make a same-session re-entry return
+        // immediately, so those clusters would never be looked up at all — they
+        // would sit as `lookup-failed` until the user retried each one by hand.
+        // Coverage is "was it attempted", not "did it succeed": a cluster whose
+        // batch failed IS covered and is recovered through the retry path,
+        // whereas one that never went out is not, and re-entry re-dispatches it
+        // (its successful neighbours come back from the SQLite cache, so nothing
+        // is re-bought).
+        const coveredEveryCluster = uncachedClusters.every((cluster) =>
+          result.dispatchedClusterIds.has(cluster.id)
+        );
+        if (coveredEveryCluster) {
+          fetchedCandidatesRef.current.add(candidate.id);
+        } else if (__DEV__) {
+          logger.log('[PhotoImport] Partial dispatch — candidate stays re-fetchable:', {
+            candidateId: candidate.id,
+            dispatched: result.dispatchedClusterIds.size,
+            uncached: uncachedClusters.length,
+          });
+        }
 
-        // Count usage for free users (only count once per session, not per candidate switch)
-        if (!isPremium && !hasCountedUsageRef.current) {
+        // KTD6: the fatal rejection is reported on the RESULT now rather than
+        // thrown, so the per-error-type analytics branch lives here. The `catch`
+        // below still covers a genuinely thrown dispatch.
+        if (result.fatalError instanceof QuotaExhaustedError) {
+          Analytics.photoImportApiError({ errorType: 'quota_exhausted' });
+        } else if (result.fatalError instanceof RateLimitError) {
+          Analytics.photoImportApiError({ errorType: 'rate_limited' });
+        } else if (result.fatalError !== null) {
+          // Includes PhotoImportLimitReachedError (402). Deliberately NOT
+          // classified as a transient failure; U10 owns its UX.
+          Analytics.photoImportApiError({ errorType: 'unknown' });
+        }
+
+        // Count usage for free users (only count once per session, not per candidate switch).
+        //
+        // The `fatalError` term PRESERVES the pre-U6 behavior rather than adding
+        // a rule: a fatal rejection used to throw past this line, so a free user
+        // who was rate-limited mid-import did not spend their one import.
+        // Partial resolution removed the throw, and without this term the same
+        // user would now be charged for a trip that only half matched. U10
+        // replaces this whole block with a claim on the first SUCCESSFUL batch.
+        if (!isPremium && !hasCountedUsageRef.current && result.fatalError === null) {
           incrementPhotoImportUsage();
           hasCountedUsageRef.current = true;
           if (__DEV__) {

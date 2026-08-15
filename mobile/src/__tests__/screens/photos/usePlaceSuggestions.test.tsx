@@ -15,9 +15,14 @@ import { AxiosError } from 'axios';
 import React from 'react';
 
 import { usePlaceSuggestions } from '../../../screens/photos/usePlaceSuggestions';
-import { CHUNK_SIZE, FIRST_CHUNK_SIZE, planSuggestionBatches } from '@hooks/usePhotoImport';
+import {
+  CHUNK_SIZE,
+  FIRST_CHUNK_SIZE,
+  planSuggestionBatches,
+  suggestionDispatch,
+} from '@hooks/usePhotoImport';
 import { getVisionImagesForCluster } from '@services/photoImport/visionPhoto';
-import { useIsPremium, useCanImportPhotos } from '@stores/subscriptionStore';
+import { useIsPremium, useCanImportPhotos, useSubscriptionStore } from '@stores/subscriptionStore';
 import { api } from '@services/api';
 import { Analytics } from '@services/analytics';
 import {
@@ -116,6 +121,9 @@ function setup(
 
 beforeEach(() => {
   jest.clearAllMocks();
+  // The dispatch controller is a module-level singleton (KTD21): without this a
+  // test that leaves an owner or a failure map behind cascades into the next.
+  suggestionDispatch.resetForTests();
   mockedGetCachedSuggestions.mockResolvedValue(new Map());
   mockedCacheSuggestions.mockResolvedValue(undefined as never);
 });
@@ -1170,5 +1178,292 @@ describe('usePlaceSuggestions callback identity (U14)', () => {
     // the five call sites that take them as props.
     expect(result.current.beginFetchOwner).toBe(before.beginFetchOwner);
     expect(result.current.endFetchOwner).toBe(before.endFetchOwner);
+  });
+});
+
+// ---- U6: partial resolution, the cache allow-list, and coverage --------------
+
+describe('usePlaceSuggestions partial dispatch (U6 / KTD6, KTD14, R20)', () => {
+  const buildCandidate = (clusterIds: string[], id = 'cand-partial') => ({
+    id,
+    countryCode: 'JP',
+    dateRange: { start: new Date(), end: new Date() },
+    photoIds: [],
+    photoCount: clusterIds.length,
+    previewUris: [],
+    previewAssetIds: [],
+    locationClusterIds: clusterIds,
+  });
+
+  const placeFor = (id: string) => ({
+    place_id: `ChIJ_${id}`,
+    name: `Place ${id}`,
+    address: '1 St',
+    location: { latitude: 35, longitude: 139 },
+    category: 'place',
+    distance_m: 10,
+    types: ['point_of_interest'],
+  });
+
+  /** Three batches under the U5 ramp: 2 / 5 / 5. */
+  const THREE_BATCH_COUNT = FIRST_CHUNK_SIZE + CHUNK_SIZE * 2;
+  const buildClusters = () =>
+    Array.from({ length: THREE_BATCH_COUNT }, (_, i) =>
+      makeCluster(`pt-${i}`, 35 + i * 0.01, 139 + i * 0.01)
+    );
+
+  const respondFor = (ids: string[]) => ({
+    data: {
+      suggestions: ids.map((id) => ({
+        cluster_id: id,
+        photo_ids: [`photo-${id}`],
+        places: [placeFor(id)],
+      })),
+      // ZERO failures — the escape hatch this unit deletes keyed on exactly this.
+      failed_cluster_count: 0,
+    },
+  });
+
+  const cachedIds = () =>
+    mockedCacheSuggestions.mock.calls.flatMap((call) => call[0].map((row) => row.cluster_id));
+
+  const rateLimited = () => {
+    const err = new AxiosError('rate limited');
+    err.response = {
+      status: 429,
+      headers: { 'retry-after': '1' },
+      data: {},
+      statusText: '',
+      config: {} as never,
+    };
+    return err;
+  };
+
+  it('writes NO cache row for a never-dispatched cluster, even at a zero failure count', async () => {
+    const clusters = buildClusters();
+    const batches = planSuggestionBatches(clusters).map((b) => b.map((c) => c.id));
+
+    mockedApi.post
+      .mockResolvedValueOnce(respondFor(batches[0]))
+      .mockRejectedValueOnce(rateLimited());
+
+    const { result } = setup(clusters);
+
+    await act(async () => {
+      await result.current.fetchSuggestions(buildCandidate(clusters.map((c) => c.id)));
+    });
+
+    // Batch 3 never went out. The old deny-list admitted it anyway — the run
+    // reported failed_cluster_count 0, so "no per-cluster failures" was read as
+    // "full coverage" and every unanswered cluster was written as `[]` and
+    // cached for 24h, indistinguishable from a genuine no-place-found.
+    for (const id of batches[2]) expect(cachedIds()).not.toContain(id);
+    // The rejected batch is excluded too...
+    for (const id of batches[1]) expect(cachedIds()).not.toContain(id);
+    // ...while the batch that actually answered keeps its rows.
+    expect(cachedIds().sort()).toEqual([...batches[0]].sort());
+  });
+
+  it('KTD14: a cluster its own batch omitted is not cached, even at a zero failure count', async () => {
+    // The deleted escape hatch was `|| failed_cluster_count === 0`: a GLOBAL
+    // property of the run standing in for per-cluster evidence. Here batch 1
+    // answers for only one of its two clusters and reports no failures at all,
+    // so the hatch would have written the omitted cluster as `[]` for 24h.
+    // Every term of the allow-list is now about the cluster itself.
+    const clusters = buildClusters();
+    const batches = planSuggestionBatches(clusters).map((b) => b.map((c) => c.id));
+
+    mockedApi.post
+      .mockResolvedValueOnce(respondFor(batches[0].slice(0, 1)))
+      .mockResolvedValueOnce(respondFor(batches[1]))
+      .mockResolvedValueOnce(respondFor(batches[2]));
+
+    const { result } = setup(clusters);
+
+    await act(async () => {
+      await result.current.fetchSuggestions(buildCandidate(clusters.map((c) => c.id)));
+    });
+
+    expect(cachedIds()).not.toContain(batches[0][1]);
+    expect(cachedIds().sort()).toEqual([batches[0][0], ...batches[1], ...batches[2]].sort());
+  });
+
+  it('writes no cache row for undispatched clusters when the fetch is aborted mid-flight', async () => {
+    const clusters = buildClusters();
+    const batches = planSuggestionBatches(clusters).map((b) => b.map((c) => c.id));
+
+    // Model axios: the request rejects the moment its signal aborts.
+    mockedApi.post.mockImplementation(
+      (_url, _body, config) =>
+        new Promise((_resolve, reject) => {
+          const signal = (config as { signal?: AbortSignal } | undefined)?.signal;
+          signal?.addEventListener('abort', () => reject(new Error('canceled')));
+        }) as never
+    );
+
+    const { result } = setup(clusters);
+
+    let done!: Promise<unknown>;
+    await act(async () => {
+      done = result.current.fetchSuggestions(buildCandidate(clusters.map((c) => c.id)));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    await act(async () => {
+      result.current.resetSuggestionDispatch();
+      await done;
+    });
+
+    // Nothing answered, so nothing may be cached — not the batch that was
+    // canceled on the wire, and certainly not the two that never left.
+    expect(cachedIds()).toEqual([]);
+    expect(batches).toHaveLength(3);
+    expect(result.current.isFetchingSuggestions).toBe(false);
+  });
+
+  it('re-fetches the uncovered clusters on a same-session re-entry, without unmounting', async () => {
+    const clusters = buildClusters();
+    const batches = planSuggestionBatches(clusters).map((b) => b.map((c) => c.id));
+    const candidate = buildCandidate(clusters.map((c) => c.id));
+
+    mockedApi.post
+      .mockResolvedValueOnce(respondFor(batches[0]))
+      .mockRejectedValueOnce(rateLimited());
+
+    const { result } = setup(clusters);
+
+    await act(async () => {
+      await result.current.fetchSuggestions(candidate);
+    });
+    expect(mockedApi.post).toHaveBeenCalledTimes(2);
+
+    // Re-entry. Batch 1's clusters come back from the SQLite cache (so they are
+    // not re-bought); everything the partial stop left uncovered must go out
+    // again. The candidate-fetched marker used to be set on ANY resolution,
+    // which made this second call return before touching the network and left
+    // those clusters unlooked-up for the rest of the session.
+    mockedApi.post.mockClear();
+    mockedGetCachedSuggestions.mockResolvedValue(
+      new Map(batches[0].map((id) => [id, [placeFor(id)]]))
+    );
+    mockedApi.post.mockResolvedValue({
+      data: { suggestions: [], failed_cluster_count: 0 },
+    });
+
+    await act(async () => {
+      await result.current.fetchSuggestions(candidate);
+    });
+
+    expect(mockedApi.post).toHaveBeenCalled();
+    const reRequested = mockedApi.post.mock.calls.flatMap((call) =>
+      (call[1] as { clusters: { id: string }[] }).clusters.map((c) => c.id)
+    );
+    for (const id of [...batches[1], ...batches[2]]) expect(reRequested).toContain(id);
+    for (const id of batches[0]) expect(reRequested).not.toContain(id);
+  });
+
+  it('short-circuits a re-entry when the first run covered every cluster', async () => {
+    const clusters = buildClusters();
+    const batches = planSuggestionBatches(clusters).map((b) => b.map((c) => c.id));
+    const candidate = buildCandidate(
+      clusters.map((c) => c.id),
+      'cand-covered'
+    );
+
+    mockedApi.post
+      .mockResolvedValueOnce(respondFor(batches[0]))
+      // A batch that FAILED is still covered: it was attempted, and the scoped
+      // retry path owns its recovery. Only a never-dispatched batch reopens the
+      // candidate.
+      .mockRejectedValueOnce(new Error('network blip'))
+      .mockResolvedValueOnce(respondFor(batches[2]));
+
+    const { result } = setup(clusters);
+
+    await act(async () => {
+      await result.current.fetchSuggestions(candidate);
+    });
+    expect(mockedApi.post).toHaveBeenCalledTimes(3);
+
+    mockedApi.post.mockClear();
+    await act(async () => {
+      await result.current.fetchSuggestions(candidate);
+    });
+
+    expect(mockedApi.post).not.toHaveBeenCalled();
+  });
+
+  it('still reports the fatal error to analytics now that dispatch resolves partially', async () => {
+    const clusters = buildClusters();
+    const batches = planSuggestionBatches(clusters).map((b) => b.map((c) => c.id));
+
+    mockedApi.post
+      .mockResolvedValueOnce(respondFor(batches[0]))
+      .mockRejectedValueOnce(rateLimited());
+
+    const { result } = setup(clusters);
+
+    await act(async () => {
+      await result.current.fetchSuggestions(buildCandidate(clusters.map((c) => c.id)));
+    });
+
+    expect(Analytics.photoImportApiError).toHaveBeenCalledWith({ errorType: 'rate_limited' });
+    // U11 note: the rate-limit scenario now emits COMPLETION as well as an
+    // error, with a lower suggestion count than that population ever had.
+    expect(Analytics.photoImportSuggestionsCompleted).toHaveBeenCalled();
+  });
+});
+
+// ---- U6: entitlement accounting preserved across partial resolution ---------
+
+describe('usePlaceSuggestions free-tier accounting across a partial dispatch (U6)', () => {
+  // `jest.clearAllMocks()` clears usage data but KEEPS a `mockReturnValue`, so
+  // these have to be put back by hand or they leak into every later test.
+  afterEach(() => {
+    (useIsPremium as jest.MockedFunction<typeof useIsPremium>).mockReturnValue(true);
+    (useCanImportPhotos as jest.MockedFunction<typeof useCanImportPhotos>).mockReturnValue(true);
+    (useSubscriptionStore as unknown as jest.Mock).mockImplementation(() => jest.fn());
+  });
+
+  it('does not spend a free user’s import when a rate limit stops the run', async () => {
+    // Pre-U6 the fatal error threw past the usage increment, so a rate-limited
+    // import was not charged. Partial resolution removed the throw; the charge
+    // must not appear as a side effect of that.
+    const incrementPhotoImportUsage = jest.fn();
+    (useIsPremium as jest.MockedFunction<typeof useIsPremium>).mockReturnValue(false);
+    (useCanImportPhotos as jest.MockedFunction<typeof useCanImportPhotos>).mockReturnValue(true);
+    (useSubscriptionStore as unknown as jest.Mock).mockReturnValue(incrementPhotoImportUsage);
+
+    const clusters = Array.from({ length: FIRST_CHUNK_SIZE + CHUNK_SIZE }, (_, i) =>
+      makeCluster(`fr-${i}`, 35 + i * 0.01, 139)
+    );
+    const err = new AxiosError('rate limited');
+    err.response = {
+      status: 429,
+      headers: { 'retry-after': '1' },
+      data: {},
+      statusText: '',
+      config: {} as never,
+    };
+    mockedApi.post
+      .mockResolvedValueOnce({ data: { suggestions: [], failed_cluster_count: 0 } })
+      .mockRejectedValueOnce(err);
+
+    const { result } = setup(clusters);
+
+    await act(async () => {
+      await result.current.fetchSuggestions({
+        id: 'cand-free',
+        countryCode: 'JP',
+        dateRange: { start: new Date(), end: new Date() },
+        photoIds: [],
+        photoCount: clusters.length,
+        previewUris: [],
+        previewAssetIds: [],
+        locationClusterIds: clusters.map((c) => c.id),
+      });
+    });
+
+    expect(incrementPhotoImportUsage).not.toHaveBeenCalled();
   });
 });

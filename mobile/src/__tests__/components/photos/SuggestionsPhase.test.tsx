@@ -21,7 +21,11 @@ import { Text, View } from 'react-native';
 
 import { SuggestionsPhase } from '../../../screens/photos/components/SuggestionsPhase';
 import type { ClusterDisplayItem } from '../../../screens/photos/photoImportHelpers';
-import type { LocationClusterDisplay, TripCandidateDisplay } from '../../../services/photoImport';
+import type {
+  ClusterSuggestion,
+  LocationClusterDisplay,
+  TripCandidateDisplay,
+} from '../../../services/photoImport';
 
 jest.mock('expo-image', () => {
   const mockReact = require('react');
@@ -41,6 +45,23 @@ const buildCluster = (id: string): LocationClusterDisplay => ({
   previewAssetIds: [`${id}-p1`],
   timeRange: { start: new Date('2026-01-01T10:00:00Z'), end: new Date('2026-01-01T12:00:00Z') },
   countryCode: 'JP',
+});
+
+/** A resolved (cache-hit or matched) row for the given cluster. */
+const buildSuggestion = (id: string): ClusterSuggestion => ({
+  cluster_id: id,
+  photo_ids: [`${id}-p1`],
+  places: [
+    {
+      place_id: `ChIJ_${id}`,
+      name: `Place ${id}`,
+      address: '1 St',
+      location: { latitude: 35, longitude: 139 },
+      category: 'place',
+      distance_m: 10,
+      types: ['point_of_interest'],
+    },
+  ],
 });
 
 const buildCandidate = (clusterIds: string[]): TripCandidateDisplay => ({
@@ -102,6 +123,32 @@ describe('SuggestionsPhase progress header (R28)', () => {
     });
 
     expect(getByText('Processing 2 of 5 locations')).toBeTruthy();
+  });
+
+  it('U6: the denominator counts CACHED clusters too, not just the dispatched ones', () => {
+    // Six locations, four of which came straight from the SQLite cache and are
+    // already rendered as resolved rows. The dispatch controller's own
+    // denominator is the count of clusters it was asked to fetch — two — so a
+    // header sourced from it would read "0 of 2" over a list of six rows, and
+    // would hit 100% with four rows still on screen. The header counts what is
+    // SHOWN.
+    const items: ClusterDisplayItem[] = [
+      { type: 'suggestion', data: buildSuggestion('c-1'), cluster: buildCluster('c-1') },
+      { type: 'suggestion', data: buildSuggestion('c-2'), cluster: buildCluster('c-2') },
+      { type: 'photos-only', cluster: buildCluster('c-3') },
+      { type: 'photos-only', cluster: buildCluster('c-4') },
+      { type: 'pending', cluster: buildCluster('c-5') },
+      { type: 'pending', cluster: buildCluster('c-6') },
+    ];
+
+    const { getByLabelText } = renderPhase({
+      clusterIds: ['c-1', 'c-2', 'c-3', 'c-4', 'c-5', 'c-6'],
+      items,
+      fetching: true,
+    });
+
+    const header = getByLabelText('Processing 4 of 6 locations');
+    expect(header.props.accessibilityValue).toEqual({ min: 0, max: 100, now: 67 });
   });
 
   it('carries a progress role and a polite live region', () => {

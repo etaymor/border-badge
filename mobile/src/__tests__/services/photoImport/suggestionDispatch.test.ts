@@ -14,9 +14,12 @@ import { AxiosError } from 'axios';
 import {
   suggestionDispatch,
   planSuggestionBatches,
+  deriveDispatchConcurrency,
   CHUNK_SIZE,
   FIRST_CHUNK_SIZE,
+  MAX_SUGGESTION_DISPATCH_CONCURRENCY,
   SUGGEST_PLACES_TIMEOUT_MS,
+  SUGGESTION_DISPATCH_CONCURRENCY,
   type PlaceSuggestionCluster,
 } from '../../../services/photoImport/suggestionDispatch';
 import { api } from '../../../services/api';
@@ -71,6 +74,19 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
+/** Let queued microtasks and the macrotask queue drain (no fake timers here). */
+const flush = async (turns = 4) => {
+  for (let i = 0; i < turns; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+};
+
+/** Index of the planned batch a recorded request body belongs to. */
+const batchIndexOfRequest = (batches: { id: string }[][], body: unknown) => {
+  const ids = (body as { clusters: { id: string }[] }).clusters.map((c) => c.id);
+  return batches.findIndex((batch) => batch[0].id === ids[0]);
+};
+
 beforeEach(() => {
   jest.clearAllMocks();
   // The controller is a module-level singleton, so one test's leftovers would
@@ -106,7 +122,7 @@ describe('suggestionDispatch - failedClusterIds (KTD6/KTD8/KTD10)', () => {
     }
   });
 
-  it('records remaining clusters with retryDisabled=true when a chunk throws 503 (quota)', async () => {
+  it('records the rejected chunk with retryDisabled=true when it throws 503 (quota)', async () => {
     const clusters = buildClustersForBatches(2);
     const chunk1Ids = chunkIds(clusters, 0);
     const chunk2Ids = chunkIds(clusters, 1);
@@ -117,11 +133,13 @@ describe('suggestionDispatch - failedClusterIds (KTD6/KTD8/KTD10)', () => {
       })
       .mockRejectedValueOnce(makeQuotaError());
 
-    await expect(suggestionDispatch.dispatch({ clusters })).rejects.toMatchObject({
-      name: 'QuotaExhaustedError',
-    });
+    // KTD6: a fatal rejection resolves PARTIALLY instead of throwing, so the
+    // batches that already succeeded keep their suggestions.
+    const result = await suggestionDispatch.dispatch({ clusters });
+    expect(result.fatalError).toMatchObject({ name: 'QuotaExhaustedError' });
+    expect(result.suggestions.map((s) => s.cluster_id).sort()).toEqual([...chunk1Ids].sort());
 
-    // The fatal error surfaces, but the un-responded clusters are NOT dropped.
+    // The rejected batch's clusters are NOT dropped.
     const failed = suggestionDispatch.getState().failedClusterIds;
     expect([...failed.keys()].sort()).toEqual([...chunk2Ids].sort());
     for (const id of chunk2Ids) {
@@ -129,7 +147,7 @@ describe('suggestionDispatch - failedClusterIds (KTD6/KTD8/KTD10)', () => {
     }
   });
 
-  it('records remaining clusters with retryDisabled=true when a chunk throws 429 (rate limit)', async () => {
+  it('records the rejected chunk with retryDisabled=true when it throws 429 (rate limit)', async () => {
     const clusters = buildClustersForBatches(2);
     const chunk1Ids = chunkIds(clusters, 0);
     const chunk2Ids = chunkIds(clusters, 1);
@@ -140,9 +158,9 @@ describe('suggestionDispatch - failedClusterIds (KTD6/KTD8/KTD10)', () => {
       })
       .mockRejectedValueOnce(makeAxiosError(429, { 'retry-after': '30' }));
 
-    await expect(suggestionDispatch.dispatch({ clusters })).rejects.toMatchObject({
-      name: 'RateLimitError',
-    });
+    const result = await suggestionDispatch.dispatch({ clusters });
+    expect(result.fatalError).toMatchObject({ name: 'RateLimitError', retryAfterSeconds: 30 });
+    expect(result.suggestions.map((s) => s.cluster_id).sort()).toEqual([...chunk1Ids].sort());
 
     const failed = suggestionDispatch.getState().failedClusterIds;
     expect([...failed.keys()].sort()).toEqual([...chunk2Ids].sort());
@@ -151,7 +169,23 @@ describe('suggestionDispatch - failedClusterIds (KTD6/KTD8/KTD10)', () => {
     }
   });
 
-  it('records ALL remaining clusters (current + later chunks) on a fatal error in an early chunk', async () => {
+  it('honors a SHORT Retry-After on a 429 rather than assuming a minute (U16)', async () => {
+    // The burst cap answers with 1s and the sustained limiter with 60s. Reading
+    // the header is the difference between resuming in a second and telling the
+    // user to wait a minute.
+    mockedApi.post.mockRejectedValueOnce(makeAxiosError(429, { 'retry-after': '1' }));
+
+    const result = await suggestionDispatch.dispatch({ clusters: buildClusters(1) });
+
+    expect(result.fatalError).toMatchObject({ name: 'RateLimitError', retryAfterSeconds: 1 });
+  });
+
+  it('KTD6: attributes ONLY the rejected chunk, leaving never-dispatched ones unattributed', async () => {
+    // The old behavior marked "this chunk plus every later chunk" using the loop
+    // index as a dispatch frontier — an idea concurrency destroys. A cluster that
+    // never went out has NOT had its lookup fail; it is left unattributed so the
+    // consumer's settle sweep renders it lookup-failed with retry ENABLED (R2),
+    // rather than inheriting the rate limit's retry-DISABLED state.
     const clusters = buildClustersForBatches(3); // exactly three batches
     const chunk2Ids = chunkIds(clusters, 1);
     const chunk3Ids = chunkIds(clusters, 2);
@@ -163,10 +197,52 @@ describe('suggestionDispatch - failedClusterIds (KTD6/KTD8/KTD10)', () => {
       // chunk-2 throws fatal — chunk-3 never runs
       .mockRejectedValueOnce(makeQuotaError());
 
-    await expect(suggestionDispatch.dispatch({ clusters })).rejects.toThrow();
+    const result = await suggestionDispatch.dispatch({ clusters });
 
     const failed = suggestionDispatch.getState().failedClusterIds;
-    expect([...failed.keys()].sort()).toEqual([...chunk2Ids, ...chunk3Ids].sort());
+    expect([...failed.keys()].sort()).toEqual([...chunk2Ids].sort());
+    for (const id of chunk3Ids) expect(failed.has(id)).toBe(false);
+
+    // Chunk 3 was never dispatched, so it is outside the coverage set and the
+    // result reports itself as partial.
+    expect(result.isPartial).toBe(true);
+    for (const id of chunk3Ids) expect(result.dispatchedClusterIds.has(id)).toBe(false);
+    expect(mockedApi.post).toHaveBeenCalledTimes(2);
+  });
+
+  it('stops dispatching new batches after a fatal rejection', async () => {
+    const clusters = buildClustersForBatches(4);
+
+    mockedApi.post
+      .mockResolvedValueOnce({
+        data: { suggestions: suggestionsFor(chunkIds(clusters, 0)), failed_cluster_count: 0 },
+      })
+      .mockRejectedValueOnce(makeAxiosError(429, { 'retry-after': '60' }))
+      .mockResolvedValue(emptyResponse);
+
+    await suggestionDispatch.dispatch({ clusters });
+
+    // Batches 3 and 4 never leave, even though the mock would have answered them.
+    expect(mockedApi.post).toHaveBeenCalledTimes(2);
+  });
+
+  it('treats a 402 entitlement refusal as fatal-but-not-transient (U16)', async () => {
+    const err = makeAxiosError(402);
+    // @ts-expect-error - minimal AxiosError response shape for the test
+    err.response.data = { code: 'PHOTO_IMPORT_LIMIT_REACHED' };
+    mockedApi.post.mockRejectedValueOnce(err);
+
+    const clusters = buildClustersForBatches(2);
+    const result = await suggestionDispatch.dispatch({ clusters });
+
+    expect(result.fatalError).toMatchObject({ name: 'PhotoImportLimitReachedError' });
+    // Retrying an entitlement refusal cannot succeed, so no Retry affordance.
+    for (const id of chunkIds(clusters, 0)) {
+      expect(suggestionDispatch.getState().failedClusterIds.get(id)).toEqual({
+        retryDisabled: true,
+      });
+    }
+    expect(mockedApi.post).toHaveBeenCalledTimes(1);
   });
 
   it('leaves failedClusterIds empty when all chunks succeed', async () => {
@@ -432,7 +508,9 @@ describe('suggestionDispatch - cluster sets (KTD7)', () => {
       // Fatal on batch 2 — batch 3 never goes out at all.
       .mockRejectedValueOnce(makeQuotaError());
 
-    await expect(suggestionDispatch.dispatch({ clusters })).rejects.toThrow();
+    // KTD6: resolves partially rather than throwing; the allow-list is what
+    // keeps the undispatched batch out of the cache.
+    await suggestionDispatch.dispatch({ clusters });
 
     const resolved = suggestionDispatch.getState().dispatchedAndResolvedClusterIds;
     for (const id of chunkIds(clusters, 0)) expect(resolved.has(id)).toBe(true);
@@ -593,5 +671,286 @@ describe('suggestionDispatch - owner accounting and lifetime', () => {
     suggestionDispatch.beginOwner();
     expect(listener).not.toHaveBeenCalled();
     suggestionDispatch.endOwner();
+  });
+});
+
+// ===========================================================================
+// U6: bounded worker pool, abort, and honest failure attribution
+// ===========================================================================
+
+describe('suggestionDispatch - concurrency configuration (U6/R6)', () => {
+  it('ships the client concurrency default at 1 (sequential) pending on-device measurement', () => {
+    // The pool is fully implemented and demonstrably works at 3 (below), but the
+    // exit criterion for raising it — concurrency's OWN contribution measured
+    // against the preparation-pipelining measurement point on a real device —
+    // has not been met. The code ships either way; the default is the lever, and
+    // it is a plain module constant so it moves over the air.
+    expect(SUGGESTION_DISPATCH_CONCURRENCY).toBe(1);
+  });
+
+  it('derives the pool size from the preparation/network knee rather than a guess', () => {
+    // Steady-state per-batch time is max(prepareMs, networkMs / C), so the knee
+    // is ceil(networkMs / prepareMs) — past it the pipeline is preparation-bound
+    // and extra workers buy nothing.
+    expect(deriveDispatchConcurrency(1000, 3000)).toBe(3);
+    expect(deriveDispatchConcurrency(1000, 2500)).toBe(3);
+    expect(deriveDispatchConcurrency(1000, 1000)).toBe(1);
+    // Preparation slower than the network: one worker already saturates it.
+    expect(deriveDispatchConcurrency(4000, 1000)).toBe(1);
+    // Never above the burst-cap ceiling, whatever the ratio says.
+    expect(deriveDispatchConcurrency(10, 100000)).toBe(MAX_SUGGESTION_DISPATCH_CONCURRENCY);
+    // Unmeasured inputs fall back to sequential rather than to a guess.
+    expect(deriveDispatchConcurrency(0, 3000)).toBe(1);
+  });
+
+  it('dispatches strictly one batch at a time at the shipped default', async () => {
+    const clusters = buildClustersForBatches(3);
+    let inFlight = 0;
+    let peakInFlight = 0;
+
+    mockedApi.post.mockImplementation(async () => {
+      inFlight += 1;
+      peakInFlight = Math.max(peakInFlight, inFlight);
+      await Promise.resolve();
+      inFlight -= 1;
+      return emptyResponse;
+    });
+
+    await suggestionDispatch.dispatch({ clusters });
+
+    expect(peakInFlight).toBe(1);
+    expect(mockedApi.post).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe('suggestionDispatch - bounded worker pool (U6/R6)', () => {
+  it('R6: keeps three batches genuinely in flight at once and collects every result', async () => {
+    const clusters = buildClustersForBatches(3);
+    const batches = planSuggestionBatches(clusters);
+    const gates = batches.map(() => deferred<void>());
+    let inFlight = 0;
+    let peakInFlight = 0;
+
+    mockedApi.post.mockImplementation(async (_url, body) => {
+      const index = batchIndexOfRequest(batches, body);
+      const ids = batches[index].map((c) => c.id);
+      inFlight += 1;
+      peakInFlight = Math.max(peakInFlight, inFlight);
+      await gates[index].promise;
+      inFlight -= 1;
+      return { data: { suggestions: suggestionsFor(ids), failed_cluster_count: 0 } };
+    });
+
+    const run = suggestionDispatch.dispatch({ clusters, concurrency: 3 });
+    await flush();
+
+    // All three requests are outstanding simultaneously — none of them has been
+    // allowed to resolve yet.
+    expect(mockedApi.post).toHaveBeenCalledTimes(3);
+    expect(peakInFlight).toBe(3);
+
+    // Land them OUT OF ORDER: nothing may depend on plan order.
+    gates[2].resolve();
+    await flush();
+    gates[0].resolve();
+    await flush();
+    gates[1].resolve();
+
+    const result = await run;
+
+    expect(result.suggestions.map((s) => s.cluster_id).sort()).toEqual(
+      clusters.map((c) => c.id).sort()
+    );
+    expect(result.fatalError).toBeNull();
+    expect(result.isPartial).toBe(false);
+    expect([...result.dispatchedAndResolvedIds].sort()).toEqual(clusters.map((c) => c.id).sort());
+    expect(suggestionDispatch.getState().inFlightClusterIds.size).toBe(0);
+  });
+
+  it('never lets the completion counter decrease within a dispatch generation', async () => {
+    const clusters = buildClustersForBatches(3);
+    const batches = planSuggestionBatches(clusters);
+    const gates = batches.map(() => deferred<void>());
+
+    mockedApi.post.mockImplementation(async (_url, body) => {
+      const index = batchIndexOfRequest(batches, body);
+      await gates[index].promise;
+      return { data: { suggestions: suggestionsFor(batches[index].map((c) => c.id)) } };
+    });
+
+    const observed: number[] = [];
+    const unsubscribe = suggestionDispatch.subscribe(() => {
+      const progress = suggestionDispatch.getState().progress;
+      if (progress) observed.push(progress.clustersCompleted);
+    });
+
+    const generationBefore = suggestionDispatch.getState().dispatchGeneration;
+    const run = suggestionDispatch.dispatch({ clusters, concurrency: 3 });
+    await flush();
+
+    // Resolve LAST batch first: the old accounting published "clusters in the
+    // batches preceding the loop index", so a late batch landing first would
+    // publish a high count and the next one to land would pull it back down.
+    gates[2].resolve();
+    await flush();
+    gates[1].resolve();
+    await flush();
+    gates[0].resolve();
+    await run;
+    unsubscribe();
+
+    expect(observed.length).toBeGreaterThan(2);
+    for (let i = 1; i < observed.length; i++) {
+      expect(observed[i]).toBeGreaterThanOrEqual(observed[i - 1]);
+    }
+    expect(observed.at(-1)).toBe(clusters.length);
+    expect(suggestionDispatch.getState().progress?.percentage).toBe(100);
+    // A retry or a re-entry is a NEW generation with its own denominator rather
+    // than a rewind of this one.
+    expect(suggestionDispatch.getState().dispatchGeneration).toBe(generationBefore + 1);
+  });
+
+  it('after a rate-limit rejection dispatches nothing new, and in-flight batches still land', async () => {
+    const clusters = buildClustersForBatches(4);
+    const batches = planSuggestionBatches(clusters);
+    const gates = batches.map(() => deferred<void>());
+
+    mockedApi.post.mockImplementation(async (_url, body) => {
+      const index = batchIndexOfRequest(batches, body);
+      await gates[index].promise;
+      if (index === 1) throw makeAxiosError(429, { 'retry-after': '1' });
+      return { data: { suggestions: suggestionsFor(batches[index].map((c) => c.id)) } };
+    });
+
+    const run = suggestionDispatch.dispatch({ clusters, concurrency: 3 });
+    await flush();
+
+    // Batches 1-3 are on the wire; batch 4 is queued behind them.
+    expect(mockedApi.post).toHaveBeenCalledTimes(3);
+
+    // Batch 2 is rate limited FIRST, while 1 and 3 are still outstanding.
+    gates[1].resolve();
+    await flush();
+    gates[0].resolve();
+    gates[2].resolve();
+
+    const result = await run;
+
+    // No fourth request: the stop took effect, and the in-flight pair still
+    // contributed their results.
+    expect(mockedApi.post).toHaveBeenCalledTimes(3);
+    expect(result.fatalError).toMatchObject({ name: 'RateLimitError', retryAfterSeconds: 1 });
+    expect(result.suggestions.map((s) => s.cluster_id).sort()).toEqual(
+      [...batches[0], ...batches[2]].map((c) => c.id).sort()
+    );
+
+    // Only the rejected batch is retry-disabled; the batch that never went out
+    // is left for the settle sweep, and the succeeded ones are untouched.
+    const failed = suggestionDispatch.getState().failedClusterIds;
+    expect([...failed.keys()].sort()).toEqual(batches[1].map((c) => c.id).sort());
+    for (const cluster of batches[3]) expect(failed.has(cluster.id)).toBe(false);
+    expect(result.isPartial).toBe(true);
+    for (const cluster of batches[3]) {
+      expect(result.dispatchedClusterIds.has(cluster.id)).toBe(false);
+      expect(result.dispatchedAndResolvedIds.has(cluster.id)).toBe(false);
+    }
+  });
+
+  it('a non-fatal batch error marks only that batch, retry enabled, and the pool keeps going', async () => {
+    const clusters = buildClustersForBatches(3);
+    const batches = planSuggestionBatches(clusters);
+
+    mockedApi.post.mockImplementation(async (_url, body) => {
+      const index = batchIndexOfRequest(batches, body);
+      if (index === 1) throw new Error('network blip');
+      return { data: { suggestions: suggestionsFor(batches[index].map((c) => c.id)) } };
+    });
+
+    const result = await suggestionDispatch.dispatch({ clusters, concurrency: 3 });
+
+    expect(mockedApi.post).toHaveBeenCalledTimes(3);
+    expect(result.fatalError).toBeNull();
+    const failed = suggestionDispatch.getState().failedClusterIds;
+    expect([...failed.keys()].sort()).toEqual(batches[1].map((c) => c.id).sort());
+    for (const id of [...failed.keys()]) expect(failed.get(id)).toEqual({ retryDisabled: false });
+    // Every batch was attempted, so nothing is uncovered.
+    expect(result.isPartial).toBe(false);
+  });
+
+  it('prepares at most concurrency+1 batches ahead of dispatch', async () => {
+    // The prefetch bound is what caps peak encoded-payload memory, and it grows
+    // linearly with the pool. At the shipped concurrency of 1 this is the old
+    // "one batch ahead" exactly (asserted by the U5 suite above); this pins the
+    // general rule so raising the pool is a deliberate memory decision.
+    const clusters = buildClustersForBatches(5);
+    const preparedAtEachPost: number[] = [];
+    const prepareBatch = jest.fn(async (batch: PlaceSuggestionCluster[]) => batch);
+
+    mockedApi.post.mockImplementation(async () => {
+      preparedAtEachPost.push(prepareBatch.mock.calls.length);
+      return emptyResponse;
+    });
+
+    await suggestionDispatch.dispatch({ clusters, prepareBatch, concurrency: 3 });
+
+    preparedAtEachPost.forEach((preparedCount, dispatchIndex) => {
+      expect(preparedCount - dispatchIndex).toBeLessThanOrEqual(4);
+    });
+    expect(prepareBatch).toHaveBeenCalledTimes(5);
+  });
+});
+
+describe('suggestionDispatch - abort (U6)', () => {
+  /** Model axios: a request rejects as soon as its signal aborts. */
+  const abortableApi = (onRequest?: (signal: AbortSignal) => void) =>
+    mockedApi.post.mockImplementation(
+      (_url, _body, config) =>
+        new Promise((_resolve, reject) => {
+          const signal = (config as { signal?: AbortSignal } | undefined)?.signal;
+          onRequest?.(signal as AbortSignal);
+          signal?.addEventListener('abort', () => reject(new Error('canceled')));
+        }) as never
+    );
+
+  it('cancels in-flight requests instead of waiting for them', async () => {
+    const clusters = buildClustersForBatches(3);
+    const signals: AbortSignal[] = [];
+    abortableApi((signal) => signals.push(signal));
+
+    const run = suggestionDispatch.dispatch({ clusters, concurrency: 3 });
+    await flush();
+
+    expect(signals).toHaveLength(3);
+    expect(signals.every((s) => !s.aborted)).toBe(true);
+
+    suggestionDispatch.reset();
+
+    // Resolves because the requests were CANCELED — nothing ever answers them.
+    const result = await run;
+
+    expect(signals.every((s) => s.aborted)).toBe(true);
+    expect(result.dispatchedAndResolvedIds.size).toBe(0);
+    // An abort attributes no failures: `reset()` cleared the candidate's state
+    // and re-writing it would resurrect a departed candidate's rows.
+    expect(suggestionDispatch.getState().failedClusterIds.size).toBe(0);
+  });
+
+  it('leaves batches that never went out un-dispatched after an abort', async () => {
+    const clusters = buildClustersForBatches(4);
+    abortableApi();
+
+    // Sequential (the shipped default): only the first batch is on the wire.
+    const run = suggestionDispatch.dispatch({ clusters });
+    await flush();
+    suggestionDispatch.reset();
+    const result = await run;
+
+    expect(mockedApi.post).toHaveBeenCalledTimes(1);
+    expect(result.isPartial).toBe(true);
+    expect(result.dispatchedAndResolvedIds.size).toBe(0);
+    const batches = planSuggestionBatches(clusters);
+    for (const cluster of [...batches[1], ...batches[2], ...batches[3]]) {
+      expect(result.dispatchedClusterIds.has(cluster.id)).toBe(false);
+    }
   });
 });
