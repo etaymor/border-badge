@@ -7,7 +7,13 @@
 
 import * as geohash from 'ngeohash';
 
-import { getDb, getMetadata, setMetadata, SQLITE_PARAM_LIMIT } from './photoCacheDb';
+import {
+  getDb,
+  getMetadata,
+  setMetadata,
+  SQLITE_PARAM_LIMIT,
+  withPhotoCacheWriteLock,
+} from './photoCacheDb';
 import { GEOHASH_PRECISION, haversine } from './photoClustering';
 
 /** Empty suggestions expire after 24 hours so transient failures get retried. */
@@ -39,9 +45,14 @@ export async function markClusterProcessed(
   status: ProcessedClusterStatus
 ): Promise<void> {
   const database = await getDb();
-  await database.runAsync(
-    'INSERT OR REPLACE INTO processed_clusters (cluster_id, status, processed_at) VALUES (?, ?, ?)',
-    [clusterId, status, Date.now()]
+  // Bare write, but still serialized: issued while another writer's transaction
+  // is open it would be enrolled in that transaction and lost on its rollback —
+  // the confirmed-entry-reappears-on-re-entry bug.
+  await withPhotoCacheWriteLock(() =>
+    database.runAsync(
+      'INSERT OR REPLACE INTO processed_clusters (cluster_id, status, processed_at) VALUES (?, ?, ?)',
+      [clusterId, status, Date.now()]
+    )
   );
 }
 
@@ -66,7 +77,7 @@ export async function getProcessedClusterIds(): Promise<Set<string>> {
  */
 export async function clearProcessedClusters(): Promise<void> {
   const database = await getDb();
-  await database.runAsync('DELETE FROM processed_clusters');
+  await withPhotoCacheWriteLock(() => database.runAsync('DELETE FROM processed_clusters'));
 }
 
 // =============================================================================
@@ -89,6 +100,8 @@ export async function setLastSelectedCandidateId(
   tripId: string,
   candidateId: string
 ): Promise<void> {
+  // setMetadata takes the photo-cache write lock itself — do not wrap it here
+  // (the mutex is not reentrant).
   await setMetadata(`last_candidate_${tripId}`, candidateId);
 }
 
@@ -369,22 +382,24 @@ export async function cacheSuggestions(suggestions: CachedPlaceSuggestion[]): Pr
   const now = Date.now();
   const BATCH_SIZE = 50;
 
-  await database.withTransactionAsync(async () => {
-    for (let i = 0; i < suggestions.length; i += BATCH_SIZE) {
-      const batch = suggestions.slice(i, i + BATCH_SIZE);
-      const placeholders = batch.map(() => '(?, ?, ?, ?)').join(', ');
-      const values = batch.flatMap((s) => [
-        s.cluster_id,
-        JSON.stringify(s.places),
-        now,
-        s.location_key ?? null,
-      ]);
+  await withPhotoCacheWriteLock(async () => {
+    await database.withTransactionAsync(async () => {
+      for (let i = 0; i < suggestions.length; i += BATCH_SIZE) {
+        const batch = suggestions.slice(i, i + BATCH_SIZE);
+        const placeholders = batch.map(() => '(?, ?, ?, ?)').join(', ');
+        const values = batch.flatMap((s) => [
+          s.cluster_id,
+          JSON.stringify(s.places),
+          now,
+          s.location_key ?? null,
+        ]);
 
-      await database.runAsync(
-        `INSERT OR REPLACE INTO cached_place_suggestions (cluster_id, suggestions_json, cached_at, location_key) VALUES ${placeholders}`,
-        values
-      );
-    }
+        await database.runAsync(
+          `INSERT OR REPLACE INTO cached_place_suggestions (cluster_id, suggestions_json, cached_at, location_key) VALUES ${placeholders}`,
+          values
+        );
+      }
+    });
   });
 }
 
@@ -394,7 +409,7 @@ export async function cacheSuggestions(suggestions: CachedPlaceSuggestion[]): Pr
  */
 export async function clearSuggestionCache(): Promise<void> {
   const database = await getDb();
-  await database.runAsync('DELETE FROM cached_place_suggestions');
+  await withPhotoCacheWriteLock(() => database.runAsync('DELETE FROM cached_place_suggestions'));
 }
 
 /**
@@ -435,20 +450,22 @@ export async function saveClusterSplit(
 ): Promise<void> {
   const database = await getDb();
   const now = Date.now();
-  await database.withTransactionAsync(async () => {
-    await database.runAsync(
-      'INSERT OR REPLACE INTO cluster_splits (sub_cluster_id, parent_cluster_id, photo_ids, created_at) VALUES (?, ?, ?, ?), (?, ?, ?, ?)',
-      [
-        subA.id,
-        parentClusterId,
-        JSON.stringify(subA.photoIds),
-        now,
-        subB.id,
-        parentClusterId,
-        JSON.stringify(subB.photoIds),
-        now,
-      ]
-    );
+  await withPhotoCacheWriteLock(async () => {
+    await database.withTransactionAsync(async () => {
+      await database.runAsync(
+        'INSERT OR REPLACE INTO cluster_splits (sub_cluster_id, parent_cluster_id, photo_ids, created_at) VALUES (?, ?, ?, ?), (?, ?, ?, ?)',
+        [
+          subA.id,
+          parentClusterId,
+          JSON.stringify(subA.photoIds),
+          now,
+          subB.id,
+          parentClusterId,
+          JSON.stringify(subB.photoIds),
+          now,
+        ]
+      );
+    });
   });
 }
 
@@ -515,16 +532,18 @@ export async function markPhotosSaved(clusterId: string, photoIds: string[]): Pr
   // 3 params per row; chunk to stay well under SQLITE_PARAM_LIMIT.
   const BATCH_SIZE = 200;
 
-  await database.withTransactionAsync(async () => {
-    for (let i = 0; i < photoIds.length; i += BATCH_SIZE) {
-      const batch = photoIds.slice(i, i + BATCH_SIZE);
-      const placeholders = batch.map(() => '(?, ?, ?)').join(', ');
-      const values = batch.flatMap((id) => [id, clusterId, now]);
-      await database.runAsync(
-        `INSERT OR REPLACE INTO saved_cluster_photos (photo_id, cluster_id, saved_at) VALUES ${placeholders}`,
-        values
-      );
-    }
+  await withPhotoCacheWriteLock(async () => {
+    await database.withTransactionAsync(async () => {
+      for (let i = 0; i < photoIds.length; i += BATCH_SIZE) {
+        const batch = photoIds.slice(i, i + BATCH_SIZE);
+        const placeholders = batch.map(() => '(?, ?, ?)').join(', ');
+        const values = batch.flatMap((id) => [id, clusterId, now]);
+        await database.runAsync(
+          `INSERT OR REPLACE INTO saved_cluster_photos (photo_id, cluster_id, saved_at) VALUES ${placeholders}`,
+          values
+        );
+      }
+    });
   });
 }
 

@@ -57,6 +57,48 @@ export const SQLITE_PARAM_LIMIT = 999;
 let db: SQLite.SQLiteDatabase | null = null;
 let dbInitPromise: Promise<SQLite.SQLiteDatabase> | null = null;
 
+// ── Write serialization ────────────────────────────────────────────────
+
+/**
+ * Tail of the app-level photo-cache write queue.
+ *
+ * Every writer in this module and in photoCacheDbSuggestions.ts shares one
+ * SQLite connection handle, and `withTransactionAsync` takes NO lock on it.
+ * When two transactions overlap on the same handle the second `BEGIN` fails and
+ * its automatic `ROLLBACK` discards the FIRST writer's uncommitted work; a bare
+ * `runAsync` issued while a transaction is open is enrolled in that transaction
+ * and destroyed with it. One collision therefore corrupts both writers — e.g. a
+ * confirmed entry exists on the server while its `processed_clusters` row was
+ * rolled back by an unrelated writer, so the cluster reappears on re-entry.
+ *
+ * Fix: funnel every write through this single module-level async mutex so at
+ * most one writer touches the handle at a time. Reads are intentionally NOT
+ * serialized — they neither open transactions nor enroll in one.
+ *
+ * The exclusive-transaction variant is deliberately NOT used: it opens a second
+ * connection and makes concurrent writes fail with a lock error, which no call
+ * site handles.
+ */
+let writeQueueTail: Promise<unknown> = Promise.resolve();
+
+/**
+ * Run a photo-cache write with exclusive access to the shared connection.
+ *
+ * Callers must resolve `getDb()` BEFORE acquiring the lock and must never call
+ * another locked writer from inside `operation` — the mutex is not reentrant.
+ * Operations run in call order (FIFO); a failing operation rejects to its own
+ * caller without stalling the queue.
+ */
+export function withPhotoCacheWriteLock<T>(operation: () => Promise<T>): Promise<T> {
+  // Run regardless of whether the previous operation resolved or rejected.
+  const run = writeQueueTail.then(operation, operation);
+  writeQueueTail = run.then(
+    () => undefined,
+    () => undefined
+  );
+  return run;
+}
+
 /**
  * Validate photo ID format for defense-in-depth.
  * expo-media-library returns UUIDs on iOS and numeric strings on Android.
@@ -103,8 +145,11 @@ export async function getDb(): Promise<SQLite.SQLiteDatabase> {
     let conn: SQLite.SQLiteDatabase | null = null;
     try {
       conn = await SQLite.openDatabaseAsync(DB_NAME);
+      // Publish the handle only once the schema is ready: a caller that got it
+      // mid-init could otherwise write (or open a transaction) while the schema
+      // DDL is still running on the same connection.
+      await initSchema(conn);
       db = conn;
-      await initSchema();
       return db;
     } catch (error) {
       if (conn) {
@@ -124,10 +169,8 @@ export async function getDb(): Promise<SQLite.SQLiteDatabase> {
 /**
  * Initialize database schema.
  */
-async function initSchema(): Promise<void> {
-  if (!db) return;
-
-  await db.execAsync(`
+async function initSchema(conn: SQLite.SQLiteDatabase): Promise<void> {
+  await conn.execAsync(`
     CREATE TABLE IF NOT EXISTS cached_photos (
       id TEXT PRIMARY KEY NOT NULL,
       uri TEXT NOT NULL,
@@ -195,18 +238,20 @@ async function initSchema(): Promise<void> {
   // Migrate pre-existing databases (CREATE TABLE IF NOT EXISTS does not alter an
   // already-created table). location_key lets suggestion lookups fall back to the
   // physical spot when a re-segmented/split cluster mints a new cluster_id.
-  await addColumnIfMissing('cached_place_suggestions', 'location_key', 'TEXT');
-  await db.execAsync(
+  await addColumnIfMissing(conn, 'cached_place_suggestions', 'location_key', 'TEXT');
+  await conn.execAsync(
     'CREATE INDEX IF NOT EXISTS idx_cached_suggestions_location ON cached_place_suggestions(location_key);'
   );
 
   // preview_asset_ids lets a failed thumbnail re-resolve a fresh URI from
   // MediaLibrary. Nullable so pre-existing rows read as [] (retry unavailable
   // for them, placeholder still applies) — see getTripSegments.
-  await addColumnIfMissing('cached_trip_segments', 'preview_asset_ids', 'TEXT');
+  await addColumnIfMissing(conn, 'cached_trip_segments', 'preview_asset_ids', 'TEXT');
 
-  // Store schema version for future migrations
-  await setMetadata('schema_version', SCHEMA_VERSION.toString());
+  // Store schema version for future migrations. Uses the unlocked helper: the
+  // handle is not published yet, so no other writer can reach it, and taking the
+  // write lock here would deadlock a writer that holds it across a first getDb().
+  await writeMetadata(conn, 'schema_version', SCHEMA_VERSION.toString());
 }
 
 /**
@@ -216,13 +261,13 @@ async function initSchema(): Promise<void> {
  * PRAGMA read so callers' query-call ordering is unaffected.)
  */
 async function addColumnIfMissing(
+  conn: SQLite.SQLiteDatabase,
   table: string,
   column: string,
   definition: string
 ): Promise<void> {
-  if (!db) return;
   try {
-    await db.execAsync(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+    await conn.execAsync(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (!/duplicate column name/i.test(message)) {
@@ -243,15 +288,24 @@ export async function getMetadata(key: string): Promise<string | null> {
   return result?.value ?? null;
 }
 
+/** Unlocked metadata write. Only for callers that already hold the write lock. */
+async function writeMetadata(
+  conn: SQLite.SQLiteDatabase,
+  key: string,
+  value: string
+): Promise<void> {
+  await conn.runAsync('INSERT OR REPLACE INTO photo_cache_metadata (key, value) VALUES (?, ?)', [
+    key,
+    value,
+  ]);
+}
+
 /**
  * Set metadata value.
  */
 export async function setMetadata(key: string, value: string): Promise<void> {
   const database = await getDb();
-  await database.runAsync(
-    'INSERT OR REPLACE INTO photo_cache_metadata (key, value) VALUES (?, ?)',
-    [key, value]
-  );
+  await withPhotoCacheWriteLock(() => writeMetadata(database, key, value));
 }
 
 /**
@@ -267,6 +321,8 @@ export async function getLastImportTime(): Promise<number | null> {
  * Set the timestamp of the last successful photo import.
  */
 export async function setLastImportTime(timestamp: number): Promise<void> {
+  // setMetadata takes the photo-cache write lock itself — do not wrap it here
+  // (the mutex is not reentrant).
   await setMetadata('last_import_time', timestamp.toString());
 }
 
@@ -281,29 +337,31 @@ export async function cachePhotos(photos: CachedPhoto[]): Promise<void> {
   const now = Date.now();
   const BATCH_SIZE = 50;
 
-  await database.withTransactionAsync(async () => {
-    for (let i = 0; i < photos.length; i += BATCH_SIZE) {
-      const batch = photos.slice(i, i + BATCH_SIZE);
-      const placeholders = batch.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
-      const values = batch.flatMap((p) => [
-        p.id,
-        p.uri,
-        p.filename,
-        p.creationTime,
-        p.latitude,
-        p.longitude,
-        p.geohash,
-        p.countryCode,
-        now,
-      ]);
+  await withPhotoCacheWriteLock(async () => {
+    await database.withTransactionAsync(async () => {
+      for (let i = 0; i < photos.length; i += BATCH_SIZE) {
+        const batch = photos.slice(i, i + BATCH_SIZE);
+        const placeholders = batch.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
+        const values = batch.flatMap((p) => [
+          p.id,
+          p.uri,
+          p.filename,
+          p.creationTime,
+          p.latitude,
+          p.longitude,
+          p.geohash,
+          p.countryCode,
+          now,
+        ]);
 
-      await database.runAsync(
-        `INSERT OR REPLACE INTO cached_photos
+        await database.runAsync(
+          `INSERT OR REPLACE INTO cached_photos
          (id, uri, filename, creation_time, latitude, longitude, geohash, country_code, cached_at)
          VALUES ${placeholders}`,
-        values
-      );
-    }
+          values
+        );
+      }
+    });
   });
 }
 
@@ -467,11 +525,16 @@ export async function removeCachedPhotos(ids: string[]): Promise<void> {
 
   const database = await getDb();
 
-  for (let i = 0; i < validIds.length; i += BATCH_SIZE) {
-    const batch = validIds.slice(i, i + BATCH_SIZE);
-    const placeholders = batch.map(() => '?').join(',');
-    await database.runAsync(`DELETE FROM cached_photos WHERE id IN (${placeholders})`, batch);
-  }
+  // Bare (non-transactional) writes still take the lock: issued while another
+  // writer's transaction is open they would be enrolled in it and lost on its
+  // rollback.
+  await withPhotoCacheWriteLock(async () => {
+    for (let i = 0; i < validIds.length; i += BATCH_SIZE) {
+      const batch = validIds.slice(i, i + BATCH_SIZE);
+      const placeholders = batch.map(() => '?').join(',');
+      await database.runAsync(`DELETE FROM cached_photos WHERE id IN (${placeholders})`, batch);
+    }
+  });
 }
 
 /**
@@ -489,21 +552,23 @@ export async function getCachedPhotoIds(): Promise<Set<string>> {
  */
 export async function clearPhotoCache(): Promise<void> {
   const database = await getDb();
-  await database.withTransactionAsync(async () => {
-    await database.runAsync('DELETE FROM cached_photos');
-    await database.runAsync('DELETE FROM processed_clusters');
-    await database.runAsync('DELETE FROM cached_place_suggestions');
-    await database.runAsync('DELETE FROM cached_trip_segments');
-    await database.runAsync('DELETE FROM cluster_splits');
-    await database.runAsync('DELETE FROM saved_cluster_photos');
-    await database.runAsync("DELETE FROM photo_cache_metadata WHERE key = 'last_import_time'");
-    await database.runAsync(
-      "DELETE FROM photo_cache_metadata WHERE key = 'last_background_sync_time'"
-    );
-    // Clear last_candidate_* metadata keys to avoid stale selections.
-    // Note: The LIKE pattern is a hardcoded string literal, not user input,
-    // so there is no SQL injection risk here.
-    await database.runAsync("DELETE FROM photo_cache_metadata WHERE key LIKE 'last_candidate_%'");
+  await withPhotoCacheWriteLock(async () => {
+    await database.withTransactionAsync(async () => {
+      await database.runAsync('DELETE FROM cached_photos');
+      await database.runAsync('DELETE FROM processed_clusters');
+      await database.runAsync('DELETE FROM cached_place_suggestions');
+      await database.runAsync('DELETE FROM cached_trip_segments');
+      await database.runAsync('DELETE FROM cluster_splits');
+      await database.runAsync('DELETE FROM saved_cluster_photos');
+      await database.runAsync("DELETE FROM photo_cache_metadata WHERE key = 'last_import_time'");
+      await database.runAsync(
+        "DELETE FROM photo_cache_metadata WHERE key = 'last_background_sync_time'"
+      );
+      // Clear last_candidate_* metadata keys to avoid stale selections.
+      // Note: The LIKE pattern is a hardcoded string literal, not user input,
+      // so there is no SQL injection risk here.
+      await database.runAsync("DELETE FROM photo_cache_metadata WHERE key LIKE 'last_candidate_%'");
+    });
   });
 }
 
@@ -532,33 +597,35 @@ export async function saveTripSegments(segments: TripSegmentRow[]): Promise<void
   const now = Date.now();
   const BATCH_SIZE = 50;
 
-  await database.withTransactionAsync(async () => {
-    await database.runAsync('DELETE FROM cached_trip_segments');
+  await withPhotoCacheWriteLock(async () => {
+    await database.withTransactionAsync(async () => {
+      await database.runAsync('DELETE FROM cached_trip_segments');
 
-    for (let i = 0; i < segments.length; i += BATCH_SIZE) {
-      const batch = segments.slice(i, i + BATCH_SIZE);
-      const placeholders = batch.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
-      const values = batch.flatMap((s) => [
-        s.id,
-        s.countryCode,
-        s.startTime,
-        s.endTime,
-        s.photoCount,
-        s.clusterCount,
-        JSON.stringify(s.previewUris),
-        JSON.stringify(s.previewAssetIds),
-        JSON.stringify(s.clusterIds),
-        JSON.stringify(s.photoIds),
-        now,
-      ]);
+      for (let i = 0; i < segments.length; i += BATCH_SIZE) {
+        const batch = segments.slice(i, i + BATCH_SIZE);
+        const placeholders = batch.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
+        const values = batch.flatMap((s) => [
+          s.id,
+          s.countryCode,
+          s.startTime,
+          s.endTime,
+          s.photoCount,
+          s.clusterCount,
+          JSON.stringify(s.previewUris),
+          JSON.stringify(s.previewAssetIds),
+          JSON.stringify(s.clusterIds),
+          JSON.stringify(s.photoIds),
+          now,
+        ]);
 
-      await database.runAsync(
-        `INSERT INTO cached_trip_segments
+        await database.runAsync(
+          `INSERT INTO cached_trip_segments
          (id, country_code, start_time, end_time, photo_count, cluster_count, preview_uris, preview_asset_ids, cluster_ids, photo_ids, cached_at)
          VALUES ${placeholders}`,
-        values
-      );
-    }
+          values
+        );
+      }
+    });
   });
 }
 
@@ -603,7 +670,7 @@ export async function getTripSegments(): Promise<TripSegmentRow[]> {
  */
 export async function clearTripSegments(): Promise<void> {
   const database = await getDb();
-  await database.runAsync('DELETE FROM cached_trip_segments');
+  await withPhotoCacheWriteLock(() => database.runAsync('DELETE FROM cached_trip_segments'));
 }
 
 /**
@@ -611,9 +678,12 @@ export async function clearTripSegments(): Promise<void> {
  * Primarily used for testing cleanup.
  */
 export async function closeDb(): Promise<void> {
-  if (db) {
-    await db.closeAsync();
-    db = null;
-  }
-  dbInitPromise = null;
+  // Queue behind in-flight writes so the handle is never closed mid-transaction.
+  await withPhotoCacheWriteLock(async () => {
+    if (db) {
+      await db.closeAsync();
+      db = null;
+    }
+    dbInitPromise = null;
+  });
 }

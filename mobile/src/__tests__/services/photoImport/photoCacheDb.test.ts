@@ -980,3 +980,337 @@ describe('photoCacheDb', () => {
     });
   });
 });
+
+/**
+ * U13 — serialized photo-cache write path (R21).
+ *
+ * These tests replace the "transactions always succeed" mock with a handle model
+ * that reproduces real expo-sqlite semantics on ONE shared connection:
+ *   - a second `BEGIN` while a transaction is open fails, and its automatic
+ *     ROLLBACK discards the FIRST writer's uncommitted work;
+ *   - a bare `runAsync` issued while a transaction is open is enrolled in that
+ *     transaction, so it dies with it.
+ * Every scenario below fails without the app-level write mutex.
+ */
+describe('photoCacheDb write serialization (U13)', () => {
+  /** Yield past a macrotask so an in-flight write is genuinely mid-transaction. */
+  const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+  interface TransactionJournal {
+    pending: string[];
+    aborted: boolean;
+  }
+
+  /**
+   * Model of a single SQLite connection handle with no internal locking.
+   * `committed` holds only the writes that actually survived.
+   */
+  function createHandleModel() {
+    const committed: string[] = [];
+    const beginFailures: string[] = [];
+    let openTx: TransactionJournal | null = null;
+    let activeTransactions = 0;
+    let maxActiveTransactions = 0;
+
+    const db = {
+      execAsync: jest.fn(async () => undefined),
+      getAllAsync: jest.fn(async () => []),
+      getFirstAsync: jest.fn(async () => null),
+      closeAsync: jest.fn(async () => undefined),
+      runAsync: jest.fn(async (sql: string, params?: unknown[]) => {
+        const tag = `${sql}::${JSON.stringify(params ?? [])}`;
+        await tick();
+        if (openTx) {
+          // Enrolled in whichever transaction happens to be open.
+          openTx.pending.push(tag);
+        } else {
+          committed.push(tag);
+        }
+        return { changes: 1, lastInsertRowId: 1 };
+      }),
+      withTransactionAsync: jest.fn(async (callback: () => Promise<void>) => {
+        activeTransactions += 1;
+        maxActiveTransactions = Math.max(maxActiveTransactions, activeTransactions);
+        try {
+          if (openTx) {
+            // Second BEGIN fails; the rollback throws away the first writer's work.
+            openTx.aborted = true;
+            openTx.pending.length = 0;
+            beginFailures.push(sqlErrorMessage);
+            throw new Error(sqlErrorMessage);
+          }
+          const tx: TransactionJournal = { pending: [], aborted: false };
+          openTx = tx;
+          try {
+            await callback();
+            if (!tx.aborted) committed.push(...tx.pending);
+          } finally {
+            openTx = null;
+          }
+        } finally {
+          activeTransactions -= 1;
+        }
+      }),
+    };
+
+    return {
+      db,
+      committed,
+      beginFailures,
+      committedMatching: (fragment: string) => committed.filter((t) => t.includes(fragment)),
+      hasCommitted: (...fragments: string[]) =>
+        committed.some((t) => fragments.every((f) => t.includes(f))),
+      getMaxActiveTransactions: () => maxActiveTransactions,
+    };
+  }
+
+  const sqlErrorMessage = 'cannot start a transaction within a transaction';
+
+  const makePhoto = (id: string): CachedPhoto => ({
+    id,
+    uri: `file://${id}.jpg`,
+    filename: `${id}.jpg`,
+    creationTime: 1700000000000,
+    latitude: 35.6762,
+    longitude: 139.6503,
+    geohash: 'xn76urx',
+    countryCode: 'JP',
+  });
+
+  const makeSuggestion = (clusterId: string) => ({
+    cluster_id: clusterId,
+    location_key: 'xn76urx',
+    places: [
+      {
+        place_id: `place-${clusterId}`,
+        name: 'Test Place',
+        address: '1 Test St',
+        location: { latitude: 35.6762, longitude: 139.6503 },
+        category: 'restaurant',
+        distance_m: 20,
+        types: ['restaurant'],
+      },
+    ],
+  });
+
+  let model: ReturnType<typeof createHandleModel>;
+  let photoCacheDb: typeof import('../../../services/photoImport/photoCacheDb');
+  let suggestions: typeof import('../../../services/photoImport/photoCacheDbSuggestions');
+
+  beforeEach(async () => {
+    jest.resetModules();
+    model = createHandleModel();
+
+    jest.doMock('expo-sqlite', () => ({
+      openDatabaseAsync: jest.fn().mockResolvedValue(model.db),
+    }));
+
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    photoCacheDb = require('../../../services/photoImport/photoCacheDb');
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    suggestions = require('../../../services/photoImport/photoCacheDbSuggestions');
+
+    // Warm the connection so the tests exercise write contention, not init.
+    await photoCacheDb.getDb();
+    model.committed.length = 0;
+  });
+
+  afterEach(async () => {
+    try {
+      await photoCacheDb.closeDb();
+    } catch {
+      // Ignore cleanup failures.
+    }
+  });
+
+  it('lets two concurrent transactional writers both commit', async () => {
+    const writerA = suggestions.cacheSuggestions([makeSuggestion('cluster-a')]);
+    const writerB = suggestions.markPhotosSaved('cluster-b', ['photo-b']);
+
+    await Promise.all([writerA, writerB]);
+
+    expect(model.beginFailures).toEqual([]);
+    expect(model.hasCommitted('cached_place_suggestions', 'cluster-a')).toBe(true);
+    expect(model.hasCommitted('saved_cluster_photos', 'photo-b')).toBe(true);
+  });
+
+  it('commits a confirm issued during an in-flight suggestion-cache write', async () => {
+    // A large suggestion write keeps a transaction open across several batches.
+    const cacheWrite = suggestions.cacheSuggestions(
+      Array.from({ length: 120 }, (_, i) => makeSuggestion(`bulk-${i}`))
+    );
+    await tick();
+
+    // The confirm path: processed-cluster row (bare) + saved-photo rows (tx).
+    const confirm = (async () => {
+      await suggestions.markClusterProcessed('cluster-confirmed', 'confirmed');
+      await suggestions.markPhotosSaved('cluster-confirmed', ['photo-1', 'photo-2']);
+    })();
+
+    await Promise.all([cacheWrite, confirm]);
+
+    expect(model.beginFailures).toEqual([]);
+    expect(model.hasCommitted('processed_clusters', 'cluster-confirmed')).toBe(true);
+    expect(model.hasCommitted('saved_cluster_photos', 'photo-1')).toBe(true);
+    // The unrelated suggestion write survives too.
+    expect(model.committedMatching('cached_place_suggestions').length).toBeGreaterThan(0);
+  });
+
+  it('does not lose a bare write when an unrelated writer rolls back', async () => {
+    const longTransaction = photoCacheDb.cachePhotos(
+      Array.from({ length: 150 }, (_, i) => makePhoto(`photo-${i}`))
+    );
+    await tick();
+
+    const bareWrite = suggestions.markClusterProcessed('cluster-bare', 'hidden');
+    const collidingWriter = photoCacheDb.saveTripSegments([
+      {
+        id: 'segment-1',
+        countryCode: 'JP',
+        startTime: 1700000000000,
+        endTime: 1700009999999,
+        photoCount: 1,
+        clusterCount: 1,
+        previewUris: ['file://a.jpg'],
+        previewAssetIds: ['asset-a'],
+        clusterIds: ['c1'],
+        photoIds: ['asset-a'],
+      },
+    ]);
+
+    await Promise.all([longTransaction, bareWrite, collidingWriter]);
+
+    expect(model.hasCommitted('processed_clusters', 'cluster-bare')).toBe(true);
+    expect(model.committedMatching('INSERT OR REPLACE INTO cached_photos').length).toBe(3);
+    expect(model.hasCommitted('INSERT INTO cached_trip_segments')).toBe(true);
+  });
+
+  it('TRIPWIRE: never opens two transactions on the shared handle at once', async () => {
+    await Promise.all([
+      photoCacheDb.cachePhotos([makePhoto('p1'), makePhoto('p2')]),
+      suggestions.cacheSuggestions([makeSuggestion('c1'), makeSuggestion('c2')]),
+      suggestions.markPhotosSaved('c1', ['p1', 'p2']),
+      suggestions.saveClusterSplit(
+        'parent',
+        { id: 'sub-a', photoIds: ['p1'] },
+        { id: 'sub-b', photoIds: ['p2'] }
+      ),
+      photoCacheDb.saveTripSegments([
+        {
+          id: 'segment-1',
+          countryCode: 'JP',
+          startTime: 1,
+          endTime: 2,
+          photoCount: 1,
+          clusterCount: 1,
+          previewUris: [],
+          previewAssetIds: [],
+          clusterIds: [],
+          photoIds: [],
+        },
+      ]),
+      photoCacheDb.clearPhotoCache(),
+    ]);
+
+    expect(model.getMaxActiveTransactions()).toBe(1);
+    expect(model.beginFailures).toEqual([]);
+  });
+
+  it('serializes every exported writer under contention without deadlocking', async () => {
+    // The full photo-cache writer inventory fired at once. A writer that skipped
+    // the mutex would show up as a BEGIN failure or a lost row.
+    await Promise.all([
+      photoCacheDb.setMetadata('some_key', 'some_value'),
+      photoCacheDb.setLastImportTime(1700000000000),
+      photoCacheDb.cachePhotos([makePhoto('p1')]),
+      photoCacheDb.removeCachedPhotos(['p-old']),
+      photoCacheDb.saveTripSegments([
+        {
+          id: 'segment-1',
+          countryCode: 'JP',
+          startTime: 1,
+          endTime: 2,
+          photoCount: 1,
+          clusterCount: 1,
+          previewUris: [],
+          previewAssetIds: [],
+          clusterIds: [],
+          photoIds: [],
+        },
+      ]),
+      photoCacheDb.clearTripSegments(),
+      suggestions.markClusterProcessed('cluster-1', 'confirmed'),
+      suggestions.clearProcessedClusters(),
+      suggestions.setLastSelectedCandidateId('trip-1', 'candidate-1'),
+      suggestions.cacheSuggestions([makeSuggestion('cluster-1')]),
+      suggestions.clearSuggestionCache(),
+      suggestions.saveClusterSplit(
+        'parent',
+        { id: 'sub-a', photoIds: ['p1'] },
+        { id: 'sub-b', photoIds: ['p2'] }
+      ),
+      suggestions.markPhotosSaved('cluster-1', ['p1']),
+    ]);
+
+    expect(model.beginFailures).toEqual([]);
+    expect(model.getMaxActiveTransactions()).toBe(1);
+
+    // Every writer's row survived.
+    for (const fragment of [
+      'photo_cache_metadata',
+      'INSERT OR REPLACE INTO cached_photos',
+      'DELETE FROM cached_photos WHERE id IN',
+      'INSERT INTO cached_trip_segments',
+      'DELETE FROM cached_trip_segments',
+      'INSERT OR REPLACE INTO processed_clusters',
+      'DELETE FROM processed_clusters',
+      'INSERT OR REPLACE INTO cached_place_suggestions',
+      'DELETE FROM cached_place_suggestions',
+      'INSERT OR REPLACE INTO cluster_splits',
+      'INSERT OR REPLACE INTO saved_cluster_photos',
+    ]) {
+      expect(model.committedMatching(fragment).length).toBeGreaterThan(0);
+    }
+  });
+
+  it('runs writers in call order', async () => {
+    await Promise.all([
+      suggestions.markClusterProcessed('first', 'confirmed'),
+      suggestions.markClusterProcessed('second', 'confirmed'),
+      suggestions.markClusterProcessed('third', 'confirmed'),
+    ]);
+
+    const order = model
+      .committedMatching('processed_clusters')
+      .map((tag) => ['first', 'second', 'third'].find((id) => tag.includes(id)));
+    expect(order).toEqual(['first', 'second', 'third']);
+  });
+
+  it('does not deadlock when concurrent writers trigger lazy initialization', async () => {
+    // Fresh module state: the connection is not open yet, so each writer must
+    // resolve getDb() (which writes schema metadata) before taking the lock.
+    await photoCacheDb.closeDb();
+
+    await Promise.all([
+      suggestions.markClusterProcessed('cluster-1', 'confirmed'),
+      photoCacheDb.cachePhotos([makePhoto('p1')]),
+      photoCacheDb.setLastImportTime(1700000000000),
+    ]);
+
+    expect(model.beginFailures).toEqual([]);
+    expect(model.hasCommitted('processed_clusters', 'cluster-1')).toBe(true);
+  });
+
+  it('keeps the queue moving when one writer fails', async () => {
+    model.db.withTransactionAsync.mockImplementationOnce(async () => {
+      throw new Error('disk I/O error');
+    });
+
+    const failing = suggestions.cacheSuggestions([makeSuggestion('cluster-fail')]);
+    const following = suggestions.markClusterProcessed('cluster-after', 'confirmed');
+
+    await expect(failing).rejects.toThrow('disk I/O error');
+    await expect(following).resolves.toBeUndefined();
+    expect(model.hasCommitted('processed_clusters', 'cluster-after')).toBe(true);
+  });
+});
