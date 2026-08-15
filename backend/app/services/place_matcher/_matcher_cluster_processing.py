@@ -25,6 +25,7 @@ from .instrumentation import (
     record_clusters,
     request_metrics,
 )
+from .rate_limit import budget_seconds_for, retry_budget_scope
 from .utils import name_match_strength, name_matches_candidate
 
 logger = logging.getLogger(__name__)
@@ -89,6 +90,9 @@ class ClusterProcessingMixin:
         # Bounded concurrency to respect Google Places API rate limits
         semaphore = asyncio.Semaphore(MAX_CONCURRENT_PLACES_REQUESTS)
         cluster_timeout = self._settings.places_cluster_timeout_seconds
+        # Share of the per-cluster budget that jittered retry backoff may spend
+        # (U3). Stated in constants as RETRY_BUDGET_FRACTION_OF_CLUSTER_TIMEOUT.
+        retry_budget = budget_seconds_for(self._settings)
         diagnostics = self._settings.places_diagnostics
 
         async def search_with_timeout(
@@ -111,14 +115,19 @@ class ClusterProcessingMixin:
             *search*, not to punish a cluster for its position in the queue.
             """
             async with semaphore:
+                # Retry backoff and this timeout are ONE budget (U3): the scope
+                # caps how much of the cluster's clock jittered backoff may burn
+                # across every radius it searches. wait_for's inner task copies
+                # the context but shares the budget object.
                 try:
-                    search_result = await asyncio.wait_for(
-                        self._search_nearby_tiered(
-                            latitude=cluster["centroid"]["latitude"],
-                            longitude=cluster["centroid"]["longitude"],
-                        ),
-                        timeout=cluster_timeout,
-                    )
+                    with retry_budget_scope(retry_budget):
+                        search_result = await asyncio.wait_for(
+                            self._search_nearby_tiered(
+                                latitude=cluster["centroid"]["latitude"],
+                                longitude=cluster["centroid"]["longitude"],
+                            ),
+                            timeout=cluster_timeout,
+                        )
                     places = search_result.places
                     radius_used = search_result.radius_used
                 except TimeoutError:
@@ -264,9 +273,10 @@ class ClusterProcessingMixin:
         ) -> tuple[str, list[dict]]:
             async with semaphore:
                 try:
-                    places = await self._execute_text_search(
-                        text_query, lat, lng, radius=radius
-                    )
+                    with retry_budget_scope(retry_budget):
+                        places = await self._execute_text_search(
+                            text_query, lat, lng, radius=radius
+                        )
                     if places:
                         places = self._filter_low_quality_places(places)
                         logger.debug(
@@ -444,7 +454,8 @@ class ClusterProcessingMixin:
             ) -> tuple[str, list[dict]]:
                 async with semaphore:
                     try:
-                        places = await self._execute_popularity_probe(lat, lng)
+                        with retry_budget_scope(retry_budget):
+                            places = await self._execute_popularity_probe(lat, lng)
                         if places:
                             places = self._filter_low_quality_places(places)
                         return cluster_id, places

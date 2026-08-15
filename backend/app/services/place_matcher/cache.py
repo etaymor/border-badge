@@ -9,7 +9,7 @@ DB instead of re-buying them from Google.
 import asyncio
 import time
 from collections.abc import Awaitable, Callable
-from typing import Any
+from typing import Any, Final
 
 from .instrumentation import (
     SOURCE_API,
@@ -17,6 +17,14 @@ from .instrumentation import (
     SOURCE_L2,
     SOURCE_SINGLE_FLIGHT,
 )
+
+# Sentinel meaning "the single-flight owner was cancelled out from under a
+# waiter" (U3). Not an error and not a result: the waiter re-elects an owner.
+_OWNER_CANCELLED: Final = object()
+
+# How many times a waiter will re-elect an owner before giving up and simply
+# fetching for itself. Bounded so a pathological cancel storm cannot spin.
+_MAX_OWNER_ELECTIONS: Final = 3
 
 
 class PlacesCache:
@@ -173,6 +181,34 @@ class PlacesCache:
         Returns:
             Cached or freshly fetched places list
         """
+        for _ in range(_MAX_OWNER_ELECTIONS):
+            result = await self._get_or_fetch_once(
+                key, fetch_fn, l2_get=l2_get, l2_set=l2_set, on_source=on_source
+            )
+            if result is not _OWNER_CANCELLED:
+                return result
+        # Every election we were willing to run ended with a cancelled owner.
+        # Degrade to a plain cache miss rather than inheriting a cancellation
+        # that was never aimed at us.
+        return await fetch_fn()
+
+    async def _get_or_fetch_once(
+        self,
+        key: str,
+        fetch_fn: Any,
+        *,
+        l2_get: Callable[[str], Awaitable[list[dict] | None]] | None = None,
+        l2_set: Callable[[str, list[dict]], Awaitable[None]] | None = None,
+        on_source: Callable[[str], None] | None = None,
+    ) -> Any:
+        """One single-flight round.
+
+        Returns the result, or the :data:`_OWNER_CANCELLED` sentinel when this
+        caller was a waiter whose owner got cancelled (U3 co-waiter hazard: a
+        cluster timing out cancels the owner, and retry backoff makes that more
+        likely, but the waiters have budgets of their own and must not inherit
+        a cancellation aimed at someone else).
+        """
         # Determine what to do under lock, then act outside lock
         existing_future: asyncio.Future[list[dict]] | None = None
         our_future: asyncio.Future[list[dict]] | None = None
@@ -203,7 +239,16 @@ class PlacesCache:
         if existing_future is not None:
             if on_source is not None:
                 on_source(SOURCE_SINGLE_FLIGHT)
-            return await existing_future
+            try:
+                return await existing_future
+            except asyncio.CancelledError:
+                current = asyncio.current_task()
+                # Distinguish "the owner was cancelled" from "WE were
+                # cancelled". Only the former is safe to recover from; a
+                # cancellation aimed at this task must keep propagating.
+                if current is not None and current.cancelling() > 0:
+                    raise
+                return _OWNER_CANCELLED
 
         # We own this request - check L2, then fetch the data
         assert our_future is not None  # Type narrowing for mypy/pyright

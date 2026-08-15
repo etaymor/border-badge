@@ -29,6 +29,38 @@ MAX_SUGGESTIONS_PER_CLUSTER = 3  # Top 3 by distance
 
 
 # ============================================================================
+# Retry / rate-limit resilience (U3)
+# ============================================================================
+
+# Google's own retry guidance for the Places API: 0.1s initial, doubling, 5s
+# ceiling. Three attempts total (the first plus two retries) keeps the worst
+# case bounded well inside a cluster's budget.
+GOOGLE_RETRY_MAX_ATTEMPTS = 3
+GOOGLE_RETRY_INITIAL_DELAY_SECONDS = 0.1
+GOOGLE_RETRY_MAX_DELAY_SECONDS = 5.0
+# Jitter is NOT in Google's guidance, but synchronized retries across
+# concurrently rate-limited clusters are exactly the pattern that guidance
+# warns about. Each delay is spread over +/- 50% of its nominal value.
+GOOGLE_RETRY_JITTER_RATIO = 0.5
+
+# THE BUDGET SPLIT: retry backoff and the per-cluster timeout are one budget,
+# not two. Sleeping between retries may consume at most this fraction of
+# `places_cluster_timeout_seconds` across ALL of a cluster's calls (40% => 6s
+# of the default 15s), leaving the majority of the budget for outbound work.
+RETRY_BUDGET_FRACTION_OF_CLUSTER_TIMEOUT = 0.4
+# Fallback used only when settings carry no usable per-cluster timeout; mirrors
+# the `places_cluster_timeout_seconds` default in app.core.config.
+DEFAULT_CLUSTER_TIMEOUT_SECONDS = 15.0
+
+# Process-wide circuit breaker. Under sustained throttling every concurrent
+# cluster is an independent retry multiplier, so a shared window of upstream
+# 429s short-circuits new attempts for a cooldown instead.
+RATE_LIMIT_BREAKER_THRESHOLD = 8
+RATE_LIMIT_BREAKER_WINDOW_SECONDS = 10.0
+RATE_LIMIT_BREAKER_COOLDOWN_SECONDS = 5.0
+
+
+# ============================================================================
 # Density Detection
 # ============================================================================
 

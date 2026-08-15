@@ -79,10 +79,33 @@ SOURCES: tuple[str, ...] = (SOURCE_L1, SOURCE_L2, SOURCE_SINGLE_FLIGHT, SOURCE_A
 RETRY_SEARCH_TIMEOUT = "search_timeouts"
 RETRY_RATE_LIMITED = "rate_limited"
 RETRY_QUOTA_EXHAUSTED = "quota_exhausted"
+# U3: an outbound attempt the process-wide circuit breaker refused to make, and
+# a retry the per-cluster backoff budget refused to pay for. Both are decisions
+# WE made rather than upstream responses, so they get their own kinds —
+# otherwise a quiet breaker and a quiet upstream look identical in the line.
+RETRY_CIRCUIT_OPEN = "circuit_open"
+RETRY_BUDGET_EXHAUSTED = "retry_budget_exhausted"
 RETRY_KINDS: tuple[str, ...] = (
     RETRY_SEARCH_TIMEOUT,
     RETRY_RATE_LIMITED,
     RETRY_QUOTA_EXHAUSTED,
+    RETRY_CIRCUIT_OPEN,
+    RETRY_BUDGET_EXHAUSTED,
+)
+
+# U3 call sites. A ranking input that never arrived is attributed to the site
+# that failed to fetch it, so a silent degradation is countable rather than an
+# absence. Site names are static strings — no coordinate, cluster id, or place
+# id is involved (R27).
+SITE_NEARBY = "nearby"
+SITE_TEXT_SEARCH = "text_search"
+SITE_POPULARITY_PROBE = "popularity_probe"
+SITE_ENRICHMENT = "enrichment"
+SITES: tuple[str, ...] = (
+    SITE_NEARBY,
+    SITE_TEXT_SEARCH,
+    SITE_POPULARITY_PROBE,
+    SITE_ENRICHMENT,
 )
 
 
@@ -104,6 +127,11 @@ class RequestMetrics:
     )
     retries: dict[str, int] = field(
         default_factory=lambda: {kind: 0 for kind in RETRY_KINDS}
+    )
+    # U3: ranking inputs that were dropped after the retry budget was spent,
+    # attributed to the call site that could not supply them.
+    dropped_ranking_inputs: dict[str, int] = field(
+        default_factory=lambda: {site: 0 for site in SITES}
     )
     # Vision aggregates (R18 vision-null rate). Populated by the classifier.
     vision_clusters_attempted: int = 0
@@ -128,6 +156,10 @@ class RequestMetrics:
     def record_retry(self, kind: str) -> None:
         """Count a timeout retry / rate-limit / quota rejection."""
         self.retries[kind] = self.retries.get(kind, 0) + 1
+
+    def record_dropped_ranking_input(self, site: str) -> None:
+        """Count a ranking input a call site could not supply (U3)."""
+        self.dropped_ranking_inputs[site] = self.dropped_ranking_inputs.get(site, 0) + 1
 
     def enter_outbound(self, method: str) -> None:
         """Mark an outbound Google call as starting."""
@@ -178,6 +210,10 @@ class RequestMetrics:
                 ),
             },
             "retries": dict(self.retries),
+            "dropped_ranking_inputs": {
+                "total": sum(self.dropped_ranking_inputs.values()),
+                **dict(self.dropped_ranking_inputs),
+            },
             "vision": {
                 "clusters_attempted": vision_attempted,
                 "clusters_classified": self.vision_clusters_classified,
@@ -277,6 +313,18 @@ def record_retry(kind: str) -> None:
     metrics = _metrics_var.get()
     if metrics is not None:
         metrics.record_retry(kind)
+
+
+def record_dropped_ranking_input(site: str) -> None:
+    """Count a ranking input a call site could not supply (U3).
+
+    A rating, a review count, or a rescue result that never arrived used to be
+    indistinguishable from one that legitimately did not exist. Counting it
+    here turns the silent degradation into a signal a guardrail can read.
+    """
+    metrics = _metrics_var.get()
+    if metrics is not None:
+        metrics.record_dropped_ranking_input(site)
 
 
 def record_clusters(cluster_count: int, failed_cluster_count: int) -> None:

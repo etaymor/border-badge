@@ -7,13 +7,6 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
-from tenacity import (
-    retry,
-    retry_if_exception_type,
-    retry_if_not_exception_type,
-    stop_after_attempt,
-    wait_exponential,
-)
 
 from .cache import places_cache
 from .constants import (
@@ -43,9 +36,14 @@ from .instrumentation import (
     RETRY_QUOTA_EXHAUSTED,
     RETRY_RATE_LIMITED,
     RETRY_SEARCH_TIMEOUT,
+    SITE_ENRICHMENT,
+    SITE_NEARBY,
+    SITE_POPULARITY_PROBE,
+    SITE_TEXT_SEARCH,
     SOURCE_API,
     SOURCE_L2,
     record_cache_lookup,
+    record_dropped_ranking_input,
     record_retry,
     track_outbound,
 )
@@ -55,6 +53,7 @@ from .persistent_cache import (
     set_place_details_cache,
     set_search_cache,
 )
+from .rate_limit import budget_seconds_for, retry_budget_scope, with_google_retry
 
 logger = logging.getLogger(__name__)
 
@@ -221,18 +220,6 @@ class SearchMixin:
         # Radii exhausted without reaching the threshold.
         return build(stopped_early=False)
 
-    # Retry a slow upstream, but NOT a saturated local connection pool.
-    # `httpx.PoolTimeout` subclasses `httpx.TimeoutException`, so without the
-    # exclusion a request that could not get a connection would be retried
-    # twice more -- each attempt queueing for the same exhausted pool, so pool
-    # pressure would generate more pool pressure.
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=0.5, min=0.5, max=5),
-        retry=retry_if_exception_type(httpx.TimeoutException)
-        & retry_if_not_exception_type(httpx.PoolTimeout),
-        reraise=True,
-    )
     async def _execute_search(
         self,
         latitude: float,
@@ -242,7 +229,9 @@ class SearchMixin:
         """
         Execute a single Places API search with retry logic and caching.
 
-        Uses in-memory cache with truncated coordinates to avoid redundant API calls.
+        Retries both timeouts and upstream rate limits with jittered backoff
+        (U3). The decorator this replaced retried on timeout ALONE, so a 429
+        propagated out of the tiered search and failed the cluster outright.
 
         Args:
             latitude: Center latitude
@@ -251,6 +240,22 @@ class SearchMixin:
 
         Returns:
             List of place results
+        """
+        return await with_google_retry(
+            lambda: self._execute_search_once(latitude, longitude, radius),
+            site=SITE_NEARBY,
+        )
+
+    async def _execute_search_once(
+        self,
+        latitude: float,
+        longitude: float,
+        radius: float,
+    ) -> list[dict]:
+        """One Nearby search attempt (single-flight cached).
+
+        Uses in-memory cache with truncated coordinates to avoid redundant API
+        calls. See :meth:`_execute_search` for the retry policy wrapping this.
         """
         if not self._settings.google_places_api_key:
             logger.error("Google Places API key not configured")
@@ -384,9 +389,33 @@ class SearchMixin:
             longitude: Cluster centroid longitude for location bias
             radius: Location bias radius in meters (default 200m)
 
+        A rate-limited text search is retried with jittered backoff rather than
+        swallowed (U3): a throttled rescue used to fall through to the
+        distance-ranked nearby results, letting a different place win with no
+        failed cluster recorded anywhere.
+
         Returns:
             List of place results (same format as Nearby Search)
         """
+        return await with_google_retry(
+            lambda: self._execute_text_search_once(
+                text_query, latitude, longitude, radius
+            ),
+            site=SITE_TEXT_SEARCH,
+            # Transport failures (timeout / connection) are already absorbed
+            # inside the attempt, which degrades to an empty rescue exactly as
+            # before; only a rate limit reaches the retry loop.
+            retry_on_timeout=False,
+        )
+
+    async def _execute_text_search_once(
+        self,
+        text_query: str,
+        latitude: float,
+        longitude: float,
+        radius: float = 200.0,
+    ) -> list[dict]:
+        """One Text Search attempt. See :meth:`_execute_text_search`."""
         if not self._settings.google_places_api_key:
             raise ConfigurationError("Google Places API key not configured")
 
@@ -460,7 +489,25 @@ class SearchMixin:
 
         The cache key carries a ``pop_`` marker so POPULARITY results never
         collide with the DISTANCE-ranked Nearby entries at the same spot.
+
+        A rate limit here is retried with jittered backoff (U3) rather than
+        turned into a silent "no prominent venue nearby".
         """
+        return await with_google_retry(
+            lambda: self._execute_popularity_probe_once(latitude, longitude, radius),
+            site=SITE_POPULARITY_PROBE,
+            # Transport failures are absorbed inside the attempt (empty probe),
+            # so only a rate limit reaches the retry loop.
+            retry_on_timeout=False,
+        )
+
+    async def _execute_popularity_probe_once(
+        self,
+        latitude: float,
+        longitude: float,
+        radius: float = 200.0,
+    ) -> list[dict]:
+        """One POPULARITY probe attempt. See :meth:`_execute_popularity_probe`."""
         if not self._settings.google_places_api_key:
             raise ConfigurationError("Google Places API key not configured")
 
@@ -547,6 +594,12 @@ class SearchMixin:
         cross-user persistent by-ID cache is consulted first so a finalist that
         was enriched before (any user/deploy) costs nothing.
 
+        A 429 used to land in the generic non-200 branch, so a throttled
+        enrichment quietly removed rating and review count — two of the seven
+        ranking weights — from the comparison. It is now recognised as a rate
+        limit, retried with jittered backoff, and, if it still fails, counted as
+        a dropped ranking input rather than an absent one (U3).
+
         Args:
             place_ids: Distinct Google place IDs to enrich.
 
@@ -573,25 +626,58 @@ class SearchMixin:
                 }
 
             record_cache_lookup(SOURCE_API)
-            async with semaphore:
-                try:
-                    with track_outbound(METHOD_PLACE_DETAILS):
-                        response = await self._client.get(
-                            f"{PLACE_DETAILS_URL}/{place_id}",
-                            headers={
-                                "X-Goog-Api-Key": self._settings.google_places_api_key,
-                                "X-Goog-FieldMask": ENRICH_FIELD_MASK,
-                            },
-                        )
-                except (httpx.TimeoutException, httpx.RequestError) as e:
-                    # R27: the place id never reaches a default-level log line.
-                    logger.warning(f"Rating enrichment request failed: {e}")
+
+            async def attempt() -> httpx.Response | None:
+                # The semaphore is INSIDE the attempt so a backoff sleep
+                # releases the slot instead of holding it idle while waiting.
+                async with semaphore:
+                    try:
+                        with track_outbound(METHOD_PLACE_DETAILS):
+                            response = await self._client.get(
+                                f"{PLACE_DETAILS_URL}/{place_id}",
+                                headers={
+                                    "X-Goog-Api-Key": (
+                                        self._settings.google_places_api_key
+                                    ),
+                                    "X-Goog-FieldMask": ENRICH_FIELD_MASK,
+                                },
+                            )
+                    except (httpx.TimeoutException, httpx.RequestError) as e:
+                        # R27: the place id never reaches a default-level log line.
+                        logger.warning(f"Rating enrichment request failed: {e}")
+                        return None
+
+                if response.status_code == 429:
+                    reason = self._parse_error_reason(response)
+                    if reason == "QUOTA_EXCEEDED":
+                        record_retry(RETRY_QUOTA_EXHAUSTED)
+                        raise QuotaExhaustedError("Daily quota exceeded")
+                    record_retry(RETRY_RATE_LIMITED)
+                    raise RateLimitError("Rate limit exceeded")
+
+                if response.status_code != 200:
+                    logger.warning(
+                        f"Rating enrichment error: status={response.status_code}"
+                    )
                     return None
 
-            if response.status_code != 200:
-                logger.warning(
-                    f"Rating enrichment error: status={response.status_code}"
+                return response
+
+            try:
+                response = await with_google_retry(
+                    attempt,
+                    site=SITE_ENRICHMENT,
+                    # Transport failures are absorbed inside the attempt; only a
+                    # rate limit reaches the retry loop.
+                    retry_on_timeout=False,
                 )
+            except (RateLimitError, QuotaExhaustedError):
+                # Already counted as a dropped ranking input by the retry
+                # wrapper. Degrade to the un-enriched first-pass ranking rather
+                # than failing every other finalist in the batch.
+                return None
+            if response is None:
+                record_dropped_ranking_input(SITE_ENRICHMENT)
                 return None
 
             data = response.json()
@@ -606,10 +692,14 @@ class SearchMixin:
             await set_place_details_cache(place_id, ratings)
             return place_id, ratings
 
-        results = await asyncio.gather(
-            *[fetch_one(pid) for pid in place_ids],
-            return_exceptions=True,
-        )
+        # One retry budget for the whole enrichment fan-out. Tasks copy the
+        # context but share the budget object, so the finalists cannot each
+        # spend the full allowance.
+        with retry_budget_scope(budget_seconds_for(self._settings)):
+            results = await asyncio.gather(
+                *[fetch_one(pid) for pid in place_ids],
+                return_exceptions=True,
+            )
 
         enriched: dict[str, dict[str, Any]] = {}
         for r in results:
