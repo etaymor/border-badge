@@ -5221,7 +5221,9 @@ class TestPopularityProbe:
         """POPULARITY results must not poison the DISTANCE Nearby cache."""
         captured_keys: list[str] = []
 
-        async def fake_get_or_fetch(cache_key, fetch, l2_get=None, l2_set=None):
+        async def fake_get_or_fetch(
+            cache_key, fetch, l2_get=None, l2_set=None, on_source=None
+        ):
             captured_keys.append(cache_key)
             return []
 

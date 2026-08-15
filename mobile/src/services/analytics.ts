@@ -374,6 +374,21 @@ export const Analytics = {
     apiP95Ms?: number;
     apiP99Ms?: number;
     totalApiDurationMs?: number;
+    /**
+     * U15/R18. Milliseconds from the start of `fetchSuggestions` to the moment
+     * the first batch carrying a suggestion resolved. This is what the user
+     * actually waits for. The per-batch percentiles above describe *batches*,
+     * so on a multi-batch import they say nothing about first paint. Null when
+     * no batch ever carried a suggestion.
+     */
+    timeToFirstSuggestionMs?: number | null;
+    /**
+     * U15/R18. True wall-clock for the whole matching stage, including the
+     * cache read and vision preparation that `totalApiDurationMs` excludes.
+     * Stays meaningful once U6 dispatches batches concurrently, where summing
+     * per-batch durations would over-count overlapped time.
+     */
+    wallClockMs?: number;
   }) =>
     track('photo_import_suggestions_completed', {
       suggestion_count: props.suggestionCount,
@@ -385,6 +400,8 @@ export const Analytics = {
       api_p95_ms: props.apiP95Ms ?? null,
       api_p99_ms: props.apiP99Ms ?? null,
       total_api_duration_ms: props.totalApiDurationMs ?? null,
+      time_to_first_suggestion_ms: props.timeToFirstSuggestionMs ?? null,
+      wall_clock_ms: props.wallClockMs ?? null,
     }),
 
   photoImportApiError: (props: { errorType: 'quota_exhausted' | 'rate_limited' | 'unknown' }) =>

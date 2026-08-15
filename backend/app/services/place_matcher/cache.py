@@ -11,6 +11,13 @@ import time
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+from .instrumentation import (
+    SOURCE_API,
+    SOURCE_L1,
+    SOURCE_L2,
+    SOURCE_SINGLE_FLIGHT,
+)
+
 
 class PlacesCache:
     """
@@ -133,6 +140,7 @@ class PlacesCache:
         *,
         l2_get: Callable[[str], Awaitable[list[dict] | None]] | None = None,
         l2_set: Callable[[str, list[dict]], Awaitable[None]] | None = None,
+        on_source: Callable[[str], None] | None = None,
     ) -> list[dict]:
         """
         Get cached result or fetch using provided function (single-flight pattern).
@@ -154,6 +162,13 @@ class PlacesCache:
                 the persistent L2 cache
             l2_set: Optional async callable ``(key, data) -> None`` writing the
                 persistent L2 cache
+            on_source: Optional callback invoked exactly once per call with the
+                layer that served it — one of ``"l1_hits"``,
+                ``"single_flight_waits"``, ``"l2_hits"``, ``"google_calls"``.
+                Instrumentation only (U15): a latency number is uninterpretable
+                without knowing how much of it a warm cache absorbed. The four
+                buckets are mutually exclusive, so they sum to the number of
+                lookups attempted.
 
         Returns:
             Cached or freshly fetched places list
@@ -169,6 +184,8 @@ class PlacesCache:
                 if time.time() - timestamp < self._ttl:
                     # Move to end (most recently used)
                     self._cache[key] = self._cache.pop(key)
+                    if on_source is not None:
+                        on_source(SOURCE_L1)
                     return data
                 # Expired - remove from cache
                 del self._cache[key]
@@ -184,6 +201,8 @@ class PlacesCache:
 
         # If another request is in-flight, wait for it (outside lock)
         if existing_future is not None:
+            if on_source is not None:
+                on_source(SOURCE_SINGLE_FLIGHT)
             return await existing_future
 
         # We own this request - check L2, then fetch the data
@@ -196,10 +215,14 @@ class PlacesCache:
                 result = await l2_get(key)
 
             if result is None:
+                if on_source is not None:
+                    on_source(SOURCE_API)
                 result = await fetch_fn()
                 # Write-through to L2 so other instances/deploys reuse this.
                 if l2_set is not None:
                     await l2_set(key, result)
+            elif on_source is not None:
+                on_source(SOURCE_L2)
             # result is now guaranteed non-None (L2 hit or fresh fetch)
             assert result is not None  # Type narrowing for mypy/pyright
             # Cache and resolve future

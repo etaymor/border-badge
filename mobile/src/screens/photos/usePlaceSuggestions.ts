@@ -125,6 +125,11 @@ export function usePlaceSuggestions({
       // Capture the candidate ID at the start to detect stale responses
       const requestCandidateId = candidate.id;
 
+      // U15/R18. Wall clock starts HERE, before the cache read and vision
+      // preparation, because that dead time is exactly what U5 sets out to
+      // remove — measuring from the first network call would hide the win.
+      const fetchStartedAt = Date.now();
+
       // Helper to check if this request is still valid (user hasn't switched candidates).
       //
       // B3 (investigation): the discard decision compares the LIVE ref value
@@ -251,12 +256,18 @@ export function usePlaceSuggestions({
           fetchedCandidatesRef.current.add(candidate.id);
 
           // Track analytics for cache hits (100% cache hit rate, no API times)
+          // U15: the all-cached path still reports timings. It is the fastest
+          // possible run, so it anchors the low end of the measurement range
+          // and makes a latency number interpretable against its cache
+          // composition (a 100% hit rate here).
           Analytics.photoImportSuggestionsCompleted({
             suggestionCount: cachedResults.length,
             failedChunks: 0,
             cachedClusters: cachedClusterCount,
             uncachedClusters: 0,
             cacheHitRate: 100,
+            timeToFirstSuggestionMs: Date.now() - fetchStartedAt,
+            wallClockMs: Date.now() - fetchStartedAt,
           });
         }
         return undefined;
@@ -360,6 +371,13 @@ export function usePlaceSuggestions({
           apiP95Ms: percentiles?.p95,
           apiP99Ms: percentiles?.p99,
           totalApiDurationMs: apiTimes.reduce((sum, t) => sum + t, 0),
+          // U15/R18. `firstSuggestionAt` is stamped inside the chunked mutation
+          // the instant a batch carrying a suggestion lands, so this stays
+          // honest once U6 makes batches overlap. Null when no batch carried
+          // one — an all-empty result has no "first suggestion" to time.
+          timeToFirstSuggestionMs:
+            result.firstSuggestionAt !== null ? result.firstSuggestionAt - fetchStartedAt : null,
+          wallClockMs: Date.now() - fetchStartedAt,
         });
       } catch (error) {
         if (__DEV__) console.error('[PhotoImport] Suggestion error:', error);

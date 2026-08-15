@@ -58,6 +58,16 @@ export interface ChunkedPlaceSuggestionResult extends PlaceSuggestionResponse {
    * waiting for the `failedClusterIds` state to re-render. Empty on full success.
    */
   failedClusterIds: FailedClusterIds;
+  /**
+   * `Date.now()` at which the FIRST batch carrying at least one suggestion
+   * resolved, or null if none did (U15). Time-to-first-suggestion is what a
+   * user actually waits for; the per-chunk durations and their percentiles
+   * describe batches, and on a multi-chunk import the two differ by most of the
+   * request. Absolute rather than relative so the caller can measure from the
+   * point IT started (cache lookup + vision prep included), not from the point
+   * the mutation happened to begin.
+   */
+  firstSuggestionAt: number | null;
 }
 
 /** Metadata for a cluster whose place lookup failed (chunk-level failure). */
@@ -173,6 +183,9 @@ export function useSuggestPlacesChunked() {
       let failedChunkCount = 0;
       let failedClusterCount = 0;
       const chunkResponseTimes: number[] = [];
+      // U15: stamped once, when the first batch that actually carries a
+      // suggestion lands. An empty batch paints nothing, so it does not count.
+      let firstSuggestionAt: number | null = null;
 
       // Reset state for new request
       abortRef.current = false;
@@ -225,6 +238,9 @@ export function useSuggestPlacesChunked() {
           const suggestions = responseData.suggestions;
           const chunkFailedClusters = responseData.failed_cluster_count ?? 0;
           failedClusterCount += chunkFailedClusters;
+          if (firstSuggestionAt === null && suggestions.length > 0) {
+            firstSuggestionAt = Date.now();
+          }
           if (__DEV__) {
             console.log(
               `[PhotoImport] Chunk ${i + 1}/${chunks.length}: received ${suggestions.length} suggestions in ${chunkDurationMs}ms` +
@@ -294,6 +310,7 @@ export function useSuggestPlacesChunked() {
         failed_cluster_count: failedClusterCount,
         chunkResponseTimes,
         failedClusterIds: new Map(failedIds),
+        firstSuggestionAt,
       };
     },
     onError: () => {

@@ -34,6 +34,20 @@ from .constants import (
     DensityLevel,
 )
 from .exceptions import ConfigurationError, QuotaExhaustedError, RateLimitError
+from .instrumentation import (
+    METHOD_NEARBY,
+    METHOD_PLACE_DETAILS,
+    METHOD_POPULARITY_PROBE,
+    METHOD_TEXT_SEARCH,
+    RETRY_QUOTA_EXHAUSTED,
+    RETRY_RATE_LIMITED,
+    RETRY_SEARCH_TIMEOUT,
+    SOURCE_API,
+    SOURCE_L2,
+    record_cache_lookup,
+    record_retry,
+    track_outbound,
+)
 from .persistent_cache import (
     get_place_details_cache,
     get_search_cache,
@@ -244,34 +258,40 @@ class SearchMixin:
 
         async def fetch_from_api() -> list[dict]:
             """Fetch places from Google Places API."""
-            response = await self._client.post(
-                NEARBY_SEARCH_URL,
-                json={
-                    "maxResultCount": MAX_PLACES_PER_SEARCH,
-                    "rankPreference": "DISTANCE",
-                    "locationRestriction": {
-                        "circle": {
-                            "center": {"latitude": latitude, "longitude": longitude},
-                            "radius": radius,
-                        }
+            with track_outbound(METHOD_NEARBY):
+                response = await self._client.post(
+                    NEARBY_SEARCH_URL,
+                    json={
+                        "maxResultCount": MAX_PLACES_PER_SEARCH,
+                        "rankPreference": "DISTANCE",
+                        "locationRestriction": {
+                            "circle": {
+                                "center": {
+                                    "latitude": latitude,
+                                    "longitude": longitude,
+                                },
+                                "radius": radius,
+                            }
+                        },
+                        "includedTypes": SEARCHABLE_PLACE_TYPES,
                     },
-                    "includedTypes": SEARCHABLE_PLACE_TYPES,
-                },
-                headers={
-                    "Content-Type": "application/json",
-                    "X-Goog-Api-Key": self._settings.google_places_api_key,
-                    "X-Goog-FieldMask": WIDE_FIELD_MASK,
-                },
-            )
+                    headers={
+                        "Content-Type": "application/json",
+                        "X-Goog-Api-Key": self._settings.google_places_api_key,
+                        "X-Goog-FieldMask": WIDE_FIELD_MASK,
+                    },
+                )
 
             if response.status_code == 429:
                 # Parse response to differentiate rate limit vs quota exhaustion
                 # Google returns error details in the response body
                 error_reason = self._parse_error_reason(response)
                 if error_reason == "QUOTA_EXCEEDED":
+                    record_retry(RETRY_QUOTA_EXHAUSTED)
                     logger.error("Google Places API quota exhausted (daily limit)")
                     raise QuotaExhaustedError("Daily quota exceeded")
                 else:
+                    record_retry(RETRY_RATE_LIMITED)
                     logger.warning("Google Places API rate limited (temporary)")
                     raise RateLimitError("Rate limit exceeded")
 
@@ -285,10 +305,14 @@ class SearchMixin:
 
             response_json = response.json()
             places = response_json.get("places", [])
-            logger.info(
-                f"Places API at ({latitude:.4f}, {longitude:.4f}) radius={radius}m: "
-                f"found {len(places)} places"
-            )
+            # R27: coordinates never reach a default-level log line. The
+            # per-call detail stays available behind the diagnostics gate; the
+            # always-on view is the aggregate metrics line (U15).
+            if self._settings.places_diagnostics:
+                logger.info(
+                    f"Places API at ({latitude:.4f}, {longitude:.4f}) "
+                    f"radius={radius}m: found {len(places)} places"
+                )
             # Log all places with their details for debugging
             for i, p in enumerate(places):
                 name = p.get("displayName", {}).get("text", "N/A")
@@ -310,10 +334,12 @@ class SearchMixin:
                 fetch_from_api,
                 l2_get=get_search_cache,
                 l2_set=set_search_cache,
+                on_source=record_cache_lookup,
             )
 
         except httpx.TimeoutException:
             # Never log coordinates (PII) - use hash for debugging
+            record_retry(RETRY_SEARCH_TIMEOUT)
             coord_hash = hashlib.sha256(
                 f"{latitude:.4f},{longitude:.4f}".encode()
             ).hexdigest()[:8]
@@ -354,32 +380,35 @@ class SearchMixin:
         cache_key = f"text_{text_query}_{round(latitude, 5)}_{round(longitude, 5)}"
 
         async def fetch_from_api() -> list[dict]:
-            response = await self._client.post(
-                TEXT_SEARCH_URL,
-                json={
-                    "textQuery": text_query,
-                    "maxResultCount": MAX_PLACES_PER_SEARCH,
-                    "locationBias": {
-                        "circle": {
-                            "center": {
-                                "latitude": latitude,
-                                "longitude": longitude,
-                            },
-                            "radius": radius,
-                        }
+            with track_outbound(METHOD_TEXT_SEARCH):
+                response = await self._client.post(
+                    TEXT_SEARCH_URL,
+                    json={
+                        "textQuery": text_query,
+                        "maxResultCount": MAX_PLACES_PER_SEARCH,
+                        "locationBias": {
+                            "circle": {
+                                "center": {
+                                    "latitude": latitude,
+                                    "longitude": longitude,
+                                },
+                                "radius": radius,
+                            }
+                        },
                     },
-                },
-                headers={
-                    "Content-Type": "application/json",
-                    "X-Goog-Api-Key": self._settings.google_places_api_key,
-                    "X-Goog-FieldMask": WIDE_FIELD_MASK,
-                },
-            )
+                    headers={
+                        "Content-Type": "application/json",
+                        "X-Goog-Api-Key": self._settings.google_places_api_key,
+                        "X-Goog-FieldMask": WIDE_FIELD_MASK,
+                    },
+                )
 
             if response.status_code == 429:
                 error_reason = self._parse_error_reason(response)
                 if error_reason == "QUOTA_EXCEEDED":
+                    record_retry(RETRY_QUOTA_EXHAUSTED)
                     raise QuotaExhaustedError("Daily quota exceeded")
+                record_retry(RETRY_RATE_LIMITED)
                 raise RateLimitError("Rate limit exceeded")
 
             if response.status_code != 200:
@@ -396,6 +425,7 @@ class SearchMixin:
                 fetch_from_api,
                 l2_get=get_search_cache,
                 l2_set=set_search_cache,
+                on_source=record_cache_lookup,
             )
         except (httpx.TimeoutException, httpx.RequestError) as e:
             logger.warning(f"Text Search failed for '{text_query}': {e}")
@@ -428,30 +458,36 @@ class SearchMixin:
         )
 
         async def fetch_from_api() -> list[dict]:
-            response = await self._client.post(
-                NEARBY_SEARCH_URL,
-                json={
-                    "maxResultCount": MAX_PLACES_PER_SEARCH,
-                    "rankPreference": "POPULARITY",
-                    "locationRestriction": {
-                        "circle": {
-                            "center": {"latitude": latitude, "longitude": longitude},
-                            "radius": radius,
-                        }
+            with track_outbound(METHOD_POPULARITY_PROBE):
+                response = await self._client.post(
+                    NEARBY_SEARCH_URL,
+                    json={
+                        "maxResultCount": MAX_PLACES_PER_SEARCH,
+                        "rankPreference": "POPULARITY",
+                        "locationRestriction": {
+                            "circle": {
+                                "center": {
+                                    "latitude": latitude,
+                                    "longitude": longitude,
+                                },
+                                "radius": radius,
+                            }
+                        },
+                        "includedTypes": SEARCHABLE_PLACE_TYPES,
                     },
-                    "includedTypes": SEARCHABLE_PLACE_TYPES,
-                },
-                headers={
-                    "Content-Type": "application/json",
-                    "X-Goog-Api-Key": self._settings.google_places_api_key,
-                    "X-Goog-FieldMask": WIDE_FIELD_MASK,
-                },
-            )
+                    headers={
+                        "Content-Type": "application/json",
+                        "X-Goog-Api-Key": self._settings.google_places_api_key,
+                        "X-Goog-FieldMask": WIDE_FIELD_MASK,
+                    },
+                )
 
             if response.status_code == 429:
                 error_reason = self._parse_error_reason(response)
                 if error_reason == "QUOTA_EXCEEDED":
+                    record_retry(RETRY_QUOTA_EXHAUSTED)
                     raise QuotaExhaustedError("Daily quota exceeded")
+                record_retry(RETRY_RATE_LIMITED)
                 raise RateLimitError("Rate limit exceeded")
 
             if response.status_code != 200:
@@ -461,10 +497,12 @@ class SearchMixin:
                 return []
 
             places = response.json().get("places", [])
-            logger.info(
-                f"Popularity probe at ({latitude:.4f}, {longitude:.4f}) "
-                f"radius={radius}m: found {len(places)} places"
-            )
+            # R27: coordinates only at the diagnostics gate (see _execute_search).
+            if self._settings.places_diagnostics:
+                logger.info(
+                    f"Popularity probe at ({latitude:.4f}, {longitude:.4f}) "
+                    f"radius={radius}m: found {len(places)} places"
+                )
             return places
 
         try:
@@ -473,6 +511,7 @@ class SearchMixin:
                 fetch_from_api,
                 l2_get=get_search_cache,
                 l2_set=set_search_cache,
+                on_source=record_cache_lookup,
             )
         except (httpx.TimeoutException, httpx.RequestError) as e:
             logger.warning(f"Popularity probe failed: {e}")
@@ -513,28 +552,31 @@ class SearchMixin:
             # rating fields when present to avoid a paid call.
             cached = await get_place_details_cache(place_id)
             if cached is not None and cached.get("userRatingCount") is not None:
+                record_cache_lookup(SOURCE_L2)
                 return place_id, {
                     "rating": cached.get("rating"),
                     "userRatingCount": cached.get("userRatingCount"),
                 }
 
+            record_cache_lookup(SOURCE_API)
             async with semaphore:
                 try:
-                    response = await self._client.get(
-                        f"{PLACE_DETAILS_URL}/{place_id}",
-                        headers={
-                            "X-Goog-Api-Key": self._settings.google_places_api_key,
-                            "X-Goog-FieldMask": ENRICH_FIELD_MASK,
-                        },
-                    )
+                    with track_outbound(METHOD_PLACE_DETAILS):
+                        response = await self._client.get(
+                            f"{PLACE_DETAILS_URL}/{place_id}",
+                            headers={
+                                "X-Goog-Api-Key": self._settings.google_places_api_key,
+                                "X-Goog-FieldMask": ENRICH_FIELD_MASK,
+                            },
+                        )
                 except (httpx.TimeoutException, httpx.RequestError) as e:
-                    logger.warning(f"Rating enrichment failed for {place_id}: {e}")
+                    # R27: the place id never reaches a default-level log line.
+                    logger.warning(f"Rating enrichment request failed: {e}")
                     return None
 
             if response.status_code != 200:
                 logger.warning(
-                    f"Rating enrichment error for {place_id}: "
-                    f"status={response.status_code}"
+                    f"Rating enrichment error: status={response.status_code}"
                 )
                 return None
 

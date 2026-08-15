@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import time
 from dataclasses import dataclass, field
 
 import httpx
@@ -10,6 +11,7 @@ import httpx
 from app.core.config import get_settings
 from app.core.http_client import get_http_client
 from app.core.llm_utils import OPENROUTER_API_URL, extract_content
+from app.services.place_matcher.instrumentation import record_vision
 
 from .constants import (
     CLASSIFICATION_RESPONSE_FORMAT,
@@ -297,12 +299,19 @@ async def classify_cluster_photos(
         return {}
 
     semaphore = asyncio.Semaphore(MAX_CONCURRENT_VISION_REQUESTS)
+    started_at = time.perf_counter()
+    # Per-request aggregates only (R27): counts, never cluster ids (U15).
+    images_attempted = 0
+    images_null = 0
 
     async def classify_one(cluster: dict) -> tuple[str, VisionResult | None]:
+        nonlocal images_attempted, images_null
         images: list[str] = list(cluster["vision_images_base64"][:3])
 
         if not images:
             return cluster["id"], None
+
+        images_attempted += len(images)
 
         async def classify_with_limit(image_base64: str) -> VisionResult | None:
             async with semaphore:
@@ -327,6 +336,8 @@ async def classify_cluster_photos(
             else:
                 parsed_results.append(None)
 
+        images_null += sum(1 for r in parsed_results if r is None)
+
         return cluster["id"], PhotoClassifier.aggregate_results(parsed_results)
 
     results = await asyncio.gather(
@@ -349,6 +360,16 @@ async def classify_cluster_photos(
             failed_count,
             len(vision_clusters),
         )
+
+    # Vision-null rate (R18): recorded for every request, including the all-null
+    # one — the case a "clusters classified successfully" line stays silent about.
+    record_vision(
+        clusters_attempted=len(vision_clusters),
+        clusters_classified=len(vision_map),
+        images_attempted=images_attempted,
+        images_null=images_null,
+        total_ms=(time.perf_counter() - started_at) * 1000,
+    )
 
     if vision_map:
         logger.info(

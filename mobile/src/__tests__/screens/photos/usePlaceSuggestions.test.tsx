@@ -16,6 +16,7 @@ import React from 'react';
 
 import { usePlaceSuggestions } from '../../../screens/photos/usePlaceSuggestions';
 import { api } from '@services/api';
+import { Analytics } from '@services/analytics';
 import {
   getCachedSuggestions,
   cacheSuggestions,
@@ -641,5 +642,138 @@ describe('usePlaceSuggestions.fetchSuggestions — B3 stale-request guard (live 
 
     const surfaced = result.current.cachedSuggestions.find((s) => s.cluster_id === 'noref-1');
     expect(surfaced?.places).toHaveLength(1);
+  });
+});
+
+// ---- U15 instrumentation ---------------------------------------------------
+
+describe('usePlaceSuggestions - timing instrumentation (U15)', () => {
+  const buildCandidate = (clusterIds: string[], id = 'cand-A') => ({
+    id,
+    countryCode: 'JP',
+    dateRange: { start: new Date(), end: new Date() },
+    photoIds: [],
+    photoCount: clusterIds.length,
+    previewUris: [],
+    previewAssetIds: [],
+    locationClusterIds: clusterIds,
+  });
+
+  const placeFor = (id: string) => ({
+    place_id: `ChIJ_${id}`,
+    name: `Place ${id}`,
+    address: '1 St',
+    location: { latitude: 35, longitude: 139 },
+    category: 'place',
+    distance_m: 10,
+    types: ['point_of_interest'],
+  });
+
+  const lastCompletedProps = () =>
+    (Analytics.photoImportSuggestionsCompleted as jest.Mock).mock.calls.at(-1)?.[0];
+
+  it('records time to first suggestion when the FIRST batch resolves, not at the end', async () => {
+    // CHUNK_SIZE is 5, so 6 clusters span two chunks. Chunk 1 resolves at once;
+    // chunk 2 is held for ~120ms, so a time-to-first-suggestion measured at the
+    // end of the whole request would be indistinguishable from wall clock.
+    const clusters = Array.from({ length: 6 }, (_, i) => makeCluster(`t-${i}`, 35 + i, 139));
+
+    mockedApi.post
+      .mockResolvedValueOnce({
+        data: {
+          suggestions: clusters.slice(0, 5).map((c) => ({
+            cluster_id: c.id,
+            photo_ids: [`photo-${c.id}`],
+            places: [placeFor(c.id)],
+          })),
+          failed_cluster_count: 0,
+        },
+      })
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) =>
+            setTimeout(
+              () =>
+                resolve({
+                  data: {
+                    suggestions: [
+                      { cluster_id: 't-5', photo_ids: ['photo-t-5'], places: [placeFor('t-5')] },
+                    ],
+                    failed_cluster_count: 0,
+                  },
+                }),
+              120
+            )
+          )
+      );
+
+    const { result } = setup(clusters);
+
+    await act(async () => {
+      await result.current.fetchSuggestions(
+        buildCandidate(
+          clusters.map((c) => c.id),
+          'cand-timing'
+        )
+      );
+    });
+
+    const props = lastCompletedProps();
+    expect(typeof props.timeToFirstSuggestionMs).toBe('number');
+    expect(typeof props.wallClockMs).toBe('number');
+    expect(props.timeToFirstSuggestionMs).toBeGreaterThanOrEqual(0);
+    // First batch landed well before the request finished.
+    expect(props.wallClockMs - props.timeToFirstSuggestionMs).toBeGreaterThanOrEqual(60);
+    expect(props.wallClockMs).toBeGreaterThanOrEqual(props.timeToFirstSuggestionMs);
+  });
+
+  it('keeps the existing per-batch duration and percentile fields computing as before', async () => {
+    const clusters = [makeCluster('p-1', 35.1, 139.1)];
+
+    mockedApi.post.mockResolvedValueOnce({
+      data: {
+        suggestions: [{ cluster_id: 'p-1', photo_ids: ['photo-p-1'], places: [placeFor('p-1')] }],
+        failed_cluster_count: 0,
+      },
+    });
+
+    const { result } = setup(clusters);
+
+    await act(async () => {
+      await result.current.fetchSuggestions(buildCandidate(['p-1'], 'cand-pct'));
+    });
+
+    const props = lastCompletedProps();
+    // Still sourced from calculateApiPercentiles (mocked to 100/200/300).
+    expect(props.apiP50Ms).toBe(100);
+    expect(props.apiP95Ms).toBe(200);
+    expect(props.apiP99Ms).toBe(300);
+    expect(typeof props.totalApiDurationMs).toBe('number');
+    expect(props.suggestionCount).toBe(1);
+    expect(props.cachedClusters).toBe(0);
+    expect(props.uncachedClusters).toBe(1);
+    expect(props.cacheHitRate).toBe(0);
+  });
+
+  it('records timings on the all-cached path too, with no identifiers in the event (R27)', async () => {
+    const clusters = [makeCluster('c-1', 35.1, 139.1)];
+    mockedGetCachedSuggestions.mockResolvedValue(new Map([['c-1', [placeFor('c-1')]]]));
+
+    const { result } = setup(clusters);
+
+    await act(async () => {
+      await result.current.fetchSuggestions(buildCandidate(['c-1'], 'cand-cached'));
+    });
+
+    const props = lastCompletedProps();
+    expect(typeof props.timeToFirstSuggestionMs).toBe('number');
+    expect(typeof props.wallClockMs).toBe('number');
+    expect(props.cacheHitRate).toBe(100);
+
+    // R27: the event carries per-batch aggregates only.
+    const serialized = JSON.stringify(props);
+    for (const forbidden of ['c-1', 'ChIJ_', '35.1', '139.1']) {
+      expect(serialized).not.toContain(forbidden);
+    }
   });
 });

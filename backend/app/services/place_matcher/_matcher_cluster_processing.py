@@ -16,6 +16,15 @@ from .constants import (
     MAX_SUGGESTIONS_PER_CLUSTER,
 )
 from .exceptions import QuotaExhaustedError, RateLimitError
+from .instrumentation import (
+    PHASE_BACKFILL,
+    PHASE_ENRICHMENT,
+    PHASE_SEARCH,
+    PHASE_VISION_WAIT,
+    phase_timer,
+    record_clusters,
+    request_metrics,
+)
 from .utils import name_match_strength, name_matches_candidate
 
 logger = logging.getLogger(__name__)
@@ -30,6 +39,21 @@ class ClusterProcessingMixin:
     """Orchestration logic for processing many clusters."""
 
     async def find_places_for_clusters(
+        self,
+        clusters: list[dict[str, Any]],
+        vision_results_task: asyncio.Task[dict[str, VisionResult]] | None = None,
+    ) -> tuple[list[dict[str, Any]], int]:
+        """Find place suggestions for photo clusters.
+
+        Thin wrapper that joins (or, for a service-level caller that entered
+        none, owns) the request-scoped metrics context so the four phase
+        durations, the cache composition and the outbound dispatch shape are
+        emitted once per request. See ``instrumentation``.
+        """
+        with request_metrics():
+            return await self._find_places_for_clusters(clusters, vision_results_task)
+
+    async def _find_places_for_clusters(
         self,
         clusters: list[dict[str, Any]],
         vision_results_task: asyncio.Task[dict[str, VisionResult]] | None = None,
@@ -54,10 +78,8 @@ class ClusterProcessingMixin:
         Returns:
             Tuple of (cluster_suggestions, failed_cluster_count)
         """
-        logger.info(
-            f"Processing {len(clusters)} clusters",
-            extra={"cluster_ids": [c.get("id") for c in clusters]},
-        )
+        # R27: cluster ids are never attached to an always-on log line.
+        logger.info(f"Processing {len(clusters)} clusters")
         for c in clusters:
             logger.debug(
                 f"Cluster {c.get('id')}: centroid=({c['centroid']['latitude']:.4f}, "
@@ -100,32 +122,40 @@ class ClusterProcessingMixin:
                     places = search_result.places
                     radius_used = search_result.radius_used
                 except TimeoutError:
-                    logger.warning(
-                        f"Cluster search timed out after {cluster_timeout}s",
-                        extra={"cluster_id": cluster.get("id")},
-                    )
+                    # R27: no cluster id on an always-on log line.
+                    logger.warning(f"Cluster search timed out after {cluster_timeout}s")
                     return None
 
-            lat = cluster["centroid"]["latitude"]
-            lng = cluster["centroid"]["longitude"]
-            logger.info(
-                f"Cluster {cluster['id']}: centroid=({lat:.5f}, {lng:.5f}), "
-                f"found {len(places)} quality places at radius={radius_used}m"
-            )
+            # R27: coordinates only behind the diagnostics gate.
+            if diagnostics:
+                lat = cluster["centroid"]["latitude"]
+                lng = cluster["centroid"]["longitude"]
+                logger.info(
+                    f"Cluster {cluster['id']}: centroid=({lat:.5f}, {lng:.5f}), "
+                    f"found {len(places)} quality places at radius={radius_used}m"
+                )
 
             return cluster, places, radius_used, search_result
 
-        # Execute all searches in parallel with bounded concurrency and per-cluster timeout
-        results = await asyncio.gather(
-            *[search_with_timeout(c) for c in clusters],
-            return_exceptions=True,
-        )
+        # Execute all searches in parallel with bounded concurrency and per-cluster
+        # timeout. Timed as the SEARCH phase (U15): the half of the request that
+        # KTD16's ordering argument weighs against the vision wait below.
+        with phase_timer(PHASE_SEARCH):
+            results = await asyncio.gather(
+                *[search_with_timeout(c) for c in clusters],
+                return_exceptions=True,
+            )
 
-        # Await vision results (non-blocking if already done, empty dict on failure)
+        # Await vision results (non-blocking if already done, empty dict on failure).
+        # Timed as the VISION_WAIT phase: this is the RESIDUAL wait vision adds on
+        # top of search (the two run concurrently), which is exactly the quantity
+        # that decides whether widening vision concurrency is the first lever. The
+        # classifier separately records its own total wall time under `vision`.
         vision_map: dict[str, VisionResult] = {}
         if vision_results_task is not None:
             try:
-                vision_map = await vision_results_task
+                with phase_timer(PHASE_VISION_WAIT):
+                    vision_map = await vision_results_task
             except Exception as e:
                 logger.warning(f"Vision classification failed: {e}")
 
@@ -239,15 +269,16 @@ class ClusterProcessingMixin:
                     )
                     if places:
                         places = self._filter_low_quality_places(places)
-                        logger.info(
+                        logger.debug(
                             f"Cluster {cluster_id}: text search for "
                             f"'{text_query}' found {len(places)} quality places"
                         )
                     return cluster_id, places
                 except (RateLimitError, QuotaExhaustedError) as e:
+                    # R27: no cluster id on an always-on log line.
                     logger.warning(
-                        f"Cluster {cluster_id}: text search unavailable "
-                        f"({type(e).__name__}), falling back to nearby results"
+                        f"Text search unavailable ({type(e).__name__}), "
+                        "falling back to nearby results"
                     )
                     return cluster_id, []
 
@@ -358,7 +389,7 @@ class ClusterProcessingMixin:
                         for p in nearby_places
                     )
                     if already_found:
-                        logger.info(
+                        logger.debug(
                             f"Cluster {cluster_id}: suppressing text search for "
                             f"'{candidates[0]}' — already in nearby results"
                         )
@@ -418,9 +449,9 @@ class ClusterProcessingMixin:
                             places = self._filter_low_quality_places(places)
                         return cluster_id, places
                     except (RateLimitError, QuotaExhaustedError) as e:
+                        # R27: no cluster id on an always-on log line.
                         logger.warning(
-                            f"Cluster {cluster_id}: popularity probe unavailable "
-                            f"({type(e).__name__})"
+                            f"Popularity probe unavailable ({type(e).__name__})"
                         )
                         return cluster_id, []
 
@@ -515,7 +546,7 @@ class ClusterProcessingMixin:
                 )
             ):
                 name_match_locked_clusters.add(cluster_id)
-                logger.info(
+                logger.debug(
                     f"Cluster {cluster_id}: skipping rating enrichment — top "
                     f"finalist '{finalists[0]['name']}' matches detected signage"
                 )
@@ -529,7 +560,10 @@ class ClusterProcessingMixin:
         enriched_ratings: dict[str, dict[str, Any]] = {}
         if finalist_ids:
             try:
-                enriched_ratings = await self._enrich_place_ratings(list(finalist_ids))
+                with phase_timer(PHASE_ENRICHMENT):
+                    enriched_ratings = await self._enrich_place_ratings(
+                        list(finalist_ids)
+                    )
             except Exception as e:  # never crash the request on enrichment
                 logger.warning(f"Rating enrichment unavailable: {e}")
                 enriched_ratings = {}
@@ -624,7 +658,10 @@ class ClusterProcessingMixin:
         backfill_ratings: dict[str, dict[str, Any]] = {}
         if backfill_ids:
             try:
-                backfill_ratings = await self._enrich_place_ratings(list(backfill_ids))
+                with phase_timer(PHASE_BACKFILL):
+                    backfill_ratings = await self._enrich_place_ratings(
+                        list(backfill_ids)
+                    )
             except Exception as e:  # never crash the request on enrichment
                 logger.warning(f"Backfill rating enrichment unavailable: {e}")
                 backfill_ratings = {}
@@ -694,14 +731,14 @@ class ClusterProcessingMixin:
                         )
                 if not reranked and finalists:
                     # Terminal guarantee: a cluster non-empty before the gate
-                    # is never emptied by it.
+                    # is never emptied by it. R27: no cluster id in the message.
                     logger.info(
-                        f"Cluster {cluster_id}: all candidates failed review "
+                        "A cluster's candidates all failed review "
                         "gate; returning un-gated finalists"
                     )
                 suggestions = reranked or finalists
 
-            logger.info(
+            logger.debug(
                 f"Cluster {cluster_id}: returning {len(suggestions)} suggestions"
                 + (f", top={suggestions[0]['name']}" if suggestions else "")
             )
@@ -720,6 +757,8 @@ class ClusterProcessingMixin:
                     enriched_ratings=enriched_ratings,
                     vision_result=vision_result,
                 )
+
+        record_clusters(len(clusters), failed_count)
 
         if failed_count > 0:
             logger.warning(

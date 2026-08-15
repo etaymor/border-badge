@@ -25,6 +25,7 @@ from app.services.place_matcher import (
     QuotaExhaustedError,
     RateLimitError,
 )
+from app.services.place_matcher.instrumentation import request_metrics
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/photos", tags=["photos"])
@@ -59,6 +60,16 @@ async def suggest_places(
         extra={"cluster_count": len(data.clusters), "user_id": str(user.id)},
     )
 
+    # Enter the request-scoped metrics context HERE rather than inside the
+    # matcher: the vision task below copies the current context at
+    # `create_task` time, so a context entered later would leave the vision
+    # aggregates recording into nothing. Emits one metrics line on exit (U15).
+    with request_metrics():
+        return await _suggest_places(data)
+
+
+async def _suggest_places(data: PlaceSuggestionRequest) -> PlaceSuggestionResponse:
+    """Run vision + place matching for the request's clusters."""
     cluster_dicts = [c.model_dump() for c in data.clusters]
 
     # Run vision classification in parallel with place matching setup
