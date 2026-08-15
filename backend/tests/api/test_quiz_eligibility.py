@@ -505,6 +505,47 @@ class TestPerDraftBudget:
         assert response.status_code == 409
         mock_http.post.assert_not_called()
 
+    def test_batch_landing_exactly_on_budget_is_allowed(
+        self, client: TestClient
+    ) -> None:
+        """The cap is inclusive: 69 + 1 == 70 must classify, not 429."""
+        db = _db(_quiz_row(classified_count=69))
+        response, mock_http = _post_eligibility(
+            client, db, _openrouter_response(_model_result())
+        )
+        assert response.status_code == 200
+        assert response.json()["budget_remaining"] == 0
+        mock_http.post.assert_awaited()
+
+    def test_one_image_past_budget_is_rejected(self, client: TestClient) -> None:
+        """One over the inclusive boundary: 70 + 1 > 70 => 429, zero spend."""
+        db = _db(_quiz_row(classified_count=70))
+        response, mock_http = _post_eligibility(
+            client, db, _openrouter_response(_model_result())
+        )
+        assert response.status_code == 429
+        assert (
+            response.json()["detail"]["code"] == "QUIZ_CLASSIFICATION_BUDGET_EXCEEDED"
+        )
+        mock_http.post.assert_not_called()
+
+    @pytest.mark.parametrize("budget", [1, 500])
+    def test_configured_budget_bounds_are_enforced_verbatim(
+        self, client: TestClient, monkeypatch, budget: int
+    ) -> None:
+        """The endpoint reads the setting rather than a hardcoded 70, at both
+        ends of the validated 1..500 range."""
+        monkeypatch.setattr(
+            get_settings(), "quiz_classification_budget_per_quiz", budget
+        )
+        db = _db(_quiz_row(classified_count=budget))
+        response, mock_http = _post_eligibility(
+            client, db, _openrouter_response(_model_result())
+        )
+        assert response.status_code == 429
+        assert response.json()["detail"]["limit"] == budget
+        mock_http.post.assert_not_called()
+
 
 # ============================================================================
 # Draft ownership / lifecycle gating
@@ -581,6 +622,40 @@ class TestDailyCircuitBreaker:
         db.rpc.assert_awaited_once_with(
             "reserve_daily_classification",
             {"p_count": 1, "p_cap": 100},
+        )
+
+    def test_zero_daily_cap_is_an_emergency_stop(
+        self, client: TestClient, monkeypatch
+    ) -> None:
+        """QUIZ_CLASSIFICATION_DAILY_CAP=0 is a valid setting, and the RPC's
+        ``classified_count + p_count <= p_cap`` can never hold for a non-empty
+        batch -- so every reservation is denied and the endpoint is off."""
+        monkeypatch.setattr(get_settings(), "quiz_classification_daily_cap", 0)
+        db = _db(_quiz_row())
+        db.rpc.return_value = False  # what the RPC returns for any p_cap=0 reserve
+        response, mock_http = _post_eligibility(
+            client, db, _openrouter_response(_model_result())
+        )
+        assert response.status_code == 503
+        db.rpc.assert_awaited_once_with(
+            "reserve_daily_classification",
+            {"p_count": 1, "p_cap": 0},
+        )
+        mock_http.post.assert_not_called()
+
+    def test_max_daily_cap_is_passed_through(
+        self, client: TestClient, monkeypatch
+    ) -> None:
+        """The top of the validated range reaches the RPC unclamped."""
+        monkeypatch.setattr(get_settings(), "quiz_classification_daily_cap", 1_000_000)
+        db = _db(_quiz_row())
+        response, _ = _post_eligibility(
+            client, db, _openrouter_response(_model_result())
+        )
+        assert response.status_code == 200
+        db.rpc.assert_awaited_once_with(
+            "reserve_daily_classification",
+            {"p_count": 1, "p_cap": 1_000_000},
         )
 
     @pytest.mark.parametrize(

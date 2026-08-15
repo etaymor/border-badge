@@ -26,7 +26,7 @@ OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
 #
 # Callers pay only for tokens actually generated, so the ceiling is free on
 # the non-reasoning models we actually run.
-VISION_MAX_TOKENS = 1024
+VISION_MAX_TOKENS: int = 1024
 
 # Patterns for parsing LLM JSON responses
 CODE_FENCE_PATTERN = re.compile(r"^```(?:\w+)?\s*\n?(.*?)\n?```\s*$", re.DOTALL)
