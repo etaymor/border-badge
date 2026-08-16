@@ -10,7 +10,11 @@ from typing import Any, TypeVar
 from app.services.photo_vision import VisionResult
 from app.services.photo_vision.constants import VISION_TO_PLACE_TYPES
 
-from ._matcher_search import TieredSearchResult, resolve_places_concurrency
+from ._matcher_search import (
+    TieredSearchResult,
+    places_request_scope,
+    resolve_places_concurrency,
+)
 from .constants import (
     MAX_CONCURRENT_PLACES_REQUESTS,
     MAX_SUGGESTIONS_PER_CLUSTER,
@@ -25,7 +29,7 @@ from .instrumentation import (
     record_clusters,
     request_metrics,
 )
-from .rate_limit import budget_seconds_for, retry_budget_scope
+from .rate_limit import budget_seconds_for, cluster_timeout_for, retry_budget_scope
 from .utils import name_match_strength, name_matches_candidate
 
 logger = logging.getLogger(__name__)
@@ -55,6 +59,21 @@ def _guarded_setting(
 class ClusterProcessingMixin:
     """Orchestration logic for processing many clusters."""
 
+    #: Clusters this request failed for a CAPACITY reason (upstream throttling,
+    #: our own circuit breaker, or an exhausted outbound-slot bound) rather than
+    #: because the cluster legitimately found nothing.
+    #:
+    #: Read it after `find_places_for_clusters` returns. It exists because
+    #: `failed_cluster_count` cannot distinguish the two, and the difference
+    #: decides the right answer: an ordinary per-cluster failure is retryable
+    #: immediately, whereas a capacity failure means "Retry all" dispatches
+    #: straight back into the still-open breaker. The route SHOULD answer a
+    #: mostly-capacity-failed request with a busy signal (503 + Retry-After
+    #: covering the breaker cooldown) instead of a 200 whose failed clusters the
+    #: client will re-send at once. Owned by `app/api/photos.py`; exposed here
+    #: rather than changing this method's return shape, which that route reads.
+    last_capacity_failed_cluster_count: int = 0
+
     async def find_places_for_clusters(
         self,
         clusters: list[dict[str, Any]],
@@ -66,8 +85,14 @@ class ClusterProcessingMixin:
         none, owns) the request-scoped metrics context so the four phase
         durations, the cache composition and the outbound dispatch shape are
         emitted once per request. See ``instrumentation``.
+
+        Also registers the request for the duration so the per-request share of
+        the process-wide outbound bound can be divided among concurrent
+        importers instead of being sized for exactly one (see
+        ``resolve_places_concurrency``).
         """
-        with request_metrics():
+        self.last_capacity_failed_cluster_count = 0
+        with request_metrics(), places_request_scope():
             return await self._find_places_for_clusters(clusters, vision_results_task)
 
     async def _find_places_for_clusters(
@@ -114,7 +139,10 @@ class ClusterProcessingMixin:
             self._settings, default_per_request=MAX_CONCURRENT_PLACES_REQUESTS
         )
         semaphore = asyncio.Semaphore(per_request_limit)
-        cluster_timeout = self._settings.places_cluster_timeout_seconds
+        # Guarded read: this value is handed to `asyncio.wait_for` in four
+        # places now, and a MagicMock settings stand-in would fail there in a
+        # way that has nothing to do with the code under test.
+        cluster_timeout = cluster_timeout_for(self._settings)
         # Share of the per-cluster budget that jittered retry backoff may spend
         # (U3). Stated in constants as RETRY_BUDGET_FRACTION_OF_CLUSTER_TIMEOUT.
         retry_budget = budget_seconds_for(self._settings)
@@ -154,6 +182,17 @@ class ClusterProcessingMixin:
 
             (2) is the only one of the three that consumes (3), and it is
             deliberately small relative to it.
+
+            SCOPE OF THE 40% CLAIM (U8). That composition describes THIS phase —
+            the Nearby path — only. A cluster can run up to four phases, and
+            each opens its own ``retry_budget_scope``: this search, the text
+            rescue, the popularity probe, and finalist enrichment. Every one of
+            them is now separately wrapped in an ``asyncio.wait_for`` of the
+            same per-cluster timeout, so a cluster's real worst-case ceiling is
+            ``4 x places_cluster_timeout_seconds`` (60s at the default 15s), not
+            15s — bounded and stated, where before the later three phases had no
+            enclosing timeout at all and the only wall clock in the system was
+            the mobile client's 90s, which fails the entire chunk.
             """
             async with semaphore:
                 # Retry backoff and this timeout are ONE budget (U3): the scope
@@ -201,11 +240,26 @@ class ClusterProcessingMixin:
         # top of search (the two run concurrently), which is exactly the quantity
         # that decides whether widening vision concurrency is the first lever. The
         # classifier separately records its own total wall time under `vision`.
+        #
+        # The join is bounded (U8). Starlette does not cancel a server-side
+        # coroutine when the client gives up at 90s, so an unbounded join let an
+        # abandoned request sit here forever while its vision work kept holding
+        # process-wide slots. wait_for cancels the task on expiry, which is also
+        # what the route's own `finally` does — the work is best-effort, and an
+        # empty vision map degrades to distance-ranked results.
         vision_map: dict[str, VisionResult] = {}
         if vision_results_task is not None:
             try:
                 with phase_timer(PHASE_VISION_WAIT):
-                    vision_map = await vision_results_task
+                    vision_map = await asyncio.wait_for(
+                        vision_results_task, timeout=cluster_timeout
+                    )
+            except TimeoutError:
+                # R27: no cluster id on an always-on log line.
+                logger.warning(
+                    "Vision classification exceeded its join budget; "
+                    "continuing without vision signals"
+                )
             except Exception as e:
                 logger.warning(f"Vision classification failed: {e}")
 
@@ -216,10 +270,21 @@ class ClusterProcessingMixin:
         search_results: list[tuple[dict, list[dict], int]] = []
         search_result_by_cluster: dict[str, TieredSearchResult] = {}
         failed_count = 0
+        # CAPACITY failures, counted apart from ordinary ones (U8). A cluster
+        # that timed out or errored is retryable right now; a cluster refused by
+        # the circuit breaker, by upstream throttling, or by our own outbound
+        # bound is not — retrying it immediately dispatches straight back into
+        # the condition that refused it. `failed_cluster_count` alone cannot
+        # tell the caller which of the two it is holding.
+        capacity_failed_count = 0
 
         for r in results:
             if r is None or isinstance(r, BaseException):
                 failed_count += 1
+                if isinstance(
+                    r, RateLimitError | QuotaExhaustedError | SlotUnavailableError
+                ):
+                    capacity_failed_count += 1
                 continue
             cluster, places, radius_used, search_result = r
             search_results.append((cluster, places, radius_used))
@@ -314,9 +379,15 @@ class ClusterProcessingMixin:
         ) -> tuple[str, list[dict]]:
             async with semaphore:
                 try:
+                    # Bounded by the same per-cluster timeout as the Nearby
+                    # phase (U8). The retry budget caps only backoff SLEEPING;
+                    # without this the rescue had no wall clock at all.
                     with retry_budget_scope(retry_budget):
-                        places = await self._execute_text_search(
-                            text_query, lat, lng, radius=radius
+                        places = await asyncio.wait_for(
+                            self._execute_text_search(
+                                text_query, lat, lng, radius=radius
+                            ),
+                            timeout=cluster_timeout,
                         )
                     if places:
                         places = self._filter_low_quality_places(places)
@@ -325,6 +396,13 @@ class ClusterProcessingMixin:
                             f"'{text_query}' found {len(places)} quality places"
                         )
                     return cluster_id, places
+                except TimeoutError:
+                    # R27: no cluster id on an always-on log line.
+                    logger.warning(
+                        f"Text search timed out after {cluster_timeout}s, "
+                        "falling back to nearby results"
+                    )
+                    return cluster_id, []
                 except (
                     RateLimitError,
                     QuotaExhaustedError,
@@ -499,11 +577,20 @@ class ClusterProcessingMixin:
             ) -> tuple[str, list[dict]]:
                 async with semaphore:
                     try:
+                        # Same per-cluster wall clock as the other phases (U8).
                         with retry_budget_scope(retry_budget):
-                            places = await self._execute_popularity_probe(lat, lng)
+                            places = await asyncio.wait_for(
+                                self._execute_popularity_probe(lat, lng),
+                                timeout=cluster_timeout,
+                            )
                         if places:
                             places = self._filter_low_quality_places(places)
                         return cluster_id, places
+                    except TimeoutError:
+                        logger.warning(
+                            f"Popularity probe timed out after {cluster_timeout}s"
+                        )
+                        return cluster_id, []
                     except (
                         RateLimitError,
                         QuotaExhaustedError,
@@ -818,11 +905,22 @@ class ClusterProcessingMixin:
                 )
 
         record_clusters(len(clusters), failed_count)
+        self.last_capacity_failed_cluster_count = capacity_failed_count
 
         if failed_count > 0:
             logger.warning(
                 f"Failed to process {failed_count}/{len(clusters)} clusters "
                 "(timeouts or errors)"
+            )
+        if capacity_failed_count > 0:
+            # R27: counts only. This is the line that says the failures were
+            # OURS (breaker / bound / upstream throttle), not the clusters'.
+            logger.warning(
+                "%d/%d clusters failed for a capacity reason (rate limit, "
+                "circuit breaker, or outbound slot bound); an immediate retry "
+                "will hit the same condition",
+                capacity_failed_count,
+                len(clusters),
             )
 
         if diagnostics:

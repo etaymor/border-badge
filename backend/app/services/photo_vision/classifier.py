@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 import httpx
 
 from app.core.config import get_settings
-from app.core.http_client import get_http_client
+from app.core.http_client import VISION_POOL_TIMEOUT_SECONDS, get_vision_client
 from app.core.llm_utils import OPENROUTER_API_URL, extract_content
 from app.services.place_matcher.instrumentation import (
     VISION_NULL_EMPTY_RESPONSE,
@@ -18,6 +18,7 @@ from app.services.place_matcher.instrumentation import (
     VISION_NULL_HTTP_ERROR,
     VISION_NULL_NO_API_KEY,
     VISION_NULL_REQUEST_ERROR,
+    VISION_NULL_SLOT_UNAVAILABLE,
     VISION_NULL_TIMEOUT,
     VISION_NULL_UNKNOWN,
     record_vision,
@@ -130,7 +131,11 @@ class PhotoClassifier:
             return None
 
         try:
-            client = get_http_client()
+            # The PRIVATE vision pool, not the shared app client. The shared
+            # client backs every Supabase REST call and its keepalive budget
+            # (20) sits below what a single import's vision fan-out uses, so
+            # importing used to evict the app's database connections.
+            client = get_vision_client()
             response = await client.post(
                 OPENROUTER_API_URL,
                 json={
@@ -166,7 +171,10 @@ class PhotoClassifier:
                     "HTTP-Referer": self._settings.base_url,
                     "X-Title": "Border Badge",
                 },
-                timeout=self._timeout,
+                # Pool wait keeps its own (short) budget rather than inheriting
+                # the model timeout: waiting for a free connection is a local
+                # saturation failure, not a slow model.
+                timeout=httpx.Timeout(self._timeout, pool=VISION_POOL_TIMEOUT_SECONDS),
             )
 
             if response.status_code != 200:
@@ -342,7 +350,30 @@ SINGLE_WAVE_VISION_CONCURRENCY = 15
 # per-request bound is set to, and sits above the per-request bound at both the
 # default (5) and the single-wave value (15), so no single request can hold
 # every slot.
+#
+# It is sized against the PRIVATE vision pool (`VISION_MAX_CONNECTIONS`, 40),
+# not the shared app client: vision now has its own pool for the same reason
+# Places does.
 MAX_CONCURRENT_VISION_REQUESTS_PROCESS = 30
+
+# How long an image may wait for a process-wide slot before giving up.
+#
+# A process ceiling with an UNBOUNDED wait is not a bound, it is a queue. Before
+# the ceiling existed there was no queue to grow; with it, and with Starlette
+# leaving a server-side coroutine running after the client times out at 90s,
+# abandoned work keeps holding slots while the queue behind it grows without
+# limit. Matches PLACES_SLOT_WAIT_CEILING_SECONDS: both bound a purely LOCAL
+# saturation wait, so neither queue can silently dominate the other.
+#
+# Expiry is a null classification, which vision already degrades to gracefully
+# (the cluster drops back to distance-ranked results) and already counts.
+VISION_SLOT_WAIT_CEILING_SECONDS = 2.0
+
+# Why such a null happened (U12). Re-exported from
+# `place_matcher.instrumentation`, which owns the reason registry, so the count
+# lands in its own bucket in `RequestMetrics.vision_null_reasons` rather than
+# folding into "unknown" — a self-inflicted capacity limit must not read as an
+# upstream regression.
 
 
 def resolve_vision_concurrency() -> tuple[int, int]:
@@ -420,8 +451,24 @@ async def classify_cluster_photos(
         images_attempted += len(images)
 
         async def classify_with_limit(image_base64: str) -> VisionResult | None:
-            async with request_semaphore, process_semaphore:
-                return await classifier.classify(image_base64)
+            # The request's own share queues without a ceiling: it is this
+            # request's work waiting for this request's slot, and nobody else
+            # is starved by it. The PROCESS-wide slot does have a ceiling —
+            # see VISION_SLOT_WAIT_CEILING_SECONDS.
+            async with request_semaphore:
+                try:
+                    await asyncio.wait_for(
+                        process_semaphore.acquire(),
+                        timeout=VISION_SLOT_WAIT_CEILING_SECONDS,
+                    )
+                except TimeoutError:
+                    # R27: static reason name and counts only.
+                    classifier._record_null(VISION_NULL_SLOT_UNAVAILABLE)
+                    return None
+                try:
+                    return await classifier.classify(image_base64)
+                finally:
+                    process_semaphore.release()
 
         single_results = await asyncio.gather(
             *[classify_with_limit(image_base64) for image_base64 in images],

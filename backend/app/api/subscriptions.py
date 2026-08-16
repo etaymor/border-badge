@@ -38,12 +38,74 @@ FREE_LIMITS = {
     "entries_per_trip": 10,
 }
 
+# How much matching work one charged photo import buys, in clusters (F2).
+#
+# The R17 exemption — "the trip you already paid for stays completable" — used
+# to be an unbounded replay key: a free user who spent their import on trip A
+# could pass trip A forever, bounded only by the per-minute cost budgets. The
+# charge now records a finite cluster allowance that every later request for
+# that trip draws down.
+#
+# 500 is chosen against the shape of a real import rather than a round number:
+# a large trip is 50-100 clusters (a very large multi-city one, 200-300), so
+# this leaves roughly 2-5x headroom for retrying failed clusters and for
+# re-running the import after adding more photos to the same trip -- the whole
+# point of R17 -- while capping a free account's lifetime metered exposure at
+# 500 Nearby Search lookups instead of the previous "unbounded". Keep it in
+# sync with the literal in migration 0058 (asserted by the tests).
+PHOTO_IMPORT_CLUSTER_ALLOWANCE = 500
+
 # Columns that describe a caller's photo-import entitlement. Kept next to the
 # limits so the endpoint that enforces them (POST /photos/suggest-places) reads
 # the same shape this module writes.
 PHOTO_IMPORT_PROFILE_COLUMNS = (
-    "subscription_status,usage_photo_import_count,usage_photo_import_trip_id"
+    "subscription_status,usage_photo_import_count,"
+    "usage_photo_import_trip_id,usage_photo_import_cluster_allowance"
 )
+
+# The pre-0058 shape of the same read. A backend that ships ahead of its
+# migration must degrade to the columns that already exist rather than 400 on
+# every request -- see `read_photo_import_entitlement`.
+LEGACY_PHOTO_IMPORT_PROFILE_COLUMNS = "subscription_status,usage_photo_import_count"
+
+USAGE_COLUMNS = (
+    "usage_share_extension_count,usage_photo_import_count,"
+    "usage_share_extension_period_start,usage_photo_import_trip_id"
+)
+LEGACY_USAGE_COLUMNS = (
+    "usage_share_extension_count,usage_photo_import_count,"
+    "usage_share_extension_period_start"
+)
+
+# PostgREST surfaces an unknown column as a 400 carrying PostgreSQL's 42703
+# ("column ... does not exist"); `SupabaseClient` keeps only the message, so the
+# code is matched on either. An unknown FUNCTION (or an unknown argument set for
+# a known one) is PGRST202.
+_MISSING_COLUMN_HINTS = ("42703", "does not exist")
+_MISSING_FUNCTION_HINTS = ("pgrst202", "could not find the function")
+
+
+def _error_text(error: BaseException) -> str:
+    detail = getattr(error, "detail", None)
+    return str(detail if detail is not None else error).lower()
+
+
+def is_missing_column_error(error: BaseException, *columns: str) -> bool:
+    """Whether `error` is PostgREST rejecting a select for an unknown column."""
+    if getattr(error, "status_code", None) not in (400, 404):
+        return False
+    text = _error_text(error)
+    if not any(hint in text for hint in _MISSING_COLUMN_HINTS):
+        return False
+    return any(column.lower() in text for column in columns)
+
+
+def is_missing_function_error(error: BaseException) -> bool:
+    """Whether `error` is PostgREST failing to resolve an RPC signature."""
+    if getattr(error, "status_code", None) not in (400, 404):
+        return False
+    text = _error_text(error)
+    return any(hint in text for hint in _MISSING_FUNCTION_HINTS)
 
 
 @dataclass(frozen=True)
@@ -59,6 +121,11 @@ class PhotoImportEntitlement:
     subscription_status: str
     photo_import_count: int
     consumed_trip_id: str | None
+    cluster_allowance: int = 0
+    # True when the profile row was read WITHOUT the U16 columns because
+    # migration 0058 has not been applied yet. The gate then degrades open --
+    # see `allows`.
+    columns_degraded: bool = False
 
     @property
     def is_premium(self) -> bool:
@@ -72,12 +139,24 @@ class PhotoImportEntitlement:
         """Whether this caller may run matching for `trip_id`."""
         if self.is_premium:
             return True
+        if self.columns_degraded:
+            # A backend running ahead of migration 0058 cannot see the recorded
+            # trip, so it cannot tell "spent their import" from "still finishing
+            # the import they spent". Enforcing on the counter alone would 402
+            # every free user mid-import; the safe degradation is the behaviour
+            # that shipped before the counter was enforced at all. The server
+            # side charge is skipped in the same state, so the counter is not
+            # advanced behind the user's back either.
+            return True
         if self.photo_import_count < self.limit:
             return True
-        # R17: the already-counted trip stays completable, on any device.
+        # R17: the already-counted trip stays completable, on any device...
         if trip_id is None or self.consumed_trip_id is None:
             return False
-        return str(trip_id).lower() == str(self.consumed_trip_id).lower()
+        if str(trip_id).lower() != str(self.consumed_trip_id).lower():
+            return False
+        # ...but only for as much work as that one charge bought (F2).
+        return self.cluster_allowance > 0
 
 
 async def read_photo_import_entitlement(
@@ -88,20 +167,121 @@ async def read_photo_import_entitlement(
     A missing profile row is treated as a brand-new free user (count 0), which
     matches how entry-limit enforcement reads a missing profile. Database
     failures are NOT swallowed here — the caller decides how to fail.
+
+    The U16 columns are read tolerantly: if migration 0058 has not been applied,
+    PostgREST 400s the select for an unknown column and this falls back to the
+    pre-U16 column set with the entitlement marked degraded. A lagging migration
+    must not turn every caller's request -- premium included -- into a 503.
     """
-    result = await db.get(
-        "user_profile",
-        params={
-            "select": PHOTO_IMPORT_PROFILE_COLUMNS,
-            "user_id": f"eq.{user_id}",
-        },
-    )
+    degraded = False
+    try:
+        result = await db.get(
+            "user_profile",
+            params={
+                "select": PHOTO_IMPORT_PROFILE_COLUMNS,
+                "user_id": f"eq.{user_id}",
+            },
+        )
+    except Exception as e:
+        if not is_missing_column_error(
+            e,
+            "usage_photo_import_trip_id",
+            "usage_photo_import_cluster_allowance",
+        ):
+            raise
+        logger.error(
+            "Photo import entitlement columns are missing (migration 0058 has "
+            "not been applied). Falling back to the pre-U16 column set and "
+            "leaving the free-tier gate unenforced until it is."
+        )
+        degraded = True
+        result = await db.get(
+            "user_profile",
+            params={
+                "select": LEGACY_PHOTO_IMPORT_PROFILE_COLUMNS,
+                "user_id": f"eq.{user_id}",
+            },
+        )
+
     profile = result[0] if result else {}
     return PhotoImportEntitlement(
         subscription_status=profile.get("subscription_status") or "free",
         photo_import_count=profile.get("usage_photo_import_count") or 0,
-        consumed_trip_id=profile.get("usage_photo_import_trip_id"),
+        consumed_trip_id=None
+        if degraded
+        else profile.get("usage_photo_import_trip_id"),
+        cluster_allowance=(
+            0 if degraded else profile.get("usage_photo_import_cluster_allowance") or 0
+        ),
+        columns_degraded=degraded,
     )
+
+
+async def _call_increment_rpc(db: Any, rpc_name: str, rpc_args: dict[str, Any]) -> Any:
+    """Call an increment RPC, retrying without the trip arg if it has no such
+    overload.
+
+    Migration 0058 is what teaches `increment_photo_import_usage` about
+    `p_trip_id`. Until it is applied PostgREST cannot resolve the two-argument
+    call and answers PGRST202, which would turn every client-side usage report
+    into a 502. Falling back to the argument set that does exist keeps the
+    pre-0058 behaviour intact for exactly as long as the migration lags.
+    """
+    try:
+        return await db.rpc(rpc_name, rpc_args)
+    except Exception as e:
+        if "p_trip_id" not in rpc_args or not is_missing_function_error(e):
+            raise
+        logger.error(
+            "%s has no trip-aware overload (migration 0058 has not been "
+            "applied); retrying without p_trip_id",
+            rpc_name,
+        )
+        fallback = {
+            key: value
+            for key, value in rpc_args.items()
+            if key not in ("p_trip_id", "p_clusters")
+        }
+        return await db.rpc(rpc_name, fallback)
+
+
+async def charge_photo_import_usage(
+    db: Any, user_id: str, trip_id: str | None, cluster_count: int
+) -> int | None:
+    """Spend one photo import server-side for work that was actually performed.
+
+    This is the authoritative charge (F1). The counter used to be written only
+    by the mobile client volunteering a call to `POST /usage/increment`, so
+    blocking that one request left the count at 0 forever and the gate above it
+    enforced a number the client controlled.
+
+    The RPC is first-trip-wins and does not re-charge the trip it already
+    recorded, so the client's own mirror call remains safe to make.
+
+    Returns:
+        The new count, or None when the trip-aware RPC does not exist yet
+        (migration 0058 not applied) -- in which case nothing is charged, so a
+        lagging migration cannot strand a free user mid-import.
+    """
+    try:
+        result = await db.rpc(
+            "increment_photo_import_usage",
+            {
+                "p_user_id": user_id,
+                "p_trip_id": trip_id,
+                "p_clusters": max(0, cluster_count),
+            },
+        )
+    except Exception as e:
+        if not is_missing_function_error(e):
+            raise
+        logger.error(
+            "increment_photo_import_usage(p_user_id, p_trip_id, p_clusters) is "
+            "missing (migration 0058 has not been applied). The photo import "
+            "was NOT charged server-side."
+        )
+        return None
+    return result if isinstance(result, int) else None
 
 
 @router.get("/status", response_model=SubscriptionInfo)
@@ -143,13 +323,27 @@ async def get_usage_limits(
     token = get_token_from_request(request)
     db = get_supabase_client(user_token=token)
 
-    result = await db.get(
-        "user_profile",
-        params={
-            "select": "usage_share_extension_count,usage_photo_import_count,usage_share_extension_period_start,usage_photo_import_trip_id",
-            "user_id": f"eq.{user.id}",
-        },
-    )
+    # Column-tolerant for the same reason as `read_photo_import_entitlement`:
+    # this query backs the app-wide usage/paywall state, so a backend that ships
+    # ahead of migration 0058 must lose the trip id, not the endpoint.
+    try:
+        result = await db.get(
+            "user_profile",
+            params={"select": USAGE_COLUMNS, "user_id": f"eq.{user.id}"},
+        )
+        usage_columns_degraded = False
+    except Exception as e:
+        if not is_missing_column_error(e, "usage_photo_import_trip_id"):
+            raise
+        logger.error(
+            "usage_photo_import_trip_id is missing (migration 0058 has not been "
+            "applied). Serving usage limits without the consumed trip id."
+        )
+        usage_columns_degraded = True
+        result = await db.get(
+            "user_profile",
+            params={"select": LEGACY_USAGE_COLUMNS, "user_id": f"eq.{user.id}"},
+        )
 
     if not result:
         raise HTTPException(status_code=404, detail="Profile not found")
@@ -185,7 +379,11 @@ async def get_usage_limits(
         # R17: the trip the consumed import was spent on. The client needs it at
         # every gate that guards entry to matching so a user who has used their
         # free import can still finish that one trip.
-        photo_import_trip_id=profile.get("usage_photo_import_trip_id"),
+        photo_import_trip_id=(
+            None
+            if usage_columns_degraded
+            else profile.get("usage_photo_import_trip_id")
+        ),
         entries_per_trip_limit=FREE_LIMITS["entries_per_trip"],
     )
 
@@ -197,7 +395,14 @@ async def increment_usage(
     request: Request,
     user: CurrentUser,
 ) -> IncrementUsageResponse:
-    """Increment usage counter for a feature."""
+    """Increment usage counter for a feature.
+
+    For `photo_import` this is an idempotent MIRROR of the server-side charge
+    that `POST /photos/suggest-places` now makes for itself (F1): the RPC is
+    first-trip-wins and does not re-charge the trip it already recorded, so a
+    client that also reports its usage costs nothing extra. Blocking this call
+    no longer buys the caller anything.
+    """
     token = get_token_from_request(request)
     db = get_supabase_client(user_token=token)
 
@@ -217,7 +422,7 @@ async def increment_usage(
         raise HTTPException(status_code=400, detail="Invalid feature")
 
     try:
-        result = await db.rpc(rpc_name, rpc_args)
+        result = await _call_increment_rpc(db, rpc_name, rpc_args)
     except Exception as e:
         logger.error(f"RPC {rpc_name} failed for user {user.id}: {e}")
         raise HTTPException(

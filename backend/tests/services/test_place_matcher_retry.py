@@ -568,21 +568,124 @@ class TestCircuitBreaker:
 
     @pytest.mark.asyncio
     async def test_open_breaker_short_circuits_without_calling_google(
-        self, metrics
+        self, mock_settings, clean_cache, metrics
     ) -> None:
+        """An open breaker refuses the OUTBOUND call, and is still countable.
+
+        The gate used to sit at the top of `with_google_retry`, so nothing ran
+        at all. It now sits at the outbound call (after the cache layers), so
+        the assertion that matters is that no HTTP request is issued -- which is
+        what the breaker exists to prevent. See
+        `test_open_breaker_still_serves_a_warm_cache_hit` for the other half.
+        """
         rate_limit.rate_limit_breaker._open_until = float("inf")
         calls = {"n": 0}
 
-        async def operation() -> list[dict]:
+        async def mock_post(*args, **kwargs):
             calls["n"] += 1
-            return []
+            return _ok_response([_quality_place()])
+
+        client = AsyncMock()
+        client.post = mock_post
+        matcher = PlaceMatcher(http_client=client)
 
         with pytest.raises(RateLimitError):
-            await with_google_retry(operation, site=instr.SITE_NEARBY)
+            await matcher._execute_search(TOKYO_LAT, TOKYO_LNG, 15)
 
-        assert calls["n"] == 0
+        assert calls["n"] == 0, "an outbound Google call was issued anyway"
         assert metrics.retries[instr.RETRY_CIRCUIT_OPEN] == 1
         assert metrics.dropped_ranking_inputs[instr.SITE_NEARBY] == 1
+
+    @pytest.mark.asyncio
+    async def test_open_breaker_still_serves_a_warm_cache_hit(
+        self, mock_settings, clean_cache, metrics
+    ) -> None:
+        """A search already in L1 costs nothing, so the breaker must not refuse it.
+
+        The landmark rescue quantizes its bias center to ~110m precisely so many
+        clusters share ONE cached paid search, which makes the refused-but-free
+        fraction large. Gating at the retry wrapper rejected all of it.
+        """
+        calls = {"n": 0}
+
+        async def mock_post(*args, **kwargs):
+            calls["n"] += 1
+            return _ok_response([_quality_place()])
+
+        client = AsyncMock()
+        client.post = mock_post
+        matcher = PlaceMatcher(http_client=client)
+
+        # Warm the cache while the breaker is closed.
+        first = await matcher._execute_search(TOKYO_LAT, TOKYO_LNG, 15)
+        assert [p["id"] for p in first] == ["place-1"]
+        assert calls["n"] == 1
+
+        rate_limit.rate_limit_breaker._open_until = float("inf")
+        cached = await matcher._execute_search(TOKYO_LAT, TOKYO_LNG, 15)
+
+        assert [p["id"] for p in cached] == ["place-1"]
+        assert calls["n"] == 1, "the cache hit issued an outbound call"
+        assert metrics.retries[instr.RETRY_CIRCUIT_OPEN] == 0
+
+    @pytest.mark.asyncio
+    async def test_one_upstream_429_is_recorded_once_however_many_waiters(
+        self, mock_settings, clean_cache
+    ) -> None:
+        """A single 429 must be ONE breaker event, not 1 + N.
+
+        The single-flight owner resolves its future with the exception object
+        and every waiter re-raises THAT SAME OBJECT out of its own retry frame.
+        Counting per frame turned one upstream 429 into `1 + waiters` events, so
+        a 12-cluster Paris import sharing one landmark-rescue cache key could
+        open a breaker documented as "8 upstream 429s in a 10s window" on a
+        single upstream 429.
+        """
+        events: list[int] = []
+        real_record = rate_limit.rate_limit_breaker.record_rate_limit
+
+        def counting_record() -> None:
+            events.append(1)
+            real_record()
+
+        rate_limit.rate_limit_breaker.record_rate_limit = counting_record  # type: ignore[method-assign]
+        try:
+            started = asyncio.Event()
+            release = asyncio.Event()
+            posts = {"n": 0}
+
+            async def mock_post(*args, **kwargs):
+                posts["n"] += 1
+                started.set()
+                await release.wait()
+                return _rate_limited_response()
+
+            client = AsyncMock()
+            client.post = mock_post
+            matcher = PlaceMatcher(http_client=client)
+
+            async def one_caller() -> None:
+                with pytest.raises(RateLimitError):
+                    await matcher._execute_text_search(
+                        "Shared Venue", TOKYO_LAT, TOKYO_LNG
+                    )
+
+            owner = asyncio.create_task(one_caller())
+            await started.wait()
+            waiters = [asyncio.create_task(one_caller()) for _ in range(5)]
+            await asyncio.sleep(0)
+            release.set()
+            await asyncio.gather(owner, *waiters)
+        finally:
+            rate_limit.rate_limit_breaker.record_rate_limit = real_record  # type: ignore[method-assign]
+
+        # One HTTP 429 per attempt the owner actually made; the five waiters
+        # made none of their own.
+        assert len(events) == posts["n"], (
+            f"{posts['n']} upstream 429(s) produced {len(events)} breaker "
+            "events -- waiters re-counted an exception they only observed"
+        )
+        assert len(events) < 1 + 5 * posts["n"]
 
 
 # ===========================================================================

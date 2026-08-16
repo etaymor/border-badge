@@ -4,8 +4,8 @@ import asyncio
 import hashlib
 import logging
 import weakref
-from collections.abc import AsyncIterator, Awaitable, Callable
-from contextlib import asynccontextmanager
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
+from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -13,7 +13,7 @@ import httpx
 
 from app.core.config import get_settings
 
-from .cache import places_cache
+from .cache import UncacheableResult, places_cache
 from .constants import (
     DENSITY_SEARCH_RADII,
     DENSITY_THRESHOLD_DENSE,
@@ -67,7 +67,13 @@ from .persistent_cache import (
     set_place_details_cache,
     set_search_cache,
 )
-from .rate_limit import budget_seconds_for, retry_budget_scope, with_google_retry
+from .rate_limit import (
+    budget_seconds_for,
+    cluster_timeout_for,
+    raise_if_circuit_open,
+    retry_budget_scope,
+    with_google_retry,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -106,6 +112,34 @@ def _positive_int(value: Any) -> int | None:
     return value if value >= 1 else None
 
 
+# How many place-matching requests are currently in flight in this process.
+# Plain int: asyncio is single-threaded here, and a uvicorn worker or replica
+# is a separate process with its own count (exactly like the process-wide
+# semaphore and the route's request-rate limit).
+_in_flight_place_requests = 0
+
+
+@contextmanager
+def places_request_scope() -> Iterator[None]:
+    """Register one in-flight place-matching request for the duration.
+
+    Entered by :meth:`PlaceMatcher.find_places_for_clusters`. Its only job is to
+    make :func:`resolve_places_concurrency` able to divide the process-wide
+    ceiling by the number of callers competing for it (see there).
+    """
+    global _in_flight_place_requests
+    _in_flight_place_requests += 1
+    try:
+        yield
+    finally:
+        _in_flight_place_requests -= 1
+
+
+def in_flight_place_requests() -> int:
+    """Number of place-matching requests currently registered in this process."""
+    return _in_flight_place_requests
+
+
 def resolve_places_concurrency(
     settings: Any | None = None,
     *,
@@ -118,6 +152,19 @@ def resolve_places_concurrency(
     today's behaviour rather than to an unbounded fan-out. The per-request
     bound is clamped to the process-wide ceiling: a misconfigured value must
     never let one caller hold every global slot.
+
+    ADAPTIVE SHARE. The configured per-request bound is sized for ONE importing
+    user (the planned client concurrency of 3 x 5 = the process ceiling of 15),
+    which leaves a second concurrent importer nothing: six requests would want
+    30 slots against 15, and the losers would burn the 2s slot-wait ceiling and
+    surface as ``failed_cluster_count`` with no upstream fault anywhere. So the
+    share is also divided by the number of requests registered via
+    :func:`places_request_scope`, floored at 1. N importers then queue on their
+    OWN (unbounded, charged-to-nobody) per-request semaphore and degrade evenly,
+    instead of the first N x 5 winning every global slot and the rest failing.
+
+    Outside a request scope (a direct call, a unit test) the count is 0 and the
+    divisor is 1, so the bound is exactly the configured one.
 
     ``default_per_request`` lets a caller supply its own module-level fallback
     so the bound stays patchable where it is used.
@@ -133,7 +180,8 @@ def resolve_places_concurrency(
         _positive_int(getattr(settings, "places_max_concurrent_requests_process", None))
         or MAX_CONCURRENT_PLACES_REQUESTS_PROCESS
     )
-    return min(per_request, process_wide), process_wide
+    fair_share = max(1, process_wide // max(1, _in_flight_place_requests))
+    return min(per_request, process_wide, fair_share), process_wide
 
 
 # PER-PROCESS outbound bound, keyed by event loop so a semaphore is never
@@ -174,7 +222,15 @@ async def places_outbound_slot() -> AsyncIterator[None]:
     :class:`SlotUnavailableError` when it expires, so a starved cluster fails
     fast and retryable instead of spending its whole per-cluster budget queuing
     and surfacing as an indistinguishable timeout.
+
+    This is also where the rate-limit circuit breaker gates, for the SAME
+    reason the slot is held here: at the retry wrapper the gate refused pure
+    cache hits and single-flight waiters, which issue no network call at all —
+    and the landmark rescue quantizes its bias center to ~110m precisely so
+    many clusters share ONE cached paid search, making that refused-but-free
+    fraction large.
     """
+    raise_if_circuit_open()
     _, process_limit = resolve_places_concurrency()
     semaphore = _get_process_semaphore(process_limit)
     try:
@@ -544,7 +600,10 @@ class SearchMixin:
                     f"Google Places API error: status={response.status_code}, "
                     f"body={response.text[:500]}"
                 )
-                return []
+                # Degrade to an empty result, but NEVER cache it: a 30s upstream
+                # 503 must not become 60 days of "there is nothing here" for
+                # every user (see cache.UncacheableResult).
+                raise UncacheableResult([])
 
             response_json = response.json()
             places = response_json.get("places", [])
@@ -674,7 +733,9 @@ class SearchMixin:
 
             if response.status_code != 200:
                 logger.warning(f"Text Search API error: status={response.status_code}")
-                return []
+                # Degraded, not knowledge: never write a transient fault through
+                # to the 60-day L2 (see cache.UncacheableResult).
+                raise UncacheableResult([])
 
             places = response.json().get("places", [])
             logger.info(f"Text Search for '{text_query}': found {len(places)} places")
@@ -763,7 +824,9 @@ class SearchMixin:
                 logger.warning(
                     f"Popularity probe API error: status={response.status_code}"
                 )
-                return []
+                # Degraded, not knowledge: never write a transient fault through
+                # to the 60-day L2 (see cache.UncacheableResult).
+                raise UncacheableResult([])
 
             places = response.json().get("places", [])
             # R27: coordinates only at the diagnostics gate (see _execute_search).
@@ -906,11 +969,31 @@ class SearchMixin:
         # One retry budget for the whole enrichment fan-out. Tasks copy the
         # context but share the budget object, so the finalists cannot each
         # spend the full allowance.
+        #
+        # And ONE wall-clock ceiling over the phase (U8). The retry budget only
+        # caps *sleeping*; before this, enrichment opened a fresh budget with no
+        # enclosing timeout, so the phase's real ceiling was however long Google
+        # took, and the only thing that ever stopped it was the mobile client's
+        # 90s timeout failing the whole chunk. Enrichment is best-effort by
+        # design, so expiry degrades to the un-enriched first-pass ranking.
         with retry_budget_scope(budget_seconds_for(self._settings)):
-            results = await asyncio.gather(
-                *[fetch_one(pid) for pid in place_ids],
-                return_exceptions=True,
-            )
+            try:
+                results = await asyncio.wait_for(
+                    asyncio.gather(
+                        *[fetch_one(pid) for pid in place_ids],
+                        return_exceptions=True,
+                    ),
+                    timeout=cluster_timeout_for(self._settings),
+                )
+            except TimeoutError:
+                # R27: static text only.
+                logger.warning(
+                    "Rating enrichment exceeded its phase budget; "
+                    "falling back to un-enriched ranking"
+                )
+                for _ in place_ids:
+                    record_dropped_ranking_input(SITE_ENRICHMENT)
+                return {}
 
         enriched: dict[str, dict[str, Any]] = {}
         for r in results:

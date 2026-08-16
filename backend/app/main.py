@@ -25,7 +25,9 @@ from app.core.config import get_settings
 from app.core.http_client import (
     close_http_client,
     close_places_client,
+    close_vision_client,
     get_places_client,
+    get_vision_client,
 )
 from app.core.logging import setup_logging
 from app.core.posthog import shutdown_posthog
@@ -215,15 +217,21 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 platform,
                 ", ".join(fields),
             )
-    # Startup - build the private Places pool once, so the first photo import
-    # of a process does not pay pool construction on the request path.
+    # Startup - build the private Places and vision pools once, so the first
+    # photo import of a process does not pay pool construction on the request
+    # path. Both are separate from the shared app client on purpose: its
+    # keepalive budget sits below what one import's fan-out uses, so routing
+    # either through it evicted the app's database connections mid-import.
     get_places_client()
+    get_vision_client()
 
     yield
     # Shutdown - close shared HTTP client
     await close_http_client()
     # Shutdown - close the private Places client
     await close_places_client()
+    # Shutdown - close the private vision client
+    await close_vision_client()
     # Shutdown - flush and close PostHog client
     shutdown_posthog()
 

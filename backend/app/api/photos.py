@@ -11,7 +11,11 @@ import httpx
 from fastapi import APIRouter, HTTPException, Request, status
 from limits import RateLimitItem, RateLimitItemPerMinute
 
-from app.api.subscriptions import read_photo_import_entitlement
+from app.api.subscriptions import (
+    PhotoImportEntitlement,
+    charge_photo_import_usage,
+    read_photo_import_entitlement,
+)
 from app.api.utils import get_token_from_request
 from app.core.config import get_settings
 from app.core.http_client import get_places_client
@@ -103,13 +107,38 @@ def _cost_budget_items() -> dict[str, RateLimitItem]:
     }
 
 
+def _release_cost_budget(item: RateLimitItem, scope: str, key: str, cost: int) -> None:
+    """Give back a budget charge that the request is not going to use.
+
+    `hit` on a fixed window increments FIRST and only then reports whether the
+    window had room, so a rejected charge is still recorded. Handing it back
+    keeps a rejected request costing the caller nothing -- the same property the
+    old test-then-hit pass had, without its race.
+
+    Best effort: only some `limits` storages expose `decr`. Leaving a charge in
+    place over-counts, which errs toward rejecting traffic rather than serving
+    it for free.
+    """
+    decr = getattr(limiter.limiter.storage, "decr", None)
+    if decr is None:  # pragma: no cover - depends on the configured storage
+        return
+    try:
+        decr(item.key_for(scope, key), cost)
+    except Exception:  # pragma: no cover - never fail a request on bookkeeping
+        logger.debug("Could not release a photo import cost budget charge")
+
+
 def _consume_cost_budget(
     request: Request, cluster_count: int, vision_image_count: int
 ) -> None:
     """Charge this request's real cost against the caller's rolling budgets.
 
-    Both budgets are TESTED before either is charged, so a request rejected on
-    its vision images does not silently burn the caller's cluster allowance.
+    Each driver is charged with the limiter's ATOMIC `hit`, and every charge
+    made for a request that ends up rejected is handed back. A separate `test`
+    pass followed by a `hit` pass left a window in which concurrent requests all
+    saw room and all charged, overshooting the budget by up to (concurrent
+    requests x per-request cost) -- five simultaneous 25-cluster requests could
+    serve ~125 clusters past a nearly-full budget.
 
     Raises:
         HTTPException: 429 when either budget is exhausted. This is a traffic
@@ -132,49 +161,83 @@ def _consume_cost_budget(
         if cost > 0
     ]
 
+    charged: list[tuple[RateLimitItem, str, int]] = []
     for driver, item, scope, cost in charges:
-        if not limiter.limiter.test(item, scope, key, cost=cost):
-            record_retry(f"cost_budget_{driver}")
-            # R27: aggregate counts only -- no cluster ids, coordinates, or
-            # place ids in an always-on log line.
-            logger.warning(
-                "Photo import cost budget exhausted for user key %s: "
-                "driver=%s requested=%d budget=%s",
-                key,
-                driver,
-                cost,
-                item.amount,
-            )
-            raise HTTPException(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail=(
-                    "Photo import cost budget exceeded. "
-                    "Please wait a moment and try again."
-                ),
-                headers={"Retry-After": str(item.get_expiry())},
-            )
+        if limiter.limiter.hit(item, scope, key, cost=cost):
+            charged.append((item, scope, cost))
+            continue
 
-    for _driver, item, scope, cost in charges:
-        limiter.limiter.hit(item, scope, key, cost=cost)
+        # Rejected: unwind this charge and any earlier driver's, so a request
+        # turned away on its vision images has not burned its cluster budget.
+        _release_cost_budget(item, scope, key, cost)
+        for done_item, done_scope, done_cost in charged:
+            _release_cost_budget(done_item, done_scope, key, done_cost)
+
+        record_retry(f"cost_budget_{driver}")
+        # R27: aggregate counts only -- no cluster ids, coordinates, or
+        # place ids in an always-on log line.
+        logger.warning(
+            "Photo import cost budget exhausted for user key %s: "
+            "driver=%s requested=%d budget=%s",
+            key,
+            driver,
+            cost,
+            item.amount,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=(
+                "Photo import cost budget exceeded. "
+                "Please wait a moment and try again."
+            ),
+            headers={"Retry-After": str(item.get_expiry())},
+        )
+
+
+async def _caller_owns_trip(db: object, user_id: str, trip_id: str) -> bool:
+    """Whether `trip_id` is a live trip belonging to `user_id`.
+
+    The client supplies `trip_id`, and it is the key to the R17 exemption, so it
+    has to be tied to the caller before it can grant anything. Matches the
+    ownership predicate the increment RPC applies, so the endpoint and the
+    database agree on what "your trip" means.
+    """
+    rows = await db.get(  # type: ignore[attr-defined]
+        "trip",
+        params={
+            "select": "id",
+            "id": f"eq.{trip_id}",
+            "user_id": f"eq.{user_id}",
+            "deleted_at": "is.null",
+        },
+    )
+    return bool(rows)
 
 
 async def _enforce_photo_import_entitlement(
     request: Request, data: PlaceSuggestionRequest, user: AuthUser
-) -> None:
+) -> PhotoImportEntitlement:
     """Reject a caller with no right to run this import, before any paid call.
 
     KTD23: server-side enforcement is authoritative and the device marker is a
     fast path. This endpoint fronts two metered paid APIs, so the check runs
     ahead of both vision classification and place matching.
 
+    Returns:
+        The entitlement that was read, so the charge after a successful match
+        does not pay for a second profile read.
+
     Raises:
         HTTPException: 402 when the caller has consumed their free import and
-            this is not the trip that consumed it; 503 (header-less, i.e.
-            transient by the client's quota-vs-transient rule) when the
-            entitlement itself could not be read.
+            this is not the trip that consumed it (or that trip's cluster
+            allowance is spent); 403 when a non-premium caller claims a trip
+            that is not theirs; 503 (header-less, i.e. transient by the
+            client's quota-vs-transient rule) when the entitlement itself could
+            not be read.
     """
     token = get_token_from_request(request)
     db = get_supabase_client(user_token=token)
+    trip_id = str(data.trip_id) if data.trip_id else None
 
     try:
         entitlement = await read_photo_import_entitlement(db, str(user.id))
@@ -187,8 +250,39 @@ async def _enforce_photo_import_entitlement(
             detail="Unable to verify photo import access. Please try again.",
         ) from e
 
-    if entitlement.allows(data.trip_id):
-        return
+    # Ownership matters only where the trip id can buy something: it is the
+    # exemption key and the thing the charge records. Premium callers have no
+    # entitlement to launder, and a degraded read cannot use the trip at all.
+    if not entitlement.is_premium and not entitlement.columns_degraded and trip_id:
+        try:
+            owns_trip = await _caller_owns_trip(db, str(user.id), trip_id)
+        except Exception as e:
+            logger.warning(
+                "Photo import trip ownership lookup failed for user %s: %s",
+                user.id,
+                e,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Unable to verify photo import access. Please try again.",
+            ) from e
+
+        if not owns_trip:
+            record_retry("entitlement_trip_not_owned")
+            # R27: no trip id on an always-on log line.
+            logger.warning(
+                "Photo import requested for a trip user %s does not own", user.id
+            )
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "code": "PHOTO_IMPORT_TRIP_NOT_FOUND",
+                    "message": "Trip not found.",
+                },
+            )
+
+    if entitlement.allows(trip_id):
+        return entitlement
 
     record_retry("entitlement_denied")
     logger.info("Photo import entitlement exhausted for user %s", user.id)
@@ -208,6 +302,49 @@ async def _enforce_photo_import_entitlement(
             "consumed_trip_id": entitlement.consumed_trip_id,
         },
     )
+
+
+async def _charge_photo_import(
+    data: PlaceSuggestionRequest,
+    user: AuthUser,
+    entitlement: PhotoImportEntitlement,
+    processed_cluster_count: int,
+) -> None:
+    """Charge the caller for the matching this request just performed (F1).
+
+    The gate above enforces a counter, and until now that counter was written
+    exclusively by the mobile client volunteering a call to
+    `POST /subscriptions/usage/increment`. Blocking that one request -- a proxy
+    rule, a firewall, a patched client -- left the count at 0 forever, so the
+    "authoritative" server-side check was authoritative over a number the client
+    controlled. The charge now happens here, with the service role, on the same
+    request that spent the money.
+
+    Charged only when work was actually performed and only for a non-premium
+    caller. A request in which every cluster failed is not charged: the user
+    should not lose their one free import to an outage, and replaying failures
+    is already bounded by the per-minute cost budgets.
+
+    Never raises: the paid calls have already been made and the results are
+    valid, so a bookkeeping failure is logged rather than turned into a 5xx.
+    """
+    if entitlement.is_premium or entitlement.columns_degraded:
+        return
+    if processed_cluster_count <= 0:
+        logger.info(
+            "Photo import not charged for user %s: no cluster was processed",
+            user.id,
+        )
+        return
+
+    trip_id = str(data.trip_id) if data.trip_id else None
+    # Service role on purpose: the charge must not depend on the caller's token
+    # or on the caller choosing to report anything.
+    db = get_supabase_client(user_token=None)
+    try:
+        await charge_photo_import_usage(db, str(user.id), trip_id, len(data.clusters))
+    except Exception as e:
+        logger.error("Photo import charge failed for user %s: %s", user.id, e)
 
 
 @router.post("/suggest-places", response_model=PlaceSuggestionResponse)
@@ -244,8 +381,16 @@ async def suggest_places(
         # Both gates run BEFORE any paid call. Cheapest first: the budget check
         # is in-process, the entitlement check costs one database read.
         _consume_cost_budget(request, len(data.clusters), data.vision_image_count)
-        await _enforce_photo_import_entitlement(request, data, user)
-        return await _suggest_places(data)
+        entitlement = await _enforce_photo_import_entitlement(request, data, user)
+        response = await _suggest_places(data)
+        # ...and the charge runs after, on the work that was actually done.
+        await _charge_photo_import(
+            data,
+            user,
+            entitlement,
+            processed_cluster_count=len(data.clusters) - response.failed_cluster_count,
+        )
+        return response
 
 
 async def _suggest_places(data: PlaceSuggestionRequest) -> PlaceSuggestionResponse:
@@ -270,9 +415,29 @@ async def _suggest_places(data: PlaceSuggestionRequest) -> PlaceSuggestionRespon
             cluster_dicts, vision_results_task=vision_task
         )
 
+        # Capacity failures are OUR saturation, not an upstream fault, and they
+        # must not be reported as ordinary per-cluster failures. Every call site
+        # inside the matcher catches its own exceptions, so a tripped circuit
+        # breaker or an exhausted outbound slot would otherwise return 200 with
+        # an inflated `failed_cluster_count` -- which the client renders as
+        # retry-ENABLED rows and a "Retry all" control that dispatches straight
+        # back into the still-open breaker. Answering busy is what actually
+        # slows the caller down.
+        #
+        # Read defensively: this is a diagnostic signal, not part of the
+        # matcher's contract, so a test double or a future matcher variant that
+        # does not publish it must degrade to "no capacity failures" rather
+        # than 500 the endpoint. Decided here but RAISED BELOW, outside this
+        # try, because the broad handler at the end turns any exception into a
+        # 500 -- including an HTTPException we raised deliberately.
+        capacity_failed = getattr(matcher, "last_capacity_failed_cluster_count", 0)
+        if not isinstance(capacity_failed, int):
+            capacity_failed = 0
+        capacity_bound = capacity_failed > 0 and capacity_failed >= failed_count
+
         # Convert dicts to ClusterSuggestion models for validation
         suggestions = [ClusterSuggestion.model_validate(s) for s in suggestion_dicts]
-        return PlaceSuggestionResponse(
+        matched_response = PlaceSuggestionResponse(
             suggestions=suggestions,
             failed_cluster_count=failed_count,
         )
@@ -290,12 +455,22 @@ async def _suggest_places(data: PlaceSuggestionRequest) -> PlaceSuggestionRespon
             detail="Too many requests to places service. Please wait a moment and try again.",
             headers={"Retry-After": "60"},
         ) from e
-    except SlotUnavailableError as e:
-        # U7: OUR concurrency bound was saturated, not Google's quota. Same
-        # shape as pool exhaustion below and deliberately header-less for the
-        # same reason: the mobile client tells a quota 503 from a transient one
-        # by the presence of `Retry-After`, and this is a seconds-long local
-        # blip the client should retry, not a day-long quota wall.
+    except SlotUnavailableError as e:  # pragma: no cover - see note below
+        # CURRENTLY UNREACHABLE, on purpose left in place as a backstop.
+        #
+        # `SlotUnavailableError` is raised inside `places_outbound_slot`, but
+        # every call site in the matcher either catches it per cluster or is
+        # collected by `asyncio.gather(..., return_exceptions=True)`, so it
+        # never propagates out of `find_places_for_clusters`. What slot
+        # starvation actually does today is DEGRADE: the starved clusters come
+        # back in `failed_cluster_count` on a 200, and the client retries those
+        # clusters. It does not produce the 503 described below.
+        #
+        # If a future matcher change ever lets it escape, U7's shape applies:
+        # OUR concurrency bound was saturated, not Google's quota, so this is
+        # deliberately header-less -- the mobile client tells a quota 503 from a
+        # transient one by the presence of `Retry-After`, and this is a
+        # seconds-long local blip the client should retry, not a day-long wall.
         logger.warning("Places outbound concurrency saturated; rejecting request")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -342,6 +517,23 @@ async def _suggest_places(data: PlaceSuggestionRequest) -> PlaceSuggestionRespon
     finally:
         if vision_task is not None and not vision_task.done():
             vision_task.cancel()
+
+    # Raised outside the try so the broad handler above cannot turn a
+    # deliberate busy signal into a 500. Header-less like the other capacity
+    # 503s: the client tells a quota 503 from a transient one by the presence
+    # of Retry-After, and this is a seconds-long local blip.
+    if capacity_bound:
+        logger.warning(
+            "Place matching refused %d/%d clusters for capacity; reporting busy",
+            capacity_failed,
+            len(cluster_dicts),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Place suggestion service is busy. Please try again in a moment.",
+        )
+
+    return matched_response
 
 
 # NOTE: No /confirm-entries endpoint - reuse existing entry creation at

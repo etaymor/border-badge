@@ -126,6 +126,11 @@ VISION_NULL_REQUEST_ERROR = "request_error"
 VISION_NULL_EMPTY_RESPONSE = "empty_response"
 VISION_NULL_NO_API_KEY = "no_api_key"
 VISION_NULL_EXCEPTION = "exception"
+# Our OWN process-wide vision bound was saturated, so the image was never sent.
+# Distinct from `timeout` on purpose: a timeout says the model was slow, this
+# says we throttled ourselves. Conflating them would make a self-inflicted
+# capacity limit look like an upstream regression on the dashboard.
+VISION_NULL_SLOT_UNAVAILABLE = "slot_unavailable"
 VISION_NULL_UNKNOWN = "unknown"
 VISION_NULL_REASONS: tuple[str, ...] = (
     VISION_NULL_TIMEOUT,
@@ -134,6 +139,7 @@ VISION_NULL_REASONS: tuple[str, ...] = (
     VISION_NULL_EMPTY_RESPONSE,
     VISION_NULL_NO_API_KEY,
     VISION_NULL_EXCEPTION,
+    VISION_NULL_SLOT_UNAVAILABLE,
     VISION_NULL_UNKNOWN,
 )
 

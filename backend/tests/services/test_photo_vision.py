@@ -9,7 +9,15 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
+from app.core import http_client as http_client_module
 from app.core.config import Settings, get_settings
+from app.core.http_client import (
+    VISION_MAX_CONNECTIONS,
+    VISION_MAX_KEEPALIVE_CONNECTIONS,
+    VISION_POOL_TIMEOUT_SECONDS,
+    get_http_client,
+    get_vision_client,
+)
 from app.services.photo_vision import PhotoClassifier, VisionResult
 from app.services.photo_vision import classifier as classifier_module
 from app.services.photo_vision.classifier import (
@@ -470,7 +478,7 @@ class TestClassifyEmptyChoices:
 
         with (
             patch(
-                "app.services.photo_vision.classifier.get_http_client",
+                "app.services.photo_vision.classifier.get_vision_client",
                 return_value=mock_client,
             ),
             patch(
@@ -498,7 +506,7 @@ class TestClassifyEmptyChoices:
 
         with (
             patch(
-                "app.services.photo_vision.classifier.get_http_client",
+                "app.services.photo_vision.classifier.get_vision_client",
                 return_value=mock_client,
             ),
             patch(
@@ -755,7 +763,7 @@ class TestVisionNullOutcomeRecording:
                 raise httpx.TimeoutException("vision timed out")
 
         monkeypatch.setattr(
-            classifier_module, "get_http_client", lambda: _TimingOutClient()
+            classifier_module, "get_vision_client", lambda: _TimingOutClient()
         )
 
         clusters = [{"id": "cluster-1", "vision_images_base64": ["img1"]}]
@@ -833,3 +841,156 @@ class TestVisionNullOutcomeRecording:
 
         assert [p["place_id"] for p in ranked] == ["near-1", "far-1"]
         assert all(p["vision_category"] is None for p in ranked)
+
+
+# ============================================================================
+# U8 — the vision fan-out's own pool and its slot-acquisition ceiling
+# ============================================================================
+
+
+class TestVisionHasItsOwnConnectionPool:
+    """Vision ran on the shared app client, whose budget it does not fit."""
+
+    @pytest.fixture(autouse=True)
+    def _reset_clients(self):
+        http_client_module._vision_client = None
+        http_client_module._http_client = None
+        yield
+        http_client_module._vision_client = None
+        http_client_module._http_client = None
+
+    def test_vision_does_not_share_the_app_wide_client(self) -> None:
+        assert get_vision_client() is not get_http_client()
+
+    def test_the_classifier_resolves_the_private_getter(self) -> None:
+        """The bug was `classify` calling `get_http_client()` directly."""
+        assert classifier_module.get_vision_client is get_vision_client
+        assert classifier_module.get_vision_client is not get_http_client
+        assert not hasattr(classifier_module, "get_http_client")
+
+    def test_the_pool_is_sized_above_the_process_ceiling(self) -> None:
+        with patch.object(http_client_module.httpx, "AsyncClient") as ctor:
+            get_vision_client()
+
+        limits = ctor.call_args.kwargs["limits"]
+        assert limits.max_connections == VISION_MAX_CONNECTIONS
+        assert limits.max_keepalive_connections == VISION_MAX_KEEPALIVE_CONNECTIONS
+        # Slot starvation (fast, counted) must be the binding constraint, not
+        # pool exhaustion (a header-less transport error).
+        assert (
+            VISION_MAX_CONNECTIONS
+            > classifier_module.MAX_CONCURRENT_VISION_REQUESTS_PROCESS
+        )
+        # And every one of those connections must survive between chunks.
+        assert (
+            VISION_MAX_KEEPALIVE_CONNECTIONS
+            >= classifier_module.MAX_CONCURRENT_VISION_REQUESTS_PROCESS
+        )
+
+    def test_the_shared_client_keepalive_budget_is_no_longer_the_constraint(
+        self,
+    ) -> None:
+        """The bug: a 30-slot ceiling on a 20-keepalive shared pool."""
+        with patch.object(http_client_module.httpx, "AsyncClient") as ctor:
+            get_http_client()
+        shared_keepalive = ctor.call_args.kwargs["limits"].max_keepalive_connections
+
+        assert shared_keepalive == 20
+        assert (
+            classifier_module.MAX_CONCURRENT_VISION_REQUESTS_PROCESS > shared_keepalive
+        ), "the premise changed; re-check the sizing note in http_client.py"
+        assert VISION_MAX_KEEPALIVE_CONNECTIONS > shared_keepalive
+
+    @pytest.mark.asyncio
+    async def test_classify_uses_the_private_client(self, monkeypatch) -> None:
+        monkeypatch.setattr(get_settings(), "openrouter_api_key", "test-key")
+        used: list[object] = []
+
+        class _Client:
+            async def post(self, *_args, **kwargs):
+                used.append(self)
+                response = MagicMock()
+                response.status_code = 200
+                response.json.return_value = {"choices": []}
+                return response
+
+        sentinel = _Client()
+        monkeypatch.setattr(classifier_module, "get_vision_client", lambda: sentinel)
+
+        await PhotoClassifier(timeout=5.0).classify("image")
+
+        assert used == [sentinel]
+
+    @pytest.mark.asyncio
+    async def test_the_pool_wait_keeps_its_own_short_budget(self, monkeypatch) -> None:
+        """A slow model must not also be how long we wait for a connection."""
+        monkeypatch.setattr(get_settings(), "openrouter_api_key", "test-key")
+        seen: dict[str, object] = {}
+
+        class _Client:
+            async def post(self, *_args, **kwargs):
+                seen["timeout"] = kwargs["timeout"]
+                response = MagicMock()
+                response.status_code = 200
+                response.json.return_value = {"choices": []}
+                return response
+
+        monkeypatch.setattr(classifier_module, "get_vision_client", lambda: _Client())
+
+        await PhotoClassifier(timeout=5.0).classify("image")
+
+        timeout = seen["timeout"]
+        assert isinstance(timeout, httpx.Timeout)
+        assert timeout.read == 5.0
+        assert timeout.pool == VISION_POOL_TIMEOUT_SECONDS
+        assert timeout.pool != timeout.read
+
+
+class TestVisionSlotAcquisitionIsBounded:
+    """A process ceiling with an unbounded wait is a queue, not a bound."""
+
+    @pytest.mark.asyncio
+    async def test_a_starved_image_becomes_a_null_rather_than_waiting_forever(
+        self, monkeypatch, caplog
+    ) -> None:
+        monkeypatch.setattr(
+            classifier_module, "MAX_CONCURRENT_VISION_REQUESTS_PROCESS", 1
+        )
+        monkeypatch.setattr(classifier_module, "VISION_SLOT_WAIT_CEILING_SECONDS", 0.02)
+        monkeypatch.setattr(get_settings(), "vision_max_concurrent_requests", 1)
+
+        async def never_called(_self, _image_base64: str):
+            raise AssertionError("classified without a process slot")
+
+        monkeypatch.setattr(PhotoClassifier, "classify", never_called)
+
+        # Hold the only process-wide slot for the whole test.
+        semaphore = classifier_module._get_process_semaphore(1)
+        await semaphore.acquire()
+        try:
+            clusters = [{"id": "cluster-1", "vision_images_base64": ["img"]}]
+            with caplog.at_level(logging.WARNING), request_metrics() as metrics:
+                result = await asyncio.wait_for(
+                    classify_cluster_photos(clusters), timeout=5.0
+                )
+        finally:
+            semaphore.release()
+
+        assert result == {}
+        assert metrics.vision_images_null == 1
+        # Attributed, not swallowed: the reason names the local bound.
+        assert classifier_module.VISION_NULL_SLOT_UNAVAILABLE in caplog.text
+        # And the reasons still account for every null image.
+        assert sum(metrics.vision_null_reasons.values()) == 1
+
+    @pytest.mark.asyncio
+    async def test_the_ceiling_matches_the_places_slot_ceiling(self) -> None:
+        """Both bound a purely LOCAL saturation wait; neither may dominate."""
+        from app.services.place_matcher.constants import (
+            PLACES_SLOT_WAIT_CEILING_SECONDS,
+        )
+
+        assert (
+            classifier_module.VISION_SLOT_WAIT_CEILING_SECONDS
+            == PLACES_SLOT_WAIT_CEILING_SECONDS
+        )

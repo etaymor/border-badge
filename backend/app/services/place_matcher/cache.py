@@ -27,6 +27,27 @@ _OWNER_CANCELLED: Final = object()
 _MAX_OWNER_ELECTIONS: Final = 3
 
 
+class UncacheableResult(Exception):  # noqa: N818
+    """Raised by a ``fetch_fn`` whose result must NOT enter any cache layer.
+
+    The cache stack cannot tell "Google answered 200 with no places here" from
+    "Google answered 503 and we degraded to an empty list" — both are ``[]``.
+    Writing the second one through turns a 30-second upstream blip into 60 days
+    (``SEARCH_CACHE_TTL_DAYS``) of durable, cross-user, cross-deploy negative
+    knowledge for every coordinate the blip touched, recoverable only by purging
+    the table by hand.
+
+    So the fetch signals it instead of returning it. The value still reaches the
+    caller (and the concurrent single-flight waiters, so an outage does not turn
+    into a stampede), but it is written to neither L1 nor L2 and the very next
+    request re-issues the call.
+    """
+
+    def __init__(self, result: list[dict]) -> None:
+        super().__init__("fetch result must not be cached")
+        self.result = result
+
+
 class PlacesCache:
     """
     In-memory LRU cache for Google Places API responses.
@@ -190,7 +211,10 @@ class PlacesCache:
         # Every election we were willing to run ended with a cancelled owner.
         # Degrade to a plain cache miss rather than inheriting a cancellation
         # that was never aimed at us.
-        return await fetch_fn()
+        try:
+            return await fetch_fn()
+        except UncacheableResult as signal:
+            return signal.result
 
     async def _get_or_fetch_once(
         self,
@@ -262,7 +286,18 @@ class PlacesCache:
             if result is None:
                 if on_source is not None:
                     on_source(SOURCE_API)
-                result = await fetch_fn()
+                try:
+                    result = await fetch_fn()
+                except UncacheableResult as signal:
+                    # A transient upstream fault produced this value. Hand it to
+                    # this caller and to the waiters (so one blip does not become
+                    # a stampede), but write it to NEITHER layer: see
+                    # UncacheableResult.
+                    async with self._lock:
+                        self._in_flight.pop(key, None)
+                        if not our_future.done():
+                            our_future.set_result(signal.result)
+                    return signal.result
                 # Write-through to L2 so other instances/deploys reuse this.
                 if l2_set is not None:
                     await l2_set(key, result)
@@ -301,6 +336,11 @@ class PlacesCache:
                             our_future.cancel()
                         else:
                             our_future.set_exception(error)
+                            # Mark it retrieved: an owner with no waiters would
+                            # otherwise have asyncio log the whole traceback as
+                            # "Future exception was never retrieved" at GC time,
+                            # for a failure the owner is already re-raising.
+                            our_future.exception()
                     except Exception:
                         # set_exception/cancel failed (e.g., InvalidStateError)
                         pass

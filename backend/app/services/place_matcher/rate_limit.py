@@ -23,9 +23,23 @@ All four now route through :func:`with_google_retry`, which supplies:
 * **A process-wide circuit breaker.** Under sustained throttling every
   concurrent cluster would otherwise become an independent retry multiplier,
   converting rate pressure into more rate pressure. Once upstream 429s cross a
-  threshold within a window, new outbound attempts short-circuit for a cooldown
-  and raise :class:`RateLimitError` immediately — the retry-disabled outcome
-  the API route already maps to a 429 response.
+  threshold within a window, new OUTBOUND attempts short-circuit for a cooldown
+  and raise :class:`CircuitOpenError`.
+
+  The gate lives at the outbound call itself (``places_outbound_slot``), not
+  around the cached lookup: an L1/L2 hit or a single-flight wait issues no
+  network call, so refusing it would throttle exactly the callers that cost
+  nothing — the same reasoning that decided where the outbound slot is held.
+
+  What the breaker's error does at the route is call-site-dependent and is NOT
+  a general "the route maps this to a 429": on the dominant Nearby path
+  ``asyncio.gather(..., return_exceptions=True)`` folds it into the cluster
+  failure count, and text search, the popularity probe and enrichment all
+  swallow it into a degraded result. ``find_places_for_clusters`` therefore
+  counts those clusters SEPARATELY (see
+  ``PlaceMatcher.last_capacity_failed_cluster_count``) so a caller can tell
+  "we are throttling ourselves" from "these clusters legitimately found
+  nothing" and answer with a busy signal instead of a retry-enabled 200.
 
 Privacy (R27): nothing here logs or records a coordinate, cluster id, geohash,
 or place id. Call sites are identified by a static site name.
@@ -63,6 +77,18 @@ from .exceptions import QuotaExhaustedError, RateLimitError, SlotUnavailableErro
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
+
+
+class CircuitOpenError(RateLimitError):
+    """The circuit breaker refused an outbound attempt.
+
+    A subclass of :class:`RateLimitError` so every existing degrade-on-throttle
+    handler keeps working unchanged, but distinguishable so the retry wrapper
+    can tell "upstream said 429" (retry, feed the breaker) from "we refused to
+    ask" (do not retry, and never feed our own refusal back into the window
+    that produced it).
+    """
+
 
 # Indirection so tests can substitute the sleep without patching the asyncio
 # module globally, and without the suite ever waiting for a real backoff.
@@ -124,6 +150,22 @@ _retry_budget_var: ContextVar[RetryBudget | None] = ContextVar(
 )
 
 
+def cluster_timeout_for(settings: Any) -> float:
+    """The per-cluster timeout, guarded against an unusable settings value.
+
+    The ``isinstance`` guard is load-bearing rather than defensive: a
+    ``MagicMock`` settings stand-in answers every attribute, and handing a Mock
+    to ``asyncio.wait_for`` fails in a way that has nothing to do with the code
+    under test.
+    """
+    raw = getattr(settings, "places_cluster_timeout_seconds", None)
+    return (
+        float(raw)
+        if isinstance(raw, int | float) and not isinstance(raw, bool)
+        else DEFAULT_CLUSTER_TIMEOUT_SECONDS
+    )
+
+
 def budget_seconds_for(settings: Any) -> float:
     """Retry-sleep allowance derived from the per-cluster timeout.
 
@@ -131,13 +173,7 @@ def budget_seconds_for(settings: Any) -> float:
     per-cluster timeout from being sized independently: backoff may spend at
     most :data:`RETRY_BUDGET_FRACTION_OF_CLUSTER_TIMEOUT` of the cluster budget.
     """
-    raw = getattr(settings, "places_cluster_timeout_seconds", None)
-    timeout = (
-        float(raw)
-        if isinstance(raw, int | float) and not isinstance(raw, bool)
-        else DEFAULT_CLUSTER_TIMEOUT_SECONDS
-    )
-    return timeout * RETRY_BUDGET_FRACTION_OF_CLUSTER_TIMEOUT
+    return cluster_timeout_for(settings) * RETRY_BUDGET_FRACTION_OF_CLUSTER_TIMEOUT
 
 
 @contextmanager
@@ -217,6 +253,44 @@ class RateLimitCircuitBreaker:
 rate_limit_breaker = RateLimitCircuitBreaker()
 
 
+# Marker attribute set on a RateLimitError once its 429 has been fed to the
+# breaker. A single upstream response can be observed by MANY coroutines: the
+# single-flight owner resolves its future with the exception object, and every
+# waiter re-raises THAT SAME OBJECT out of its own retry frame. Counting once
+# per frame turned one 429 into 1 + N events, so a 12-cluster import sharing one
+# landmark-rescue cache key could open a breaker documented as "8 upstream 429s
+# in a 10s window" on a single upstream 429.
+_BREAKER_RECORDED_ATTR = "_place_matcher_breaker_recorded"
+
+
+def record_rate_limit_once(error: BaseException) -> bool:
+    """Feed ``error``'s 429 to the breaker at most once, however many frames see it.
+
+    Returns True when this call was the one that recorded it.
+    """
+    if getattr(error, _BREAKER_RECORDED_ATTR, False):
+        return False
+    try:
+        object.__setattr__(error, _BREAKER_RECORDED_ATTR, True)
+    except (AttributeError, TypeError):
+        # An exception type that refuses attributes cannot be deduped; recording
+        # it is still better than dropping the signal entirely.
+        pass
+    rate_limit_breaker.record_rate_limit()
+    return True
+
+
+def raise_if_circuit_open() -> None:
+    """Refuse an outbound attempt while the breaker is open.
+
+    Called immediately before the outbound call — AFTER every cache layer — so a
+    search already warm in L1/L2, or one riding a single-flight wait, still
+    resolves for free while the breaker holds off new network work.
+    """
+    if rate_limit_breaker.is_open():
+        raise CircuitOpenError("Places rate-limit circuit breaker open")
+
+
 # ---------------------------------------------------------------------------
 # The shared retry wrapper
 # ---------------------------------------------------------------------------
@@ -246,6 +320,10 @@ async def with_google_retry(
       re-joins the same queue, and counting it upstream would let our own bound
       trip the circuit breaker. The ranking input it costs IS attributed, since
       the caller degrades to an un-enriched/absent result either way.
+    * :class:`CircuitOpenError` — OUR refusal to call, raised from the outbound
+      path once the cache layers have already missed. Retrying inside the
+      cooldown is exactly the behaviour the breaker exists to stop, and feeding
+      it back to ``record_rate_limit`` would let the breaker sustain itself.
 
     Args:
         operation: Zero-argument async callable performing the attempt.
@@ -264,13 +342,6 @@ async def with_google_retry(
     last_error: BaseException | None = None
 
     for attempt in range(GOOGLE_RETRY_MAX_ATTEMPTS):
-        if rate_limit_breaker.is_open():
-            instrumentation.record_retry(instrumentation.RETRY_CIRCUIT_OPEN)
-            instrumentation.record_dropped_ranking_input(site)
-            raise RateLimitError(
-                f"Places rate-limit circuit breaker open (site={site})"
-            )
-
         try:
             return await operation()
         except QuotaExhaustedError:
@@ -279,8 +350,16 @@ async def with_google_retry(
             # adds the signals U15 has no view of.
             instrumentation.record_dropped_ranking_input(site)
             raise
+        except CircuitOpenError:
+            # OUR refusal, raised from the outbound path after the cache layers
+            # missed. Checked BEFORE RateLimitError, which it subclasses: it is
+            # neither retried nor fed back to the breaker.
+            instrumentation.record_retry(instrumentation.RETRY_CIRCUIT_OPEN)
+            instrumentation.record_dropped_ranking_input(site)
+            raise
         except RateLimitError as error:
-            rate_limit_breaker.record_rate_limit()
+            # Once per upstream 429, not once per coroutine that observes it.
+            record_rate_limit_once(error)
             last_error = error
         except SlotUnavailableError:
             # U7: our own concurrency bound, not upstream. Never retried (the
@@ -315,5 +394,13 @@ async def with_google_retry(
         await _sleep(granted)
 
     instrumentation.record_dropped_ranking_input(site)
-    assert last_error is not None  # loop only exits here after a failure
+    if last_error is None:
+        # Unreachable today: the loop only falls out here after an attempt
+        # failed. An explicit guard rather than an `assert`, which `python -O`
+        # strips — leaving `raise None` -> TypeError, i.e. a clean 429 turning
+        # into a 500 for the caller.
+        raise RuntimeError(
+            f"with_google_retry exhausted its attempts without an error "
+            f"(site={site})"
+        )
     raise last_error
