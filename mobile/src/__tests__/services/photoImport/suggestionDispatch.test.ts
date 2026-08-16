@@ -17,6 +17,8 @@ import {
   deriveDispatchConcurrency,
   CHUNK_SIZE,
   FIRST_CHUNK_SIZE,
+  MAX_PARKABLE_RETRY_AFTER_SECONDS,
+  MAX_RATE_LIMIT_PARKS,
   MAX_SUGGESTION_DISPATCH_CONCURRENCY,
   SUGGEST_PLACES_TIMEOUT_MS,
   SUGGESTION_DISPATCH_CONCURRENCY,
@@ -228,8 +230,14 @@ describe('suggestionDispatch - failedClusterIds (KTD6/KTD8/KTD10)', () => {
 
   it('treats a 402 entitlement refusal as fatal-but-not-transient (U16)', async () => {
     const err = makeAxiosError(402);
+    // THE REAL WIRE SHAPE. The backend raises
+    // `HTTPException(402, detail={"code": "PHOTO_IMPORT_LIMIT_REACHED"})` and
+    // FastAPI's default handler nests a dict detail under `detail` — the
+    // backend's own test asserts `response.json()["detail"]["code"]`. The
+    // hand-built flat `{ code }` fixture this used to carry kept the client's
+    // branch green while it could never match in production.
     // @ts-expect-error - minimal AxiosError response shape for the test
-    err.response.data = { code: 'PHOTO_IMPORT_LIMIT_REACHED' };
+    err.response.data = { detail: { code: 'PHOTO_IMPORT_LIMIT_REACHED' } };
     mockedApi.post.mockRejectedValueOnce(err);
 
     const clusters = buildClustersForBatches(2);
@@ -243,6 +251,36 @@ describe('suggestionDispatch - failedClusterIds (KTD6/KTD8/KTD10)', () => {
       });
     }
     expect(mockedApi.post).toHaveBeenCalledTimes(1);
+  });
+
+  it('also accepts a 402 whose code was hoisted to the top level (U16)', async () => {
+    // Defensive on purpose: an app-level exception handler, or a proxy that
+    // rewrites error bodies, can hoist the code out of `detail`. Being wrong
+    // here costs a paid request that can never succeed, so both shapes match.
+    const err = makeAxiosError(402);
+    // @ts-expect-error - minimal AxiosError response shape for the test
+    err.response.data = { code: 'PHOTO_IMPORT_LIMIT_REACHED' };
+    mockedApi.post.mockRejectedValueOnce(err);
+
+    const result = await suggestionDispatch.dispatch({ clusters: buildClustersForBatches(2) });
+
+    expect(result.fatalError).toMatchObject({ name: 'PhotoImportLimitReachedError' });
+  });
+
+  it('does not read a 402 with an unrelated detail as the entitlement stop', async () => {
+    // FastAPI's `detail` is a STRING for most raises. Reading it blindly must
+    // not misclassify an ordinary payment error as the import limit.
+    const err = makeAxiosError(402);
+    // @ts-expect-error - minimal AxiosError response shape for the test
+    err.response.data = { detail: 'Payment required' };
+    mockedApi.post.mockRejectedValueOnce(err);
+
+    const result = await suggestionDispatch.dispatch({ clusters: buildClusters(1) });
+
+    expect(result.fatalError).toBeNull();
+    expect([...suggestionDispatch.getState().failedClusterIds.values()]).toEqual([
+      { retryDisabled: false },
+    ]);
   });
 
   it('leaves failedClusterIds empty when all chunks succeed', async () => {
@@ -818,7 +856,10 @@ describe('suggestionDispatch - bounded worker pool (U6/R6)', () => {
     mockedApi.post.mockImplementation(async (_url, body) => {
       const index = batchIndexOfRequest(batches, body);
       await gates[index].promise;
-      if (index === 1) throw makeAxiosError(429, { 'retry-after': '1' });
+      // The SUSTAINED limit (60s), which is the one that genuinely stops
+      // dispatch. A burst-cap 429 asks for a second and is parked through
+      // instead — see the U16 park test below.
+      if (index === 1) throw makeAxiosError(429, { 'retry-after': '60' });
       return { data: { suggestions: suggestionsFor(batches[index].map((c) => c.id)) } };
     });
 
@@ -839,7 +880,7 @@ describe('suggestionDispatch - bounded worker pool (U6/R6)', () => {
     // No fourth request: the stop took effect, and the in-flight pair still
     // contributed their results.
     expect(mockedApi.post).toHaveBeenCalledTimes(3);
-    expect(result.fatalError).toMatchObject({ name: 'RateLimitError', retryAfterSeconds: 1 });
+    expect(result.fatalError).toMatchObject({ name: 'RateLimitError', retryAfterSeconds: 60 });
     expect(result.suggestions.map((s) => s.cluster_id).sort()).toEqual(
       [...batches[0], ...batches[2]].map((c) => c.id).sort()
     );
@@ -1287,4 +1328,298 @@ describe('suggestionDispatch - concurrency telemetry (U11/R18)', () => {
       retryGenerations: 0,
     });
   });
+});
+
+// ---- The pool honors its own claim (KTD7) ----------------------------------
+
+describe('suggestionDispatch - the pool honors its claim (KTD7)', () => {
+  it('posts only the claimed subset and skips a batch another path already holds', async () => {
+    const clusters = buildClustersForBatches(2);
+    const batches = planSuggestionBatches(clusters);
+    // Another path — a manual split, a per-row retry, or an overlapping
+    // dispatch — already has the whole first batch and one cluster of the
+    // second on the wire.
+    const heldElsewhere = [...batches[0].map((c) => c.id), batches[1][0].id];
+    expect(suggestionDispatch.claim(heldElsewhere)).toEqual(heldElsewhere);
+
+    mockedApi.post.mockResolvedValue(emptyResponse);
+    const result = await suggestionDispatch.dispatch({ clusters });
+
+    // The fully-spoken-for batch produces NO request at all: re-posting it
+    // would re-buy every one of its clusters from Google Places and from
+    // vision. The scoped paths have bailed on an empty claim since they were
+    // written; the pool computed the claim and then ignored it.
+    expect(mockedApi.post).toHaveBeenCalledTimes(1);
+    const posted = (mockedApi.post.mock.calls[0][1] as { clusters: { id: string }[] }).clusters.map(
+      (c) => c.id
+    );
+    expect(posted).toEqual(batches[1].slice(1).map((c) => c.id));
+
+    // Coverage and the cache allow-list describe what actually went out.
+    expect([...result.dispatchedClusterIds].sort()).toEqual(
+      batches[1]
+        .slice(1)
+        .map((c) => c.id)
+        .sort()
+    );
+    for (const id of heldElsewhere) {
+      expect(result.dispatchedClusterIds.has(id)).toBe(false);
+      expect(result.dispatchedAndResolvedIds.has(id)).toBe(false);
+    }
+
+    // The claim we never took is still the other path's to release.
+    const inFlight = suggestionDispatch.getState().inFlightClusterIds;
+    for (const id of heldElsewhere) expect(inFlight.has(id)).toBe(true);
+
+    // A skipped batch still SETTLES, so progress reaches its denominator
+    // instead of stalling at 100% minus that batch.
+    expect(suggestionDispatch.getState().progress).toMatchObject({
+      clustersTotal: clusters.length,
+      clustersCompleted: clusters.length,
+      percentage: 100,
+    });
+
+    suggestionDispatch.releaseClaim(heldElsewhere);
+  });
+});
+
+// ---- Generation-scoped abort (U6) ------------------------------------------
+
+describe('suggestionDispatch - abort is scoped to its own dispatch', () => {
+  it('does not resurrect a worker parked in preparation when a new dispatch clears the flag', async () => {
+    const oldClusters = buildClusters(FIRST_CHUNK_SIZE).map((c) => ({ ...c, id: `old-${c.id}` }));
+    const newClusters = buildClusters(FIRST_CHUNK_SIZE).map((c) => ({ ...c, id: `new-${c.id}` }));
+    const encoding = deferred<void>();
+
+    // Vision encoding takes seconds — long enough for the user to leave.
+    const prepareBatch = jest.fn(async (batch: PlaceSuggestionCluster[]) => {
+      if (batch[0].id.startsWith('old-')) await encoding.promise;
+      return batch;
+    });
+
+    mockedApi.post.mockImplementation(
+      async (_url, body) =>
+        ({
+          data: {
+            suggestions: suggestionsFor(
+              (body as { clusters: { id: string }[] }).clusters.map((c) => c.id)
+            ),
+            failed_cluster_count: 0,
+          },
+        }) as never
+    );
+
+    const oldRun = suggestionDispatch.dispatch({ clusters: oldClusters, prepareBatch });
+    await flush();
+
+    // The user leaves the candidate mid-encode...
+    suggestionDispatch.reset();
+    // ...and the next candidate starts, which clears the SHARED abort flag.
+    await suggestionDispatch.dispatch({ clusters: newClusters, prepareBatch });
+
+    encoding.resolve();
+    await oldRun;
+    await flush();
+
+    // The departed candidate's batch never goes on the wire: it is not merely
+    // wasted money, it lands on a run that no longer owns the screen.
+    const posted = mockedApi.post.mock.calls.flatMap((call) =>
+      (call[1] as { clusters: { id: string }[] }).clusters.map((c) => c.id)
+    );
+    expect(posted).toEqual(newClusters.map((c) => c.id));
+
+    // ...and the older run cannot overwrite the newer one's accumulators.
+    const state = suggestionDispatch.getState();
+    expect(state.partialResults.map((s) => s.cluster_id)).toEqual(newClusters.map((c) => c.id));
+    expect(state.data?.suggestions.map((s) => s.cluster_id)).toEqual(newClusters.map((c) => c.id));
+    for (const cluster of oldClusters) {
+      expect(state.dispatchedAndResolvedClusterIds.has(cluster.id)).toBe(false);
+      expect(state.failedClusterIds.has(cluster.id)).toBe(false);
+    }
+  });
+});
+
+// ---- Scoped batches are abortable and pause-aware (U6/U9) ------------------
+
+describe('suggestionDispatch - scoped batch abort and pause', () => {
+  it('reset() cancels a scoped batch on the wire, and the wire reports it', async () => {
+    const signals: AbortSignal[] = [];
+    mockedApi.post.mockImplementation(
+      (_url, _body, config) =>
+        new Promise((_resolve, reject) => {
+          const signal = (config as { signal?: AbortSignal } | undefined)?.signal;
+          signals.push(signal as AbortSignal);
+          signal?.addEventListener('abort', () => reject(new Error('canceled')));
+        }) as never
+    );
+
+    const run = suggestionDispatch.dispatchBatch({
+      clusterIds: ['sc-1'],
+      prepare: async () => [{ id: 'sc-1', centroid: { latitude: 1, longitude: 2 }, photos: [] }],
+    });
+    await flush();
+
+    // A split / per-row retry is a batch on the wire like any other, so the
+    // occupancy telemetry can see it.
+    expect(suggestionDispatch.getInFlightBatchCount()).toBe(1);
+    expect(signals[0].aborted).toBe(false);
+
+    suggestionDispatch.reset();
+
+    await expect(run).rejects.toThrow('canceled');
+    expect(signals[0].aborted).toBe(true);
+    expect(suggestionDispatch.getInFlightBatchCount()).toBe(0);
+    expect(suggestionDispatch.getState().dispatchedAndResolvedClusterIds.has('sc-1')).toBe(false);
+  });
+
+  it('never posts, and marks nothing resolved, when the abort lands during preparation', async () => {
+    const encoding = deferred<void>();
+    mockedApi.post.mockResolvedValue(emptyResponse);
+
+    const run = suggestionDispatch.dispatchBatch({
+      clusterIds: ['sc-2'],
+      prepare: async () => {
+        await encoding.promise;
+        return [{ id: 'sc-2', centroid: { latitude: 1, longitude: 2 }, photos: [] }];
+      },
+    });
+    await flush();
+
+    suggestionDispatch.reset();
+    encoding.resolve();
+    const outcome = await run;
+
+    expect(mockedApi.post).not.toHaveBeenCalled();
+    expect([...outcome.respondedIds]).toEqual([]);
+    expect(outcome.unresolvedIds).toEqual(['sc-2']);
+    // Non-zero on purpose: the split path reads a ZERO failure count as "every
+    // cluster answered" and would cache an empty row for a batch that never
+    // left the device (R20).
+    expect(outcome.response.failed_cluster_count).toBe(1);
+    expect(suggestionDispatch.getState().dispatchedAndResolvedClusterIds.has('sc-2')).toBe(false);
+  });
+
+  it('parks a scoped batch while the app is backgrounded, and issues it on resume', async () => {
+    const prepare = jest.fn(async () => [
+      { id: 'sc-3', centroid: { latitude: 1, longitude: 2 }, photos: [] },
+    ]);
+    mockedApi.post.mockResolvedValue(emptyResponse);
+
+    suggestionDispatch.pause();
+    const run = suggestionDispatch.dispatchBatch({ clusterIds: ['sc-3'], prepare });
+    await flush();
+
+    // Neither the request NOR the vision encoding it would need happens while
+    // the app is away — the same rule the pool's workers follow.
+    expect(mockedApi.post).not.toHaveBeenCalled();
+    expect(prepare).not.toHaveBeenCalled();
+
+    suggestionDispatch.resume();
+    await run;
+
+    expect(mockedApi.post).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---- U16: a burst-cap 429 is a wait, not the end of the import -------------
+
+describe('suggestionDispatch - burst-cap rate limiting (U16)', () => {
+  it('parks for a SHORT Retry-After and dispatches the rest of the plan', async () => {
+    const clusters = buildClustersForBatches(3);
+    const batches = planSuggestionBatches(clusters);
+
+    mockedApi.post.mockImplementation(async (_url, body) => {
+      const index = batchIndexOfRequest(batches, body);
+      if (index === 1) throw makeAxiosError(429, { 'retry-after': '1' });
+      return {
+        data: {
+          suggestions: suggestionsFor(batches[index].map((c) => c.id)),
+          failed_cluster_count: 0,
+        },
+      } as never;
+    });
+
+    const startedAt = Date.now();
+    const result = await suggestionDispatch.dispatch({ clusters });
+    const elapsedMs = Date.now() - startedAt;
+
+    // The burst cap is 5/second and answers with Retry-After: 1. Ending the
+    // import on it stranded every remaining batch — on a 100-cluster trip that
+    // is ~80 locations rendered "Couldn't check this location".
+    expect(mockedApi.post).toHaveBeenCalledTimes(3);
+    expect(result.isPartial).toBe(false);
+    // ...and it WAITED the window out rather than hammering straight back.
+    expect(elapsedMs).toBeGreaterThanOrEqual(900);
+    expect(result.suggestions.map((s) => s.cluster_id).sort()).toEqual(
+      [...batches[0], ...batches[2]].map((c) => c.id).sort()
+    );
+
+    // The throttled batch stays RETRYABLE: unlike a quota or entitlement stop,
+    // it becomes dispatchable again a second from now.
+    const failed = suggestionDispatch.getState().failedClusterIds;
+    expect([...failed.keys()].sort()).toEqual(batches[1].map((c) => c.id).sort());
+    for (const id of failed.keys()) expect(failed.get(id)).toEqual({ retryDisabled: false });
+    // The rejection is still reported, so the rate-limit analytics branch is
+    // unchanged.
+    expect(result.fatalError).toMatchObject({ name: 'RateLimitError', retryAfterSeconds: 1 });
+  }, 15000);
+
+  it('gives up after a bounded number of parks, so a pathological server cannot loop', async () => {
+    const clusters = buildClustersForBatches(MAX_RATE_LIMIT_PARKS + 3);
+    // Retry-After: 0 keeps the WAIT degenerate so this measures the bound
+    // rather than the clock. Zero is inside the parkable window.
+    expect(MAX_PARKABLE_RETRY_AFTER_SECONDS).toBeGreaterThanOrEqual(1);
+    mockedApi.post.mockRejectedValue(makeAxiosError(429, { 'retry-after': '0' }));
+
+    const result = await suggestionDispatch.dispatch({ clusters });
+
+    // MAX parks, then the next rejection is a hard stop like the sustained one.
+    expect(mockedApi.post).toHaveBeenCalledTimes(MAX_RATE_LIMIT_PARKS + 1);
+    expect(result.isPartial).toBe(true);
+    expect(result.fatalError).toMatchObject({ name: 'RateLimitError' });
+  }, 15000);
+
+  it('keeps a LONG Retry-After a hard stop rather than parking a minute', async () => {
+    const clusters = buildClustersForBatches(3);
+    mockedApi.post
+      .mockResolvedValueOnce(emptyResponse)
+      .mockRejectedValueOnce(
+        makeAxiosError(429, { 'retry-after': String(MAX_PARKABLE_RETRY_AFTER_SECONDS + 1) })
+      )
+      .mockResolvedValue(emptyResponse);
+
+    const startedAt = Date.now();
+    const result = await suggestionDispatch.dispatch({ clusters });
+
+    expect(mockedApi.post).toHaveBeenCalledTimes(2);
+    expect(Date.now() - startedAt).toBeLessThan(1000);
+    expect(result.isPartial).toBe(true);
+    const failed = suggestionDispatch.getState().failedClusterIds;
+    for (const id of failed.keys()) expect(failed.get(id)).toEqual({ retryDisabled: true });
+  });
+
+  it('holds the payload retention bound across a rate-limit park', async () => {
+    // The prefetch bound is what caps peak encoded-payload memory. A park is
+    // exactly when workers sit holding prepared payloads, so it is the case the
+    // accounting has to survive.
+    const clusters = buildClustersForBatches(6);
+    const batches = planSuggestionBatches(clusters);
+    const prepareBatch = jest.fn(async (batch: PlaceSuggestionCluster[]) => batch);
+    const retainedAtEachPost: number[] = [];
+
+    mockedApi.post.mockImplementation(async (_url, body) => {
+      // Prepared but not yet posted, counting this request as posted.
+      retainedAtEachPost.push(prepareBatch.mock.calls.length - mockedApi.post.mock.calls.length);
+      const index = batchIndexOfRequest(batches, body);
+      if (index === 1) throw makeAxiosError(429, { 'retry-after': '0' });
+      return emptyResponse as never;
+    });
+
+    await suggestionDispatch.dispatch({ clusters, prepareBatch, concurrency: 2 });
+
+    expect(retainedAtEachPost.length).toBe(batches.length);
+    for (const retained of retainedAtEachPost) {
+      expect(retained).toBeLessThanOrEqual(2 + 1);
+    }
+  }, 15000);
 });

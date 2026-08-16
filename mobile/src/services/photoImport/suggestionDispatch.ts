@@ -213,6 +213,35 @@ export function parseRetryAfterSeconds(value: string | undefined | null): number
   return isNaN(seconds) ? DEFAULT_RETRY_AFTER_SECONDS : seconds;
 }
 
+/**
+ * Longest `Retry-After` (in seconds) the pool will PARK on and resume from,
+ * rather than treating the rejection as the end of the import (U16).
+ *
+ * The backend answers an over-burst from its 5/second cap with that cap's own
+ * window — ONE second — and a sustained-limit or cost-budget rejection with
+ * sixty. Ending the whole dispatch on the mildest possible throttle is the most
+ * destructive response available: on a 100-cluster import a 429 at batch 4 left
+ * ~80 clusters never dispatched and every one of them rendered lookup-failed. A
+ * wait this short is worth taking; a minute-long one is not, so the sustained
+ * limit (and the quota 503, and the 402 entitlement stop) stay hard stops.
+ */
+export const MAX_PARKABLE_RETRY_AFTER_SECONDS = 5;
+
+/**
+ * How many short rate-limit parks ONE dispatch may take before it stops.
+ *
+ * A server answering 429 forever must not keep the pool cycling: past this the
+ * rejection is not a momentary burst, so dispatch stops exactly as it does for
+ * the sustained limit.
+ */
+export const MAX_RATE_LIMIT_PARKS = 3;
+
+/**
+ * Slice length for a rate-limit park (ms). The wait is served in slices so an
+ * abort taken DURING it is observed promptly instead of a whole window later.
+ */
+const RATE_LIMIT_PARK_SLICE_MS = 250;
+
 /** Error thrown when rate limited, includes retry delay */
 export class RateLimitError extends Error {
   retryAfterSeconds: number;
@@ -222,6 +251,28 @@ export class RateLimitError extends Error {
     this.name = 'RateLimitError';
     this.retryAfterSeconds = retryAfterSeconds;
   }
+}
+
+/**
+ * Read the machine-readable `code` off an error response body, accepting BOTH
+ * shapes the app can see.
+ *
+ * FastAPI's default `HTTPException` handler serializes a dict `detail` verbatim
+ * under `detail`, so the backend's `HTTPException(402, detail={"code": ...})`
+ * arrives as `{"detail": {"code": ...}}` — that is the wire contract, and the
+ * backend's own test asserts `response.json()["detail"]["code"]`. Reading only
+ * the top level made the entitlement branch below dead code in production while
+ * hand-built client fixtures kept it green. The flat shape is still accepted:
+ * a custom exception handler (or a proxy) may hoist the body, and being wrong
+ * here costs a paid request that can never succeed.
+ */
+function readErrorCode(error: AxiosError): string | undefined {
+  const body = error.response?.data as
+    | { code?: string; detail?: { code?: string } | string }
+    | undefined;
+  const detail = body?.detail;
+  if (detail && typeof detail !== 'string' && typeof detail.code === 'string') return detail.code;
+  return typeof body?.code === 'string' ? body.code : undefined;
 }
 
 /** Error thrown when daily quota is exhausted */
@@ -487,6 +538,22 @@ function setWith(base: ReadonlySet<string>, ids: Iterable<string>): Set<string> 
   return next;
 }
 
+/**
+ * What a scoped batch resolves to when an abort cancels it before it goes out.
+ *
+ * Nothing responded, so nothing may be cached — and `failed_cluster_count`
+ * deliberately carries the batch size: the split path treats a ZERO count as
+ * "every cluster was answered" and would otherwise write an empty cache row for
+ * a batch that never left the device (R20/KTD14).
+ */
+function abortedBatchOutcome(clusterIds: string[]): SuggestionBatchOutcome {
+  return {
+    response: { suggestions: [], failed_cluster_count: clusterIds.length },
+    respondedIds: new Set<string>(),
+    unresolvedIds: [...clusterIds],
+  };
+}
+
 const INITIAL_STATE: SuggestionDispatchState = {
   isDispatching: false,
   progress: null,
@@ -518,6 +585,11 @@ class SuggestionDispatchController {
    * checked BETWEEN batches, so with several batches on the wire it would leave
    * every one of them running to completion after the user navigated away. The
    * `AbortController`s below are what actually cancel them (U6).
+   *
+   * It is also SHARED, and a new dispatch clears it — so every check pairs it
+   * with the checker's own generation (`currentGeneration`). Without that, a
+   * worker parked in a long preparation across a `reset()` wakes to a cleared
+   * flag and resumes on behalf of a candidate the user has left.
    */
   private aborted = false;
 
@@ -953,13 +1025,43 @@ class SuggestionDispatchController {
     isRetry?: boolean;
   }): Promise<SuggestionBatchOutcome> => {
     if (params.isRetry) this.recordRetryAttempt();
-    const payload = await params.prepare();
-    const response = await this.postBatch(payload, params.tripId);
-    this.markResolved(params.clusterIds);
+    // Which run this scoped batch belongs to. The `aborted` flag alone is not a
+    // sufficient guard: a later `dispatch()` clears it, so a batch parked or
+    // preparing across a `reset()` would wake to `aborted === false` and post
+    // for a candidate the user has already left.
+    const generation = this.currentGeneration;
+    const isStopped = () => this.aborted || generation !== this.currentGeneration;
 
-    const respondedIds = new Set(response.suggestions.map((s) => s.cluster_id));
-    const unresolvedIds = params.clusterIds.filter((id) => !respondedIds.has(id));
-    return { response, respondedIds, unresolvedIds };
+    // U9/R15: a scoped batch is a NEW request exactly like a pooled one, so it
+    // must not go out while the app is backgrounded. Park rather than exit, so
+    // the split/retry the user asked for still happens when they come back.
+    while (this.paused && !isStopped()) {
+      await this.awaitResume();
+    }
+    if (isStopped()) return abortedBatchOutcome(params.clusterIds);
+
+    const payload = await params.prepare();
+    // Preparation is seconds of vision encoding — long enough for a `reset()`
+    // to land inside it. Nothing paid may be bought after that.
+    if (isStopped()) return abortedBatchOutcome(params.clusterIds);
+
+    // A REAL abort controller, registered like the pool's (U6): without one
+    // `reset()` could not cancel a split or a per-row retry, and neither showed
+    // up in the occupancy telemetry that is supposed to describe the wire.
+    const abortController = new AbortController();
+    this.addActiveAbort(abortController);
+    try {
+      const response = await this.postBatch(payload, params.tripId, abortController.signal);
+      // Skip the claim-set write for a departed candidate: `reset()` cleared
+      // these sets and repopulating them resurrects its rows.
+      if (!isStopped()) this.markResolved(params.clusterIds);
+
+      const respondedIds = new Set(response.suggestions.map((s) => s.cluster_id));
+      const unresolvedIds = params.clusterIds.filter((id) => !respondedIds.has(id));
+      return { response, respondedIds, unresolvedIds };
+    } finally {
+      this.removeActiveAbort(abortController);
+    }
   };
 
   // -- the chunked main dispatch -------------------------------------------
@@ -1020,6 +1122,17 @@ class SuggestionDispatchController {
     this.activeDispatches += 1;
     this.currentGeneration += 1;
     const generation = this.currentGeneration;
+    /**
+     * Has THIS run been stopped?
+     *
+     * `aborted` is one shared flag and `dispatch()` clears it at entry, so a
+     * worker parked in a long `await entry.payload` when `reset()` fired would
+     * wake AFTER a new dispatch cleared it, see `aborted === false`, and both
+     * post a paid request for the departed candidate and overwrite the new
+     * run's accumulators with its own. Pairing the flag with the generation is
+     * what makes every check ask about this run rather than about the module.
+     */
+    const isStopped = () => this.aborted || generation !== this.currentGeneration;
     // U11/R18. A fresh run opens a new measurement window; a bulk retry is a
     // repair OF that window and accumulates into it, which is what makes
     // "retries this import needed" answerable at exit.
@@ -1037,8 +1150,9 @@ class SuggestionDispatchController {
     }
     const recordFailedClusters = (batch: { id: string }[], retryDisabled: boolean) => {
       // An aborted run has had its failure map cleared by `reset()`; re-writing
-      // it here would resurrect a departed candidate's failures.
-      if (this.aborted) return;
+      // it here would resurrect a departed candidate's failures. A run the
+      // generation has moved past is in exactly the same position.
+      if (isStopped()) return;
       for (const cluster of batch) {
         failedIds.set(cluster.id, { retryDisabled });
       }
@@ -1057,7 +1171,7 @@ class SuggestionDispatchController {
     let clustersCompleted = 0;
     const publishProgress = () => {
       // A straggler from an older dispatch must not write this one's progress.
-      if (this.aborted || generation !== this.currentGeneration) return;
+      if (isStopped()) return;
       this.setState({
         progress: {
           clustersTotal: totalClusters,
@@ -1093,8 +1207,14 @@ class SuggestionDispatchController {
       // queue is serial, so more preparation workers buy no parallelism.
       // Preparation runs AHEAD of dispatch by `concurrency + 1` batches, which
       // is exactly the old "one batch ahead" at the shipped concurrency of 1.
-      // The bound is what caps peak payload memory, and it grows linearly with
-      // the pool: at concurrency N, N+1 encoded payloads can be held at once.
+      //
+      // The bound is what caps peak payload memory: a slot is held from the
+      // moment preparation is STARTED until the worker that took it is finished
+      // with it, so at concurrency N at most N + 1 encoded payloads exist at
+      // once. Releasing the slot when `await entry.payload` resolved — before
+      // the worker had claimed, built its controller and posted — under-counted
+      // it by up to `concurrency`, because the worker still held the payload
+      // while another worker started a replacement.
       const prefetchDepth = concurrency + 1;
       const prepared: {
         index: number;
@@ -1107,7 +1227,7 @@ class SuggestionDispatchController {
       let payloadsAwaitingDispatch = 0;
       const pumpPreparation = () => {
         while (
-          !this.aborted &&
+          !isStopped() &&
           !stopDispatching &&
           // U9: don't encode payloads that cannot be sent. Preparation is serial
           // at the native layer, so preparing through a background window burns
@@ -1130,17 +1250,34 @@ class SuggestionDispatchController {
        * awaits when actually paused, so an ordinary run is unchanged.
        */
       const parkWhilePaused = async (): Promise<void> => {
-        while (this.paused && !this.aborted && !stopDispatching) {
+        while (this.paused && !isStopped() && !stopDispatching) {
           await this.awaitResume();
+        }
+      };
+
+      // U16: a burst-cap 429 asks for a wait measured in seconds, not for the
+      // import to end. `rateLimitedUntil` is the window the whole pool waits
+      // out; `rateLimitParks` bounds how many times one dispatch will do it, so
+      // a server answering 429 forever cannot keep the pool cycling.
+      let rateLimitedUntil = 0;
+      let rateLimitParks = 0;
+      const awaitRateLimitWindow = async (): Promise<void> => {
+        for (;;) {
+          const remainingMs = rateLimitedUntil - Date.now();
+          if (remainingMs <= 0 || isStopped() || stopDispatching) return;
+          // Served in slices so an abort taken during the wait is seen promptly.
+          await new Promise<void>((resolve) => {
+            setTimeout(resolve, Math.min(remainingMs, RATE_LIMIT_PARK_SLICE_MS));
+          });
         }
       };
 
       const runWorker = async (): Promise<void> => {
         for (;;) {
-          if (this.aborted || stopDispatching) return;
+          if (isStopped() || stopDispatching) return;
           if (this.paused) {
             await parkWhilePaused();
-            if (this.aborted || stopDispatching) return;
+            if (isStopped() || stopDispatching) return;
           }
           // Refill first: `payloadsAwaitingDispatch` is strictly below
           // `prefetchDepth` whenever the queue is empty, so this can never
@@ -1155,133 +1292,178 @@ class SuggestionDispatchController {
           // `startPreparing` never rejects, so a preparation failure degrades to
           // a vision-less dispatch rather than failing the batch.
           let payload: PlaceSuggestionCluster[] | null = await entry.payload;
-          payloadsAwaitingDispatch -= 1;
-          if (this.aborted || stopDispatching) return;
-          // A batch that finished preparing DURING the background window is
-          // still a new request: hold it until we're foreground again.
-          if (this.paused) {
-            await parkWhilePaused();
-            if (this.aborted || stopDispatching) return;
-          }
-
-          const claimedIds = this.claim(chunkIds);
-          // A REAL abort controller per batch (U6). The `aborted` flag alone is
-          // only checked between batches, which cancels nothing that is already
-          // on the wire — and with a pool that is most of the work.
-          const abortController = new AbortController();
-          this.addActiveAbort(abortController);
-          // U11/R18: a batch dispatched by a retry run is a retry attempt.
-          if (isRetry) this.recordRetryAttempt();
-          const chunkStartTime = Date.now();
+          // The prefetch slot is released in the `finally` below — this worker
+          // is still HOLDING the payload until then.
           try {
-            for (const id of chunkIds) dispatchedIds.add(id);
-            const request$ = this.postBatch(payload, request.tripId, abortController.signal);
-            // The base64 vision images are by far the largest allocation here.
-            // Drop our reference the moment the request is issued so an
-            // already-dispatched batch is not pinned for the whole round trip.
-            payload = null;
-            const responseData = await request$;
-            chunkResponseTimes.push(Date.now() - chunkStartTime);
+            if (isStopped() || stopDispatching) return;
+            // A batch that finished preparing DURING the background window is
+            // still a new request: hold it until we're foreground again.
+            if (this.paused) {
+              await parkWhilePaused();
+              if (isStopped() || stopDispatching) return;
+            }
+            // ...and the same for a burst-cap window another worker ran into.
+            await awaitRateLimitWindow();
+            if (isStopped() || stopDispatching) return;
 
-            // Positive evidence: a response covering this batch arrived (R20).
-            for (const id of chunkIds) resolvedIds.add(id);
-            this.markResolved(chunkIds);
+            // Honor the CLAIM, exactly as the scoped paths do. Posting the full
+            // chunk while using the claim only for `releaseClaim` meant two
+            // overlapping dispatches each re-bought every cluster from Google
+            // Places and from vision.
+            const claimedIds = this.claim(chunkIds);
+            if (claimedIds.length === 0) {
+              // Every cluster here is already on the wire from another path.
+              // Nothing to send, but the batch still has to SETTLE so progress
+              // reaches its denominator.
+              clustersCompleted += chunk.length;
+              publishProgress();
+              continue;
+            }
+            const claimed = new Set(claimedIds);
+            const claimedChunk = chunk.filter((c) => claimed.has(c.id));
+            payload = payload.filter((c) => claimed.has(c.id));
 
-            // U10/R16. Fired here — synchronously, with no await between the
-            // response landing and the callback — so two batches resolving in
-            // the same tick both reach the caller's claim guard before either
-            // can yield, which is what makes the claim un-doubleable.
-            if (request.onBatchSuccess) {
-              try {
-                request.onBatchSuccess();
-              } catch (callbackError) {
-                if (__DEV__) {
-                  console.warn('[PhotoImport] onBatchSuccess threw', callbackError);
+            // A REAL abort controller per batch (U6). The `aborted` flag alone is
+            // only checked between batches, which cancels nothing that is already
+            // on the wire — and with a pool that is most of the work.
+            const abortController = new AbortController();
+            this.addActiveAbort(abortController);
+            // U11/R18: a batch dispatched by a retry run is a retry attempt.
+            if (isRetry) this.recordRetryAttempt();
+            const chunkStartTime = Date.now();
+            try {
+              for (const id of claimedIds) dispatchedIds.add(id);
+              const request$ = this.postBatch(payload, request.tripId, abortController.signal);
+              // The base64 vision images are by far the largest allocation here.
+              // Drop our reference the moment the request is issued so an
+              // already-dispatched batch is not pinned for the whole round trip.
+              payload = null;
+              const responseData = await request$;
+              chunkResponseTimes.push(Date.now() - chunkStartTime);
+
+              // Positive evidence: a response covering this batch arrived (R20).
+              for (const id of claimedIds) resolvedIds.add(id);
+              if (!isStopped()) this.markResolved(claimedIds);
+
+              // U10/R16. Fired here — synchronously, with no await between the
+              // response landing and the callback — so two batches resolving in
+              // the same tick both reach the caller's claim guard before either
+              // can yield, which is what makes the claim un-doubleable.
+              if (request.onBatchSuccess) {
+                try {
+                  request.onBatchSuccess();
+                } catch (callbackError) {
+                  if (__DEV__) {
+                    console.warn('[PhotoImport] onBatchSuccess threw', callbackError);
+                  }
                 }
               }
-            }
 
-            const suggestions = responseData.suggestions;
-            // U7: per-cluster slot starvation on the backend surfaces here, not
-            // as a rejection — retryable, and NOT a batch failure.
-            const chunkFailedClusters = responseData.failed_cluster_count ?? 0;
-            failedClusterCount += chunkFailedClusters;
-            if (firstSuggestionAt === null && suggestions.length > 0) {
-              firstSuggestionAt = Date.now();
-            }
-            if (__DEV__) {
-              console.log(
-                `[PhotoImport] Chunk ${entry.index + 1}/${chunks.length}: received ${suggestions.length} suggestions in ${Date.now() - chunkStartTime}ms` +
-                  (chunkFailedClusters > 0 ? `, ${chunkFailedClusters} clusters timed out` : ''),
-                suggestions.map((s) => ({
-                  clusterId: s.cluster_id,
-                  placeCount: s.places?.length ?? 0,
-                  topPlace: s.places?.[0]?.name ?? 'none',
-                }))
-              );
-            }
-            allSuggestions.push(...suggestions);
-            // Publish for immediate display.
-            if (!this.aborted) this.setState({ partialResults: [...allSuggestions] });
-          } catch (error) {
-            chunkResponseTimes.push(Date.now() - chunkStartTime);
-            // KTD6: attribute ONLY this batch, then stop handing out new ones.
-            // Batches already on the wire keep running and keep their results.
-            if (error instanceof AxiosError) {
-              const status = error.response?.status;
-              // Only a QUOTA 503 is fatal. The backend also returns 503 for a
-              // misconfigured service, for an unreachable upstream, and (U7) for
-              // "busy, retry shortly" when its own slots are exhausted — none of
-              // which is a quota problem. Treating those as quota-exhausted told
-              // the user "Daily limit reached" and HID the Retry button, making a
-              // transient outage look permanent. Quota is the only 503 carrying
-              // Retry-After, so use the header's PRESENCE to tell them apart; the
-              // rest fall through to the retryable path below.
-              if (status === 503 && error.response?.headers['retry-after']) {
-                recordFailedClusters(chunk, true);
-                fatalError = new QuotaExhaustedError();
-                stopDispatching = true;
-                continue;
+              const suggestions = responseData.suggestions;
+              // U7: per-cluster slot starvation on the backend surfaces here,
+              // not as a rejection — retryable, and NOT a batch failure.
+              const chunkFailedClusters = responseData.failed_cluster_count ?? 0;
+              failedClusterCount += chunkFailedClusters;
+              if (firstSuggestionAt === null && suggestions.length > 0) {
+                firstSuggestionAt = Date.now();
               }
-              if (status === 429) {
-                recordFailedClusters(chunk, true);
-                // U16: the wait is whatever the limiter says — 1s for the burst
-                // cap, 60s for the sustained one. Never assume a minute; the
-                // default is only for a 429 from an intermediary with no header.
-                fatalError = new RateLimitError(
-                  parseRetryAfterSeconds(error.response?.headers['retry-after'])
+              if (__DEV__) {
+                console.log(
+                  `[PhotoImport] Chunk ${entry.index + 1}/${chunks.length}: received ${suggestions.length} suggestions in ${Date.now() - chunkStartTime}ms` +
+                    (chunkFailedClusters > 0 ? `, ${chunkFailedClusters} clusters timed out` : ''),
+                  suggestions.map((s) => ({
+                    clusterId: s.cluster_id,
+                    placeCount: s.places?.length ?? 0,
+                    topPlace: s.places?.[0]?.name ?? 'none',
+                  }))
                 );
-                stopDispatching = true;
-                continue;
               }
-              // U16 entitlement. NOT transient: retrying cannot succeed, so the
-              // batch is marked retry-disabled rather than handed a Retry button
-              // that can only fail. U10 owns what the user is shown.
-              if (
-                status === 402 &&
-                (error.response?.data as { code?: string } | undefined)?.code ===
-                  'PHOTO_IMPORT_LIMIT_REACHED'
-              ) {
-                recordFailedClusters(chunk, true);
-                fatalError = new PhotoImportLimitReachedError();
-                stopDispatching = true;
-                continue;
+              allSuggestions.push(...suggestions);
+              // Publish for immediate display — but never over a newer run's
+              // results: this accumulator belongs to THIS generation.
+              if (!isStopped()) this.setState({ partialResults: [...allSuggestions] });
+            } catch (error) {
+              chunkResponseTimes.push(Date.now() - chunkStartTime);
+              // KTD6: attribute ONLY this batch, then stop handing out new ones.
+              // Batches already on the wire keep running and keep their results.
+              if (error instanceof AxiosError) {
+                const status = error.response?.status;
+                // Only a QUOTA 503 is fatal. The backend also returns 503 for a
+                // misconfigured service, for an unreachable upstream, and (U7)
+                // for "busy, retry shortly" when its own slots are exhausted —
+                // none of which is a quota problem. Treating those as
+                // quota-exhausted told the user "Daily limit reached" and HID
+                // the Retry button, making a transient outage look permanent.
+                // Quota is the only 503 carrying Retry-After, so use the
+                // header's PRESENCE to tell them apart; the rest fall through to
+                // the retryable path below.
+                if (status === 503 && error.response?.headers['retry-after']) {
+                  recordFailedClusters(claimedChunk, true);
+                  fatalError = new QuotaExhaustedError();
+                  stopDispatching = true;
+                  continue;
+                }
+                if (status === 429) {
+                  // U16: the wait is whatever the limiter says — 1s for the
+                  // burst cap, 60s for the sustained one. Never assume a minute;
+                  // the default is only for a 429 from an intermediary with no
+                  // header.
+                  const retryAfterSeconds = parseRetryAfterSeconds(
+                    error.response?.headers['retry-after']
+                  );
+                  fatalError = new RateLimitError(retryAfterSeconds);
+                  if (
+                    retryAfterSeconds <= MAX_PARKABLE_RETRY_AFTER_SECONDS &&
+                    rateLimitParks < MAX_RATE_LIMIT_PARKS
+                  ) {
+                    // A one-second throttle must not end a hundred-cluster
+                    // import: park the pool for the window the limiter asked
+                    // for, then carry on with the rest of the plan. Retry stays
+                    // ENABLED for this batch — unlike a quota or entitlement
+                    // stop, it becomes dispatchable again a second from now.
+                    rateLimitParks += 1;
+                    rateLimitedUntil = Math.max(
+                      rateLimitedUntil,
+                      Date.now() + retryAfterSeconds * 1000
+                    );
+                    recordFailedClusters(claimedChunk, false);
+                    failedChunkCount++;
+                    continue;
+                  }
+                  recordFailedClusters(claimedChunk, true);
+                  stopDispatching = true;
+                  continue;
+                }
+                // U16 entitlement. NOT transient: retrying cannot succeed, so
+                // the batch is marked retry-disabled rather than handed a Retry
+                // button that can only fail. U10 owns what the user is shown.
+                if (status === 402 && readErrorCode(error) === 'PHOTO_IMPORT_LIMIT_REACHED') {
+                  recordFailedClusters(claimedChunk, true);
+                  fatalError = new PhotoImportLimitReachedError();
+                  stopDispatching = true;
+                  continue;
+                }
               }
-            }
-            // Non-fatal: record THIS batch's clusters as lookup-failed with
-            // retry ENABLED (KTD6) instead of silently rendering them as
-            // photos-only "No place found", and keep dispatching the rest.
-            recordFailedClusters(chunk, false);
-            failedChunkCount++;
-            if (__DEV__) {
-              console.warn(`[PhotoImport] Chunk ${entry.index + 1} failed, continuing...`, error);
+              // Non-fatal: record THIS batch's clusters as lookup-failed with
+              // retry ENABLED (KTD6) instead of silently rendering them as
+              // photos-only "No place found", and keep dispatching the rest.
+              recordFailedClusters(claimedChunk, false);
+              failedChunkCount++;
+              if (__DEV__) {
+                console.warn(`[PhotoImport] Chunk ${entry.index + 1} failed, continuing...`, error);
+              }
+            } finally {
+              this.removeActiveAbort(abortController);
+              this.releaseClaim(claimedIds);
+              // Settled — success or failure — so the counter only ever rises.
+              clustersCompleted += chunk.length;
+              publishProgress();
             }
           } finally {
-            this.removeActiveAbort(abortController);
-            this.releaseClaim(claimedIds);
-            // Settled — success or failure — so the counter only ever rises.
-            clustersCompleted += chunk.length;
-            publishProgress();
+            // The payload is released here, not when `entry.payload` resolved:
+            // until this point the worker was still holding it (U6/prefetch
+            // bound above).
+            payloadsAwaitingDispatch -= 1;
           }
         }
       };
@@ -1301,7 +1483,9 @@ class SuggestionDispatchController {
         isPartial: dispatchedIds.size < totalClusters,
         fatalError,
       };
-      if (!this.aborted) this.setState({ data: result });
+      // Never over a newer run's result: a straggler from a departed candidate
+      // must not become the screen's `data`.
+      if (!isStopped()) this.setState({ data: result });
       return result;
     } catch (error) {
       // Only an UNEXPECTED throw reaches here now — the network failures the

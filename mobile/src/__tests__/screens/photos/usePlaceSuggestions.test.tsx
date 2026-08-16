@@ -847,7 +847,12 @@ describe('usePlaceSuggestions - timing instrumentation (U15)', () => {
     limitReached.response = {
       status: 402,
       headers: {},
-      data: { code: 'PHOTO_IMPORT_LIMIT_REACHED' },
+      // The REAL wire shape: the backend raises
+      // `HTTPException(402, detail={"code": ...})` and FastAPI nests a dict
+      // detail under `detail` (its own test asserts
+      // `response.json()["detail"]["code"]`). The flat fixture this used to
+      // carry kept the client branch green while it could never match live.
+      data: { detail: { code: 'PHOTO_IMPORT_LIMIT_REACHED' } },
       statusText: '',
       config: {} as never,
     };
@@ -1303,11 +1308,16 @@ describe('usePlaceSuggestions partial dispatch (U6 / KTD6, KTD14, R20)', () => {
   const cachedIds = () =>
     mockedCacheSuggestions.mock.calls.flatMap((call) => call[0].map((row) => row.cluster_id));
 
+  // The SUSTAINED limit (60s), which is the 429 that genuinely stops dispatch
+  // and therefore the one that leaves clusters uncovered. A burst-cap 429 asks
+  // for ~1 second and the pool now parks through it and finishes the plan, so a
+  // 1s fixture no longer produces a partial run (see the U16 park tests in
+  // services/photoImport/suggestionDispatch.test.ts).
   const rateLimited = () => {
     const err = new AxiosError('rate limited');
     err.response = {
       status: 429,
-      headers: { 'retry-after': '1' },
+      headers: { 'retry-after': '60' },
       data: {},
       statusText: '',
       config: {} as never,
