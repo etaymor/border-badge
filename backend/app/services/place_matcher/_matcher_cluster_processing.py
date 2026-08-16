@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from typing import Any
+from typing import Any, TypeVar
 
 from app.services.photo_vision import VisionResult
 from app.services.photo_vision.constants import VISION_TO_PLACE_TYPES
@@ -34,6 +34,22 @@ logger = logging.getLogger(__name__)
 # per cluster is emitted at INFO, gated entirely behind PLACES_DIAGNOSTICS, so a
 # diagnostic capture run can be sliced out of the logs with this prefix.
 DIAGNOSTIC_TRACE_EVENT = "place_matcher_diagnostic_trace"
+
+_T = TypeVar("_T")
+
+
+def _guarded_setting(
+    settings: Any, name: str, default: _T, types: type | tuple[type, ...]
+) -> _T:
+    """Read a tuning flag off settings, falling back on a wrong-typed value.
+
+    The isinstance guard is load-bearing, not defensive noise: a ``MagicMock``
+    settings stand-in answers every attribute, so a bare ``getattr`` would hand
+    the flow a Mock — truthy, and arithmetic-capable — wherever settings are
+    mocked. Same reasoning as ``_positive_int`` in ``_matcher_search``.
+    """
+    value = getattr(settings, name, default)
+    return value if isinstance(value, types) else default
 
 
 class ClusterProcessingMixin:
@@ -322,17 +338,16 @@ class ClusterProcessingMixin:
                     return cluster_id, []
 
         broaden_rescue = self._settings.places_text_rescue_on_empty
-        raw_landmark_rescue = getattr(
-            self._settings, "places_landmark_text_rescue", True
-        )
-        landmark_rescue = (
-            raw_landmark_rescue if isinstance(raw_landmark_rescue, bool) else True
-        )
-        raw_landmark_radius = getattr(
-            self._settings, "places_landmark_rescue_bias_radius_m", 500
+        landmark_rescue = _guarded_setting(
+            self._settings, "places_landmark_text_rescue", True, bool
         )
         landmark_bias_radius = float(
-            raw_landmark_radius if isinstance(raw_landmark_radius, int | float) else 500
+            _guarded_setting(
+                self._settings,
+                "places_landmark_rescue_bias_radius_m",
+                500,
+                (int, float),
+            )
         )
         text_search_tasks = []
         for cluster, nearby_places, _radius_used in search_results:
@@ -473,8 +488,9 @@ class ClusterProcessingMixin:
         # place. One extra Nearby ranked by POPULARITY surfaces the prominent
         # venue the distance-ranked tiers structurally cannot reach.
         probe_map: dict[str, list[dict]] = {}
-        raw_probe_flag = getattr(self._settings, "places_popularity_probe", False)
-        popularity_probe = raw_probe_flag if isinstance(raw_probe_flag, bool) else False
+        popularity_probe = _guarded_setting(
+            self._settings, "places_popularity_probe", False, bool
+        )
         if popularity_probe:
             landmark_family = VISION_TO_PLACE_TYPES["landmark"]
 
@@ -642,9 +658,8 @@ class ClusterProcessingMixin:
                 merged["rating"] = 0
             return merged
 
-        raw_backfill_limit = getattr(self._settings, "places_enrich_backfill_limit", 3)
-        backfill_limit = (
-            raw_backfill_limit if isinstance(raw_backfill_limit, int) else 3
+        backfill_limit = _guarded_setting(
+            self._settings, "places_enrich_backfill_limit", 3, int
         )
 
         # None = this cluster skips the enriched path (locked / enrichment down).

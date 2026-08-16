@@ -19,6 +19,8 @@ import {
   RateLimitError,
   QuotaExhaustedError,
   PhotoImportLimitReachedError,
+  parseRetryAfterSeconds,
+  type ChunkedPlaceSuggestionResult,
   type PlaceSuggestionCluster,
 } from '@services/photoImport/suggestionDispatch';
 import {
@@ -26,6 +28,7 @@ import {
   getCachedSuggestions,
   cacheSuggestions,
   clusterLocationKey,
+  type CachedPlaceSuggestion,
   type TripCandidateDisplay,
   type LocationCluster,
   type ClusterSuggestion,
@@ -81,6 +84,134 @@ function isPlaceSuggestion(item: unknown): item is PlaceSuggestion {
   if (typeof item !== 'object' || item === null) return false;
   const obj = item as Record<string, unknown>;
   return typeof obj.place_id === 'string' && typeof obj.name === 'string';
+}
+
+/**
+ * Read the SQLite suggestion cache for a set of clusters.
+ *
+ * The location key lets a re-segmented / split cluster reuse a prior result for
+ * the same physical spot instead of re-buying it, and the raw centroid lets the
+ * Tier-3 neighbor-cell fallback (B2/KTD9) pick the nearest cached entry when a
+ * re-import drifts the centroid across a geohash-7 cell boundary. Both are
+ * passed from every read site, so the fallbacks cannot go missing on one path.
+ */
+function readCachedSuggestions(
+  clusters: LocationCluster[]
+): Promise<Map<string, CachedPlaceSuggestion['places']>> {
+  return getCachedSuggestions(
+    clusters.map((cluster) => ({
+      id: cluster.id,
+      locationKey: clusterLocationKey(cluster.centroid),
+      centroid: cluster.centroid,
+    }))
+  );
+}
+
+/**
+ * Shape a SQLite cache hit as a `ClusterSuggestion` for the list. Places are
+ * re-validated on the way out because the cache is JSON on disk: a row written
+ * by an older shape must not reach the UI as a half-place.
+ */
+function cachedClusterSuggestion(
+  cluster: LocationCluster,
+  cachedPlaces: unknown[]
+): ClusterSuggestion {
+  return {
+    cluster_id: cluster.id,
+    photo_ids: cluster.photos.map((p) => p.id),
+    places: cachedPlaces.filter(isPlaceSuggestion),
+  };
+}
+
+/**
+ * Index a response's suggestions by cluster id, FIRST occurrence winning —
+ * identical to the `suggestions.find(...)` scans this replaced, without their
+ * quadratic cost on a large trip.
+ */
+function suggestionsByClusterId(suggestions: ClusterSuggestion[]): Map<string, ClusterSuggestion> {
+  const byId = new Map<string, ClusterSuggestion>();
+  for (const suggestion of suggestions) {
+    if (!byId.has(suggestion.cluster_id)) byId.set(suggestion.cluster_id, suggestion);
+  }
+  return byId;
+}
+
+/**
+ * Build SQLite cache rows for `clusters`. A cluster the response carried no row
+ * for caches as an empty place list, so callers MUST have excluded anything
+ * without positive evidence of a response before calling this.
+ */
+function toCacheRows(
+  clusters: LocationCluster[],
+  suggestionsById: Map<string, ClusterSuggestion>
+): CachedPlaceSuggestion[] {
+  return clusters.map((cluster) => ({
+    cluster_id: cluster.id,
+    location_key: clusterLocationKey(cluster.centroid),
+    places: suggestionsById.get(cluster.id)?.places ?? [],
+  }));
+}
+
+/**
+ * Cache rows for a chunked dispatch result — the shared ALLOW-LIST (R20/KTD14).
+ *
+ * Every term is positive evidence about THAT cluster, and all three are
+ * required:
+ *
+ *  1. `dispatchedAndResolvedIds` — the controller saw a response for the batch
+ *     carrying it. A cluster in a batch that threw, or in a batch a fatal stop
+ *     or an abort kept off the wire entirely, is absent.
+ *  2. not in `failedClusterIds` — its batch was not attributed a failure.
+ *  3. the response carried a row for it specifically, so an empty `places` list
+ *     means "looked, found nothing" rather than "never answered".
+ *
+ * The old third term had an escape hatch — `|| failed_cluster_count === 0` —
+ * that admitted EVERY uncached cluster whenever the run happened to report no
+ * per-cluster failures. That was a proxy for full coverage, and both
+ * concurrency and partial resolution invalidate it: a run stopped by a 429 can
+ * easily have a zero failure count while whole batches never went out, and
+ * those clusters would have been written as `[]` and cached for 24h —
+ * indistinguishable from a genuine no-place-found (KTD8).
+ *
+ * `failedClusterIds` is read from the RESOLVED RESULT (fresh, synchronous),
+ * never from React state, which is a render behind. On a retry result it is the
+ * MERGED map, which is why the caller restricts `clusters` to the set it
+ * dispatched: other clusters' failures stay out of the decision.
+ */
+function cacheRowsForDispatch(
+  clusters: LocationCluster[],
+  result: ChunkedPlaceSuggestionResult
+): CachedPlaceSuggestion[] {
+  const suggestionsById = suggestionsByClusterId(result.suggestions);
+  const allowed = clusters.filter(
+    (cluster) =>
+      result.dispatchedAndResolvedIds.has(cluster.id) &&
+      !result.failedClusterIds.has(cluster.id) &&
+      suggestionsById.has(cluster.id)
+  );
+  return toCacheRows(allowed, suggestionsById);
+}
+
+/**
+ * Report the rejection that STOPPED a chunked dispatch (KTD6).
+ *
+ * The fatal rejection is carried on the RESULT rather than thrown, so the
+ * per-error-type analytics branch lives outside the `catch`. The 402
+ * entitlement stop gets its OWN type rather than sharing `unknown` with genuine
+ * faults (U11): it is a product outcome with a paywall follow-up, so burying it
+ * in the bug bucket both inflates the error rate and hides the funnel step.
+ */
+function reportDispatchFatalError(fatalError: Error | null): void {
+  if (fatalError === null) return;
+  if (fatalError instanceof QuotaExhaustedError) {
+    Analytics.photoImportApiError({ errorType: 'quota_exhausted' });
+  } else if (fatalError instanceof RateLimitError) {
+    Analytics.photoImportApiError({ errorType: 'rate_limited' });
+  } else if (fatalError instanceof PhotoImportLimitReachedError) {
+    Analytics.photoImportApiError({ errorType: 'entitlement_exhausted' });
+  } else {
+    Analytics.photoImportApiError({ errorType: 'unknown' });
+  }
 }
 
 /**
@@ -158,6 +289,22 @@ function createVisionPrepareBatch(
       onFirstBatchPrepared?.();
     }
     return prepared;
+  };
+}
+
+/**
+ * Build the `prepare` callback for a SCOPED single-batch dispatch (manual split
+ * and per-row retry).
+ *
+ * These paths hand the controller one already-claimed batch, so there is
+ * nothing to pipeline: every cluster's vision images are encoded in the one
+ * pass. The chunked paths use `createVisionPrepareBatch` instead, which
+ * attaches images to each batch as the pool reaches it.
+ */
+function createVisionPrepare(clusters: LocationCluster[]): () => Promise<PlaceSuggestionCluster[]> {
+  return async () => {
+    const visionImages = await prepareVisionImagesBounded(clusters);
+    return clusters.map((cluster, index) => mapClusterToApiPayload(cluster, visionImages[index]));
   };
 }
 
@@ -379,19 +526,8 @@ export function usePlaceSuggestions({
         return undefined;
       }
 
-      // Check SQLite cache for existing suggestions. Pass the location key so a
-      // re-segmented/split cluster reuses a prior result for the same physical
-      // spot (via the location_key fallback) instead of re-buying it. Pass the
-      // raw centroid too so the Tier-3 neighbor-cell fallback (B2/KTD9) can pick
-      // the nearest cached entry when a re-import drifts the centroid across a
-      // geohash-7 cell boundary.
-      const cachedSuggestionsMap = await getCachedSuggestions(
-        allClusters.map((c) => ({
-          id: c.id,
-          locationKey: clusterLocationKey(c.centroid),
-          centroid: c.centroid,
-        }))
-      );
+      // Check SQLite cache for existing suggestions before buying anything.
+      const cachedSuggestionsMap = await readCachedSuggestions(allClusters);
 
       // Separate cached and uncached clusters
       const cachedClusterIds = new Set(cachedSuggestionsMap.keys());
@@ -411,12 +547,7 @@ export function usePlaceSuggestions({
       for (const cluster of allClusters) {
         const cached = cachedSuggestionsMap.get(cluster.id);
         if (cached !== undefined) {
-          const validPlaces = cached.filter(isPlaceSuggestion);
-          cachedResults.push({
-            cluster_id: cluster.id,
-            photo_ids: cluster.photos.map((p) => p.id),
-            places: validPlaces,
-          });
+          cachedResults.push(cachedClusterSuggestion(cluster, cached));
         }
       }
 
@@ -550,48 +681,10 @@ export function usePlaceSuggestions({
           });
         }
 
-        // Cache the fresh API results to SQLite.
-        //
-        // R20/KTD14 — this is an ALLOW-LIST, and every term is positive
-        // evidence about THAT cluster:
-        //
-        //  1. `dispatchedAndResolvedIds` — the controller saw a response for the
-        //     batch carrying it. A cluster in a batch that threw, or in a batch
-        //     a fatal stop or an abort kept off the wire entirely, is absent.
-        //  2. not in `failedClusterIds` — its batch was not attributed a
-        //     failure.
-        //  3. `respondedClusterIds` — the response carried a row for it
-        //     specifically, so an empty `places` list means "looked, found
-        //     nothing" rather than "never answered".
-        //
-        // The old third term had an escape hatch — `|| failed_cluster_count === 0`
-        // — that admitted EVERY uncached cluster whenever the run happened to
-        // report no per-cluster failures. That was a proxy for full coverage,
-        // and both concurrency and partial resolution invalidate it: a run
-        // stopped by a 429 can easily have a zero failure count while whole
-        // batches never went out, and those clusters would have been written as
-        // `[]` and cached for 24h — indistinguishable from a genuine
-        // no-place-found (KTD8).
-        //
-        // `failedClusterIds` is read from the RESOLVED RESULT (fresh,
-        // synchronous), never from React state, which is a render behind.
-        const respondedClusterIds = new Set(result.suggestions.map((s) => s.cluster_id));
-        const failedClusterIds = result.failedClusterIds;
-        const suggestionsToCache = uncachedClusters
-          .filter(
-            (cluster) =>
-              result.dispatchedAndResolvedIds.has(cluster.id) &&
-              !failedClusterIds.has(cluster.id) &&
-              respondedClusterIds.has(cluster.id)
-          )
-          .map((cluster) => {
-            const suggestion = result.suggestions.find((s) => s.cluster_id === cluster.id);
-            return {
-              cluster_id: cluster.id,
-              location_key: clusterLocationKey(cluster.centroid),
-              places: suggestion?.places ?? [],
-            };
-          });
+        // Cache the fresh API results to SQLite, through the R20/KTD14
+        // allow-list: only clusters this run has positive evidence of a
+        // response for may be written. See `cacheRowsForDispatch`.
+        const suggestionsToCache = cacheRowsForDispatch(uncachedClusters, result);
 
         await cacheSuggestions(suggestionsToCache);
 
@@ -642,21 +735,8 @@ export function usePlaceSuggestions({
         }
 
         // KTD6: the fatal rejection is reported on the RESULT now rather than
-        // thrown, so the per-error-type analytics branch lives here. The `catch`
-        // below still covers a genuinely thrown dispatch.
-        if (result.fatalError instanceof QuotaExhaustedError) {
-          Analytics.photoImportApiError({ errorType: 'quota_exhausted' });
-        } else if (result.fatalError instanceof RateLimitError) {
-          Analytics.photoImportApiError({ errorType: 'rate_limited' });
-        } else if (result.fatalError instanceof PhotoImportLimitReachedError) {
-          // U11: the 402 entitlement stop gets its OWN type rather than sharing
-          // `unknown` with genuine faults. It is a product outcome with a paywall
-          // follow-up, so burying it in the bug bucket both inflates the error
-          // rate and hides the funnel step.
-          Analytics.photoImportApiError({ errorType: 'entitlement_exhausted' });
-        } else if (result.fatalError !== null) {
-          Analytics.photoImportApiError({ errorType: 'unknown' });
-        }
+        // thrown. The `catch` below still covers a genuinely thrown dispatch.
+        reportDispatchFatalError(result.fatalError);
 
         // U10/R16 note: the free import is NOT counted here any more. It is
         // claimed on the first successful batch via `onBatchSuccess` above, so a
@@ -809,10 +889,7 @@ export function usePlaceSuggestions({
         const { response: result, respondedIds } = await suggestionDispatch.dispatchBatch({
           clusterIds: claimedIds,
           tripId: activeTripIdRef.current,
-          prepare: async () => {
-            const visionImages = await prepareVisionImagesBounded(toDispatch);
-            return toDispatch.map((c, i) => mapClusterToApiPayload(c, visionImages[i]));
-          },
+          prepare: createVisionPrepare(toDispatch),
         });
 
         // Cache results to SQLite — skip clusters missing due to transient failures.
@@ -821,16 +898,12 @@ export function usePlaceSuggestions({
         // caches nothing — and (b) failed_cluster_count for per-cluster timeouts,
         // excluded here. A transiently-failed split cluster must never be written
         // as [] (KTD8/B1/R20).
-        const toCache = toDispatch
-          .filter((cluster) => respondedIds.has(cluster.id) || result.failed_cluster_count === 0)
-          .map((cluster) => {
-            const suggestion = result.suggestions.find((s) => s.cluster_id === cluster.id);
-            return {
-              cluster_id: cluster.id,
-              location_key: clusterLocationKey(cluster.centroid),
-              places: suggestion?.places ?? [],
-            };
-          });
+        const toCache = toCacheRows(
+          toDispatch.filter(
+            (cluster) => respondedIds.has(cluster.id) || result.failed_cluster_count === 0
+          ),
+          suggestionsByClusterId(result.suggestions)
+        );
         await cacheSuggestions(toCache);
 
         // Candidate-stale guard: never append the old candidate's split
@@ -858,11 +931,10 @@ export function usePlaceSuggestions({
             'The place suggestion service has reached its daily limit. Please try again tomorrow.'
           );
         } else if (error instanceof AxiosError && error.response?.status === 429) {
-          const retryAfter = error.response.headers['retry-after'];
-          const retrySeconds = retryAfter ? parseInt(retryAfter, 10) : 60;
+          const retrySeconds = parseRetryAfterSeconds(error.response.headers['retry-after']);
           Alert.alert(
             'Too Many Requests',
-            `Please wait ${isNaN(retrySeconds) ? 60 : retrySeconds} seconds before trying again.`
+            `Please wait ${retrySeconds} seconds before trying again.`
           );
         } else {
           Alert.alert(
@@ -964,28 +1036,15 @@ export function usePlaceSuggestions({
 
       try {
         // Respect the SQLite cache — a cluster that already got cached (e.g. a
-        // chunk-1 success the caller also passed) is reused, not re-bought. Pass
-        // the centroid so the Tier-3 neighbor-cell fallback (B2/KTD9) can resolve
-        // a boundary-drifted re-import.
-        const cachedMap = await getCachedSuggestions(
-          toRetry.map((c) => ({
-            id: c.id,
-            locationKey: clusterLocationKey(c.centroid),
-            centroid: c.centroid,
-          }))
-        );
+        // chunk-1 success the caller also passed) is reused, not re-bought.
+        const cachedMap = await readCachedSuggestions(toRetry);
 
         const cachedHits: ClusterSuggestion[] = [];
         const uncached: LocationCluster[] = [];
         for (const cluster of toRetry) {
           const cached = cachedMap.get(cluster.id);
           if (cached !== undefined) {
-            const validPlaces = cached.filter(isPlaceSuggestion);
-            cachedHits.push({
-              cluster_id: cluster.id,
-              photo_ids: cluster.photos.map((p) => p.id),
-              places: validPlaces,
-            });
+            cachedHits.push(cachedClusterSuggestion(cluster, cached));
           } else {
             uncached.push(cluster);
           }
@@ -1009,10 +1068,7 @@ export function usePlaceSuggestions({
           // U11/R18: counted against the current generation's retry tally. A
           // cache hit above is NOT an attempt — nothing went on the wire.
           isRetry: true,
-          prepare: async () => {
-            const visionImages = await prepareVisionImagesBounded(uncached);
-            return uncached.map((c, i) => mapClusterToApiPayload(c, visionImages[i]));
-          },
+          prepare: createVisionPrepare(uncached),
         });
 
         // Per-cluster partition: succeeded (responded) vs re-failed (no
@@ -1032,25 +1088,15 @@ export function usePlaceSuggestions({
         // return); the in-memory state writes are skipped when the candidate
         // changed so we never strand the old cluster's state into the new one.
         if (succeeded.length > 0) {
-          const toCache = succeeded.map((cluster) => {
-            const suggestion = result.suggestions.find((s) => s.cluster_id === cluster.id);
-            return {
-              cluster_id: cluster.id,
-              location_key: clusterLocationKey(cluster.centroid),
-              places: suggestion?.places ?? [],
-            };
-          });
-          await cacheSuggestions(toCache);
+          const suggestionsById = suggestionsByClusterId(result.suggestions);
+          await cacheSuggestions(toCacheRows(succeeded, suggestionsById));
 
           if (!isStaleRetry()) {
-            const newSuggestions: ClusterSuggestion[] = succeeded.map((cluster) => {
-              const suggestion = result.suggestions.find((s) => s.cluster_id === cluster.id);
-              return {
-                cluster_id: cluster.id,
-                photo_ids: cluster.photos.map((p) => p.id),
-                places: suggestion?.places ?? [],
-              };
-            });
+            const newSuggestions: ClusterSuggestion[] = succeeded.map((cluster) => ({
+              cluster_id: cluster.id,
+              photo_ids: cluster.photos.map((p) => p.id),
+              places: suggestionsById.get(cluster.id)?.places ?? [],
+            }));
             setCachedSuggestions((prev) => [...prev, ...newSuggestions]);
 
             // Resolved -> remove from failedClusterIds so useClusterItems
@@ -1167,38 +1213,13 @@ export function usePlaceSuggestions({
             : () => claimPhotoImportForTrip(activeTripIdRef.current),
         });
 
-        // Same cache-write ALLOW-LIST as the main dispatch (R20/KTD14): a
-        // response for the batch, no failure attributed, and a row for this
-        // cluster specifically. `failedClusterIds` on a retry result is the
-        // MERGED map, so restricting the scan to `eligible` keeps other
-        // clusters' failures out of the decision.
-        const respondedClusterIds = new Set(result.suggestions.map((s) => s.cluster_id));
-        const toCache = eligible
-          .filter(
-            (cluster) =>
-              result.dispatchedAndResolvedIds.has(cluster.id) &&
-              !result.failedClusterIds.has(cluster.id) &&
-              respondedClusterIds.has(cluster.id)
-          )
-          .map((cluster) => {
-            const suggestion = result.suggestions.find((s) => s.cluster_id === cluster.id);
-            return {
-              cluster_id: cluster.id,
-              location_key: clusterLocationKey(cluster.centroid),
-              places: suggestion?.places ?? [],
-            };
-          });
-        await cacheSuggestions(toCache);
+        // Same cache-write ALLOW-LIST as the main dispatch (R20/KTD14). The scan
+        // is restricted to `eligible` because a retry result's
+        // `failedClusterIds` is the MERGED map: other clusters' failures must
+        // stay out of this decision.
+        await cacheSuggestions(cacheRowsForDispatch(eligible, result));
 
-        if (result.fatalError instanceof QuotaExhaustedError) {
-          Analytics.photoImportApiError({ errorType: 'quota_exhausted' });
-        } else if (result.fatalError instanceof RateLimitError) {
-          Analytics.photoImportApiError({ errorType: 'rate_limited' });
-        } else if (result.fatalError instanceof PhotoImportLimitReachedError) {
-          Analytics.photoImportApiError({ errorType: 'entitlement_exhausted' });
-        } else if (result.fatalError !== null) {
-          Analytics.photoImportApiError({ errorType: 'unknown' });
-        }
+        reportDispatchFatalError(result.fatalError);
       } catch (error) {
         // M1: no Alert — the rows themselves carry the failure. A cluster the
         // run never answered is left unattributed and the consumer's

@@ -150,9 +150,12 @@ export function SuggestionsPhase({
   // consistent with what the user can see, and inherits the rows' own
   // exclusions: dismissed clusters are not rows, and a 429/503 row is
   // `retryDisabled` so retrying it could only fail again.
-  const retryableClusterIds = clusterItems
-    .filter((item) => item.type === 'lookup-failed' && !item.retryDisabled && !item.isRetrying)
-    .map((item) => (item.type === 'lookup-failed' ? item.cluster.id : ''));
+  const retryableClusterIds: string[] = [];
+  for (const item of clusterItems) {
+    if (item.type === 'lookup-failed' && !item.retryDisabled && !item.isRetrying) {
+      retryableClusterIds.push(item.cluster.id);
+    }
+  }
   const unfinishedCount = retryableClusterIds.length;
 
   // Paused only reads as paused while a fetch is actually parked on it; a
@@ -160,11 +163,14 @@ export function SuggestionsPhase({
   const showPaused = isPaused && fetchingSuggestions;
   const showUnfinished = !fetchingSuggestions && unfinishedCount > 0;
   const showStatusRow = fetchingSuggestions || showUnfinished;
-  const statusLabel = showPaused
-    ? 'Paused — picks up where it left off when you return'
-    : showUnfinished
-      ? `${unfinishedCount} ${unfinishedCount === 1 ? 'location' : 'locations'} couldn't be checked`
-      : progressLabel;
+
+  let statusLabel = progressLabel;
+  if (showPaused) {
+    statusLabel = 'Paused — picks up where it left off when you return';
+  } else if (showUnfinished) {
+    const noun = unfinishedCount === 1 ? 'location' : 'locations';
+    statusLabel = `${unfinishedCount} ${noun} couldn't be checked`;
+  }
 
   return (
     <View style={styles.listContainer}>

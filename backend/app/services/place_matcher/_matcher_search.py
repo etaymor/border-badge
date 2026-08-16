@@ -266,6 +266,26 @@ async def _details_single_flight(
     return result
 
 
+async def _cached_search(
+    cache_key: str, fetch: Callable[[], Awaitable[list[dict]]]
+) -> list[dict]:
+    """Run one search behind the shared L1 -> L2 -> single-flight cache stack.
+
+    Every search-shaped call (Nearby, Text, popularity probe) goes through here
+    so the three cannot drift apart on which layers they consult: the in-memory
+    L1 fronts a persistent L2 (Postgres) so popular locations survive deploys
+    and are shared across instances and users, single-flight prevents a stampede
+    on a cold key, and ``record_cache_lookup`` attributes the hit to its source.
+    """
+    return await places_cache.get_or_fetch(
+        cache_key,
+        fetch,
+        l2_get=get_search_cache,
+        l2_set=set_search_cache,
+        on_source=record_cache_lookup,
+    )
+
+
 @dataclass
 class TieredSearchResult:
     """Result of a density-adaptive tiered Nearby search.
@@ -296,6 +316,34 @@ class TieredSearchResult:
 
 class SearchMixin:
     """Search and filtering behaviors for PlaceMatcher."""
+
+    @classmethod
+    def _raise_if_rate_limited(
+        cls, response: httpx.Response, *, log: bool = False
+    ) -> None:
+        """Translate a Google 429 into the exception it really is.
+
+        Google answers BOTH a temporary rate limit and daily quota exhaustion
+        with 429, and the two need opposite handling: a rate limit is worth
+        retrying with jittered backoff, quota exhaustion is not (U3). Shared by
+        every outbound site so a new call site cannot classify them differently.
+
+        ``log`` is set only by the always-on Nearby path. The rescue, probe and
+        enrichment paths degrade quietly to an un-rescued / un-enriched result,
+        and their 429s are already counted by ``record_retry``.
+        """
+        if response.status_code != 429:
+            return
+        # Google returns the specific reason in the response body.
+        if cls._parse_error_reason(response) == "QUOTA_EXCEEDED":
+            record_retry(RETRY_QUOTA_EXHAUSTED)
+            if log:
+                logger.error("Google Places API quota exhausted (daily limit)")
+            raise QuotaExhaustedError("Daily quota exceeded")
+        record_retry(RETRY_RATE_LIMITED)
+        if log:
+            logger.warning("Google Places API rate limited (temporary)")
+        raise RateLimitError("Rate limit exceeded")
 
     @staticmethod
     def _detect_density(result_count_at_first_radius: int) -> DensityLevel:
@@ -488,18 +536,7 @@ class SearchMixin:
                         },
                     )
 
-            if response.status_code == 429:
-                # Parse response to differentiate rate limit vs quota exhaustion
-                # Google returns error details in the response body
-                error_reason = self._parse_error_reason(response)
-                if error_reason == "QUOTA_EXCEEDED":
-                    record_retry(RETRY_QUOTA_EXHAUSTED)
-                    logger.error("Google Places API quota exhausted (daily limit)")
-                    raise QuotaExhaustedError("Daily quota exceeded")
-                else:
-                    record_retry(RETRY_RATE_LIMITED)
-                    logger.warning("Google Places API rate limited (temporary)")
-                    raise RateLimitError("Rate limit exceeded")
+            self._raise_if_rate_limited(response, log=True)
 
             if response.status_code != 200:
                 # Log error details for debugging (no PII in error responses)
@@ -532,16 +569,7 @@ class SearchMixin:
             return places
 
         try:
-            # Use single-flight pattern to prevent cache stampedes.
-            # Persistent L2 (Postgres) sits behind the in-memory L1 so popular
-            # locations survive deploys and are shared across instances/users.
-            return await places_cache.get_or_fetch(
-                cache_key,
-                fetch_from_api,
-                l2_get=get_search_cache,
-                l2_set=set_search_cache,
-                on_source=record_cache_lookup,
-            )
+            return await _cached_search(cache_key, fetch_from_api)
 
         except httpx.PoolTimeout:
             # Local pool saturation, not a slow upstream. Handled ahead of
@@ -642,13 +670,7 @@ class SearchMixin:
                         },
                     )
 
-            if response.status_code == 429:
-                error_reason = self._parse_error_reason(response)
-                if error_reason == "QUOTA_EXCEEDED":
-                    record_retry(RETRY_QUOTA_EXHAUSTED)
-                    raise QuotaExhaustedError("Daily quota exceeded")
-                record_retry(RETRY_RATE_LIMITED)
-                raise RateLimitError("Rate limit exceeded")
+            self._raise_if_rate_limited(response)
 
             if response.status_code != 200:
                 logger.warning(f"Text Search API error: status={response.status_code}")
@@ -659,13 +681,7 @@ class SearchMixin:
             return places
 
         try:
-            return await places_cache.get_or_fetch(
-                cache_key,
-                fetch_from_api,
-                l2_get=get_search_cache,
-                l2_set=set_search_cache,
-                on_source=record_cache_lookup,
-            )
+            return await _cached_search(cache_key, fetch_from_api)
         except (httpx.TimeoutException, httpx.RequestError) as e:
             logger.warning(f"Text Search failed for '{text_query}': {e}")
             return []
@@ -741,13 +757,7 @@ class SearchMixin:
                         },
                     )
 
-            if response.status_code == 429:
-                error_reason = self._parse_error_reason(response)
-                if error_reason == "QUOTA_EXCEEDED":
-                    record_retry(RETRY_QUOTA_EXHAUSTED)
-                    raise QuotaExhaustedError("Daily quota exceeded")
-                record_retry(RETRY_RATE_LIMITED)
-                raise RateLimitError("Rate limit exceeded")
+            self._raise_if_rate_limited(response)
 
             if response.status_code != 200:
                 logger.warning(
@@ -765,13 +775,7 @@ class SearchMixin:
             return places
 
         try:
-            return await places_cache.get_or_fetch(
-                cache_key,
-                fetch_from_api,
-                l2_get=get_search_cache,
-                l2_set=set_search_cache,
-                on_source=record_cache_lookup,
-            )
+            return await _cached_search(cache_key, fetch_from_api)
         except (httpx.TimeoutException, httpx.RequestError) as e:
             logger.warning(f"Popularity probe failed: {e}")
             return []
@@ -850,13 +854,7 @@ class SearchMixin:
                         logger.warning(f"Rating enrichment request failed: {e}")
                         return None
 
-                if response.status_code == 429:
-                    reason = self._parse_error_reason(response)
-                    if reason == "QUOTA_EXCEEDED":
-                        record_retry(RETRY_QUOTA_EXHAUSTED)
-                        raise QuotaExhaustedError("Daily quota exceeded")
-                    record_retry(RETRY_RATE_LIMITED)
-                    raise RateLimitError("Rate limit exceeded")
+                self._raise_if_rate_limited(response)
 
                 if response.status_code != 200:
                     logger.warning(

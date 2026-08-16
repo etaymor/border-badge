@@ -194,6 +194,25 @@ export function planSuggestionBatches<T>(items: T[]): T[][] {
 // Errors
 // ---------------------------------------------------------------------------
 
+/**
+ * Fallback wait when a 429 carries no usable `Retry-After` (U16).
+ *
+ * Only ever used for a 429 from an intermediary: the backend's own limiter
+ * always sends the header — 1s for the burst cap, 60s for the sustained one —
+ * so a real wait is never guessed.
+ */
+export const DEFAULT_RETRY_AFTER_SECONDS = 60;
+
+/**
+ * Read a `Retry-After` header value as whole seconds, falling back to
+ * `DEFAULT_RETRY_AFTER_SECONDS` when it is missing or unparseable.
+ */
+export function parseRetryAfterSeconds(value: string | undefined | null): number {
+  if (!value) return DEFAULT_RETRY_AFTER_SECONDS;
+  const seconds = parseInt(value, 10);
+  return isNaN(seconds) ? DEFAULT_RETRY_AFTER_SECONDS : seconds;
+}
+
 /** Error thrown when rate limited, includes retry delay */
 export class RateLimitError extends Error {
   retryAfterSeconds: number;
@@ -456,6 +475,17 @@ export interface SuggestionDispatchState {
 }
 
 const EMPTY_SET: ReadonlySet<string> = new Set();
+
+/**
+ * Copy a cluster set with `ids` added. Always a NEW set, never a mutation: the
+ * sets live in the snapshot React compares by identity, so growing one in place
+ * would leave subscribers on a stale render.
+ */
+function setWith(base: ReadonlySet<string>, ids: Iterable<string>): Set<string> {
+  const next = new Set(base);
+  for (const id of ids) next.add(id);
+  return next;
+}
 
 const INITIAL_STATE: SuggestionDispatchState = {
   isDispatching: false,
@@ -748,9 +778,7 @@ class SuggestionDispatchController {
    */
   private enqueue(ids: string[]): void {
     if (ids.length === 0) return;
-    const enqueued = new Set(this.state.enqueuedClusterIds);
-    for (const id of ids) enqueued.add(id);
-    this.setState({ enqueuedClusterIds: enqueued });
+    this.setState({ enqueuedClusterIds: setWith(this.state.enqueuedClusterIds, ids) });
   }
 
   /**
@@ -764,13 +792,12 @@ class SuggestionDispatchController {
   claim = (ids: string[]): string[] => {
     const claimed = ids.filter((id) => !this.state.inFlightClusterIds.has(id));
     if (claimed.length === 0) return claimed;
-    const inFlight = new Set(this.state.inFlightClusterIds);
-    const enqueued = new Set(this.state.enqueuedClusterIds);
-    for (const id of claimed) {
-      inFlight.add(id);
-      enqueued.add(id);
-    }
-    this.setState({ inFlightClusterIds: inFlight, enqueuedClusterIds: enqueued });
+    // Both sets grow, and they stay SEPARATE (KTD7): in-flight drives claim
+    // deduplication, enqueued drives pending rows.
+    this.setState({
+      inFlightClusterIds: setWith(this.state.inFlightClusterIds, claimed),
+      enqueuedClusterIds: setWith(this.state.enqueuedClusterIds, claimed),
+    });
     return claimed;
   };
 
@@ -791,9 +818,9 @@ class SuggestionDispatchController {
    */
   private markResolved(ids: string[]): void {
     if (ids.length === 0) return;
-    const resolved = new Set(this.state.dispatchedAndResolvedClusterIds);
-    for (const id of ids) resolved.add(id);
-    this.setState({ dispatchedAndResolvedClusterIds: resolved });
+    this.setState({
+      dispatchedAndResolvedClusterIds: setWith(this.state.dispatchedAndResolvedClusterIds, ids),
+    });
   }
 
   // -- failure attribution --------------------------------------------------
@@ -1221,9 +1248,9 @@ class SuggestionDispatchController {
                 // U16: the wait is whatever the limiter says — 1s for the burst
                 // cap, 60s for the sustained one. Never assume a minute; the
                 // default is only for a 429 from an intermediary with no header.
-                const retryAfter = error.response?.headers['retry-after'];
-                const retrySeconds = retryAfter ? parseInt(retryAfter, 10) : 60;
-                fatalError = new RateLimitError(isNaN(retrySeconds) ? 60 : retrySeconds);
+                fatalError = new RateLimitError(
+                  parseRetryAfterSeconds(error.response?.headers['retry-after'])
+                );
                 stopDispatching = true;
                 continue;
               }
