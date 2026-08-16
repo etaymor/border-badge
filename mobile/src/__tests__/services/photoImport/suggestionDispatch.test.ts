@@ -1224,13 +1224,18 @@ describe('suggestionDispatch - additive retry run (U9)', () => {
 // ---- U11: concurrency telemetry --------------------------------------------
 
 describe('suggestionDispatch - concurrency telemetry (U11/R18)', () => {
-  /** Real elapsed time — the occupancy integral is measured, not simulated. */
-  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
   it('records in-flight batch occupancy over TIME, not just the configured pool size', async () => {
     const clusters = buildClustersForBatches(3);
     const batches = planSuggestionBatches(clusters);
     const gates = batches.map(() => deferred<void>());
+
+    // The mean is an integral over elapsed ms, so it is only exact if the
+    // intervals are exact. Real sleeps make the two intervals incomparable
+    // whenever one of them is dilated (CI load, a GC pause), which is the whole
+    // flake. The clock is injected ONLY here — the rest of the photo-import
+    // suite keeps real timers — and advances by explicit amounts.
+    let clockMs = 1_000_000;
+    suggestionDispatch.setTelemetryClockForTests(() => clockMs);
 
     mockedApi.post.mockImplementation(async (_url, body) => {
       const index = batchIndexOfRequest(batches, body);
@@ -1238,33 +1243,37 @@ describe('suggestionDispatch - concurrency telemetry (U11/R18)', () => {
       return emptyResponse;
     });
 
-    const run = suggestionDispatch.dispatch({ clusters, concurrency: 3 });
-    await flush();
+    try {
+      const run = suggestionDispatch.dispatch({ clusters, concurrency: 3 });
+      await flush();
 
-    // The wire is observable rather than re-derived by the caller.
-    expect(suggestionDispatch.getInFlightBatchCount()).toBe(3);
+      // The wire is observable rather than re-derived by the caller.
+      expect(suggestionDispatch.getInFlightBatchCount()).toBe(3);
 
-    // Three batches for a while, then one: a peak-only metric would call this a
-    // full pool for the whole run.
-    await sleep(30);
-    gates[0].resolve();
-    gates[1].resolve();
-    await flush();
-    expect(suggestionDispatch.getInFlightBatchCount()).toBe(1);
+      // Three batches for 30ms, then one for 30ms: a peak-only metric would call
+      // this a full pool for the whole run.
+      clockMs += 30;
+      gates[0].resolve();
+      gates[1].resolve();
+      await flush();
+      expect(suggestionDispatch.getInFlightBatchCount()).toBe(1);
 
-    await sleep(30);
-    gates[2].resolve();
-    await run;
+      clockMs += 30;
+      gates[2].resolve();
+      await run;
 
-    const telemetry = suggestionDispatch.getTelemetry();
-    expect(telemetry.peakInFlightBatches).toBe(3);
-    expect(telemetry.wireSpanMs).toBeGreaterThan(0);
-    expect(telemetry.wireBusyMs).toBeGreaterThan(0);
-    expect(telemetry.wireBusyMs).toBeLessThanOrEqual(telemetry.wireSpanMs);
-    // Time-weighted: strictly between the two occupancy levels it actually held.
-    expect(telemetry.meanInFlightBatches).toBeGreaterThan(1);
-    expect(telemetry.meanInFlightBatches).toBeLessThan(3);
-    expect(suggestionDispatch.getInFlightBatchCount()).toBe(0);
+      const telemetry = suggestionDispatch.getTelemetry();
+      expect(telemetry.peakInFlightBatches).toBe(3);
+      // 30ms at 3 batches + 30ms at 1 batch, all of it busy.
+      expect(telemetry.wireSpanMs).toBe(60);
+      expect(telemetry.wireBusyMs).toBe(60);
+      // Time-weighted: (3 × 30 + 1 × 30) / 60 = 2, i.e. strictly between the two
+      // occupancy levels it actually held rather than the peak of 3.
+      expect(telemetry.meanInFlightBatches).toBe(2);
+      expect(suggestionDispatch.getInFlightBatchCount()).toBe(0);
+    } finally {
+      suggestionDispatch.setTelemetryClockForTests(null);
+    }
   });
 
   it('reports a peak of one at the shipped sequential default', async () => {

@@ -12,10 +12,13 @@ Also covers the rate-limit response: our limiter's 429 must carry a
 client to fall back to a hard-coded default.
 """
 
+import time
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
+import limits.storage.memory as limits_memory_storage
 import pytest
 from fastapi.testclient import TestClient
 
@@ -384,9 +387,22 @@ class TestBurstCap:
         client: TestClient,
         mock_user: AuthUser,
         auth_headers: dict[str, str],
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         burst = int(SUGGEST_PLACES_BURST_LIMIT.split("/")[0])
         sustained = int(SUGGEST_PLACES_RATE_LIMIT.split("/")[0])
+
+        # The burst cap is a FIXED window, so "is the (burst + 1)th request
+        # rejected?" is only meaningful while all of them sit inside one window.
+        # Freeze the clock the limiter's memory storage reads -- otherwise a GC
+        # pause or a slow first-request import between two of these calls rolls
+        # the window and the assertion fails with no code change. The freeze is
+        # scoped to the `limits` storage module, so nothing else sees it.
+        frozen_now = time.time()
+        monkeypatch.setattr(
+            limits_memory_storage, "time", SimpleNamespace(time=lambda: frozen_now)
+        )
+
         app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
         statuses: list[int] = []
         try:

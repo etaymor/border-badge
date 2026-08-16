@@ -642,6 +642,12 @@ class SuggestionDispatchController {
   private peakInFlightBatches = 0;
 
   /**
+   * Clock the occupancy integral reads. Injectable so a test can drive exact
+   * intervals instead of racing the wall clock; `Date.now` in app code.
+   */
+  private telemetryNow: () => number = Date.now;
+
+  /**
    * Retry batch attempts keyed by `dispatchGeneration` (U6's note: the
    * generation is the natural key). A bulk retry bumps the generation, so its
    * attempts land on their own key; a per-row retry runs inside the generation
@@ -676,7 +682,7 @@ class SuggestionDispatchController {
   getTelemetry = (): DispatchTelemetry => {
     // Fold in the time since the last transition so a snapshot taken mid-flight
     // is not systematically short by the current interval.
-    const now = Date.now();
+    const now = this.telemetryNow();
     const inFlight = this.activeAborts.size;
     const openMs = this.wireLastChangeAt > 0 ? now - this.wireLastChangeAt : 0;
     const weightedMs = this.wireWeightedMs + inFlight * openMs;
@@ -733,7 +739,7 @@ class SuggestionDispatchController {
 
   /** Integrate occupancy up to now, then apply the transition. */
   private accrueOccupancy(): void {
-    const now = Date.now();
+    const now = this.telemetryNow();
     if (this.wireLastChangeAt === 0) {
       this.wireLastChangeAt = now;
       if (this.wireSpanStartedAt === 0) this.wireSpanStartedAt = now;
@@ -980,6 +986,16 @@ class SuggestionDispatchController {
     this.releaseParkedWorkers();
     this.state = INITIAL_STATE;
     for (const listener of this.listeners) listener();
+  };
+
+  /**
+   * Test-only: replace the clock the occupancy integral reads so a test can
+   * advance time by exact amounts. Pass `null` to restore `Date.now`. Never
+   * call this from app code — the integral is only meaningful against a clock
+   * that actually moves with the wire.
+   */
+  setTelemetryClockForTests = (clock: (() => number) | null): void => {
+    this.telemetryNow = clock ?? Date.now;
   };
 
   // -- the network primitive ------------------------------------------------
