@@ -1,10 +1,36 @@
 # Quiz + Photo Import — Walkthrough Feedback Backlog
 
-Running list of issues found while walking through the app. **Nothing here is fixed yet** — this is a
-capture doc, not a plan. Items are recorded roughly in the order they were found; context and file
-pointers were added so each one is actionable later.
+Running list of issues found while walking through the app. Items are recorded roughly in the order
+they were found; context and file pointers were added so each one is actionable later.
 
 Captured: 2026-08-16 (branch `feat/travel-photo-quiz`)
+
+## Resolution status (2026-08-16, same branch)
+
+All items below were addressed in the Guess Where overhaul, one commit per phase:
+
+| Items | Resolution |
+| --- | --- |
+| BUG-1, BUG-2 | `fix(quiz): survive failed answer persistence and collapse burst duplicates` — test-first; root causes were an unawaited react-query callback and burst frames clustering under newest-first ordering |
+| Q12, Q2 (web), Q11a (unfurl card) | `feat(quiz-web): redesign the public Guess Where flow as a photo-first stage` |
+| Q4, Q6, Q8, Q9, Q10, Q11a | `feat(quiz): full-bleed play stage, stamp-press results, and a discrete share link` |
+| Q1, Q3, Q7, Q2 (app copy), Q4 (list/leaderboard) | `feat(quiz): Guess Where entry card, playable intro, and redesigned list/leaderboard` |
+| P1, Q5 | `feat(photos): unified library refresh, sync observability, and the creation wizard` |
+
+Decisions taken: feature renamed **Guess Where** (each quiz is a "challenge"; internal `quiz_*`
+identifiers and `/q/` URLs unchanged); entry point is a card on the passport home; the share card
+keeps its no-photos privacy rule (the redesigned server-rendered unfurl card is the share visual,
+and the challenge link now travels in the share sheet's `url` slot); no per-question verdicts
+anywhere — neutral gold acknowledgment in-run, score revealed once at the end, on app and web alike.
+
+Still open / follow-ups:
+- On-device pass for motion + haptics feel (all animation is Reduce Motion-aware).
+- Custom art: a map-pin/compass "?" mark and an optional trophy stamp (same sticker style as the
+  polaroids illustration); a real sample travel photo would upgrade the intro demo.
+- The swap picker's own-photo exclusion applies to challenges finalized after this change (older
+  quizzes have no local asset record).
+- If the ErrorBoundary "Something went wrong" recurs, pull the `componentDidCatch` stack from
+  device logs — the remaining hypothesis is the 401 sign-out navigator collapse, not quiz logic.
 
 ---
 
