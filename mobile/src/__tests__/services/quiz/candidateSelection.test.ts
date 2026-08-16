@@ -29,7 +29,8 @@ function makePhoto(overrides: Partial<QuizPhotoCandidate> = {}): QuizPhotoCandid
   return {
     id: `photo-${idCounter}`,
     uri: `file:///photo-${idCounter}.jpg`,
-    creationTime: 1_700_000_000_000 + idCounter * 1000,
+    // Hours apart by default: fixtures are distinct shots, never burst frames.
+    creationTime: 1_700_000_000_000 + idCounter * 3_600_000,
     latitude: 48.85,
     longitude: 2.35,
     countryCode: 'FR',
@@ -314,5 +315,106 @@ describe('pickQuizPhotos', () => {
     expect(picks).toHaveLength(QUIZ_MAX_PHOTOS);
     const freshIds = new Set(fresh.map((p) => p.id));
     expect(picks.slice(0, 5).every((p) => freshIds.has(p.id))).toBe(true);
+  });
+});
+
+describe('near-duplicate collapse (BUG-2)', () => {
+  const BURST_START = 1_700_000_000_000;
+
+  /** A burst: frames seconds apart at effectively the same coordinate. */
+  function makeBurst(count: number, overrides: Partial<QuizPhotoCandidate> = {}) {
+    return Array.from({ length: count }, (_, i) =>
+      makePhoto({
+        creationTime: BURST_START + i * 5_000,
+        latitude: 41.9029 + i * 0.00005,
+        longitude: 12.4534 + i * 0.00005,
+        countryCode: 'IT',
+        ...overrides,
+      })
+    );
+  }
+
+  it('selectEligibilityBatch keeps only the newest frame of a burst', () => {
+    const burst = makeBurst(4);
+    const distinct = [
+      makePhoto({ countryCode: 'IT', latitude: 45.44, longitude: 12.33 }),
+      makePhoto({ countryCode: 'FR' }),
+    ];
+
+    const batch = selectEligibilityBatch({
+      pool: [...burst, ...distinct],
+      validCodes: VALID_CODES,
+      coder: neutralCoder,
+      limit: 10,
+    });
+
+    const ids = batch.map((photo) => photo.id);
+    // Newest burst frame survives; the three older frames are collapsed away.
+    expect(ids).toContain(burst[3].id);
+    expect(ids).not.toContain(burst[0].id);
+    expect(ids).not.toContain(burst[1].id);
+    expect(ids).not.toContain(burst[2].id);
+    expect(ids).toContain(distinct[0].id);
+    expect(ids).toContain(distinct[1].id);
+  });
+
+  it('does not collapse same-country photos far apart in time or space', () => {
+    const anchor = makePhoto({
+      creationTime: BURST_START,
+      latitude: 41.9029,
+      longitude: 12.4534,
+      countryCode: 'IT',
+    });
+    // Same minute but a different venue kilometres away.
+    const farAway = makePhoto({
+      creationTime: BURST_START + 60_000,
+      latitude: 41.95,
+      longitude: 12.5,
+      countryCode: 'IT',
+    });
+    // Same spot, revisited hours later.
+    const muchLater = makePhoto({
+      creationTime: BURST_START + 2 * 3_600_000,
+      latitude: 41.9029,
+      longitude: 12.4534,
+      countryCode: 'IT',
+    });
+
+    const batch = selectEligibilityBatch({
+      pool: [anchor, farAway, muchLater],
+      validCodes: VALID_CODES,
+      coder: neutralCoder,
+      limit: 10,
+    });
+
+    expect(batch.map((photo) => photo.id).sort()).toEqual(
+      [anchor.id, farAway.id, muchLater.id].sort()
+    );
+  });
+
+  it('pickQuizPhotos never picks two frames of the same burst', () => {
+    // Bursts that were classified in separate batches can BOTH reach the
+    // eligible pool - the final pick must still collapse them.
+    const burst = makeBurst(3) as GeoEligibleCandidate[];
+    const others = ['FR', 'JP', 'US', 'PT'].map(
+      (code) => makePhoto({ countryCode: code }) as GeoEligibleCandidate
+    );
+
+    const picks = pickQuizPhotos([...burst, ...others]);
+
+    const burstPicks = picks.filter((photo) => burst.some((frame) => frame.id === photo.id));
+    expect(burstPicks).toHaveLength(1);
+    expect(burstPicks[0].id).toBe(burst[2].id);
+  });
+
+  it('pickQuizPhotos never returns the same asset id twice', () => {
+    const photo = makePhoto({ countryCode: 'FR' }) as GeoEligibleCandidate;
+    const others = ['IT', 'JP'].map(
+      (code) => makePhoto({ countryCode: code }) as GeoEligibleCandidate
+    );
+
+    const picks = pickQuizPhotos([photo, photo, ...others]);
+
+    expect(picks.filter((candidate) => candidate.id === photo.id)).toHaveLength(1);
   });
 });

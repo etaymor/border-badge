@@ -23,10 +23,12 @@ import { iso1A2Code } from '@services/photoImport/countryCoder';
 import { getAllCachedPhotos, getMetadata, setMetadata } from '@services/photoImport/photoCacheDb';
 
 import {
+  filterNearDuplicatesOf,
   selectEligibilityBatch,
   toCandidate,
   type GeoEligibleCandidate,
 } from './candidateSelection';
+import { getQuizAssetIds, recordQuizAssets } from './quizAssets';
 import { getUsedAssetIds, markAssetsUsed, prepareQuizUploadImage } from './quizCreation';
 
 // ---------------------------------------------------------------------------
@@ -52,6 +54,12 @@ export interface StoredQuizAnswer {
   correctOptionIndex: number;
   correctOption: string;
   correctYear: number | null;
+  /**
+   * True when the server reported the question as already answered (409) but
+   * the original verdict never persisted locally (BUG-1 recovery). The
+   * question counts as answered; its correctness fields are placeholders.
+   */
+  verdictUnknown?: boolean;
 }
 
 export interface QuizPlayState {
@@ -132,23 +140,30 @@ export const SWAP_CANDIDATE_LIMIT = 30;
 
 /**
  * Geo-eligible swap candidates from the photo cache, reusing the creation
- * selection machinery: country spread, border-ambiguity exclusion, and used-photo
- * deprioritization (already-used assets sort strictly after fresh ones -
- * which also pushes this quiz's own photos to the back of the picker).
+ * selection machinery: country spread, border-ambiguity exclusion, and
+ * used-photo deprioritization (already-used assets sort strictly after fresh
+ * ones).
+ *
+ * This quiz's own photos - and their near-duplicates (burst siblings) - are
+ * EXCLUDED outright (BUG-2): a swap must never re-insert a photo the quiz
+ * already contains, or one that plays as its twin.
  *
  * Note: these candidates have passed the geo gate only - the vision
  * eligibility budget belongs to the 'building' state and is not re-spent on
  * swaps.
  */
-export async function loadSwapCandidates(): Promise<GeoEligibleCandidate[]> {
-  const [cached, countries, usedAssetIds] = await Promise.all([
+export async function loadSwapCandidates(quizId: string): Promise<GeoEligibleCandidate[]> {
+  const [cached, countries, usedAssetIds, quizAssetIds] = await Promise.all([
     getAllCachedPhotos(),
     getAllCountries(),
     getUsedAssetIds(),
+    getQuizAssetIds(quizId),
   ]);
   const validCodes = new Set(countries.map((country) => country.code));
+  const pool = cached.map(toCandidate);
+  const anchors = pool.filter((photo) => quizAssetIds.has(photo.id));
   return selectEligibilityBatch({
-    pool: cached.map(toCandidate),
+    pool: filterNearDuplicatesOf(pool, anchors),
     validCodes,
     coder: iso1A2Code,
     usedAssetIds,
@@ -194,6 +209,7 @@ export async function uploadSwapPhoto(
   }
 
   await markAssetsUsed([candidate.id]);
+  await recordQuizAssets(quizId, [candidate.id]);
   return {
     storagePath: target.storage_path,
     countryCode: candidate.countryCode,

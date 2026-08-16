@@ -63,6 +63,7 @@ import {
   toCandidate,
   type GeoEligibleCandidate,
 } from './candidateSelection';
+import { recordQuizAssets } from './quizAssets';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -500,6 +501,12 @@ async function uploadAndFinalize(
   }
 
   await markAssetsUsed(state.picks.map((pick) => pick.assetId));
+  // Remember which assets THIS quiz uses - the server never returns asset
+  // ids, and the swap picker needs them to exclude the quiz's own photos.
+  await recordQuizAssets(
+    state.quizId,
+    state.picks.map((pick) => pick.assetId)
+  );
   await clearDraftState();
   return { status: 'created', quizId: state.quizId, photoCount: state.picks.length };
 }

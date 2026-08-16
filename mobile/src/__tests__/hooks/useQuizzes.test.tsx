@@ -110,7 +110,9 @@ function makeCachedPhoto(overrides: Partial<CachedPhoto> = {}): CachedPhoto {
     id: `asset-${photoCounter}`,
     uri: `file:///asset-${photoCounter}.jpg`,
     filename: `asset-${photoCounter}.jpg`,
-    creationTime: 1_690_000_000_000 + photoCounter * 1000,
+    // Hours apart by default: fixtures are distinct shots, never burst
+    // frames, so the near-duplicate collapse (BUG-2) leaves them alone.
+    creationTime: 1_690_000_000_000 + photoCounter * 3_600_000,
     latitude: 48.85,
     longitude: 2.35,
     geohash: 'u09tvw0',

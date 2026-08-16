@@ -56,7 +56,11 @@ import type { RootStackScreenProps } from '@navigation/types';
 type Props = RootStackScreenProps<'QuizResults'>;
 
 export function QuizResultsScreen({ navigation, route }: Props) {
-  const { quizId, results } = route.params;
+  // A restored navigation state can produce a param-less route (BUG-1):
+  // degrade to the handled error state instead of throwing during render.
+  const quizId = route.params?.quizId ?? '';
+  const results = route.params?.results;
+  const paramsMissing = !route.params?.quizId;
 
   const {
     data: quiz,
@@ -111,7 +115,7 @@ export function QuizResultsScreen({ navigation, route }: Props) {
     setSwapCandidates(null);
     setSwapLoadFailed(false);
     try {
-      setSwapCandidates(await loadSwapCandidates());
+      setSwapCandidates(await loadSwapCandidates(quizId));
     } catch {
       // A load failure is distinct from an empty library: keep candidates null
       // and flag the failure so the modal shows a retry, not "none found".
@@ -230,9 +234,10 @@ export function QuizResultsScreen({ navigation, route }: Props) {
 
   // Without navigation results, the score pair arrives with the quiz detail.
   if (!scoreToBeat) {
-    // The fetch failed and there is no results param to fall back on: show a
-    // recoverable error instead of a spinner that would never resolve.
-    if (quizLoadFailed && !quizFetching) {
+    // The fetch failed (or the route arrived without params) and there is no
+    // results param to fall back on: show a recoverable error instead of a
+    // spinner that would never resolve.
+    if (paramsMissing || (quizLoadFailed && !quizFetching)) {
       return (
         <Screen>
           <View style={styles.errorState} testID="quiz-results-error">

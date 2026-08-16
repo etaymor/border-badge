@@ -21,6 +21,8 @@
  * `@rapideditor/country-coder` import (kept off the boot path deliberately).
  */
 
+import { haversine } from '@services/photoImport/photoClustering';
+
 import type { CachedPhoto } from '@services/photoImport/types';
 
 /** country-coder's iso1A2Code call shape (the subset we use). */
@@ -58,6 +60,71 @@ export function toCandidate(cached: CachedPhoto): QuizPhotoCandidate {
     longitude: cached.longitude,
     countryCode: cached.countryCode,
   };
+}
+
+/**
+ * Near-duplicate window (BUG-2): burst frames, HDR pairs, and re-saves land
+ * seconds apart at effectively the same coordinate. Frames this close in time
+ * AND space play as the same photo, so only one of them may reach a quiz.
+ */
+export const NEAR_DUPLICATE_WINDOW_MS = 90_000;
+export const NEAR_DUPLICATE_RADIUS_M = 100;
+
+function isNearDuplicatePair(a: QuizPhotoCandidate, b: QuizPhotoCandidate): boolean {
+  return (
+    a.countryCode !== null &&
+    a.countryCode === b.countryCode &&
+    Math.abs(a.creationTime - b.creationTime) < NEAR_DUPLICATE_WINDOW_MS &&
+    haversine(a.latitude, a.longitude, b.latitude, b.longitude) < NEAR_DUPLICATE_RADIUS_M
+  );
+}
+
+/**
+ * Collapse near-duplicate runs to their newest frame. Groups chain
+ * transitively off each group's latest frame, so a long burst spanning more
+ * than one window still collapses to a single photo. Input order is preserved.
+ */
+export function collapseNearDuplicates<T extends GeoEligibleCandidate>(candidates: T[]): T[] {
+  if (candidates.length < 2) return candidates;
+  const sorted = [...candidates].sort((a, b) => a.creationTime - b.creationTime);
+  const groups: T[][] = [];
+  // Only groups whose latest frame is still inside the window can absorb the
+  // next candidate, so the scan stays near-linear on real libraries.
+  let open: T[][] = [];
+  for (const candidate of sorted) {
+    open = open.filter(
+      (group) =>
+        candidate.creationTime - group[group.length - 1].creationTime < NEAR_DUPLICATE_WINDOW_MS
+    );
+    const match = open.find((group) => isNearDuplicatePair(group[group.length - 1], candidate));
+    if (match) {
+      match.push(candidate);
+    } else {
+      const group = [candidate];
+      groups.push(group);
+      open.push(group);
+    }
+  }
+  const keep = new Set(groups.map((group) => group[group.length - 1].id));
+  return candidates.filter((candidate) => keep.has(candidate.id));
+}
+
+/**
+ * Drop pool entries that are near-duplicates of any anchor (including the
+ * anchors themselves). Used by the swap picker so a quiz's own photos - and
+ * their burst siblings - never re-enter the candidate list (BUG-2).
+ */
+export function filterNearDuplicatesOf<T extends QuizPhotoCandidate>(
+  pool: T[],
+  anchors: QuizPhotoCandidate[]
+): T[] {
+  if (anchors.length === 0) return pool;
+  return pool.filter(
+    (candidate) =>
+      !anchors.some(
+        (anchor) => anchor.id === candidate.id || isNearDuplicatePair(anchor, candidate)
+      )
+  );
 }
 
 export type GeoExclusionReason = 'no-country' | 'unmapped-territory' | 'border-ambiguous';
@@ -253,12 +320,16 @@ export function selectEligibilityBatch(
     cheapEligible.push({ ...photo, countryCode: code });
   }
 
+  // Burst frames must not each spend a vision-budget slot (BUG-2): collapse
+  // near-duplicates before the batch is ordered and capped.
+  const collapsed = collapseNearDuplicates(cheapEligible);
+
   // Walk the spread ordering lazily: border-ambiguous candidates are skipped
   // and replaced by the next in line, so this may consume more than `limit`
   // ordered entries - but never materializes the full interleaving.
   const batch: GeoEligibleCandidate[] = [];
   for (const candidate of iterateCountrySpread(
-    cheapEligible,
+    collapsed,
     usedAssetIds ?? new Set(),
     deprioritizedCountries ?? new Set()
   )) {
@@ -279,5 +350,13 @@ export function pickQuizPhotos(
   usedAssetIds: Set<string> = new Set(),
   max: number = QUIZ_MAX_PHOTOS
 ): GeoEligibleCandidate[] {
-  return orderByCountrySpread(eligible, usedAssetIds, new Set(), max);
+  // Belt-and-braces same-id guard, then a final near-duplicate collapse:
+  // burst siblings classified in SEPARATE batches can both reach the eligible
+  // pool, and the picked quiz must never contain two of them (BUG-2).
+  const uniqueById = new Map<string, GeoEligibleCandidate>();
+  for (const candidate of eligible) {
+    if (!uniqueById.has(candidate.id)) uniqueById.set(candidate.id, candidate);
+  }
+  const collapsed = collapseNearDuplicates([...uniqueById.values()]);
+  return orderByCountrySpread(collapsed, usedAssetIds, new Set(), max);
 }

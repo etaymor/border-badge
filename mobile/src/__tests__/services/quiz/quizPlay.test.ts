@@ -44,13 +44,20 @@ import {
   clearStoredAnswer,
   ensurePlaySession,
   loadPlayState,
+  loadSwapCandidates,
   recordAnswer,
   savePlayState,
   type QuizPlayState,
   type StoredQuizAnswer,
 } from '@services/quiz/quizPlay';
+import { getQuizAssetIds, recordQuizAssets } from '@services/quiz/quizAssets';
+import { getAllCachedPhotos } from '@services/photoImport/photoCacheDb';
+import { getAllCountries } from '@services/countriesDb';
+import type { CachedPhoto } from '@services/photoImport/types';
 
 const mockApiPost = api.post as jest.Mock;
+const mockGetAllCachedPhotos = getAllCachedPhotos as jest.MockedFunction<typeof getAllCachedPhotos>;
+const mockGetAllCountries = getAllCountries as jest.MockedFunction<typeof getAllCountries>;
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -136,5 +143,65 @@ describe('quizPlay persisted state (per-quiz keys, R17)', () => {
     const stateB = await loadPlayState('quiz-b');
     expect(stateA?.answers.q1).toBeTruthy();
     expect(stateB?.answers.q1).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Swap picker exclusions (BUG-2)
+// ---------------------------------------------------------------------------
+
+describe('loadSwapCandidates (BUG-2: never re-offer the quiz its own photos)', () => {
+  const ROME = { latitude: 41.9029, longitude: 12.4534 };
+
+  function makeCached(id: string, overrides: Partial<CachedPhoto> = {}): CachedPhoto {
+    return {
+      id,
+      uri: `file:///photos/${id}.jpg`,
+      filename: `${id}.jpg`,
+      creationTime: 1_700_000_000_000,
+      latitude: ROME.latitude,
+      longitude: ROME.longitude,
+      geohash: 'sr2yk3h',
+      countryCode: 'IT',
+      ...overrides,
+    };
+  }
+
+  beforeEach(() => {
+    mockGetAllCountries.mockResolvedValue([{ code: 'IT', name: 'Italy' }] as Awaited<
+      ReturnType<typeof getAllCountries>
+    >);
+  });
+
+  it('excludes the quiz own assets and their near-duplicates from the picker', async () => {
+    // asset-1 is IN the quiz. asset-2 is a burst sibling of asset-1 (seconds
+    // apart, same spot). asset-3 is a genuinely different photo.
+    const inQuiz = makeCached('asset-1');
+    const burstSibling = makeCached('asset-2', {
+      creationTime: inQuiz.creationTime + 8_000,
+      latitude: ROME.latitude + 0.00004,
+    });
+    const distinct = makeCached('asset-3', {
+      creationTime: inQuiz.creationTime + 6 * 3_600_000,
+      latitude: 45.44,
+      longitude: 12.33,
+    });
+    mockGetAllCachedPhotos.mockResolvedValue([inQuiz, burstSibling, distinct]);
+    await recordQuizAssets('quiz-a', ['asset-1']);
+
+    const candidates = await loadSwapCandidates('quiz-a');
+
+    expect(candidates.map((candidate) => candidate.id)).toEqual(['asset-3']);
+  });
+
+  it('scopes recorded quiz assets per quiz', async () => {
+    await recordQuizAssets('quiz-a', ['asset-1', 'asset-2']);
+    await recordQuizAssets('quiz-b', ['asset-9']);
+    await recordQuizAssets('quiz-a', ['asset-2', 'asset-3']);
+
+    await expect(getQuizAssetIds('quiz-a')).resolves.toEqual(
+      new Set(['asset-1', 'asset-2', 'asset-3'])
+    );
+    await expect(getQuizAssetIds('quiz-b')).resolves.toEqual(new Set(['asset-9']));
   });
 });

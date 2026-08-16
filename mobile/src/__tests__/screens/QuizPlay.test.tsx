@@ -318,6 +318,85 @@ describe('QuizPlayScreen', () => {
   });
 });
 
+describe('QuizPlayScreen resilience (BUG-1)', () => {
+  const ANSWER_RESULT = {
+    place_correct: true,
+    year_correct: null,
+    correct_option_index: 0,
+    correct_option: 'France',
+    correct_year: null,
+    score: 1,
+  };
+
+  it('still advances when persisting the graded answer fails', async () => {
+    // The answer POST succeeded - the server graded it - but the local SQLite
+    // write rejected (e.g. the DB is busy right after foregrounding). The
+    // verdict must not be lost: the screen advances with in-memory state.
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    mockQuizDetail(makeDetail());
+    mockEnsurePlaySession.mockResolvedValue(makePlayState([]));
+    mockPostRoutes({ [`/quiz/${QUIZ_ID}/answer`]: ANSWER_RESULT });
+    mockRecordAnswer.mockRejectedValue(new Error('database is locked'));
+
+    renderPlayScreen();
+
+    await waitFor(() => expect(screen.getByText('France')).toBeTruthy());
+    fireEvent.press(screen.getByText('France'));
+
+    await waitFor(() => expect(screen.getByTestId('quiz-feedback')).toBeTruthy());
+    fireEvent.press(screen.getByTestId('quiz-feedback-next'));
+    await waitFor(() => expect(screen.getByText('Photo 2 of 5')).toBeTruthy());
+
+    warnSpy.mockRestore();
+  });
+
+  it('treats a 409 already-answered response as answered and moves on', async () => {
+    // The server graded this question in an earlier run whose verdict never
+    // persisted locally. Re-submitting 409s - that must not dead-end in the
+    // error phase; the question is marked answered and play continues.
+    mockQuizDetail(makeDetail());
+    mockEnsurePlaySession.mockResolvedValue(makePlayState([]));
+    mockApiPost.mockImplementation((url: string) =>
+      url === `/quiz/${QUIZ_ID}/answer`
+        ? Promise.reject(
+            Object.assign(new Error('Request failed with status code 409'), {
+              response: {
+                status: 409,
+                data: { detail: 'This question has already been answered in this session.' },
+              },
+            })
+          )
+        : Promise.reject(new Error(`Unexpected POST ${url}`))
+    );
+
+    renderPlayScreen();
+
+    await waitFor(() => expect(screen.getByText('France')).toBeTruthy());
+    fireEvent.press(screen.getByText('France'));
+
+    await waitFor(() => expect(screen.getByText('Photo 2 of 5')).toBeTruthy());
+    expect(screen.queryByTestId('quiz-play-error')).toBeNull();
+  });
+
+  it('renders the error state instead of crashing when route params are missing', async () => {
+    // A restored navigation state can produce a param-less route; that must
+    // land on the handled error state, not throw during render.
+    mockQuizDetail(makeDetail());
+    mockEnsurePlaySession.mockResolvedValue(makePlayState([]));
+    const navigation =
+      createMockNavigation() as unknown as RootStackScreenProps<'QuizPlay'>['navigation'];
+    const route = {
+      key: 'test-play',
+      name: 'QuizPlay',
+      params: undefined,
+    } as unknown as RootStackScreenProps<'QuizPlay'>['route'];
+
+    render(<QuizPlayScreen navigation={navigation} route={route} />);
+
+    await waitFor(() => expect(screen.getByTestId('quiz-play-error')).toBeTruthy());
+  });
+});
+
 describe('QuizResultsScreen', () => {
   it('shows the seeded score-to-beat and the owner-only memory score (AE3)', async () => {
     mockQuizDetail(makeDetail({ state: 'playable', score_to_beat: { correct: 3, total: 5 } }));
