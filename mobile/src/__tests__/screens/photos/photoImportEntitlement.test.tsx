@@ -18,6 +18,7 @@ import { SuggestionsPhase } from '../../../screens/photos/components/Suggestions
 import {
   claimPhotoImportForTrip,
   isPhotoImportExempt,
+  noteServerRefusedPhotoImport,
   resetPhotoImportEntitlementForTests,
 } from '@services/photoImport/photoImportEntitlement';
 import {
@@ -465,6 +466,50 @@ describe('U10 counting', () => {
     }
   );
 
+  // The claim is taken SYNCHRONOUSLY and released again when the charge throws,
+  // on the rationale that a run whose charge never landed has not been paid for.
+  // Both directions are money-relevant and neither was exercised.
+  const flushCharge = () => act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+
+  it('releases the claim when the charge fails, so a later batch charges it', async () => {
+    let incrementCalls = 0;
+    mockedApi.post.mockImplementation((async (url: string, body: unknown) => {
+      callLog.push(`POST ${url}`);
+      if (url === '/subscriptions/usage/increment') {
+        incrementCalls += 1;
+        if (incrementCalls === 1) throw new Error('network down');
+        const tripId = (body as { trip_id?: string }).trip_id ?? null;
+        if (serverUsage.photo_import_trip_id === null) {
+          serverUsage.photo_import_trip_id = tripId;
+          serverUsage.photo_import_count += 1;
+        }
+        return { data: { status: 'incremented', new_count: serverUsage.photo_import_count } };
+      }
+      return { data: { suggestions: [], failed_cluster_count: 0 } };
+    }) as unknown as typeof api.post);
+
+    // First successful batch: claims, charges, the charge fails, claim released.
+    claimPhotoImportForTrip(TRIP_ID);
+    await flushCharge();
+    // Second successful batch of the same run: the released claim is retaken.
+    claimPhotoImportForTrip(TRIP_ID);
+    await flushCharge();
+
+    expect(incrementCalls).toBe(2);
+    expect(serverUsage.photo_import_count).toBe(1);
+  });
+
+  it('does not re-charge after a charge that landed, however many batches succeed', async () => {
+    claimPhotoImportForTrip(TRIP_ID);
+    await flushCharge();
+    claimPhotoImportForTrip(TRIP_ID);
+    claimPhotoImportForTrip(TRIP_ID);
+    await flushCharge();
+
+    expect(callLog.filter((c) => c.includes('usage/increment'))).toHaveLength(1);
+    expect(serverUsage.photo_import_count).toBe(1);
+  });
+
   it('keeps the count across a usage refetch', async () => {
     const { result } = setup([makeCluster('u1')]);
 
@@ -566,6 +611,85 @@ describe('U10 exemption', () => {
     installServer({ usageGetFails: true });
     expect(await isPhotoImportExempt(TRIP_ID)).toBe(true);
   });
+
+  it('does not claim an exemption for a trip the server never recorded', async () => {
+    // A stray device marker (the shape the grandfather pass used to produce in
+    // bulk) must not out-vote the server. Claiming it means no paywall, a
+    // screenful of pending rows, and every batch rejected — the worst available
+    // outcome, and invisible until the user is already in the list.
+    await addConsumedPhotoImportTripId(USER_A, OTHER_TRIP_ID);
+    resetPhotoImportEntitlementForTests();
+
+    expect(await isPhotoImportExempt(OTHER_TRIP_ID)).toBe(false);
+    // The server record (TRIP_ID) is still honoured.
+    expect(await isPhotoImportExempt(TRIP_ID)).toBe(true);
+  });
+
+  it('a successful increment for a second trip does not mark that trip exempt', async () => {
+    // The server keeps the FIRST trip, so a 200 from the increment endpoint is
+    // not proof it recorded the trip we sent.
+    expect(await isPhotoImportExempt(TRIP_ID)).toBe(true); // warms the server read
+    claimPhotoImportForTrip(OTHER_TRIP_ID);
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(await getConsumedPhotoImportTripIds(USER_A)).not.toContain(OTHER_TRIP_ID);
+    expect(await isPhotoImportExempt(OTHER_TRIP_ID)).toBe(false);
+  });
+});
+
+// ===========================================================================
+// A bounded exemption that runs out (the 402 the client must not loop on)
+// ===========================================================================
+
+describe('U10 exemption revocation on a server refusal', () => {
+  beforeEach(() => {
+    mockedCanImport.mockReturnValue(false);
+    serverUsage = { photo_import_count: 1, photo_import_trip_id: TRIP_ID };
+  });
+
+  it('stops claiming the exemption once the server has refused the trip', async () => {
+    expect(await isPhotoImportExempt(TRIP_ID)).toBe(true);
+
+    noteServerRefusedPhotoImport(TRIP_ID);
+
+    // The R17 exemption is bounded by a cluster allowance, so it can legitimately
+    // run out. Without this the client keeps answering "exempt" at every gate and
+    // keeps dispatching into the same 402 — the paywall never appears.
+    expect(await isPhotoImportExempt(TRIP_ID)).toBe(false);
+  });
+
+  it('a refusal outranks fail-open, so a flaky read cannot resurrect it', async () => {
+    noteServerRefusedPhotoImport(TRIP_ID);
+    installServer({ usageGetFails: true });
+
+    expect(await isPhotoImportExempt(TRIP_ID)).toBe(false);
+  });
+
+  it('records the refusal when a dispatch is stopped by the 402', async () => {
+    // The server answers the entitlement stop with the FastAPI envelope.
+    mockedApi.post.mockImplementation((async (url: string) => {
+      callLog.push(`POST ${url}`);
+      const err = new AxiosError('entitlement');
+      err.response = {
+        status: 402,
+        headers: {},
+        data: { detail: { code: 'PHOTO_IMPORT_LIMIT_REACHED' } },
+        statusText: '',
+        config: {} as never,
+      };
+      throw err;
+    }) as unknown as typeof api.post);
+
+    const { result } = setup([makeCluster('rv1')]);
+
+    await act(async () => {
+      await result.current.fetchSuggestions(buildCandidate(['rv1']), TRIP_ID);
+    });
+
+    expect(await isPhotoImportExempt(TRIP_ID)).toBe(false);
+  });
 });
 
 // ===========================================================================
@@ -573,17 +697,43 @@ describe('U10 exemption', () => {
 // ===========================================================================
 
 describe('U10 grandfather pass', () => {
-  it('does not gate a user with prior import history, and seeds the counter once', async () => {
+  it('seeds the counter from real history and exempts the trip it charged', async () => {
     markerStore.__setHistory([TRIP_ID, 'trip-older']);
     serverUsage = { photo_import_count: 0, photo_import_trip_id: null };
     mockedCanImport.mockReturnValue(false);
 
     expect(await isPhotoImportExempt(TRIP_ID)).toBe(true);
-    expect(await isPhotoImportExempt('trip-older')).toBe(true);
     // Seeded from real history rather than from whichever trip is opened next.
     expect(serverUsage.photo_import_trip_id).toBe(TRIP_ID);
     expect(callLog.filter((c) => c.includes('usage/increment'))).toHaveLength(1);
     expect(markPhotoImportGrandfatherPassRun).toHaveBeenCalledWith(USER_A);
+  });
+
+  it('does NOT exempt the other history trips the server cannot honour', async () => {
+    // The server records exactly ONE consuming trip (COALESCE — first trip
+    // wins). Device-marking every trip in the history read as generous and was
+    // the opposite: the client stopped showing the paywall for all of them while
+    // the server would honour one, so trips two and three opened with no
+    // paywall, a screenful of pending rows, and every batch rejected.
+    markerStore.__setHistory([TRIP_ID, 'trip-older']);
+    serverUsage = { photo_import_count: 0, photo_import_trip_id: null };
+    mockedCanImport.mockReturnValue(false);
+
+    expect(await isPhotoImportExempt(TRIP_ID)).toBe(true);
+    expect(await isPhotoImportExempt('trip-older')).toBe(false);
+    // And the device marker set never claims more than the server recorded.
+    expect(await getConsumedPhotoImportTripIds(USER_A)).toEqual([TRIP_ID]);
+  });
+
+  it('marks only the already-recorded trip when the server has one', async () => {
+    markerStore.__setHistory([TRIP_ID, 'trip-older']);
+    serverUsage = { photo_import_count: 1, photo_import_trip_id: TRIP_ID };
+    mockedCanImport.mockReturnValue(false);
+
+    expect(await isPhotoImportExempt('trip-older')).toBe(false);
+    expect(await getConsumedPhotoImportTripIds(USER_A)).toEqual([TRIP_ID]);
+    // Nothing charged: the counter was already seeded.
+    expect(callLog.filter((c) => c.includes('usage/increment'))).toHaveLength(0);
   });
 
   it('runs at most once per user', async () => {

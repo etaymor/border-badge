@@ -291,6 +291,14 @@ export function usePhotoImportWorkflow({
     setPhase('idle');
   }, [cancelScanInternal, clearLargeDataStructures]);
 
+  // Forward reference to the premium gate, which `useWorkflowNavigation`
+  // creates further down. Declared here so the suggestions hook can route a
+  // server 402 to the paywall; the target is attached in an effect below.
+  const premiumGateRef = useRef<((context: string) => void) | null>(null);
+  const onPremiumGate = useCallback((context: string) => {
+    premiumGateRef.current?.(context);
+  }, []);
+
   // ==========================================================================
   // Place Suggestions Hook
   // ==========================================================================
@@ -318,6 +326,15 @@ export function usePhotoImportWorkflow({
     // U10/R17: the trip whose entitlement is being spent. Sent in every
     // `/photos/suggest-places` body and used as the exemption key.
     selectedTripId,
+    // A server 402 must reach the paywall, not a generic failure alert. The
+    // real handler comes from `useWorkflowNavigation` BELOW, so this forwards
+    // through a ref rather than closing over it: the identity stays stable for
+    // the whole session (it is in a dependency array downstream) while always
+    // dispatching to the latest handler. Same discipline as
+    // `useStableCallback` -- the ref is synced in an effect, never during
+    // render, because the React Compiler may memoize around a render-time
+    // write and hand back a stale target.
+    onPremiumGate,
   });
 
   // ==========================================================================
@@ -503,6 +520,14 @@ export function usePhotoImportWorkflow({
     fetchSuggestions,
     resetSuggestPlacesMutation: resetSuggestionDispatch,
     clearFetchedCache,
+  });
+
+  // Attach the premium gate to the forward reference the suggestions hook was
+  // given above. Synced in an effect, never during render: a render-time ref
+  // write is a Rules of React violation the React Compiler may memoize around,
+  // handing back a callback bound to a stale handler.
+  useEffect(() => {
+    premiumGateRef.current = handlePremiumGate;
   });
 
   // ==========================================================================

@@ -112,12 +112,18 @@ export async function setLastSelectedCandidateId(
  * so the set of those keys IS this device's photo-import history. U10 uses it as
  * the input to the one-time grandfather pass: the durable counter is new, and a
  * user who imported repeatedly while it was unenforced must not be gated out of
- * the trips they already imported.
+ * the trip they already imported.
+ *
+ * ORDER IS LEXICOGRAPHIC BY TRIP ID, NOT CHRONOLOGICAL. The metadata table
+ * stores no insertion time, so there is nothing here that could identify the
+ * oldest import; `ORDER BY key` only guarantees that two calls on the same
+ * device agree, which is what the grandfather pass needs to charge the same trip
+ * every time. Do not read `[0]` as "the first trip the user ever imported".
  */
 export async function getPhotoImportHistoryTripIds(): Promise<string[]> {
   const database = await getDb();
   const rows = await database.getAllAsync<{ key: string }>(
-    "SELECT key FROM photo_cache_metadata WHERE key LIKE 'last_candidate_%'"
+    "SELECT key FROM photo_cache_metadata WHERE key LIKE 'last_candidate_%' ORDER BY key"
   );
   return rows.map((r) => r.key.slice('last_candidate_'.length)).filter((id) => id.length > 0);
 }

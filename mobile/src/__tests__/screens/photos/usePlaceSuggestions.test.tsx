@@ -15,6 +15,7 @@ import { AxiosError } from 'axios';
 import React from 'react';
 
 import { usePlaceSuggestions } from '../../../screens/photos/usePlaceSuggestions';
+import { useWorkflowNavigation } from '../../../screens/photos/useWorkflowNavigation';
 import {
   CHUNK_SIZE,
   FIRST_CHUNK_SIZE,
@@ -43,7 +44,13 @@ jest.mock('@services/photoImport', () => ({
     (centroid: { latitude: number; longitude: number }) =>
       `loc:${centroid.latitude},${centroid.longitude}`
   ),
+  setLastSelectedCandidateId: jest.fn().mockResolvedValue(undefined),
   computeTimeHint: jest.fn(() => 'attraction'),
+}));
+
+const mockNavigate = jest.fn();
+jest.mock('@react-navigation/native', () => ({
+  useNavigation: () => ({ navigate: mockNavigate }),
 }));
 
 jest.mock('@services/photoImport/visionPhoto', () => ({
@@ -1564,5 +1571,308 @@ describe('usePlaceSuggestions free-tier accounting across a partial dispatch (U6
     expect(
       mockedApi.post.mock.calls.filter((call) => call[0] === '/subscriptions/usage/increment')
     ).toHaveLength(0);
+  });
+});
+
+// ---- F1: back navigation must clear the fetched-candidate marker ------------
+
+describe('useWorkflowNavigation back navigation + re-entry (F1)', () => {
+  const buildCandidate = (clusterIds: string[], id = 'cand-reentry') => ({
+    id,
+    countryCode: 'JP',
+    dateRange: { start: new Date(), end: new Date() },
+    photoIds: [],
+    photoCount: clusterIds.length,
+    previewUris: [],
+    previewAssetIds: [],
+    locationClusterIds: clusterIds,
+  });
+
+  const placeFor = (id: string) => ({
+    place_id: `ChIJ_${id}`,
+    name: `Place ${id}`,
+    address: '1 St',
+    location: { latitude: 35, longitude: 139 },
+    category: 'place',
+    distance_m: 10,
+    types: ['point_of_interest'],
+  });
+
+  const TRIP = 'trip-reentry';
+
+  /**
+   * Compose the two hooks exactly as `usePhotoImportWorkflow` does: the
+   * navigation hook's `clearFetchedCache` / `resetSuggestPlacesMutation` are the
+   * suggestion hook's own. The defect only exists at that seam, so a test that
+   * mocks either side away cannot see it.
+   */
+  function setupWorkflow(clusters: LocationCluster[]) {
+    const lookup = new Map<string, LocationCluster>();
+    for (const c of clusters) lookup.set(c.id, c);
+    mockedGetFullCluster.mockImplementation((id: string) => lookup.get(id));
+    const clusterLookupRef = { current: lookup } as React.RefObject<Map<string, LocationCluster>>;
+    const currentCandidateIdRef = { current: null } as React.MutableRefObject<string | null>;
+    const noop = {
+      setSelectedCandidate: jest.fn(),
+      setSelectedTripId: jest.fn(),
+      setPhase: jest.fn(),
+    };
+    const queryClient = createTestQueryClient();
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+    return renderHook(
+      () => {
+        const suggestions = usePlaceSuggestions({
+          clusterLookupRef,
+          currentCandidateIdRef,
+          selectedTripId: TRIP,
+        });
+        const navigation = useWorkflowNavigation({
+          selectedCandidate: null,
+          selectedTripId: TRIP,
+          isPremium: true,
+          canImportPhotos: true,
+          currentCandidateIdRef,
+          setSelectedCandidate: noop.setSelectedCandidate,
+          setSelectedTripId: noop.setSelectedTripId,
+          setPhase: noop.setPhase,
+          beginFetchOwner: suggestions.beginFetchOwner,
+          endFetchOwner: suggestions.endFetchOwner,
+          fetchSuggestions: suggestions.fetchSuggestions,
+          resetSuggestPlacesMutation: suggestions.resetSuggestionDispatch,
+          clearFetchedCache: suggestions.clearFetchedCache,
+        });
+        return { suggestions, navigation };
+      },
+      { wrapper }
+    );
+  }
+
+  const respondFor = (ids: string[]) => ({
+    data: {
+      suggestions: ids.map((id) => ({
+        cluster_id: id,
+        photo_ids: [`photo-${id}`],
+        places: [placeFor(id)],
+      })),
+      failed_cluster_count: 0,
+    },
+  });
+
+  it.each([['backToCandidates' as const], ['backToTripSelection' as const]])(
+    'restores the matched rows from SQLite when re-entering after %s',
+    async (backAction) => {
+      // The whole branch exists to stop a completed match coming back as a wall of
+      // "Couldn't check this location". `resetSuggestPlacesMutation()` clears the
+      // dispatch state but NOT `fetchedCandidatesRef`, so re-entry short-circuits
+      // before the SQLite read: no data, no partial results, no cached
+      // suggestions, an empty failure map and ownerCount 0 — which `useClusterItems`
+      // reads as "settled with nothing attributed" and renders as failure rows.
+      const clusters = [makeCluster('re-1', 35.1, 139.1), makeCluster('re-2', 35.2, 139.2)];
+      const candidate = buildCandidate(['re-1', 're-2']);
+
+      mockedApi.post.mockResolvedValueOnce(respondFor(['re-1', 're-2']));
+
+      const { result } = setupWorkflow(clusters);
+
+      await act(async () => {
+        await result.current.navigation.selectTrip(TRIP, candidate);
+      });
+      expect(mockedApi.post).toHaveBeenCalledTimes(1);
+
+      // Everything the run bought is in SQLite now.
+      mockedGetCachedSuggestions.mockResolvedValue(
+        new Map(clusters.map((c) => [c.id, [placeFor(c.id)]]))
+      );
+
+      act(() => {
+        result.current.navigation[backAction]();
+      });
+
+      mockedApi.post.mockClear();
+
+      await act(async () => {
+        await result.current.navigation.selectTrip(TRIP, candidate);
+      });
+
+      const restored = result.current.suggestions.cachedSuggestions;
+      expect(restored.map((s) => s.cluster_id).sort()).toEqual(['re-1', 're-2']);
+      expect(restored.every((s) => s.places.length === 1)).toBe(true);
+      // Nothing re-bought: the rows came back from the cache for free.
+      expect(mockedApi.post).not.toHaveBeenCalled();
+    }
+  );
+
+  it('clears the fetched-candidate cache alongside the dispatch reset on both back paths', () => {
+    const clearFetchedCache = jest.fn();
+    const resetSuggestPlacesMutation = jest.fn();
+    const { result } = renderHook(() =>
+      useWorkflowNavigation({
+        selectedCandidate: null,
+        selectedTripId: TRIP,
+        isPremium: true,
+        canImportPhotos: true,
+        currentCandidateIdRef: { current: null },
+        setSelectedCandidate: jest.fn(),
+        setSelectedTripId: jest.fn(),
+        setPhase: jest.fn(),
+        beginFetchOwner: jest.fn(),
+        endFetchOwner: jest.fn(),
+        fetchSuggestions: jest.fn().mockResolvedValue(undefined),
+        resetSuggestPlacesMutation,
+        clearFetchedCache,
+      })
+    );
+
+    act(() => {
+      result.current.backToCandidates();
+    });
+    expect(resetSuggestPlacesMutation).toHaveBeenCalledTimes(1);
+    expect(clearFetchedCache).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      result.current.backToTripSelection();
+    });
+    expect(resetSuggestPlacesMutation).toHaveBeenCalledTimes(2);
+    expect(clearFetchedCache).toHaveBeenCalledTimes(2);
+  });
+});
+
+// ---- F4/F5: the status -> retryDisabled classification, shared by every path -
+
+describe('scoped-path failure classification (F4/F5)', () => {
+  const axiosFailure = (
+    status: number,
+    headers: Record<string, string> = {},
+    data: unknown = {}
+  ) => {
+    const err = new AxiosError(`status ${status}`);
+    err.response = { status, headers, data, statusText: '', config: {} as never };
+    return err;
+  };
+
+  const entitlementStop = () =>
+    axiosFailure(402, {}, { detail: { code: 'PHOTO_IMPORT_LIMIT_REACHED' } });
+
+  describe('retryFailedClusters no longer hands out a Retry button that cannot succeed', () => {
+    it.each([
+      ['a quota 503 (Retry-After present)', () => axiosFailure(503, { 'retry-after': '3600' })],
+      ['a sustained-limit 429', () => axiosFailure(429, { 'retry-after': '60' })],
+      ['the 402 entitlement stop', entitlementStop],
+    ])('marks the re-asserted failure retry-DISABLED for %s', async (_label, makeError) => {
+      const c = makeCluster('rd-1', 35.1, 139.1);
+      mockedApi.post.mockRejectedValueOnce(makeError());
+
+      const { result } = setup([c]);
+
+      await act(async () => {
+        await result.current.retryFailedClusters(['rd-1']);
+      });
+
+      // The main dispatch marks exactly these three retry-disabled. The retry
+      // path used to hard-code `false`, so the same quota outage produced one
+      // correctly-disabled row and one with a live Retry button beside it.
+      expect(result.current.suggestionDispatch.failedClusterIds.get('rd-1')?.retryDisabled).toBe(
+        true
+      );
+    });
+
+    it.each([
+      ['a plain network error', () => new Error('network blip')],
+      ['a header-less 503 (busy, not quota)', () => axiosFailure(503)],
+      ['a burst-cap 429 the pool parks on', () => axiosFailure(429, { 'retry-after': '1' })],
+      ['a 500', () => axiosFailure(500)],
+    ])('keeps retry ENABLED for %s', async (_label, makeError) => {
+      const c = makeCluster('re-enabled', 35.1, 139.1);
+      mockedApi.post.mockRejectedValueOnce(makeError());
+
+      const { result } = setup([c]);
+
+      await act(async () => {
+        await result.current.retryFailedClusters(['re-enabled']);
+      });
+
+      expect(
+        result.current.suggestionDispatch.failedClusterIds.get('re-enabled')?.retryDisabled
+      ).toBe(false);
+    });
+  });
+
+  describe('fetchForClusters distinguishes the three 503 sources', () => {
+    it('says "daily limit" only for a 503 carrying Retry-After', async () => {
+      const c = makeCluster('quota-503', 35.1, 139.1);
+      mockedApi.post.mockRejectedValueOnce(axiosFailure(503, { 'retry-after': '3600' }));
+
+      const { result } = setup([c]);
+
+      await act(async () => {
+        await result.current.fetchForClusters([c]);
+      });
+
+      const [, message] = mockedAlert.mock.calls[0];
+      expect(message).toContain('daily limit');
+    });
+
+    it('uses transient wording for a header-less 503 (slot starvation / pool exhaustion)', async () => {
+      const c = makeCluster('busy-503', 35.1, 139.1);
+      mockedApi.post.mockRejectedValueOnce(axiosFailure(503));
+
+      const { result } = setup([c]);
+
+      await act(async () => {
+        await result.current.fetchForClusters([c]);
+      });
+
+      const [title, message] = mockedAlert.mock.calls[0];
+      expect(title).toBe('Service Temporarily Unavailable');
+      expect(message).not.toContain('daily limit');
+      expect(message).not.toContain('tomorrow');
+    });
+
+    it('routes the 402 entitlement stop to the paywall instead of a generic failure', async () => {
+      const c = makeCluster('gate-402', 35.1, 139.1);
+      mockedApi.post.mockRejectedValueOnce(entitlementStop());
+      const onPremiumGate = jest.fn();
+
+      const lookup = new Map<string, LocationCluster>([[c.id, c]]);
+      mockedGetFullCluster.mockImplementation((id: string) => lookup.get(id));
+      const queryClient = createTestQueryClient();
+      const { result } = renderHook(
+        () =>
+          usePlaceSuggestions({
+            clusterLookupRef: { current: lookup } as React.RefObject<Map<string, LocationCluster>>,
+            selectedTripId: 'trip-402',
+            onPremiumGate,
+          }),
+        {
+          wrapper: ({ children }: { children: React.ReactNode }) => (
+            <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+          ),
+        }
+      );
+
+      await act(async () => {
+        await result.current.fetchForClusters([c]);
+      });
+
+      expect(onPremiumGate).toHaveBeenCalledTimes(1);
+      expect(mockedAlert).not.toHaveBeenCalled();
+    });
+
+    it('names the entitlement stop honestly when there is no paywall handler', async () => {
+      const c = makeCluster('gate-402-alert', 35.1, 139.1);
+      mockedApi.post.mockRejectedValueOnce(entitlementStop());
+
+      const { result } = setup([c]);
+
+      await act(async () => {
+        await result.current.fetchForClusters([c]);
+      });
+
+      const [title] = mockedAlert.mock.calls[0];
+      expect(title).not.toBe('Failed to Get Suggestions');
+      expect(title).toBe('Free Photo Import Used');
+    });
   });
 });

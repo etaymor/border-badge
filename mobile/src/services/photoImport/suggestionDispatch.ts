@@ -266,7 +266,7 @@ export class RateLimitError extends Error {
  * a custom exception handler (or a proxy) may hoist the body, and being wrong
  * here costs a paid request that can never succeed.
  */
-function readErrorCode(error: AxiosError): string | undefined {
+export function readErrorCode(error: AxiosError): string | undefined {
   const body = error.response?.data as
     | { code?: string; detail?: { code?: string } | string }
     | undefined;

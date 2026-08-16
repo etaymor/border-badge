@@ -19,7 +19,9 @@ import {
   RateLimitError,
   QuotaExhaustedError,
   PhotoImportLimitReachedError,
+  MAX_PARKABLE_RETRY_AFTER_SECONDS,
   parseRetryAfterSeconds,
+  readErrorCode,
   type ChunkedPlaceSuggestionResult,
   type PlaceSuggestionCluster,
 } from '@services/photoImport/suggestionDispatch';
@@ -41,6 +43,7 @@ import {
   hasDisclosedFreeImport,
   isPhotoImportExempt,
   markFreeImportDisclosed,
+  noteServerRefusedPhotoImport,
 } from '@services/photoImport/photoImportEntitlement';
 import { Analytics, calculateApiPercentiles } from '@services/analytics';
 import { useIsPremium, useCanImportPhotos } from '@stores/subscriptionStore';
@@ -200,18 +203,76 @@ function cacheRowsForDispatch(
  * entitlement stop gets its OWN type rather than sharing `unknown` with genuine
  * faults (U11): it is a product outcome with a paywall follow-up, so burying it
  * in the bug bucket both inflates the error rate and hides the funnel step.
+ *
+ * The 402 also revokes the trip's local exemption. The R17 exemption is bounded
+ * by a cluster allowance now, so a trip the client called exempt can stop being
+ * so mid-import; without recording the refusal every later gate would keep
+ * answering "exempt" and keep dispatching into the same rejection.
  */
-function reportDispatchFatalError(fatalError: Error | null): void {
+function reportDispatchFatalError(fatalError: Error | null, tripId: string | null): void {
   if (fatalError === null) return;
   if (fatalError instanceof QuotaExhaustedError) {
     Analytics.photoImportApiError({ errorType: 'quota_exhausted' });
   } else if (fatalError instanceof RateLimitError) {
     Analytics.photoImportApiError({ errorType: 'rate_limited' });
   } else if (fatalError instanceof PhotoImportLimitReachedError) {
+    noteServerRefusedPhotoImport(tripId);
     Analytics.photoImportApiError({ errorType: 'entitlement_exhausted' });
   } else {
     Analytics.photoImportApiError({ errorType: 'unknown' });
   }
+}
+
+/**
+ * The status -> `retryDisabled` classification, in ONE place (KTD10).
+ *
+ * `retryDisabled` exists so the user is never handed a Retry button that can
+ * only ever fail. The chunked dispatch path has always made this distinction;
+ * the scoped single-batch paths used to hard-code `false`, so with Google's
+ * daily quota exhausted a cluster that failed in the main dispatch was correctly
+ * retry-disabled while the cluster next to it — identical failure, different
+ * code path — kept an enabled Retry button and an enabled "Retry All" entry.
+ * Every tap then bought a request that could not succeed.
+ *
+ * The four disabling cases mirror the dispatch path exactly:
+ *
+ *  - 503 WITH `Retry-After`: the Google daily quota. A header-less 503 is a
+ *    transient backend condition (slot starvation, pool exhaustion, a failed
+ *    entitlement read) and stays retryable.
+ *  - 429 asking for longer than the pool will park on: the sustained limit. A
+ *    short `Retry-After` is a burst throttle and is dispatchable again seconds
+ *    later, so it stays retryable.
+ *  - 402 `PHOTO_IMPORT_LIMIT_REACHED`: the entitlement stop.
+ *  - 403 `PHOTO_IMPORT_TRIP_NOT_FOUND`: a non-premium caller naming a trip the
+ *    server will not accept. Retrying re-sends the same trip id.
+ *
+ * The 402/403 bodies are the FastAPI envelope (`{"detail": {"code": ...}}`), so
+ * the code is read through the dispatch module's own `readErrorCode`, which
+ * accepts that shape and the flat one — reimplementing it is how the branch
+ * became dead in production last time.
+ */
+function isRetryDisablingError(error: unknown): boolean {
+  if (!(error instanceof AxiosError)) return false;
+  const status = error.response?.status;
+  if (status === 503) return Boolean(error.response?.headers['retry-after']);
+  if (status === 429) {
+    return (
+      parseRetryAfterSeconds(error.response?.headers['retry-after']) >
+      MAX_PARKABLE_RETRY_AFTER_SECONDS
+    );
+  }
+  if (status === 402) return readErrorCode(error) === 'PHOTO_IMPORT_LIMIT_REACHED';
+  if (status === 403) return readErrorCode(error) === 'PHOTO_IMPORT_TRIP_NOT_FOUND';
+  return false;
+}
+
+/** True for the 402 entitlement stop specifically (the paywall follow-up). */
+function isEntitlementStop(error: unknown): boolean {
+  return (
+    error instanceof AxiosError &&
+    error.response?.status === 402 &&
+    readErrorCode(error) === 'PHOTO_IMPORT_LIMIT_REACHED'
+  );
 }
 
 /**
@@ -322,12 +383,24 @@ export interface UsePlaceSuggestionsOptions {
    * an argument instead, since `selectTrip` sets it in the same tick it fetches.
    */
   selectedTripId?: string | null;
+  /**
+   * Show the paywall (U10). Optional because this hook has no navigator of its
+   * own; when it is absent the 402 is still named honestly in an Alert instead
+   * of being reported as a generic failure.
+   *
+   * Only the SCOPED single-batch path needs it. The chunked fetch reports a gate
+   * by returning `{ gatedByPremium: true }` to `useWorkflowNavigation`, which
+   * owns the paywall; `fetchForClusters` is fired from a UI callback whose
+   * caller discards the return value, so it needs somewhere to hand the outcome.
+   */
+  onPremiumGate?: (context: string) => void;
 }
 
 export function usePlaceSuggestions({
   clusterLookupRef,
   currentCandidateIdRef,
   selectedTripId = null,
+  onPremiumGate,
 }: UsePlaceSuggestionsOptions) {
   // Live snapshot of the dispatch controller (KTD21). The controller is a
   // module-level singleton, so this hook only READS its state — chunking,
@@ -736,7 +809,7 @@ export function usePlaceSuggestions({
 
         // KTD6: the fatal rejection is reported on the RESULT now rather than
         // thrown. The `catch` below still covers a genuinely thrown dispatch.
-        reportDispatchFatalError(result.fatalError);
+        reportDispatchFatalError(result.fatalError, tripId);
 
         // U10/R16 note: the free import is NOT counted here any more. It is
         // claimed on the first successful batch via `onBatchSuccess` above, so a
@@ -792,6 +865,12 @@ export function usePlaceSuggestions({
           Analytics.photoImportApiError({ errorType: 'quota_exhausted' });
         } else if (error instanceof RateLimitError) {
           Analytics.photoImportApiError({ errorType: 'rate_limited' });
+        } else if (error instanceof PhotoImportLimitReachedError || isEntitlementStop(error)) {
+          // Same revocation as the carried-fatal path: the exemption is bounded
+          // by a cluster allowance, so a 402 here means the trip stopped being
+          // exempt and every later gate must stop saying otherwise.
+          noteServerRefusedPhotoImport(tripId);
+          Analytics.photoImportApiError({ errorType: 'entitlement_exhausted' });
         } else {
           Analytics.photoImportApiError({ errorType: 'unknown' });
         }
@@ -925,13 +1004,43 @@ export function usePlaceSuggestions({
       } catch (error) {
         if (__DEV__) console.error('[PhotoImport] fetchForClusters error:', error);
 
-        if (error instanceof AxiosError && error.response?.status === 503) {
-          Alert.alert(
-            'Service Temporarily Unavailable',
-            'The place suggestion service has reached its daily limit. Please try again tomorrow.'
-          );
-        } else if (error instanceof AxiosError && error.response?.status === 429) {
-          const retrySeconds = parseRetryAfterSeconds(error.response.headers['retry-after']);
+        const status = error instanceof AxiosError ? error.response?.status : undefined;
+
+        if (isEntitlementStop(error)) {
+          // U16/R17. The exemption is bounded by a cluster allowance, so the
+          // trip this split belongs to has just stopped being exempt. Record the
+          // refusal FIRST — otherwise every later gate keeps answering "exempt"
+          // and keeps dispatching into the same 402 — then route to the paywall,
+          // which is the actual next step, rather than the generic failure alert
+          // this used to fall through to.
+          noteServerRefusedPhotoImport(activeTripIdRef.current);
+          if (onPremiumGate) {
+            onPremiumGate('fetchForClusters-entitlement');
+          } else {
+            Alert.alert(
+              'Free Photo Import Used',
+              'Your account has used its included photo import. Upgrade to keep finding places for this trip.'
+            );
+          }
+        } else if (status === 503 && error instanceof AxiosError) {
+          // Only a QUOTA 503 carries Retry-After — the same discriminator the
+          // dispatch path uses. The other three 503 sources (slot starvation,
+          // pool exhaustion, a failed entitlement read) are transient, and
+          // telling the user to come back tomorrow makes a momentary outage look
+          // like the end of the day.
+          if (error.response?.headers['retry-after']) {
+            Alert.alert(
+              'Daily Limit Reached',
+              'The place suggestion service has reached its daily limit. Please try again tomorrow.'
+            );
+          } else {
+            Alert.alert(
+              'Service Temporarily Unavailable',
+              'The place suggestion service is busy right now. Please try again in a moment.'
+            );
+          }
+        } else if (error instanceof AxiosError && status === 429) {
+          const retrySeconds = parseRetryAfterSeconds(error.response?.headers['retry-after']);
           Alert.alert(
             'Too Many Requests',
             `Please wait ${retrySeconds} seconds before trying again.`
@@ -947,7 +1056,7 @@ export function usePlaceSuggestions({
         endFetchOwner();
       }
     },
-    [currentCandidateIdRef, beginFetchOwner, endFetchOwner]
+    [currentCandidateIdRef, beginFetchOwner, endFetchOwner, onPremiumGate]
   );
 
   /**
@@ -978,7 +1087,10 @@ export function usePlaceSuggestions({
    *  - Partial results: of the retried set, succeeded clusters are cached +
    *    cleared from `failedClusterIds` (-> matched / no-place-found); clusters
    *    that fail again are re-added to `failedClusterIds` (-> stay lookup-failed,
-   *    retry again allowed — no cap). Other clusters' failure state is untouched.
+   *    retry again allowed — no cap) UNLESS the throw was one a retry cannot
+   *    survive (quota / sustained rate limit / entitlement), which is classified
+   *    by `isRetryDisablingError` exactly as the dispatch path classifies it.
+   *    Other clusters' failure state is untouched.
    *  - No Alert (M1): the lookup-failed card already surfaces the failure; an
    *    Alert on top would double-surface, so the retry path shows none.
    */
@@ -1115,14 +1227,27 @@ export function usePlaceSuggestions({
         }
       } catch (error) {
         // M1: no Alert here — the lookup-failed card already surfaces the
-        // failure. Re-assert only the STILL-PENDING ids as lookup-failed (retry
-        // enabled, no cap) so the card stays/returns to lookup-failed. Already-
-        // resolved cache hits are excluded (they left `pendingIds`), so a later
-        // api.post throw can't wrongly re-fail a resolved cluster.
+        // failure. Re-assert only the STILL-PENDING ids as lookup-failed so the
+        // card stays/returns to lookup-failed. Already-resolved cache hits are
+        // excluded (they left `pendingIds`), so a later api.post throw can't
+        // wrongly re-fail a resolved cluster.
+        //
+        // KTD10: `retryDisabled` is CLASSIFIED, not hard-coded false. This
+        // re-attributed every failure as retryable, so with the daily quota
+        // exhausted a cluster that failed in the main dispatch was correctly
+        // retry-disabled while one that had been retried once kept an enabled
+        // Retry button — and an enabled "Retry All" entry — that could only ever
+        // fail again. Same for the 402 entitlement stop, which additionally
+        // revokes the trip's exemption so the next gate shows the paywall
+        // instead of looping back into the same rejection.
         if (__DEV__) console.error('[PhotoImport] retryFailedClusters error:', error);
+        if (isEntitlementStop(error)) {
+          noteServerRefusedPhotoImport(activeTripIdRef.current);
+        }
         if (pendingIds.size > 0 && !isStaleRetry()) {
+          const retryDisabled = isRetryDisablingError(error);
           suggestionDispatch.addFailedClusterIds(
-            [...pendingIds].map((id) => ({ id, retryDisabled: false }))
+            [...pendingIds].map((id) => ({ id, retryDisabled }))
           );
         }
       } finally {
@@ -1219,7 +1344,7 @@ export function usePlaceSuggestions({
         // stay out of this decision.
         await cacheSuggestions(cacheRowsForDispatch(eligible, result));
 
-        reportDispatchFatalError(result.fatalError);
+        reportDispatchFatalError(result.fatalError, activeTripIdRef.current);
       } catch (error) {
         // M1: no Alert — the rows themselves carry the failure. A cluster the
         // run never answered is left unattributed and the consumer's

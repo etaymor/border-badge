@@ -18,8 +18,19 @@
  *     unenforced limit into a real one. The one-time pass seeds the server from
  *     this device's import history instead of gating those users retroactively.
  *
+ * THE CLIENT MAY NEVER CLAIM AN EXEMPTION THE SERVER WILL REFUSE. The server
+ * records exactly ONE consuming trip (`COALESCE(usage_photo_import_trip_id,
+ * p_trip_id)` — first trip wins) and matches only that one, so every device
+ * marker written here has to correspond to that single trip. A marker written
+ * for a trip the server never recorded produces the worst possible outcome: no
+ * paywall, a screenful of pending rows, and every batch rejected.
+ *
  * Every read here FAILS OPEN. A network blip must never lock a user out of a
- * trip they have already paid for.
+ * trip they have already paid for. The one exception is a server refusal we
+ * have actually SEEN (a 402 on a trip this module called exempt — the R17
+ * exemption is bounded by a cluster allowance and can legitimately run out):
+ * that is recorded and is authoritative, so the client stops re-claiming an
+ * exemption the server has already denied.
  */
 
 import { api } from '@services/api';
@@ -63,6 +74,18 @@ let disclosedTripIds = new Set<string>();
 let deviceMarkers: { userId: string; tripIds: Set<string> } | null = null;
 /** Server-recorded consumed trip, namespaced the same way. */
 let serverConsumed: { userId: string; tripId: string | null } | null = null;
+/**
+ * Trips the server has REFUSED a batch for (402 `PHOTO_IMPORT_LIMIT_REACHED`),
+ * even though this module called them exempt.
+ *
+ * The R17 exemption is bounded by a cluster allowance, so a trip that was
+ * genuinely exempt can stop being so mid-import. Without this the client would
+ * keep answering "exempt" at every gate and keep walking into the same 402 —
+ * paywall never shown, rows never resolved. Deliberately process-local: the
+ * allowance may have moved on by the next launch, so the refusal is a stop for
+ * this session, not a durable one.
+ */
+let refusedTripIds = new Set<string>();
 /** The in-flight (or completed) one-time grandfather pass. */
 let grandfatherPass: Promise<void> | null = null;
 
@@ -72,6 +95,7 @@ export function resetPhotoImportEntitlementForTests(): void {
   disclosedTripIds = new Set();
   deviceMarkers = null;
   serverConsumed = null;
+  refusedTripIds = new Set();
   grandfatherPass = null;
 }
 
@@ -105,8 +129,33 @@ export function markFreeImportDisclosed(tripId: string | null | undefined): void
 }
 
 // ---------------------------------------------------------------------------
-// Device marker (the fast path — never the decision)
+// Server refusals (authoritative, and the only thing that overrides fail-open)
 // ---------------------------------------------------------------------------
+
+/**
+ * Record that the server refused a batch for `tripId` with the 402 entitlement
+ * stop, on a trip this module had called exempt.
+ *
+ * Called from the surfaces that can actually see the rejection (the dispatch
+ * fatal error and the scoped single-batch paths). From here on the trip is NOT
+ * exempt: the next gate shows the paywall instead of dispatching into the same
+ * refusal, and the free-limit banner stops being suppressed. Not looping is the
+ * whole point — the refusal wins over the device marker, over the server record,
+ * and over fail-open.
+ */
+export function noteServerRefusedPhotoImport(tripId: string | null | undefined): void {
+  if (tripId) refusedTripIds.add(tripId);
+}
+
+// ---------------------------------------------------------------------------
+// Device marker (a fast path for a decision the server already confirmed)
+// ---------------------------------------------------------------------------
+//
+// A marker is written in exactly two places, and both mean the SERVER has the
+// trip: after an increment that this device's own read agrees consumed it, and
+// after a usage read that named it. Nothing else may write one — a marker for a
+// trip the server never recorded is a client that waves the user through and a
+// server that rejects every batch.
 
 async function readDeviceMarkers(userId: string): Promise<Set<string>> {
   if (deviceMarkers && deviceMarkers.userId === userId) return deviceMarkers.tripIds;
@@ -155,23 +204,37 @@ async function readServerConsumedTripId(userId: string): Promise<string | null> 
 /**
  * Whether matching may run for `tripId` even though the free import is spent.
  *
- * Order matters: the device marker first (fast, avoids the paywall flash), then
- * the server record, which is the same field `POST /photos/suggest-places`
- * compares against and therefore the only thing that can actually be trusted.
+ * Three steps, in this order:
+ *
+ *  1. A refusal we have SEEN wins outright. The exemption is bounded by a
+ *     cluster allowance, so a 402 on a trip this function previously called
+ *     exempt means the answer has changed — and answering "exempt" again would
+ *     dispatch straight back into the same rejection.
+ *  2. The server record — the same field `POST /photos/suggest-places` compares
+ *     against, and therefore the ONLY thing that can grant the exemption.
+ *
+ * The device marker is deliberately NOT a step. It used to short-circuit ahead
+ * of the server read, which made the client's answer and the server's answer
+ * two independent opinions — and the client's was the generous one. That is the
+ * failure the whole module exists to prevent: no paywall, a hundred pending
+ * rows, and every batch rejected. The marker is still written (see
+ * `writeDeviceMarker`) as the durable record of a CONFIRMED consumption, but it
+ * corroborates the server rather than standing in for it. Losing KTD23's
+ * paywall-flash fast path is the price; a flash is a cosmetic problem and a
+ * false exemption is not.
  *
  * Returns TRUE on a read error (fail open). A user with a paid-for, half-matched
- * trip must not be locked out of it by a flaky network.
+ * trip must not be locked out of it by a flaky network — except on a trip the
+ * server has already refused, where "allow" is known to be wrong.
  */
 export async function isPhotoImportExempt(tripId: string | null | undefined): Promise<boolean> {
   if (!tripId) return false;
+  if (refusedTripIds.has(tripId)) return false;
   const userId = currentUserId();
   if (!userId) return false;
 
   try {
     await ensurePhotoImportGrandfatherPass();
-
-    const markers = await readDeviceMarkers(userId);
-    if (markers.has(tripId)) return true;
 
     const consumed = await readServerConsumedTripId(userId);
     if (sameTrip(consumed, tripId)) {
@@ -226,8 +289,17 @@ async function chargePhotoImport(tripId: string): Promise<void> {
 
     const userId = currentUserId();
     if (userId) {
-      serverConsumed = { userId, tripId: serverConsumed?.tripId ?? tripId };
-      await writeDeviceMarker(userId, tripId);
+      // The server takes the FIRST trip and keeps it, so a successful increment
+      // is NOT proof it recorded this one. If a different trip is already known
+      // to be the consuming trip, leave the record alone and write no marker:
+      // marking this trip would be exactly the false exemption the whole module
+      // exists to avoid.
+      const known =
+        serverConsumed && serverConsumed.userId === userId ? serverConsumed.tripId : null;
+      if (known === null || sameTrip(known, tripId)) {
+        serverConsumed = { userId, tripId: known ?? tripId };
+        await writeDeviceMarker(userId, tripId);
+      }
     }
 
     // The count is durable now, so let the usage query refetch: the value that
@@ -251,13 +323,24 @@ async function chargePhotoImport(tripId: string): Promise<void> {
  *
  * Existing users imported under a counter that was local-only and reset by every
  * usage refetch. Making it durable would gate them for the first time, on trips
- * they have already imported. So on the first entitlement check after this ships:
+ * they have already imported. So on the first entitlement check after this
+ * ships, if the server has no consumed trip recorded, the counter is seeded from
+ * this device's import history — the charge lands on a trip the user actually
+ * imported rather than on the next trip they happen to open, and that trip stays
+ * exempt forever.
  *
- *  - every trip already taken into matching on this device is marked exempt, so
- *    none of them is gated retroactively; and
- *  - if the server has no consumed trip recorded, the counter is seeded from the
- *    oldest of them, so the charge lands on a trip the user actually imported
- *    rather than on the next trip they happen to open.
+ * Exactly ONE trip is marked, because the server records exactly one. The pass
+ * used to device-mark every trip in the history, which read as generous and was
+ * the opposite: the client stopped showing the paywall for three trips while the
+ * server would only ever honour one, so trips two and three opened into a
+ * screenful of rows whose every batch was rejected. A user with several
+ * pre-existing imports keeps ONE of them free; the rest are gated honestly, up
+ * front, where the paywall can do its job.
+ *
+ * The seed trip is `history[0]`. That is deterministic (the query orders by key)
+ * but it is NOT "the oldest": the metadata table has no insertion-time column,
+ * so trip order is lexicographic by id. Any single trip from real history beats
+ * charging whichever trip the user opens next, which is all this needs to be.
  */
 export function ensurePhotoImportGrandfatherPass(): Promise<void> {
   if (!grandfatherPass) {
@@ -283,12 +366,15 @@ async function runGrandfatherPass(): Promise<void> {
     const consumed = await readServerConsumedTripId(userId);
     if (consumed === null) {
       // Seed the durable counter from real history rather than from whichever
-      // trip is opened next.
+      // trip is opened next. `chargePhotoImport` writes the device marker for
+      // the trip it actually recorded, so the marker set stays in step with the
+      // server's single consuming trip.
       claimedTripIds.add(history[0]);
       await chargePhotoImport(history[0]);
-    }
-    for (const tripId of history) {
-      await writeDeviceMarker(userId, tripId);
+    } else {
+      // Already recorded — mark that trip (and only that trip) so the fast path
+      // is warm without a second usage read.
+      await writeDeviceMarker(userId, consumed);
     }
   }
 

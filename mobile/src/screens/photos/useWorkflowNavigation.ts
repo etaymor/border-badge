@@ -217,18 +217,44 @@ export function useWorkflowNavigation({
   // ==========================================================================
   // Back Navigation
   // ==========================================================================
+  /**
+   * Both back paths clear the session's fetched-candidate marker as well as the
+   * dispatch state, and they MUST do both together.
+   *
+   * `resetSuggestPlacesMutation()` drops `data`, `partialResults`,
+   * `failedClusterIds` and `enqueuedClusterIds`; `clearFetchedCache()` drops
+   * `fetchedCandidatesRef` and the in-memory cached suggestions. Resetting only
+   * the first leaves the candidate marked "already fetched", so a re-entry
+   * short-circuits `runFetchSuggestions` BEFORE its SQLite cache read — no data,
+   * no partial results, no cached suggestions, an empty failure map and an owner
+   * count of zero. `useClusterItems` reads that as "all owners settled with
+   * nothing attributed" and routes every cluster to the reconciliation arm, so a
+   * finished forty-location match comes back as forty "Couldn't check this
+   * location" rows even though every result is sitting in SQLite.
+   *
+   * Clearing the marker costs nothing: re-entry re-runs the cache read and the
+   * cached rows come back for free, with nothing re-bought.
+   */
   const backToCandidates = useCallback(() => {
     setSelectedCandidate(null);
     setSelectedTripId(null);
     setPhase('candidates');
     resetSuggestPlacesMutation();
-  }, [setSelectedCandidate, setSelectedTripId, setPhase, resetSuggestPlacesMutation]);
+    clearFetchedCache();
+  }, [
+    setSelectedCandidate,
+    setSelectedTripId,
+    setPhase,
+    resetSuggestPlacesMutation,
+    clearFetchedCache,
+  ]);
 
   const backToTripSelection = useCallback(() => {
     setSelectedTripId(null);
     setPhase('trip-selection');
     resetSuggestPlacesMutation();
-  }, [setSelectedTripId, setPhase, resetSuggestPlacesMutation]);
+    clearFetchedCache();
+  }, [setSelectedTripId, setPhase, resetSuggestPlacesMutation, clearFetchedCache]);
 
   // ==========================================================================
   // Switch Candidate

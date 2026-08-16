@@ -133,15 +133,39 @@ describe('useAppStateTracking suggestion-dispatch lifecycle (U9/R15/KTD19)', () 
     expect(dispatchMock.pause).not.toHaveBeenCalled();
   });
 
-  it('resumes through the staggered foreground burst, not in the event frame', async () => {
+  it('resumes SYNCHRONOUSLY in the foreground event, not from the staggered burst', async () => {
     renderHook(() => useAppStateTracking(makeSession('user-1'), jest.fn(), 'US'));
 
     fireForeground();
-    // KTD19: resume rides the app-root hook's frame stagger, so returning to the
-    // app does not run resume plus every sync job on one frame.
-    expect(dispatchMock.resume).not.toHaveBeenCalled();
+    // `pause()` is synchronous and this is its only release. Deferring it by a
+    // frame put it inside a cancellable burst; it is a flag flip, so it costs
+    // nothing to run here and cannot be lost.
+    expect(dispatchMock.resume).toHaveBeenCalledTimes(1);
 
+    // ...and it is not ALSO queued in the burst, which would double-resume.
     await flushStagger();
+    expect(dispatchMock.resume).toHaveBeenCalledTimes(1);
+  });
+
+  it('resumes even when the burst is cancelled before its first frame', () => {
+    // The burst is cancelled wholesale by `cancelStaggerRef.current?.()`, which
+    // runs from the effect cleanup AND from the top of the next foreground
+    // event; the effect's deps change on foreground (Supabase refreshes the
+    // session then), so losing the burst before frame 0 is reachable. As job 0,
+    // resume died with it — and a stranded pause is permanent: workers stay
+    // parked, `dispatch()` never settles, the owner bracket never releases, and
+    // every remaining cluster is a pending row with no way out.
+    const { unmount } = renderHook(() =>
+      useAppStateTracking(makeSession('user-1'), jest.fn(), 'US')
+    );
+
+    const cb = appStateListeners[0];
+    cb('background');
+    cb('active');
+    // Unmount before any animation frame runs: the cleanup cancels the burst.
+    unmount();
+
+    expect(dispatchMock.pause).toHaveBeenCalledTimes(1);
     expect(dispatchMock.resume).toHaveBeenCalledTimes(1);
   });
 
