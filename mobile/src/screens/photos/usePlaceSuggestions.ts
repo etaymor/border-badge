@@ -8,9 +8,10 @@
  * when successfully fetching suggestions that require API calls.
  */
 
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert } from 'react-native';
 import { AxiosError } from 'axios';
+import { useQueryClient } from '@tanstack/react-query';
 
 import { useSuggestionDispatch } from '@hooks/usePhotoImport';
 import {
@@ -30,12 +31,49 @@ import {
   type PlaceSuggestion,
 } from '@services/photoImport';
 import { getVisionImagesForCluster } from '@services/photoImport/visionPhoto';
+import {
+  claimPhotoImportForTrip,
+  ensurePhotoImportGrandfatherPass,
+  hasDisclosedFreeImport,
+  isPhotoImportExempt,
+  markFreeImportDisclosed,
+} from '@services/photoImport/photoImportEntitlement';
 import { Analytics, calculateApiPercentiles } from '@services/analytics';
-import { useSubscriptionStore, useIsPremium, useCanImportPhotos } from '@stores/subscriptionStore';
+import { useIsPremium, useCanImportPhotos } from '@stores/subscriptionStore';
 import { logger } from '@utils/logger';
 import { mapClusterToApiPayload } from './photoImportUtils';
 
 const VISION_PREP_CONCURRENCY = 3;
+
+/**
+ * The one-time free-import confirmation (U10/KTD18).
+ *
+ * Counting on the first successful batch means a free user can spend their one
+ * lifetime import by merely opening a trip, so the charge is named — with the
+ * trip in it — before anything is dispatched, instead of being reported
+ * afterwards in the past tense. Declining dispatches nothing and charges
+ * nothing, and the user is asked again next time.
+ */
+function confirmFreeImport(tripName: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (accepted: boolean) => {
+      if (settled) return;
+      settled = true;
+      resolve(accepted);
+    };
+    Alert.alert(
+      'Use your free photo import?',
+      `Finding places for "${tripName}" uses the one free photo import included with your account. ` +
+        'You can come back to this trip and finish it later at no extra cost.',
+      [
+        { text: 'Not Now', style: 'cancel', onPress: () => finish(false) },
+        { text: 'Continue', onPress: () => finish(true) },
+      ],
+      { cancelable: true, onDismiss: () => finish(false) }
+    );
+  });
+}
 
 /** Validate that a cached entry has the shape of a PlaceSuggestion. */
 function isPlaceSuggestion(item: unknown): item is PlaceSuggestion {
@@ -126,11 +164,22 @@ export interface UsePlaceSuggestionsOptions {
   clusterLookupRef: React.RefObject<Map<string, LocationCluster>>;
   /** Ref tracking current candidate ID to detect stale responses during rapid switching */
   currentCandidateIdRef?: React.RefObject<string | null>;
+  /**
+   * The destination trip currently being matched (U10/R17).
+   *
+   * Two jobs: it goes into every `/photos/suggest-places` body so the server can
+   * honor the R17 exemption, and it is the key the exemption itself is looked up
+   * by. Supplied as a VALUE (not a ref) because the free-limit banner has to
+   * re-render when the exemption resolves; the fetch paths take the trip id as
+   * an argument instead, since `selectTrip` sets it in the same tick it fetches.
+   */
+  selectedTripId?: string | null;
 }
 
 export function usePlaceSuggestions({
   clusterLookupRef,
   currentCandidateIdRef,
+  selectedTripId = null,
 }: UsePlaceSuggestionsOptions) {
   // Live snapshot of the dispatch controller (KTD21). The controller is a
   // module-level singleton, so this hook only READS its state — chunking,
@@ -142,11 +191,68 @@ export function usePlaceSuggestions({
   // Premium subscription state
   const isPremium = useIsPremium();
   const canImportPhotos = useCanImportPhotos();
-  const incrementPhotoImportUsage = useSubscriptionStore((s) => s.incrementPhotoImportUsage);
+  const queryClient = useQueryClient();
 
-  // Track if we've already counted usage for this session
-  // (to prevent double-counting if user switches between candidates)
-  const hasCountedUsageRef = useRef(false);
+  // The trip every dispatch on this screen belongs to (U10/R17). Kept in a ref
+  // as well as a prop because the retry and manual-split paths fire from UI
+  // callbacks long after the fetch that established it, and they must send the
+  // same `trip_id`. Written in an EFFECT (never during render) per the React
+  // Compiler rule, and written again — explicitly — at the top of
+  // `fetchSuggestions`, because `selectTrip` sets the trip and fetches in the
+  // same tick, before any effect has run.
+  const activeTripIdRef = useRef<string | null>(selectedTripId);
+  useEffect(() => {
+    if (selectedTripId) activeTripIdRef.current = selectedTripId;
+  }, [selectedTripId]);
+
+  /**
+   * True when the currently selected trip is the one that already consumed this
+   * user's free import (R17). Drives the free-limit banner suppression: without
+   * it a returning user reads "Free Limit Reached" directly above the list they
+   * are being allowed to finish.
+   */
+  const [isExemptTrip, setIsExemptTrip] = useState(false);
+  useEffect(() => {
+    if (isPremium || canImportPhotos || !selectedTripId) {
+      setIsExemptTrip(false);
+      return;
+    }
+    let cancelled = false;
+    // Never rejects — it fails open internally.
+    isPhotoImportExempt(selectedTripId).then((exempt) => {
+      if (!cancelled) setIsExemptTrip(exempt);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [isPremium, canImportPhotos, selectedTripId]);
+
+  /**
+   * The R17-aware entitlement gate, shared by EVERY gate site (U10).
+   *
+   * Three upstream gates (selectTrip, switchCandidate, auto-start) return before
+   * this hook's own fetch is ever reached, so an exemption implemented only in
+   * the fetch would be dead code for exactly the scenario it exists to fix. They
+   * all call this.
+   *
+   * Fails OPEN on a read error: a user who has already paid for a half-matched
+   * trip must not be locked out of it by a flaky network.
+   */
+  const canRunImportForTrip = useCallback(
+    async (tripId: string | null | undefined): Promise<boolean> => {
+      if (isPremium) return true;
+      if (canImportPhotos) {
+        // Not gated, so no exemption is needed — but make sure the one-time
+        // grandfather pass has run before the durable counter can ever gate
+        // this user. Deliberately not awaited: it must not delay the phase
+        // transition, and nothing here depends on its result.
+        void ensurePhotoImportGrandfatherPass();
+        return true;
+      }
+      return isPhotoImportExempt(tripId);
+    },
+    [isPremium, canImportPhotos]
+  );
 
   // Session cache for fetched candidates - prevents re-running cache logic within same session
   const fetchedCandidatesRef = useRef<Set<string>>(new Set());
@@ -218,7 +324,10 @@ export function usePlaceSuggestions({
    * all cached) and every throw still reports settled exactly once.
    */
   const runFetchSuggestions = useCallback(
-    async (candidate: TripCandidateDisplay): Promise<{ gatedByPremium: true } | undefined> => {
+    async (
+      candidate: TripCandidateDisplay,
+      tripId: string | null
+    ): Promise<{ gatedByPremium: true } | undefined> => {
       // Capture the candidate ID at the start to detect stale responses
       const requestCandidateId = candidate.id;
 
@@ -330,7 +439,11 @@ export function usePlaceSuggestions({
 
       // Check premium gating before continuing (even for cache-only results)
       // Free users get 1 photo trip import; gate any additional imports regardless of cache hit
-      if (!isPremium && !canImportPhotos) {
+      //
+      // U10/R17: the gate is `canRunImportForTrip`, not the raw store read. A
+      // trip that already consumed the import stays completable here, which is
+      // what makes a partly-matched trip finishable after a reinstall.
+      if (!(await canRunImportForTrip(tripId))) {
         // User has exhausted their free photo trip import
         // Return the cached results only - they need to upgrade for API calls
         if (__DEV__) {
@@ -379,6 +492,27 @@ export function usePlaceSuggestions({
         });
       }
 
+      // U10/KTD18. Disclose the charge BEFORE the first dispatch, once, naming
+      // the trip. Only a free user with the import still unconsumed sees it —
+      // a premium user is never charged, and an exempt re-entry has already
+      // been paid for. Skipped when there is no trip id, because there is then
+      // nothing to name and nothing to charge (`claimPhotoImportForTrip` is a
+      // no-op without one).
+      if (!isPremium && canImportPhotos && tripId && !hasDisclosedFreeImport(tripId)) {
+        const trip = queryClient.getQueryData<{ name?: string }>(['trips', tripId]);
+        const accepted = await confirmFreeImport(trip?.name || 'this trip');
+        if (!accepted) {
+          if (__DEV__) {
+            logger.log('[PhotoImport] Free import declined — dispatching nothing');
+          }
+          // Deliberately NOT marked disclosed and NOT marked fetched: the user
+          // did not consent, so a later entry must ask again rather than
+          // silently spending the import.
+          return undefined;
+        }
+        markFreeImportDisclosed(tripId);
+      }
+
       try {
         // U5/R5. Preparation is PER BATCH, not up front. The controller
         // dispatches batch one while batch two is still being encoded;
@@ -393,6 +527,19 @@ export function usePlaceSuggestions({
         const result = await suggestionDispatch.dispatch({
           clusters: uncachedClusters.map((c) => mapClusterToApiPayload(c, [])),
           prepareBatch: createVisionPrepareBatch(clustersById),
+          tripId,
+          // U10/R16/KTD11. The free import is charged on the FIRST SUCCESSFUL
+          // BATCH, not at the end of the fetch: progressive results make a
+          // partial import the normal case, so end-of-fetch counting would
+          // leave most free imports uncharged, while charging at dispatch would
+          // charge a run that never got an answer.
+          //
+          // `claimPhotoImportForTrip` claims synchronously before its own first
+          // await, and this callback runs with no await between the response
+          // landing and the claim — so several batches resolving in the same
+          // tick (which is exactly what a concurrent pool produces) cannot each
+          // decide they are the first. A premium user is never charged.
+          onBatchSuccess: isPremium ? undefined : () => claimPhotoImportForTrip(tripId),
         });
 
         if (__DEV__) {
@@ -502,25 +649,17 @@ export function usePlaceSuggestions({
           Analytics.photoImportApiError({ errorType: 'rate_limited' });
         } else if (result.fatalError !== null) {
           // Includes PhotoImportLimitReachedError (402). Deliberately NOT
-          // classified as a transient failure; U10 owns its UX.
+          // classified as a transient failure. Naming it in telemetry belongs to
+          // U11; U10 only has to make sure it cannot be reached by a user whose
+          // trip is exempt.
           Analytics.photoImportApiError({ errorType: 'unknown' });
         }
 
-        // Count usage for free users (only count once per session, not per candidate switch).
-        //
-        // The `fatalError` term PRESERVES the pre-U6 behavior rather than adding
-        // a rule: a fatal rejection used to throw past this line, so a free user
-        // who was rate-limited mid-import did not spend their one import.
-        // Partial resolution removed the throw, and without this term the same
-        // user would now be charged for a trip that only half matched. U10
-        // replaces this whole block with a claim on the first SUCCESSFUL batch.
-        if (!isPremium && !hasCountedUsageRef.current && result.fatalError === null) {
-          incrementPhotoImportUsage();
-          hasCountedUsageRef.current = true;
-          if (__DEV__) {
-            logger.log('[PhotoImport] Incremented photo import usage for free user');
-          }
-        }
+        // U10/R16 note: the free import is NOT counted here any more. It is
+        // claimed on the first successful batch via `onBatchSuccess` above, so a
+        // partly-matched trip — the normal case under progressive results — is
+        // charged honestly and exactly once, and a run whose every batch failed
+        // is not charged at all.
 
         // Track analytics with cache metrics and API timing. `failedChunks` is
         // read LIVE from the controller: the previous read went through the
@@ -572,7 +711,14 @@ export function usePlaceSuggestions({
     // The controller is a module singleton, so it is NOT a dependency: this
     // callback no longer churns on every progress update the way it did when it
     // depended on the mutation's state container.
-    [clusterLookupRef, isPremium, canImportPhotos, incrementPhotoImportUsage, currentCandidateIdRef]
+    [
+      clusterLookupRef,
+      isPremium,
+      canImportPhotos,
+      canRunImportForTrip,
+      currentCandidateIdRef,
+      queryClient,
+    ]
   );
 
   /**
@@ -592,10 +738,19 @@ export function usePlaceSuggestions({
    * outside this `try`.
    */
   const fetchSuggestions = useCallback(
-    async (candidate: TripCandidateDisplay): Promise<{ gatedByPremium: true } | undefined> => {
+    async (
+      candidate: TripCandidateDisplay,
+      tripId?: string | null
+    ): Promise<{ gatedByPremium: true } | undefined> => {
+      // The caller passes the trip explicitly because `selectTrip` selects and
+      // fetches in the same tick, before any effect has synced the ref. Recorded
+      // here so the retry and manual-split paths, which fire much later from UI
+      // callbacks, send the same `trip_id`.
+      const effectiveTripId = tripId ?? activeTripIdRef.current ?? null;
+      activeTripIdRef.current = effectiveTripId;
       beginFetchOwner();
       try {
-        return await runFetchSuggestions(candidate);
+        return await runFetchSuggestions(candidate, effectiveTripId);
       } finally {
         endFetchOwner();
       }
@@ -642,6 +797,7 @@ export function usePlaceSuggestions({
       try {
         const { response: result, respondedIds } = await suggestionDispatch.dispatchBatch({
           clusterIds: claimedIds,
+          tripId: activeTripIdRef.current,
           prepare: async () => {
             const visionImages = await prepareVisionImagesBounded(toDispatch);
             return toDispatch.map((c, i) => mapClusterToApiPayload(c, visionImages[i]));
@@ -838,6 +994,7 @@ export function usePlaceSuggestions({
 
         const { response: result, respondedIds } = await suggestionDispatch.dispatchBatch({
           clusterIds: uncached.map((c) => c.id),
+          tripId: activeTripIdRef.current,
           prepare: async () => {
             const visionImages = await prepareVisionImagesBounded(uncached);
             return uncached.map((c, i) => mapClusterToApiPayload(c, visionImages[i]));
@@ -986,6 +1143,14 @@ export function usePlaceSuggestions({
           clusters: eligible.map((c) => mapClusterToApiPayload(c, [])),
           prepareBatch: createVisionPrepareBatch(clustersById, () => setBulkRetryPreparingCount(0)),
           isRetry: true,
+          tripId: activeTripIdRef.current,
+          // A bulk retry is a repair of a run that already claimed the import,
+          // so the claim is normally a no-op here. It is still wired: if the
+          // original run's charge failed and released its claim, the repair is
+          // the honest place to charge it.
+          onBatchSuccess: isPremium
+            ? undefined
+            : () => claimPhotoImportForTrip(activeTripIdRef.current),
         });
 
         // Same cache-write ALLOW-LIST as the main dispatch (R20/KTD14): a
@@ -1031,7 +1196,7 @@ export function usePlaceSuggestions({
         endFetchOwner();
       }
     },
-    [clusterLookupRef, beginFetchOwner, endFetchOwner]
+    [clusterLookupRef, beginFetchOwner, endFetchOwner, isPremium]
   );
 
   /**
@@ -1070,5 +1235,16 @@ export function usePlaceSuggestions({
     // Premium gating state
     isPremium,
     canImportPhotos,
+    /**
+     * True when the selected trip already consumed this user's free import
+     * (U10/R17). Suppresses the free-limit banner: a returning user must not be
+     * told "Free Limit Reached" above the very list they are finishing.
+     */
+    isExemptTrip,
+    /**
+     * The R17-aware entitlement gate. Every gate site that guards entry to
+     * matching must use this rather than `!isPremium && !canImportPhotos`.
+     */
+    canRunImportForTrip,
   };
 }

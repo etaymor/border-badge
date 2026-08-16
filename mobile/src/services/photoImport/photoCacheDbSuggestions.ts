@@ -105,6 +105,73 @@ export async function setLastSelectedCandidateId(
   await setMetadata(`last_candidate_${tripId}`, candidateId);
 }
 
+/**
+ * Every destination trip this device has ever taken into the suggestions phase.
+ *
+ * `last_candidate_<tripId>` is written the moment a trip is opened for matching,
+ * so the set of those keys IS this device's photo-import history. U10 uses it as
+ * the input to the one-time grandfather pass: the durable counter is new, and a
+ * user who imported repeatedly while it was unenforced must not be gated out of
+ * the trips they already imported.
+ */
+export async function getPhotoImportHistoryTripIds(): Promise<string[]> {
+  const database = await getDb();
+  const rows = await database.getAllAsync<{ key: string }>(
+    "SELECT key FROM photo_cache_metadata WHERE key LIKE 'last_candidate_%'"
+  );
+  return rows.map((r) => r.key.slice('last_candidate_'.length)).filter((id) => id.length > 0);
+}
+
+// =============================================================================
+// Photo-import entitlement markers (U10 / R17 / KTD23)
+// =============================================================================
+//
+// These are a FAST PATH ONLY. The server record is authoritative — it is what
+// `POST /photos/suggest-places` compares against — and these rows exist purely
+// so a returning user does not watch a paywall flash while the async read is in
+// flight.
+//
+// Both keys are namespaced by user id. Cluster and candidate ids are
+// deterministic per DEVICE, so an un-namespaced marker would let a second free
+// account inherit the first account's exemption on a shared phone.
+
+const CONSUMED_IMPORT_KEY_PREFIX = 'photo_import_consumed_';
+const GRANDFATHER_KEY_PREFIX = 'photo_import_grandfathered_';
+
+/** Trip ids this device believes `userId` may still run matching for (R17). */
+export async function getConsumedPhotoImportTripIds(userId: string): Promise<string[]> {
+  const raw = await getMetadata(`${CONSUMED_IMPORT_KEY_PREFIX}${userId}`);
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Record a trip id in this user's device-local exemption marker. */
+export async function addConsumedPhotoImportTripId(userId: string, tripId: string): Promise<void> {
+  const existing = await getConsumedPhotoImportTripIds(userId);
+  if (existing.includes(tripId)) return;
+  // setMetadata takes the photo-cache write lock itself — do not wrap it here
+  // (the mutex is not reentrant).
+  await setMetadata(
+    `${CONSUMED_IMPORT_KEY_PREFIX}${userId}`,
+    JSON.stringify([...existing, tripId])
+  );
+}
+
+/** Whether the one-time grandfather pass has already run for this user. */
+export async function hasRunPhotoImportGrandfatherPass(userId: string): Promise<boolean> {
+  return (await getMetadata(`${GRANDFATHER_KEY_PREFIX}${userId}`)) === 'done';
+}
+
+/** Mark the one-time grandfather pass as complete for this user. */
+export async function markPhotoImportGrandfatherPassRun(userId: string): Promise<void> {
+  await setMetadata(`${GRANDFATHER_KEY_PREFIX}${userId}`, 'done');
+}
+
 // =============================================================================
 // Place Suggestions Cache (prevents redundant Google Places API calls)
 // =============================================================================

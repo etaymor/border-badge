@@ -348,6 +348,25 @@ export interface ChunkedPlaceSuggestionRequest extends PlaceSuggestionRequest {
    * current state and removes only the retried clusters' failure entries.
    */
   isRetry?: boolean;
+  /**
+   * The trip being matched (U16/R17). Sent in every batch body so the server can
+   * exempt a trip that already consumed the caller's free photo import.
+   */
+  tripId?: string | null;
+  /**
+   * Called SYNCHRONOUSLY the moment a batch comes back successfully, before any
+   * further await (U10/R16).
+   *
+   * This is the entitlement hook: the free import is charged on the first
+   * successful batch, not at the end of the fetch, because progressive results
+   * make a partial import the normal case. Called for EVERY successful batch —
+   * the caller owns the once-only claim, and owning it there rather than here
+   * keeps it correct across the several dispatches one import can involve.
+   *
+   * A throwing callback is swallowed: entitlement accounting must never take a
+   * batch down with it.
+   */
+  onBatchSuccess?: () => void;
 }
 
 /** Result of a single scoped (split / retry) batch dispatch. */
@@ -705,11 +724,15 @@ class SuggestionDispatchController {
    */
   private async postBatch(
     payload: PlaceSuggestionCluster[],
+    tripId?: string | null,
     signal?: AbortSignal
   ): Promise<PlaceSuggestionResponse> {
     const response = await api.post(
       '/photos/suggest-places',
-      { clusters: payload },
+      // U16/R17: `trip_id` is what lets the server match the exemption for a
+      // trip that already consumed the free import. Omitting it makes a
+      // consumed free user look over-entitled and gets the batch rejected 402.
+      { clusters: payload, ...(tripId ? { trip_id: tripId } : {}) },
       { timeout: SUGGEST_PLACES_TIMEOUT_MS, signal }
     );
     return response.data as PlaceSuggestionResponse;
@@ -726,9 +749,11 @@ class SuggestionDispatchController {
   dispatchBatch = async (params: {
     clusterIds: string[];
     prepare: () => Promise<PlaceSuggestionCluster[]>;
+    /** The trip being matched (U16/R17). Sent so the server can honor R17. */
+    tripId?: string | null;
   }): Promise<SuggestionBatchOutcome> => {
     const payload = await params.prepare();
-    const response = await this.postBatch(payload);
+    const response = await this.postBatch(payload, params.tripId);
     this.markResolved(params.clusterIds);
 
     const respondedIds = new Set(response.suggestions.map((s) => s.cluster_id));
@@ -943,7 +968,7 @@ class SuggestionDispatchController {
           const chunkStartTime = Date.now();
           try {
             for (const id of chunkIds) dispatchedIds.add(id);
-            const request$ = this.postBatch(payload, abortController.signal);
+            const request$ = this.postBatch(payload, request.tripId, abortController.signal);
             // The base64 vision images are by far the largest allocation here.
             // Drop our reference the moment the request is issued so an
             // already-dispatched batch is not pinned for the whole round trip.
@@ -954,6 +979,20 @@ class SuggestionDispatchController {
             // Positive evidence: a response covering this batch arrived (R20).
             for (const id of chunkIds) resolvedIds.add(id);
             this.markResolved(chunkIds);
+
+            // U10/R16. Fired here — synchronously, with no await between the
+            // response landing and the callback — so two batches resolving in
+            // the same tick both reach the caller's claim guard before either
+            // can yield, which is what makes the claim un-doubleable.
+            if (request.onBatchSuccess) {
+              try {
+                request.onBatchSuccess();
+              } catch (callbackError) {
+                if (__DEV__) {
+                  console.warn('[PhotoImport] onBatchSuccess threw', callbackError);
+                }
+              }
+            }
 
             const suggestions = responseData.suggestions;
             // U7: per-cluster slot starvation on the backend surfaces here, not

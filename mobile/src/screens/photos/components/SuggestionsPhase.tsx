@@ -28,6 +28,14 @@ export interface SuggestionsPhaseProps {
   selectedCountryName: string;
   isPremium: boolean;
   canImportPhotos: boolean;
+  /**
+   * True when THIS trip is the one that already consumed the free photo import
+   * (U10/R17). The banner is driven by a plain store read, which says only
+   * "your one import is spent" — so without this a returning user is told "Free
+   * Limit Reached" directly above the very list they are being allowed to
+   * finish.
+   */
+  isExemptTrip?: boolean;
   fetchingSuggestions: boolean;
   /** True while dispatch is paused because the app is backgrounded (U9/R15). */
   isPaused?: boolean;
@@ -51,6 +59,7 @@ export function SuggestionsPhase({
   selectedCountryName,
   isPremium,
   canImportPhotos,
+  isExemptTrip = false,
   fetchingSuggestions,
   isPaused = false,
   preparingRetryCount = 0,
@@ -118,7 +127,7 @@ export function SuggestionsPhase({
         {formatDateRange(selectedCandidate.dateRange.start, selectedCandidate.dateRange.end)}
       </Text>
 
-      {!isPremium && !canImportPhotos && (
+      {!isPremium && !canImportPhotos && !isExemptTrip && (
         <View style={styles.premiumGateBanner}>
           <Text style={styles.premiumGateTitle}>Free Limit Reached</Text>
           <Text style={styles.premiumGateText}>

@@ -42,6 +42,13 @@ export interface UseAutoStartWorkflowOptions {
   isPremium: boolean;
   /** Whether user can import photos */
   canImportPhotos: boolean;
+  /**
+   * The R17-aware entitlement gate (U10). Auto-start is THE path that reopens an
+   * already-imported trip, so this is the gate the exemption exists for: without
+   * it a free user who half-matched a trip can never get back into it, on this
+   * device or any other. Optional; falls back to the raw store read.
+   */
+  canRunImportForTrip?: (tripId: string | null) => Promise<boolean>;
   /** Ref tracking current candidate ID */
   currentCandidateIdRef: React.MutableRefObject<string | null>;
   /** Start scan function */
@@ -53,7 +60,8 @@ export interface UseAutoStartWorkflowOptions {
   ) => void;
   /** Fetch suggestions for a candidate */
   fetchSuggestions: (
-    candidate: TripCandidateDisplay
+    candidate: TripCandidateDisplay,
+    tripId?: string | null
   ) => Promise<{ gatedByPremium: true } | undefined>;
   /**
    * Claim a dispatch owner slot (R1/KTD13). Auto-start is the path that opens an
@@ -102,6 +110,7 @@ export function useAutoStartWorkflow({
   subscriptionStatus,
   isPremium,
   canImportPhotos,
+  canRunImportForTrip,
   currentCandidateIdRef,
   startScan,
   handlePremiumGate,
@@ -248,7 +257,14 @@ export function useAutoStartWorkflow({
             // Check premium gating upfront before any phase transition
             // Note: isPremium and canImportPhotos are from hook state, which is current
             // since we already waited for subscriptionStatus !== 'loading'
-            if (!isPremium && !canImportPhotos) {
+            //
+            // U10/R17: gate site 3 of 3 upstream of the fetch, and the one that
+            // matters most — this is the path a user takes to RETURN to a trip
+            // they already spent their import on.
+            const importAllowed = canRunImportForTrip
+              ? await canRunImportForTrip(tripId)
+              : isPremium || canImportPhotos;
+            if (!importAllowed) {
               setTripCandidates(candidates);
               handlePremiumGate('autoStart', { nextPhase: 'candidates' });
               return;
@@ -275,7 +291,7 @@ export function useAutoStartWorkflow({
             if (__DEV__) {
               console.log('[PhotoImport][AutoStart] fetchSuggestions start', candidate.id);
             }
-            const fetchResult = await fetchSuggestions(candidate);
+            const fetchResult = await fetchSuggestions(candidate, tripId);
             if (__DEV__) {
               console.log('[PhotoImport][AutoStart] fetchSuggestions done', fetchResult ?? 'ok');
             }

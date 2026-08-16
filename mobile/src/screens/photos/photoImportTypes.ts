@@ -115,6 +115,12 @@ export interface PhotoImportWorkflowResult {
   isPremium: boolean;
   /** Whether user can import photos (premium or has remaining free imports) */
   canImportPhotos: boolean;
+  /**
+   * Whether the selected trip is the one that already consumed the free photo
+   * import (U10/R17) — it stays completable, and must not be shown the
+   * free-limit banner.
+   */
+  isExemptTrip: boolean;
 
   // Actions
   startScan: (forceRefresh?: boolean) => Promise<void>;

@@ -104,7 +104,8 @@ const createTestQueryClient = () =>
 
 function setup(
   clusters: LocationCluster[],
-  currentCandidateIdRef?: React.RefObject<string | null>
+  currentCandidateIdRef?: React.RefObject<string | null>,
+  selectedTripId: string | null = null
 ) {
   const lookup = new Map<string, LocationCluster>();
   for (const c of clusters) lookup.set(c.id, c);
@@ -114,9 +115,12 @@ function setup(
   const wrapper = ({ children }: { children: React.ReactNode }) => (
     <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
   );
-  return renderHook(() => usePlaceSuggestions({ clusterLookupRef, currentCandidateIdRef }), {
-    wrapper,
-  });
+  return renderHook(
+    () => usePlaceSuggestions({ clusterLookupRef, currentCandidateIdRef, selectedTripId }),
+    {
+      wrapper,
+    }
+  );
 }
 
 beforeEach(() => {
@@ -1425,10 +1429,20 @@ describe('usePlaceSuggestions free-tier accounting across a partial dispatch (U6
     (useSubscriptionStore as unknown as jest.Mock).mockImplementation(() => jest.fn());
   });
 
-  it('does not spend a free user’s import when a rate limit stops the run', async () => {
+  it('does not spend a free user’s import through the local store any more (U10)', async () => {
     // Pre-U6 the fatal error threw past the usage increment, so a rate-limited
-    // import was not charged. Partial resolution removed the throw; the charge
-    // must not appear as a side effect of that.
+    // import was not charged; U6 preserved that with a `fatalError === null`
+    // term. U10 REPLACED that whole block: the import is claimed on the first
+    // SUCCESSFUL batch and recorded on the SERVER (see
+    // photoImportEntitlement.test.tsx), because progressive results make a
+    // partly-matched trip the normal case and an end-of-fetch charge would
+    // leave most free imports uncounted.
+    //
+    // What this test still pins is that nothing charges through the LOCAL
+    // store's `incrementPhotoImportUsage` — the counter that was silently
+    // overwritten on every usage refetch — and that a run with no trip id
+    // charges nothing at all, since without one the server has no consuming
+    // trip to exempt later.
     const incrementPhotoImportUsage = jest.fn();
     (useIsPremium as jest.MockedFunction<typeof useIsPremium>).mockReturnValue(false);
     (useCanImportPhotos as jest.MockedFunction<typeof useCanImportPhotos>).mockReturnValue(true);
@@ -1465,5 +1479,8 @@ describe('usePlaceSuggestions free-tier accounting across a partial dispatch (U6
     });
 
     expect(incrementPhotoImportUsage).not.toHaveBeenCalled();
+    expect(
+      mockedApi.post.mock.calls.filter((call) => call[0] === '/subscriptions/usage/increment')
+    ).toHaveLength(0);
   });
 });

@@ -23,6 +23,17 @@ export interface UseWorkflowNavigationOptions {
   isPremium: boolean;
   /** Whether user can import photos (premium or has remaining free imports) */
   canImportPhotos: boolean;
+  /**
+   * The R17-aware entitlement gate (U10). Resolves true when matching may run
+   * for `tripId`, INCLUDING the case where the free import is spent but this is
+   * the trip that spent it — that trip has to stay completable at every gate,
+   * on any device. Fails open on a read error.
+   *
+   * Optional so the raw store read remains the fallback; supplying it is what
+   * makes the exemption reachable from this hook at all, since `selectTrip` and
+   * `switchCandidate` both return before the suggestions fetch is ever called.
+   */
+  canRunImportForTrip?: (tripId: string | null) => Promise<boolean>;
   /** Ref tracking current candidate ID for race condition detection */
   currentCandidateIdRef: React.MutableRefObject<string | null>;
   /** Set selected candidate state */
@@ -41,7 +52,8 @@ export interface UseWorkflowNavigationOptions {
   endFetchOwner: () => void;
   /** Fetch suggestions for a candidate */
   fetchSuggestions: (
-    candidate: TripCandidateDisplay
+    candidate: TripCandidateDisplay,
+    tripId?: string | null
   ) => Promise<{ gatedByPremium: true } | undefined>;
   /** Reset the suggest places mutation */
   resetSuggestPlacesMutation: () => void;
@@ -72,6 +84,7 @@ export function useWorkflowNavigation({
   selectedTripId,
   isPremium,
   canImportPhotos,
+  canRunImportForTrip,
   currentCandidateIdRef,
   setSelectedCandidate,
   setSelectedTripId,
@@ -83,6 +96,21 @@ export function useWorkflowNavigation({
   clearFetchedCache,
 }: UseWorkflowNavigationOptions): UseWorkflowNavigationResult {
   const rootNavigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+
+  /**
+   * The single entitlement decision for this hook (U10/R17).
+   *
+   * Both navigation gates below return BEFORE the suggestions fetch is ever
+   * reached, so honoring the exemption only inside that fetch would leave the
+   * re-entry case — the exact scenario R17 exists for — permanently gated here.
+   */
+  const isImportAllowed = useCallback(
+    async (tripIdToCheck: string | null): Promise<boolean> => {
+      if (canRunImportForTrip) return canRunImportForTrip(tripIdToCheck);
+      return isPremium || canImportPhotos;
+    },
+    [canRunImportForTrip, isPremium, canImportPhotos]
+  );
 
   // ==========================================================================
   // Premium Gate Handler
@@ -140,7 +168,11 @@ export function useWorkflowNavigation({
 
       // Check premium gating upfront before any phase transition
       // This prevents UI flash where user briefly sees suggestions phase
-      if (!isPremium && !canImportPhotos) {
+      //
+      // U10/R17: gate site 1 of 3 upstream of the fetch. The device-marker fast
+      // path inside `canRunImportForTrip` is what keeps this await short enough
+      // that an exempt user never sees a paywall flash.
+      if (!(await isImportAllowed(tripIdToSelect))) {
         handlePremiumGate('selectTrip', { nextPhase: 'trip-selection' });
         return;
       }
@@ -158,7 +190,7 @@ export function useWorkflowNavigation({
       });
 
       try {
-        const fetchResult = await fetchSuggestions(candidateToUse);
+        const fetchResult = await fetchSuggestions(candidateToUse, tripIdToSelect);
         if (fetchResult?.gatedByPremium) {
           handlePremiumGate('selectTrip-fetch', {
             nextPhase: 'suggestions',
@@ -172,8 +204,7 @@ export function useWorkflowNavigation({
     [
       fetchSuggestions,
       selectedCandidate,
-      isPremium,
-      canImportPhotos,
+      isImportAllowed,
       handlePremiumGate,
       currentCandidateIdRef,
       setSelectedTripId,
@@ -218,7 +249,8 @@ export function useWorkflowNavigation({
       if (!selectedTripId) return;
 
       // Check premium gating upfront before any state changes
-      if (!isPremium && !canImportPhotos) {
+      // U10/R17: gate site 2 of 3 upstream of the fetch.
+      if (!(await isImportAllowed(selectedTripId))) {
         handlePremiumGate('switchCandidate');
         return;
       }
@@ -241,7 +273,7 @@ export function useWorkflowNavigation({
 
       // Fetch suggestions for new candidate
       try {
-        const fetchResult = await fetchSuggestions(newCandidate);
+        const fetchResult = await fetchSuggestions(newCandidate, selectedTripId);
         if (fetchResult?.gatedByPremium) {
           handlePremiumGate('switchCandidate-fetch', {
             nextPhase: 'suggestions',
@@ -261,8 +293,7 @@ export function useWorkflowNavigation({
       resetSuggestPlacesMutation,
       clearFetchedCache,
       fetchSuggestions,
-      isPremium,
-      canImportPhotos,
+      isImportAllowed,
       handlePremiumGate,
       currentCandidateIdRef,
       setSelectedCandidate,

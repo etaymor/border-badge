@@ -310,9 +310,14 @@ export function usePhotoImportWorkflow({
     endFetchOwner,
     isPremium,
     canImportPhotos,
+    isExemptTrip,
+    canRunImportForTrip,
   } = usePlaceSuggestions({
     clusterLookupRef,
     currentCandidateIdRef,
+    // U10/R17: the trip whose entitlement is being spent. Sent in every
+    // `/photos/suggest-places` body and used as the exemption key.
+    selectedTripId,
   });
 
   // ==========================================================================
@@ -482,6 +487,7 @@ export function usePhotoImportWorkflow({
     selectedTripId,
     isPremium,
     canImportPhotos,
+    canRunImportForTrip,
     currentCandidateIdRef,
     setSelectedCandidate,
     setSelectedTripId,
@@ -505,6 +511,7 @@ export function usePhotoImportWorkflow({
     subscriptionStatus,
     isPremium,
     canImportPhotos,
+    canRunImportForTrip,
     currentCandidateIdRef,
     startScan,
     handlePremiumGate,
@@ -570,6 +577,8 @@ export function usePhotoImportWorkflow({
     // Premium gating
     isPremium,
     canImportPhotos,
+    // U10/R17: true when the selected trip already consumed the free import.
+    isExemptTrip,
 
     // Actions
     startScan,

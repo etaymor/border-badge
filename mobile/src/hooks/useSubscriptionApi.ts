@@ -40,6 +40,16 @@ export interface UsageLimits {
   share_extension_period_start: string | null;
   photo_import_count: number;
   photo_import_limit: number;
+  /**
+   * The trip that consumed the free photo import, or null (U16/R17).
+   *
+   * Every client gate that guards entry to matching must allow the run when this
+   * equals the trip being opened, EVEN WHEN `photo_import_count >=
+   * photo_import_limit` — it is the same field the server compares against, so a
+   * gate that ignores it locks the user out of a trip the server would happily
+   * serve. Device markers are a fast path, never the decision.
+   */
+  photo_import_trip_id: string | null;
   entries_per_trip_limit: number;
 }
 
@@ -111,12 +121,19 @@ export function useSubscriptionUsage() {
  * const { mutateAsync } = useIncrementUsage();
  * const result = await mutateAsync({ feature: 'share_extension' });
  * console.log('New count:', result.new_count);
+ *
+ * For `photo_import`, `trip_id` is REQUIRED in practice (U16/R17): the server
+ * records it as the consuming trip, and without it there is no trip to exempt on
+ * re-entry, so the user's half-matched trip becomes uncompletable.
  */
 export function useIncrementUsage() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (input: { feature: UsageFeature }): Promise<IncrementUsageResponse> => {
+    mutationFn: async (input: {
+      feature: UsageFeature;
+      trip_id?: string;
+    }): Promise<IncrementUsageResponse> => {
       const response = await api.post('/subscriptions/usage/increment', input);
       return response.data;
     },

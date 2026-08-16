@@ -110,6 +110,7 @@ export function PhotoImportScreen({ navigation, route }: Props) {
     uploadingClusterIds,
     isPremium,
     canImportPhotos,
+    isExemptTrip,
     startScan,
     cancelScan,
     selectCandidate,
@@ -477,6 +478,7 @@ export function PhotoImportScreen({ navigation, route }: Props) {
           selectedCountryName={selectedCountryName}
           isPremium={isPremium}
           canImportPhotos={canImportPhotos}
+          isExemptTrip={isExemptTrip}
           fetchingSuggestions={fetchingSuggestions}
           isPaused={suggestionDispatch.isPaused}
           preparingRetryCount={bulkRetryPreparingCount}
