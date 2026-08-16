@@ -37,6 +37,14 @@
  * order-independent, and the completion counter is a running total of SETTLED
  * batches rather than a function of the loop index, so raising the constant does
  * not regress progress or misattribute failures.
+ *
+ * LIFECYCLE (U9/R15): `pause()` / `resume()` are the third state alongside
+ * running and aborted. Pause stops NEW batches (and new preparation) while
+ * leaving the wire alone, so a backgrounded import stops spending requests
+ * without throwing away the ones about to land; the workers park instead of
+ * exiting, which keeps the dispatch — and therefore its owner slot — unsettled
+ * for as long as the app is away. `reset()` remains the destructive one: it
+ * aborts.
  */
 
 import { AxiosError } from 'axios';
@@ -327,6 +335,19 @@ export interface ChunkedPlaceSuggestionRequest extends PlaceSuggestionRequest {
    * the module constant, so it stays a single over-the-air lever.
    */
   concurrency?: number;
+  /**
+   * ADDITIVE run: this dispatch is a RETRY of clusters an earlier run left
+   * unfinished (U9 bulk retry), not a fresh candidate fetch.
+   *
+   * A fresh run clears `partialResults`, `data` and `failedClusterIds` because
+   * it owns the whole screen. A bulk retry owns only the clusters it was handed:
+   * clearing would wipe every already-matched row (they live in
+   * `partialResults` / `data`, not in the caller's cached-suggestion state) and
+   * would drop the retry-DISABLED failures it is deliberately not retrying,
+   * turning them into pending rows that never resolve. So this seeds from the
+   * current state and removes only the retried clusters' failure entries.
+   */
+  isRetry?: boolean;
 }
 
 /** Result of a single scoped (split / retry) batch dispatch. */
@@ -365,6 +386,16 @@ export interface SuggestionDispatchState {
   /** Number of unsettled dispatch owners (R1/KTD13). */
   ownerCount: number;
   /**
+   * True while dispatch is PAUSED (U9/R15) — the app is backgrounded.
+   *
+   * Paused is NOT settled: the workers park instead of exiting, so the owner
+   * slot stays claimed and the consumer's reconciliation sweep cannot fire
+   * against clusters that were never given a chance to dispatch. It is also NOT
+   * an abort: requests already on the wire keep running and their results still
+   * publish and cache.
+   */
+  isPaused: boolean;
+  /**
    * Which main dispatch the current `progress` describes (U6).
    *
    * Bumped once per `dispatch()` call. Progress is a RUNNING TOTAL of settled
@@ -388,6 +419,7 @@ const INITIAL_STATE: SuggestionDispatchState = {
   inFlightClusterIds: EMPTY_SET,
   dispatchedAndResolvedClusterIds: EMPTY_SET,
   ownerCount: 0,
+  isPaused: false,
   dispatchGeneration: 0,
 };
 
@@ -417,6 +449,17 @@ class SuggestionDispatchController {
    * requests instead of waiting for them.
    */
   private activeAborts = new Set<AbortController>();
+
+  /**
+   * Set while the app is backgrounded (U9/R15). Workers PARK on it rather than
+   * exiting, which is the whole difference from `aborted`: a paused dispatch is
+   * still running, still holds its owner slot, and resumes exactly where it
+   * stopped.
+   */
+  private paused = false;
+
+  /** Resolvers for every worker currently parked on `paused`. */
+  private resumeWaiters = new Set<() => void>();
 
   /** Number of chunked main dispatches currently running. */
   private activeDispatches = 0;
@@ -459,6 +502,60 @@ class SuggestionDispatchController {
   endOwner = (): void => {
     this.setState({ ownerCount: Math.max(0, this.state.ownerCount - 1) });
   };
+
+  // -- lifecycle pause / resume (U9 / R15 / KTD19) --------------------------
+
+  /**
+   * Stop handing out NEW batches without cancelling anything.
+   *
+   * Called when the app backgrounds. Deliberately NOT `reset()`: `reset()`
+   * aborts every request on the wire and clears the candidate's state, which
+   * would throw away batches that are seconds from landing and can still be
+   * written to the suggestion cache. Pause is the "take nothing new" half on its
+   * own — the same shape as the fatal-stop flag inside `dispatch`, promoted to
+   * controller state so an app-root lifecycle hook can reach it (KTD19).
+   *
+   * Preparation stops too: re-encoding vision payloads for batches that cannot
+   * go out burns the serial native queue and pins their memory for the whole
+   * background window.
+   */
+  pause = (): void => {
+    if (this.paused) return;
+    this.paused = true;
+    this.setState({ isPaused: true });
+  };
+
+  /**
+   * Release every parked worker. Idempotent, so a foreground event that never
+   * had a matching background (an `inactive` blip) costs nothing.
+   *
+   * Resume does NOT dispatch the whole remaining plan at once: the workers wake
+   * back into the same bounded pool, so at most `concurrency` batches go on the
+   * wire, and the rest follow as those settle.
+   */
+  resume = (): void => {
+    if (!this.paused) return;
+    this.paused = false;
+    this.setState({ isPaused: false });
+    this.releaseParkedWorkers();
+  };
+
+  private releaseParkedWorkers(): void {
+    if (this.resumeWaiters.size === 0) return;
+    const waiters = [...this.resumeWaiters];
+    this.resumeWaiters.clear();
+    for (const wake of waiters) wake();
+  }
+
+  /**
+   * Park until `resume()` (or an abort) wakes us. Only ever awaited while
+   * `paused` is true, so an ordinary dispatch pays no extra microtask per batch.
+   */
+  private awaitResume(): Promise<void> {
+    return new Promise<void>((resolve) => {
+      this.resumeWaiters.add(resolve);
+    });
+  }
 
   // -- cluster claiming (KTD7) ---------------------------------------------
 
@@ -566,6 +663,11 @@ class SuggestionDispatchController {
     // the user has already left.
     for (const controller of this.activeAborts) controller.abort();
     this.activeAborts.clear();
+    // A parked worker (U9) would otherwise never observe the abort and its
+    // dispatch promise would never settle. Waking it lets it see `aborted` and
+    // return. The pause flag itself SURVIVES a reset: the app is still
+    // backgrounded, so the next dispatch must not start firing either.
+    this.releaseParkedWorkers();
     this.setState({
       isDispatching: false,
       progress: null,
@@ -589,6 +691,8 @@ class SuggestionDispatchController {
     this.activeDispatches = 0;
     this.currentGeneration = 0;
     this.activeAborts.clear();
+    this.paused = false;
+    this.releaseParkedWorkers();
     this.state = INITIAL_STATE;
     for (const listener of this.listeners) listener();
   };
@@ -667,7 +771,12 @@ class SuggestionDispatchController {
       1,
       Math.floor(request.concurrency ?? SUGGESTION_DISPATCH_CONCURRENCY)
     );
-    const allSuggestions: ClusterSuggestion[] = [];
+    // U9: a bulk retry ACCUMULATES onto the run it is repairing. Seeding from
+    // the live partial results is what keeps the already-matched rows on screen
+    // — and what makes the final `data` carry them too, since the list reads
+    // `data.suggestions` once dispatching stops.
+    const isRetry = request.isRetry === true;
+    const allSuggestions: ClusterSuggestion[] = isRetry ? [...this.state.partialResults] : [];
     const chunkResponseTimes: number[] = [];
     let failedChunkCount = 0;
     let failedClusterCount = 0;
@@ -689,8 +798,13 @@ class SuggestionDispatchController {
     const startPreparing = createBatchPreparer(request.prepareBatch);
 
     // Local accumulator mirrored into state — avoids losing entries to React
-    // state batching across concurrent batches.
-    const failedIds: FailedClusterIds = new Map();
+    // state batching across concurrent batches. A bulk retry seeds it with the
+    // failures it is NOT retrying (retry-disabled ones, other candidates' rows)
+    // so mirroring it into state stays a merge rather than a wipe.
+    const failedIds: FailedClusterIds = new Map(isRetry ? this.state.failedClusterIds : undefined);
+    if (isRetry) {
+      for (const cluster of clusters) failedIds.delete(cluster.id);
+    }
     const recordFailedClusters = (batch: { id: string }[], retryDisabled: boolean) => {
       // An aborted run has had its failure map cleared by `reset()`; re-writing
       // it here would resurrect a departed candidate's failures.
@@ -728,8 +842,8 @@ class SuggestionDispatchController {
     this.setState({
       isDispatching: true,
       data: null,
-      partialResults: [],
-      failedClusterIds: new Map(),
+      partialResults: [...allSuggestions],
+      failedClusterIds: new Map(failedIds),
       dispatchGeneration: generation,
       progress: {
         clustersTotal: totalClusters,
@@ -765,6 +879,10 @@ class SuggestionDispatchController {
         while (
           !this.aborted &&
           !stopDispatching &&
+          // U9: don't encode payloads that cannot be sent. Preparation is serial
+          // at the native layer, so preparing through a background window burns
+          // the shared queue and pins the encoded images until we return.
+          !this.paused &&
           payloadsAwaitingDispatch < prefetchDepth &&
           nextPrepIndex < chunks.length
         ) {
@@ -775,9 +893,25 @@ class SuggestionDispatchController {
       };
       pumpPreparation();
 
+      /**
+       * U9/R15: park (never exit) while the app is backgrounded, so the plan is
+       * resumed rather than abandoned and the owner slot stays claimed —
+       * "paused" must not read as "settled" to the reconciliation sweep. Only
+       * awaits when actually paused, so an ordinary run is unchanged.
+       */
+      const parkWhilePaused = async (): Promise<void> => {
+        while (this.paused && !this.aborted && !stopDispatching) {
+          await this.awaitResume();
+        }
+      };
+
       const runWorker = async (): Promise<void> => {
         for (;;) {
           if (this.aborted || stopDispatching) return;
+          if (this.paused) {
+            await parkWhilePaused();
+            if (this.aborted || stopDispatching) return;
+          }
           // Refill first: `payloadsAwaitingDispatch` is strictly below
           // `prefetchDepth` whenever the queue is empty, so this can never
           // starve a worker while batches remain.
@@ -793,6 +927,12 @@ class SuggestionDispatchController {
           let payload: PlaceSuggestionCluster[] | null = await entry.payload;
           payloadsAwaitingDispatch -= 1;
           if (this.aborted || stopDispatching) return;
+          // A batch that finished preparing DURING the background window is
+          // still a new request: hold it until we're foreground again.
+          if (this.paused) {
+            await parkWhilePaused();
+            if (this.aborted || stopDispatching) return;
+          }
 
           const claimedIds = this.claim(chunkIds);
           // A REAL abort controller per batch (U6). The `aborted` flag alone is

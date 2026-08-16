@@ -954,3 +954,228 @@ describe('suggestionDispatch - abort (U6)', () => {
     }
   });
 });
+
+describe('suggestionDispatch - lifecycle pause / resume (U9/R15)', () => {
+  /**
+   * A request that hangs until the test releases it, and rejects if its signal
+   * aborts. The abort arm matters: without it a `reset()` in cleanup would leave
+   * a worker awaiting a promise that never settles.
+   */
+  const controlledApi = () => {
+    const release: Array<() => void> = [];
+    mockedApi.post.mockImplementation(
+      (_url, _body, config) =>
+        new Promise((resolve, reject) => {
+          const signal = (config as { signal?: AbortSignal } | undefined)?.signal;
+          signal?.addEventListener('abort', () => reject(new Error('canceled')));
+          release.push(() => resolve(emptyResponse));
+        }) as never
+    );
+    return release;
+  };
+
+  // `jest.clearAllMocks()` keeps implementations, and a hanging one would make
+  // the next suite's `mockResolvedValueOnce` chain fall through to a request
+  // that never answers.
+  afterEach(() => {
+    mockedApi.post.mockReset();
+  });
+
+  it('stops handing out new batches while paused, and lets the one on the wire land', async () => {
+    const clusters = buildClustersForBatches(4);
+    const release = controlledApi();
+
+    const run = suggestionDispatch.dispatch({ clusters });
+    await flush();
+    expect(mockedApi.post).toHaveBeenCalledTimes(1);
+
+    suggestionDispatch.pause();
+    expect(suggestionDispatch.getState().isPaused).toBe(true);
+
+    // The batch already on the wire is NOT cancelled — this is the whole
+    // difference from reset(): its response still lands and still counts as
+    // positive evidence for the cache-write allow-list.
+    release[0]();
+    await flush();
+
+    expect(mockedApi.post).toHaveBeenCalledTimes(1);
+    expect(suggestionDispatch.getState().dispatchedAndResolvedClusterIds.size).toBe(
+      FIRST_CHUNK_SIZE
+    );
+
+    suggestionDispatch.resume();
+    await flush();
+    expect(suggestionDispatch.getState().isPaused).toBe(false);
+    expect(mockedApi.post).toHaveBeenCalledTimes(2);
+
+    suggestionDispatch.reset();
+    await run;
+  });
+
+  it('treats paused as NOT settled: the dispatch stays open and keeps dispatching state', async () => {
+    // The reconciliation sweep fires when every owner settles. If a paused
+    // dispatch resolved, the sweep would run against clusters that were never
+    // given a chance to go out and paint them all lookup-failed.
+    const clusters = buildClustersForBatches(3);
+    const release = controlledApi();
+
+    let settled = false;
+    const run = suggestionDispatch.dispatch({ clusters }).then((r) => {
+      settled = true;
+      return r;
+    });
+    await flush();
+
+    suggestionDispatch.pause();
+    release[0]();
+    await flush(8);
+
+    expect(settled).toBe(false);
+    expect(suggestionDispatch.getState().isDispatching).toBe(true);
+
+    suggestionDispatch.reset();
+    await run;
+  });
+
+  it('resume wakes the pool, not the whole plan: at most `concurrency` batches go out at once', async () => {
+    const clusters = buildClustersForBatches(10);
+    const release = controlledApi();
+
+    const run = suggestionDispatch.dispatch({ clusters, concurrency: 3 });
+    await flush();
+    expect(mockedApi.post).toHaveBeenCalledTimes(3);
+
+    suggestionDispatch.pause();
+    release[0]();
+    release[1]();
+    release[2]();
+    await flush();
+    expect(mockedApi.post).toHaveBeenCalledTimes(3);
+
+    suggestionDispatch.resume();
+    await flush();
+
+    // Three more — the pool width — not the seven that remain.
+    expect(mockedApi.post).toHaveBeenCalledTimes(6);
+
+    suggestionDispatch.reset();
+    await run;
+  });
+
+  it('does not prepare payloads it cannot send while paused', async () => {
+    const clusters = buildClustersForBatches(5);
+    const prepareBatch = jest.fn(async (batch: PlaceSuggestionCluster[]) => batch);
+    const release = controlledApi();
+
+    const run = suggestionDispatch.dispatch({ clusters, prepareBatch });
+    await flush();
+    const preparedBeforePause = prepareBatch.mock.calls.length;
+
+    suggestionDispatch.pause();
+    release[0]();
+    await flush();
+
+    expect(prepareBatch.mock.calls.length).toBe(preparedBeforePause);
+
+    suggestionDispatch.resume();
+    await flush();
+    expect(prepareBatch.mock.calls.length).toBeGreaterThan(preparedBeforePause);
+
+    suggestionDispatch.reset();
+    await run;
+  });
+
+  it('reset() while paused wakes the parked workers so the dispatch settles', async () => {
+    const clusters = buildClustersForBatches(4);
+    const release = controlledApi();
+
+    const run = suggestionDispatch.dispatch({ clusters });
+    await flush();
+    suggestionDispatch.pause();
+    release[0]();
+    await flush();
+
+    suggestionDispatch.reset();
+    const result = await run;
+
+    expect(result.isPartial).toBe(true);
+    // The pause flag SURVIVES the reset: the app is still backgrounded, so a
+    // dispatch started after it must not start firing either.
+    expect(suggestionDispatch.getState().isPaused).toBe(true);
+  });
+
+  it('resume is idempotent, so a foreground with no matching background costs nothing', () => {
+    suggestionDispatch.resume();
+    expect(suggestionDispatch.getState().isPaused).toBe(false);
+  });
+});
+
+describe('suggestionDispatch - additive retry run (U9)', () => {
+  it('keeps earlier results and the failures it is not retrying', async () => {
+    const clusters = buildClustersForBatches(3);
+    const batch1 = chunkIds(clusters, 0);
+    const batch2 = chunkIds(clusters, 1);
+    const batch3 = chunkIds(clusters, 2);
+
+    mockedApi.post
+      .mockResolvedValueOnce({
+        data: { suggestions: suggestionsFor(batch1), failed_cluster_count: 0 },
+      })
+      // retry-ENABLED failure
+      .mockRejectedValueOnce(new Error('network blip'))
+      // retry-DISABLED failure (quota) — and it stops dispatch
+      .mockRejectedValueOnce(makeQuotaError());
+
+    await suggestionDispatch.dispatch({ clusters });
+
+    expect(suggestionDispatch.getState().partialResults).toHaveLength(batch1.length);
+
+    // Bulk retry of the retry-enabled batch only. It goes through the same batch
+    // plan as any other dispatch (a small opening batch, then full-size ones),
+    // so the mock answers whatever each request actually carries.
+    const retryClusters = clusters.filter((c) => batch2.includes(c.id));
+    mockedApi.post.mockImplementation(
+      async (_url, body) =>
+        ({
+          data: {
+            suggestions: suggestionsFor(
+              (body as { clusters: { id: string }[] }).clusters.map((c) => c.id)
+            ),
+            failed_cluster_count: 0,
+          },
+        }) as never
+    );
+
+    const retryResult = await suggestionDispatch.dispatch({
+      clusters: retryClusters,
+      isRetry: true,
+    });
+
+    // The already-matched rows survived: a fresh run would have cleared them,
+    // and they live nowhere else (the list reads data.suggestions once
+    // dispatching stops).
+    const retriedIds = retryResult.suggestions.map((s) => s.cluster_id).sort();
+    expect(retriedIds).toEqual([...batch1, ...batch2].sort());
+
+    const failed = suggestionDispatch.getState().failedClusterIds;
+    // The retried batch is no longer failed...
+    for (const id of batch2) expect(failed.has(id)).toBe(false);
+    // ...and the quota-disabled batch it did NOT retry kept its entry, so it
+    // does not degrade into a pending row that never resolves.
+    for (const id of batch3) expect(failed.get(id)).toEqual({ retryDisabled: true });
+  });
+
+  it('starts its own progress denominator instead of rewinding the main run', async () => {
+    const clusters = buildClustersForBatches(3);
+    mockedApi.post.mockResolvedValue(emptyResponse);
+    await suggestionDispatch.dispatch({ clusters });
+
+    const generationAfterMain = suggestionDispatch.getState().dispatchGeneration;
+    const retryClusters = clusters.slice(0, 2);
+    await suggestionDispatch.dispatch({ clusters: retryClusters, isRetry: true });
+
+    const state = suggestionDispatch.getState();
+    expect(state.dispatchGeneration).toBe(generationAfterMain + 1);
+    expect(state.progress?.clustersTotal).toBe(retryClusters.length);
+  });
+});

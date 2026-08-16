@@ -301,7 +301,9 @@ export function usePhotoImportWorkflow({
     fetchSuggestions,
     fetchForClusters,
     retryFailedClusters,
+    retryAllFailedClusters,
     retryingClusterIds,
+    bulkRetryPreparingCount,
     clearFetchedCache,
     isFetchingSuggestions,
     beginFetchOwner,
@@ -553,6 +555,9 @@ export function usePhotoImportWorkflow({
     // finishing must never make an overlapping owner look settled.
     fetchingSuggestions: isFetchingSuggestions,
     retryingClusterIds,
+    // U9: > 0 only while a bulk retry is rebuilding vision payloads, before its
+    // first request reaches the wire.
+    bulkRetryPreparingCount,
     lastImportTime,
     isIncremental,
     isSaving: createEntry.isPending,
@@ -578,6 +583,7 @@ export function usePhotoImportWorkflow({
     handleSplitCluster,
     handleAddEntryForCluster,
     retryFailedClusters,
+    retryAllFailedClusters,
     handleManualSelect,
     handleCreateTrip,
     backToCandidates,

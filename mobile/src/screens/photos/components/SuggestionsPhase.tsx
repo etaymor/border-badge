@@ -1,11 +1,17 @@
 /**
  * Suggestions phase UI for the photo import screen.
  *
- * Shows trip info header, premium gate, progress indicator, and cluster suggestion list.
+ * Shows trip info header, premium gate, the persistent status row, and the
+ * cluster suggestion list.
+ *
+ * The status row (U9/R15) has four states: dispatching (spinner + count),
+ * paused (static label, bar held), settled-with-unfinished-locations (the count
+ * that could not be checked, plus the retry-all control), and — only when every
+ * location resolved — gone.
  */
 
 import React from 'react';
-import { ActivityIndicator, Text, View } from 'react-native';
+import { ActivityIndicator, Text, TouchableOpacity, View } from 'react-native';
 import { FlashList, ListRenderItem } from '@shopify/flash-list';
 
 import { Button } from '@components/ui';
@@ -23,9 +29,20 @@ export interface SuggestionsPhaseProps {
   isPremium: boolean;
   canImportPhotos: boolean;
   fetchingSuggestions: boolean;
+  /** True while dispatch is paused because the app is backgrounded (U9/R15). */
+  isPaused?: boolean;
+  /**
+   * Number of clusters a bulk retry is currently rebuilding payloads for, or 0
+   * (U9). Preparation is serial at the native layer, so a large retry is silent
+   * for a while before its first request leaves — the status row names that
+   * wait rather than showing an unexplained pause.
+   */
+  preparingRetryCount?: number;
   clusterItems: ClusterDisplayItem[];
   renderClusterItem: ListRenderItem<ClusterDisplayItem>;
   onUpgrade: () => void;
+  /** Retry every retry-eligible failed cluster in one action (U9/R15). */
+  onRetryAllFailed?: (clusterIds: string[]) => void;
 }
 
 export function SuggestionsPhase({
@@ -35,9 +52,12 @@ export function SuggestionsPhase({
   isPremium,
   canImportPhotos,
   fetchingSuggestions,
+  isPaused = false,
+  preparingRetryCount = 0,
   clusterItems,
   renderClusterItem,
   onUpgrade,
+  onRetryAllFailed,
 }: SuggestionsPhaseProps) {
   // ONE progress source (U8). The header used to read the dispatch controller's
   // own counters while the list rendered a different set of rows, so the two
@@ -55,10 +75,38 @@ export function SuggestionsPhase({
   // yet and there are no rows at all. Fall back to the candidate's own cluster
   // count so the spinner still carries a count instead of a bare "Searching...".
   const clusterCount = selectedCandidate.locationClusterIds.length;
+  const prepareCount = preparingRetryCount > 0 ? preparingRetryCount : clusterCount;
   const progressLabel =
-    totalCount > 0
+    totalCount > 0 && preparingRetryCount === 0
       ? `Processing ${settledCount} of ${totalCount} locations`
-      : `Preparing ${clusterCount} ${clusterCount === 1 ? 'location' : 'locations'}`;
+      : `Preparing ${prepareCount} ${prepareCount === 1 ? 'location' : 'locations'}`;
+
+  // U9/R15: the header is a PERSISTENT status row, not a fetch-only one. It used
+  // to vanish the instant the last owner settled — exactly the moment a partial
+  // stop (a rate limit, a backgrounding) needs explaining and the moment the
+  // user has nothing to act on. It now outlives the fetch whenever locations
+  // were left unchecked, and carries the one control that clears them.
+  //
+  // Retry-eligible = the rendered lookup-failed rows that still offer a retry.
+  // Sourcing it from the ROWS rather than from the controller's sets keeps it
+  // consistent with what the user can see, and inherits the rows' own
+  // exclusions: dismissed clusters are not rows, and a 429/503 row is
+  // `retryDisabled` so retrying it could only fail again.
+  const retryableClusterIds = clusterItems
+    .filter((item) => item.type === 'lookup-failed' && !item.retryDisabled && !item.isRetrying)
+    .map((item) => (item.type === 'lookup-failed' ? item.cluster.id : ''));
+  const unfinishedCount = retryableClusterIds.length;
+
+  // Paused only reads as paused while a fetch is actually parked on it; a
+  // backgrounded app with nothing to dispatch has nothing to say.
+  const showPaused = isPaused && fetchingSuggestions;
+  const showUnfinished = !fetchingSuggestions && unfinishedCount > 0;
+  const showStatusRow = fetchingSuggestions || showUnfinished;
+  const statusLabel = showPaused
+    ? 'Paused — picks up where it left off when you return'
+    : showUnfinished
+      ? `${unfinishedCount} ${unfinishedCount === 1 ? 'location' : 'locations'} couldn't be checked`
+      : progressLabel;
 
   return (
     <View style={styles.listContainer}>
@@ -84,22 +132,43 @@ export function SuggestionsPhase({
           non-announcing (SwipeToSkipCard), so a hundred simultaneous
           resolutions produce one polite header update, not a hundred. Same
           role + live-region pairing the persistent scan banner already uses. */}
-      {fetchingSuggestions && (
+      {showStatusRow && (
         <View
           style={styles.progressHeader}
           accessibilityRole="progressbar"
           accessibilityLiveRegion="polite"
-          accessibilityLabel={progressLabel}
+          accessibilityLabel={statusLabel}
           accessibilityValue={{ min: 0, max: 100, now: percentage }}
         >
           <View style={styles.progressLabelRow}>
-            <ActivityIndicator size="small" color={colors.sunsetGold} />
-            <Text style={styles.progressLabel}>{progressLabel}</Text>
+            {/* No spinner while paused or stopped: a spinner over work that is
+                not happening is the thing that made a stalled import look
+                healthy. The bar keeps its fill either way, so the progress
+                already made stays visible. */}
+            {fetchingSuggestions && !showPaused && (
+              <ActivityIndicator size="small" color={colors.sunsetGold} />
+            )}
+            <Text style={styles.progressLabel}>{statusLabel}</Text>
           </View>
           {totalCount > 0 && (
             <View style={styles.progressBar}>
               <View style={[styles.progressFill, { width: `${percentage}%` }]} />
             </View>
+          )}
+          {/* The retry-all control lives IN the status row and only once
+              dispatch has settled — while a bulk retry runs, the in-progress
+              header replaces it, so there is never a second tap to give. */}
+          {showUnfinished && onRetryAllFailed && (
+            <TouchableOpacity
+              style={styles.retryAllButton}
+              onPress={() => onRetryAllFailed(retryableClusterIds)}
+              accessibilityRole="button"
+              accessibilityLabel={`Retry all ${unfinishedCount} unchecked ${
+                unfinishedCount === 1 ? 'location' : 'locations'
+              }`}
+            >
+              <Text style={styles.retryAllButtonText}>Retry All</Text>
+            </TouchableOpacity>
           )}
         </View>
       )}

@@ -99,6 +99,7 @@ export function PhotoImportScreen({ navigation, route }: Props) {
     cachedSuggestions,
     fetchingSuggestions,
     retryingClusterIds,
+    bulkRetryPreparingCount,
     lastImportTime,
     isIncremental,
     isSaving,
@@ -120,6 +121,7 @@ export function PhotoImportScreen({ navigation, route }: Props) {
     handleSplitCluster,
     handleAddEntryForCluster,
     retryFailedClusters,
+    retryAllFailedClusters,
     handleManualSelect,
     handleCreateTrip,
     backToCandidates,
@@ -160,6 +162,17 @@ export function PhotoImportScreen({ navigation, route }: Props) {
       void retryFailedClusters([clusterId]);
     },
     [retryFailedClusters]
+  );
+
+  // Retry EVERY retry-eligible failed cluster in one action (U9/R15). Unlike the
+  // per-card retry this DOES take a dispatch owner slot and runs through the
+  // controller's bounded pool, so the status row shows it as in progress and the
+  // burst cap is respected (KTD7/KTD12/KTD15).
+  const handleRetryAllClusters = useCallback(
+    (clusterIds: string[]) => {
+      void retryAllFailedClusters(clusterIds);
+    },
+    [retryAllFailedClusters]
   );
 
   // Wrap handleManualSelect so the override (pencil) path honors the photos
@@ -465,9 +478,12 @@ export function PhotoImportScreen({ navigation, route }: Props) {
           isPremium={isPremium}
           canImportPhotos={canImportPhotos}
           fetchingSuggestions={fetchingSuggestions}
+          isPaused={suggestionDispatch.isPaused}
+          preparingRetryCount={bulkRetryPreparingCount}
           clusterItems={clusterItems}
           renderClusterItem={renderClusterItem}
           onUpgrade={() => rootNavigation.navigate('PaywallModal', { feature: 'photoImport' })}
+          onRetryAllFailed={handleRetryAllClusters}
         />
       )}
 

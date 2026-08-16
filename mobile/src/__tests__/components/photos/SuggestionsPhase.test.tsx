@@ -16,8 +16,8 @@
 
 /* eslint-disable @typescript-eslint/no-require-imports */
 import React from 'react';
-import { render } from '@testing-library/react-native';
-import { Text, View } from 'react-native';
+import { render, fireEvent } from '@testing-library/react-native';
+import { ActivityIndicator, Text, View } from 'react-native';
 
 import { SuggestionsPhase } from '../../../screens/photos/components/SuggestionsPhase';
 import type { ClusterDisplayItem } from '../../../screens/photos/photoImportHelpers';
@@ -75,10 +75,24 @@ const buildCandidate = (clusterIds: string[]): TripCandidateDisplay => ({
   locationClusterIds: clusterIds,
 });
 
+/** A lookup-failed row, retry-enabled unless told otherwise. */
+const buildFailedItem = (
+  id: string,
+  overrides: { retryDisabled?: boolean; isRetrying?: boolean } = {}
+): ClusterDisplayItem => ({
+  type: 'lookup-failed',
+  cluster: buildCluster(id),
+  retryDisabled: overrides.retryDisabled ?? false,
+  isRetrying: overrides.isRetrying ?? false,
+});
+
 const renderPhase = (opts: {
   clusterIds: string[];
   items: ClusterDisplayItem[];
   fetching?: boolean;
+  paused?: boolean;
+  preparingRetryCount?: number;
+  onRetryAllFailed?: (ids: string[]) => void;
 }) =>
   render(
     <SuggestionsPhase
@@ -88,6 +102,8 @@ const renderPhase = (opts: {
       isPremium
       canImportPhotos
       fetchingSuggestions={opts.fetching ?? false}
+      isPaused={opts.paused ?? false}
+      preparingRetryCount={opts.preparingRetryCount ?? 0}
       clusterItems={opts.items}
       renderClusterItem={({ item }) => (
         <View>
@@ -95,6 +111,7 @@ const renderPhase = (opts: {
         </View>
       )}
       onUpgrade={jest.fn()}
+      onRetryAllFailed={opts.onRetryAllFailed ?? jest.fn()}
     />
   );
 
@@ -174,6 +191,135 @@ describe('SuggestionsPhase progress header (R28)', () => {
     const { queryByText } = renderPhase({ clusterIds: ['c-1'], items, fetching: false });
 
     expect(queryByText(/Processing/)).toBeNull();
+  });
+});
+
+describe('SuggestionsPhase persistent status row (U9/R15)', () => {
+  it('persists after a rate-limit stop and names the count that could not be checked', () => {
+    // A 429 mid-import: two locations matched, three were left unchecked. The
+    // header used to vanish the instant the last owner settled — precisely when
+    // the partial stop needed explaining.
+    const items: ClusterDisplayItem[] = [
+      { type: 'photos-only', cluster: buildCluster('c-1') },
+      { type: 'suggestion', data: buildSuggestion('c-2'), cluster: buildCluster('c-2') },
+      buildFailedItem('c-3'),
+      buildFailedItem('c-4'),
+      buildFailedItem('c-5'),
+    ];
+
+    const { getByText } = renderPhase({
+      clusterIds: ['c-1', 'c-2', 'c-3', 'c-4', 'c-5'],
+      items,
+      fetching: false,
+    });
+
+    expect(getByText("3 locations couldn't be checked")).toBeTruthy();
+    expect(getByText('Retry All')).toBeTruthy();
+  });
+
+  it('disappears when every location resolved, retry-disabled ones aside', () => {
+    // A quota-disabled failure offers no retry, so there is nothing to act on
+    // and nothing to say beyond what its own card already says.
+    const items: ClusterDisplayItem[] = [
+      { type: 'photos-only', cluster: buildCluster('c-1') },
+      buildFailedItem('c-2', { retryDisabled: true }),
+    ];
+
+    const { queryByText } = renderPhase({ clusterIds: ['c-1', 'c-2'], items, fetching: false });
+
+    expect(queryByText(/couldn't be checked/)).toBeNull();
+    expect(queryByText('Retry All')).toBeNull();
+  });
+
+  it('hands retry-all every retry-ENABLED failure and nothing else', () => {
+    const onRetryAllFailed = jest.fn();
+    const items: ClusterDisplayItem[] = [
+      { type: 'photos-only', cluster: buildCluster('c-1') },
+      buildFailedItem('c-2'),
+      buildFailedItem('c-3', { retryDisabled: true }),
+      buildFailedItem('c-4', { isRetrying: true }),
+      buildFailedItem('c-5'),
+    ];
+
+    const { getByText } = renderPhase({
+      clusterIds: ['c-1', 'c-2', 'c-3', 'c-4', 'c-5'],
+      items,
+      fetching: false,
+      onRetryAllFailed,
+    });
+
+    fireEvent.press(getByText('Retry All'));
+
+    expect(onRetryAllFailed).toHaveBeenCalledWith(['c-2', 'c-5']);
+  });
+
+  it('replaces the retry-all control with the in-progress header while a retry runs', () => {
+    const items: ClusterDisplayItem[] = [
+      buildFailedItem('c-2'),
+      { type: 'pending', cluster: buildCluster('c-3') },
+    ];
+
+    const { queryByText, getByText } = renderPhase({
+      clusterIds: ['c-2', 'c-3'],
+      items,
+      fetching: true,
+    });
+
+    expect(queryByText('Retry All')).toBeNull();
+    expect(getByText('Processing 1 of 2 locations')).toBeTruthy();
+  });
+
+  it('names the re-preparation window instead of showing an unexplained pause', () => {
+    // Released payloads have to be rebuilt and preparation is serial at the
+    // native layer, so a large bulk retry is silent for a while before its first
+    // request leaves.
+    const items: ClusterDisplayItem[] = [
+      { type: 'pending', cluster: buildCluster('c-1') },
+      { type: 'pending', cluster: buildCluster('c-2') },
+    ];
+
+    const { getByText } = renderPhase({
+      clusterIds: ['c-1', 'c-2'],
+      items,
+      fetching: true,
+      preparingRetryCount: 2,
+    });
+
+    expect(getByText('Preparing 2 locations')).toBeTruthy();
+  });
+
+  it('shows a paused label with NO spinner, and holds the bar fill', () => {
+    const items: ClusterDisplayItem[] = [
+      { type: 'photos-only', cluster: buildCluster('c-1') },
+      { type: 'pending', cluster: buildCluster('c-2') },
+    ];
+
+    const { getByLabelText, UNSAFE_queryAllByType } = renderPhase({
+      clusterIds: ['c-1', 'c-2'],
+      items,
+      fetching: true,
+      paused: true,
+    });
+
+    const header = getByLabelText('Paused — picks up where it left off when you return');
+    // The bar keeps the progress already made rather than resetting.
+    expect(header.props.accessibilityValue).toEqual({ min: 0, max: 100, now: 50 });
+    // A spinner over work that is not happening is what makes a stalled import
+    // look healthy.
+    expect(UNSAFE_queryAllByType(ActivityIndicator)).toHaveLength(0);
+  });
+
+  it('says nothing about pausing when there is no fetch parked on it', () => {
+    const items: ClusterDisplayItem[] = [{ type: 'photos-only', cluster: buildCluster('c-1') }];
+
+    const { queryByText } = renderPhase({
+      clusterIds: ['c-1'],
+      items,
+      fetching: false,
+      paused: true,
+    });
+
+    expect(queryByText(/Paused/)).toBeNull();
   });
 });
 

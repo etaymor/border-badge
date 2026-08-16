@@ -93,6 +93,14 @@ export interface PhotoImportWorkflowResult {
    */
   retryingClusterIds: Set<string>;
 
+  /**
+   * Number of clusters a U9 bulk retry is currently rebuilding vision payloads
+   * for, or 0. Released payloads have to be re-encoded and preparation is
+   * serial at the native layer, so a large bulk retry spends real time before
+   * its first request leaves — the status row names that wait.
+   */
+  bulkRetryPreparingCount: number;
+
   /** Photo upload states for all active uploads, keyed by cluster ID */
   uploadStates: Map<string, ClusterUploadState>;
   /** Get upload state for a specific cluster */
@@ -132,6 +140,12 @@ export interface PhotoImportWorkflowResult {
   handleAddEntryForCluster: (clusterId: string) => void;
   /** Retry the place lookup for an explicit list of failed cluster ids (U10). */
   retryFailedClusters: (clusterIds: string[]) => Promise<void>;
+  /**
+   * Retry every retry-eligible failed cluster in one action (U9/R15). Runs
+   * through the controller's bounded pool and takes a dispatch owner slot,
+   * unlike the per-cluster `retryFailedClusters`.
+   */
+  retryAllFailedClusters: (clusterIds: string[]) => Promise<void>;
   handleManualSelect: (
     place: SelectedPlace,
     category: EntryType,

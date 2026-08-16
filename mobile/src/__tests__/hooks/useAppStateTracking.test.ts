@@ -48,7 +48,18 @@ jest.mock('@services/photoImport', () => ({
   tryResumeScan: jest.fn().mockResolvedValue({ status: 'skipped', reason: 'no-flag' }),
 }));
 
+// The controller is mocked rather than imported: this suite replaces the whole
+// `react-native` module with a two-property AppState stub, so pulling in the
+// real dispatch module (and the api client behind it) would drag in far more of
+// React Native than the stub provides.
+jest.mock('@services/photoImport/suggestionDispatch', () => ({
+  suggestionDispatch: { pause: jest.fn(), resume: jest.fn() },
+}));
+
 const photoImportMock = jest.requireMock('@services/photoImport');
+const { suggestionDispatch: dispatchMock } = jest.requireMock(
+  '@services/photoImport/suggestionDispatch'
+);
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -100,6 +111,47 @@ describe('useAppStateTracking foreground resume', () => {
 
     expect(photoImportMock.tryResumeScan).not.toHaveBeenCalled();
     expect(photoImportMock.performBackgroundPhotoSync).not.toHaveBeenCalled();
+  });
+});
+
+describe('useAppStateTracking suggestion-dispatch lifecycle (U9/R15/KTD19)', () => {
+  it('pauses dispatch when the app backgrounds, without aborting it', () => {
+    renderHook(() => useAppStateTracking(makeSession('user-1'), jest.fn(), 'US'));
+
+    appStateListeners[0]('background');
+
+    // pause(), never reset(): batches already on the wire must be allowed to
+    // land and cache.
+    expect(dispatchMock.pause).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not pause on a transient inactive (control centre, app switcher)', () => {
+    renderHook(() => useAppStateTracking(makeSession('user-1'), jest.fn(), 'US'));
+
+    appStateListeners[0]('inactive');
+
+    expect(dispatchMock.pause).not.toHaveBeenCalled();
+  });
+
+  it('resumes through the staggered foreground burst, not in the event frame', async () => {
+    renderHook(() => useAppStateTracking(makeSession('user-1'), jest.fn(), 'US'));
+
+    fireForeground();
+    // KTD19: resume rides the app-root hook's frame stagger, so returning to the
+    // app does not run resume plus every sync job on one frame.
+    expect(dispatchMock.resume).not.toHaveBeenCalled();
+
+    await flushStagger();
+    expect(dispatchMock.resume).toHaveBeenCalledTimes(1);
+  });
+
+  it('resumes even when unauthenticated, so a signed-out blip cannot strand a pause', async () => {
+    renderHook(() => useAppStateTracking(null, jest.fn(), 'US'));
+
+    fireForeground();
+    await flushStagger();
+
+    expect(dispatchMock.resume).toHaveBeenCalledTimes(1);
   });
 });
 

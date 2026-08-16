@@ -17,6 +17,7 @@ import {
   suggestionDispatch,
   RateLimitError,
   QuotaExhaustedError,
+  type PlaceSuggestionCluster,
 } from '@services/photoImport/suggestionDispatch';
 import {
   getFullCluster,
@@ -85,6 +86,42 @@ async function prepareVisionImagesBounded(
   return results;
 }
 
+/**
+ * Build the controller's per-batch `prepareBatch` callback (U5/R5).
+ *
+ * Shared by the main dispatch and the U9 bulk retry so the two cannot drift:
+ * both send the cheap skeleton up front and attach the expensive base64 vision
+ * images to only the batch about to leave.
+ *
+ * `onFirstBatchPrepared` fires once, when the FIRST batch is fully encoded —
+ * i.e. the moment the run stops being pure on-device work and a request can
+ * actually go out. A bulk retry uses it to stop saying "Preparing", because a
+ * released payload has to be rebuilt and preparation is serial at the native
+ * layer, so a large retry spends real time before anything hits the network.
+ */
+function createVisionPrepareBatch(
+  clustersById: Map<string, LocationCluster>,
+  onFirstBatchPrepared?: () => void
+): (batch: PlaceSuggestionCluster[]) => Promise<PlaceSuggestionCluster[]> {
+  let announced = false;
+  return async (batch) => {
+    const batchClusters = batch
+      .map((payload) => clustersById.get(payload.id))
+      .filter((c): c is LocationCluster => c !== undefined);
+    const visionImages = await prepareVisionImagesBounded(batchClusters);
+    const imagesByClusterId = new Map(batchClusters.map((c, i) => [c.id, visionImages[i] ?? []]));
+    const prepared = batch.map((payload) => {
+      const images = imagesByClusterId.get(payload.id);
+      return images && images.length > 0 ? { ...payload, vision_images_base64: images } : payload;
+    });
+    if (!announced) {
+      announced = true;
+      onFirstBatchPrepared?.();
+    }
+    return prepared;
+  };
+}
+
 export interface UsePlaceSuggestionsOptions {
   clusterLookupRef: React.RefObject<Map<string, LocationCluster>>;
   /** Ref tracking current candidate ID to detect stale responses during rapid switching */
@@ -123,6 +160,13 @@ export function usePlaceSuggestions({
   // `useClusterItems` rendering and would re-hide every healthy photos-only /
   // no-place-found card during a retry (KTD7 / C4).
   const [retryingClusterIds, setRetryingClusterIds] = useState<Set<string>>(() => new Set());
+
+  // U9 bulk retry. `bulkRetryInFlightRef` is the synchronous double-tap guard
+  // (set before the first await); `bulkRetryPreparingCount` is > 0 only during
+  // the re-preparation window, before the first retried batch reaches the wire,
+  // so the status row can name that wait instead of looking stalled.
+  const bulkRetryInFlightRef = useRef(false);
+  const [bulkRetryPreparingCount, setBulkRetryPreparingCount] = useState(0);
 
   // ==========================================================================
   // Dispatch owner count (R1 / KTD13) — owned by the controller
@@ -348,21 +392,7 @@ export function usePlaceSuggestions({
 
         const result = await suggestionDispatch.dispatch({
           clusters: uncachedClusters.map((c) => mapClusterToApiPayload(c, [])),
-          prepareBatch: async (batch) => {
-            const batchClusters = batch
-              .map((payload) => clustersById.get(payload.id))
-              .filter((c): c is LocationCluster => c !== undefined);
-            const visionImages = await prepareVisionImagesBounded(batchClusters);
-            const imagesByClusterId = new Map(
-              batchClusters.map((c, i) => [c.id, visionImages[i] ?? []])
-            );
-            return batch.map((payload) => {
-              const images = imagesByClusterId.get(payload.id);
-              return images && images.length > 0
-                ? { ...payload, vision_images_base64: images }
-                : payload;
-            });
-          },
+          prepareBatch: createVisionPrepareBatch(clustersById),
         });
 
         if (__DEV__) {
@@ -898,6 +928,113 @@ export function usePlaceSuggestions({
   );
 
   /**
+   * Retry EVERY retry-eligible failed cluster in one action (U9/R15).
+   *
+   * Concurrency multiplies the blast radius of a single backgrounding or network
+   * blip (KTD12): at pool width, one interruption produces a screenful of rows
+   * that would otherwise each need their own tap. This is that screenful in one
+   * control.
+   *
+   * Differs from `retryFailedClusters` (the per-row retry) in three ways, all
+   * consequences of its size:
+   *
+   *  - It goes through the controller's chunked `dispatch` — the BOUNDED POOL
+   *    (KTD7/KTD15) — not a single `dispatchBatch`. A fifty-cluster retry as one
+   *    request would time out; as ten simultaneous ones it would walk straight
+   *    into the backend's burst cap and come back 429 (U7/U16).
+   *  - It TAKES an owner slot. The per-row retry deliberately does not, because
+   *    it must not re-hide the healthy cards around it; a bulk retry is the whole
+   *    list, so the in-progress status row is the honest surface and the
+   *    reconciliation sweep must not fire against clusters it is re-dispatching.
+   *  - It runs as `isRetry`, so the already-matched rows and the failures it is
+   *    NOT retrying (retry-disabled ones) survive the run.
+   *
+   * Retry-eligibility is filtered here as well as by the caller: retry-disabled
+   * (429/503 quota) clusters are skipped — retrying them can only fail again —
+   * and so is anything the main dispatch still has in flight.
+   */
+  const retryAllFailedClusters = useCallback(
+    async (clusterIds: string[]) => {
+      if (clusterIds.length === 0) return;
+      // Claim-before-await (the same guard shape the per-cluster retry uses): a
+      // double tap on a control that fans out to the whole list is exactly what
+      // trips the burst cap.
+      if (bulkRetryInFlightRef.current) return;
+
+      const state = suggestionDispatch.getState();
+      const currentClusterLookup = clusterLookupRef.current;
+      const eligible: LocationCluster[] = [];
+      for (const id of clusterIds) {
+        if (state.failedClusterIds.get(id)?.retryDisabled) continue;
+        if (state.inFlightClusterIds.has(id)) continue;
+        const cluster = getFullCluster(id, currentClusterLookup);
+        if (cluster) eligible.push(cluster);
+      }
+      if (eligible.length === 0) return;
+
+      bulkRetryInFlightRef.current = true;
+      // Surface the re-preparation window explicitly: the payloads were released
+      // after their first dispatch and have to be rebuilt, single-threaded, so a
+      // large retry is silent for a while before any request leaves.
+      setBulkRetryPreparingCount(eligible.length);
+      beginFetchOwner();
+
+      const clustersById = new Map(eligible.map((c) => [c.id, c]));
+
+      try {
+        const result = await suggestionDispatch.dispatch({
+          clusters: eligible.map((c) => mapClusterToApiPayload(c, [])),
+          prepareBatch: createVisionPrepareBatch(clustersById, () => setBulkRetryPreparingCount(0)),
+          isRetry: true,
+        });
+
+        // Same cache-write ALLOW-LIST as the main dispatch (R20/KTD14): a
+        // response for the batch, no failure attributed, and a row for this
+        // cluster specifically. `failedClusterIds` on a retry result is the
+        // MERGED map, so restricting the scan to `eligible` keeps other
+        // clusters' failures out of the decision.
+        const respondedClusterIds = new Set(result.suggestions.map((s) => s.cluster_id));
+        const toCache = eligible
+          .filter(
+            (cluster) =>
+              result.dispatchedAndResolvedIds.has(cluster.id) &&
+              !result.failedClusterIds.has(cluster.id) &&
+              respondedClusterIds.has(cluster.id)
+          )
+          .map((cluster) => {
+            const suggestion = result.suggestions.find((s) => s.cluster_id === cluster.id);
+            return {
+              cluster_id: cluster.id,
+              location_key: clusterLocationKey(cluster.centroid),
+              places: suggestion?.places ?? [],
+            };
+          });
+        await cacheSuggestions(toCache);
+
+        if (result.fatalError instanceof QuotaExhaustedError) {
+          Analytics.photoImportApiError({ errorType: 'quota_exhausted' });
+        } else if (result.fatalError instanceof RateLimitError) {
+          Analytics.photoImportApiError({ errorType: 'rate_limited' });
+        } else if (result.fatalError !== null) {
+          Analytics.photoImportApiError({ errorType: 'unknown' });
+        }
+      } catch (error) {
+        // M1: no Alert — the rows themselves carry the failure. A cluster the
+        // run never answered is left unattributed and the consumer's
+        // reconciliation sweep renders it lookup-failed with retry enabled once
+        // this owner releases.
+        if (__DEV__) console.error('[PhotoImport] retryAllFailedClusters error:', error);
+        Analytics.photoImportApiError({ errorType: 'unknown' });
+      } finally {
+        setBulkRetryPreparingCount(0);
+        bulkRetryInFlightRef.current = false;
+        endFetchOwner();
+      }
+    },
+    [clusterLookupRef, beginFetchOwner, endFetchOwner]
+  );
+
+  /**
    * Clear the session cache and cached suggestions.
    * Called when navigating away or on unmount.
    */
@@ -920,7 +1057,10 @@ export function usePlaceSuggestions({
     fetchSuggestions,
     fetchForClusters,
     retryFailedClusters,
+    retryAllFailedClusters,
     retryingClusterIds,
+    /** > 0 only while a bulk retry is rebuilding payloads (U9). */
+    bulkRetryPreparingCount,
     clearFetchedCache,
     fetchedCandidatesRef,
     // Dispatch owner state (R1/KTD13): true while ANY owner is unsettled.

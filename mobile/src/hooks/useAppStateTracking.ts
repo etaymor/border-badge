@@ -15,6 +15,7 @@ import {
   resetForUserChange,
   tryResumeScan,
 } from '@services/photoImport';
+import { suggestionDispatch } from '@services/photoImport/suggestionDispatch';
 
 function generateSessionId(): string {
   return Crypto.randomUUID();
@@ -57,9 +58,13 @@ function scheduleStaggered(jobs: Array<() => void>): () => void {
 
 /**
  * Tracks app foreground/background state changes.
- * On foreground: syncs offline queue, analytics, share extension usage,
- * tracks app_opened events, runs background photo sync, and checks
- * for shared URLs from the share extension.
+ * On foreground: resumes a paused photo-import dispatch, syncs offline queue,
+ * analytics, share extension usage, tracks app_opened events, runs background
+ * photo sync, and checks for shared URLs from the share extension.
+ * On background: pauses photo-import suggestion dispatch (U9/KTD19) — this is
+ * the ONE lifecycle subscriber, so resume shares the frame stagger below instead
+ * of a screen-local listener firing a burst in a single frame and dying on
+ * navigation.
  */
 export function useAppStateTracking(
   session: Session | null,
@@ -105,6 +110,15 @@ export function useAppStateTracking(
         // these jobs are only spread across successive frames (see
         // scheduleStaggered) so resume doesn't spike a single frame.
         const jobs: Array<() => void> = [
+          // U9/R15/KTD19: let a backgrounded photo-import dispatch start handing
+          // out batches again. FIRST in the burst because it is the only job the
+          // user is actually waiting on, and it is a flag flip — the batches
+          // themselves still go out through the bounded pool, so at most
+          // `concurrency` requests leave on this frame and the rest follow as
+          // those settle. A no-op when nothing was paused.
+          () => {
+            suggestionDispatch.resume();
+          },
           // Sync offline queue from Share Extension (runs regardless of auth state)
           () => {
             syncOfflineQueueFromExtension().catch((error) => {
@@ -160,6 +174,17 @@ export function useAppStateTracking(
 
         cancelStaggerRef.current = scheduleStaggered(jobs);
       }
+
+      // Going away: stop spending suggestion requests (U9/R15/KTD19). This is a
+      // pause, NOT `reset()` — batches already on the wire keep running and
+      // their results still cache, so a request that was seconds from landing
+      // isn't thrown away. Only a true `background`: iOS reports `inactive` for
+      // transient overlays (control centre, the app switcher, a system prompt),
+      // and pausing on those would stall an import the user is still watching.
+      if (nextAppState === 'background') {
+        suggestionDispatch.pause();
+      }
+
       appStateRef.current = nextAppState;
     };
 

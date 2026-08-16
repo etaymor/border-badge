@@ -310,6 +310,22 @@ export const screenStyles = StyleSheet.create({
     color: colors.textSecondary,
     marginLeft: 8,
   },
+  // U9 retry-all control, inside the persistent status row. Same pill shape and
+  // palette as the per-card Retry button so the bulk action reads as the same
+  // affordance at list scope, only without the card's icon.
+  retryAllButton: {
+    alignSelf: 'flex-start',
+    backgroundColor: colors.sunsetGold,
+    paddingVertical: 8,
+    paddingHorizontal: 18,
+    borderRadius: 24,
+    marginTop: 12,
+  },
+  retryAllButtonText: {
+    fontFamily: fonts.openSans.semiBold,
+    fontSize: 14,
+    color: colors.midnightNavy,
+  },
 
   // Warning banner for failed clusters / large libraries
   warningBanner: {
