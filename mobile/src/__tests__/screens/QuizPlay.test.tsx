@@ -16,6 +16,8 @@
  *   revoke mutation
  */
 
+import { within } from '@testing-library/react-native';
+
 import { fireEvent, render, screen, waitFor } from '../utils/testUtils';
 import { createMockNavigation } from '../utils/mockFactories';
 
@@ -213,7 +215,7 @@ describe('QuizPlayScreen', () => {
     expect(mockApiPost).not.toHaveBeenCalled();
   });
 
-  it('shows the correct country immediately on a wrong answer', async () => {
+  it('acknowledges an answer without revealing the verdict and advances (Q8)', async () => {
     mockQuizDetail(makeDetail());
     mockEnsurePlaySession.mockResolvedValue(makePlayState([]));
     mockPostRoutes({
@@ -232,8 +234,10 @@ describe('QuizPlayScreen', () => {
     await waitFor(() => expect(screen.getByText('Spain')).toBeTruthy());
     fireEvent.press(screen.getByText('Spain'));
 
-    await waitFor(() => expect(screen.getByTestId('quiz-feedback')).toBeTruthy());
-    expect(screen.getByText(/France/)).toBeTruthy();
+    // No per-question verdict: play moves straight to the next photo.
+    await waitFor(() => expect(screen.getByText('Photo 2 of 5')).toBeTruthy());
+    expect(screen.queryByText(/Correct!/)).toBeNull();
+    expect(screen.queryByText(/Not quite/)).toBeNull();
     expect(mockApiPost).toHaveBeenCalledWith(
       `/quiz/${QUIZ_ID}/answer`,
       expect.objectContaining({
@@ -276,7 +280,7 @@ describe('QuizPlayScreen', () => {
     expect(mockApiPost).not.toHaveBeenCalled();
 
     fireEvent.press(screen.getByText('2019'));
-    await waitFor(() => expect(screen.getByTestId('quiz-feedback')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('Photo 2 of 5')).toBeTruthy());
     expect(mockApiPost).toHaveBeenCalledWith(
       `/quiz/${QUIZ_ID}/answer`,
       expect.objectContaining({ selected_option_index: 1, selected_year: 2019 })
@@ -303,9 +307,8 @@ describe('QuizPlayScreen', () => {
     await waitFor(() => expect(screen.getByText('Photo 5 of 5')).toBeTruthy());
     fireEvent.press(screen.getByText('France'));
 
-    await waitFor(() => expect(screen.getByTestId('quiz-feedback')).toBeTruthy());
-    fireEvent.press(screen.getByText('See Results'));
-
+    // The reveal happens once, at the end: the last answer flows straight
+    // into completion and the results hand-off.
     await waitFor(() =>
       expect(navigation.replace).toHaveBeenCalledWith('QuizResults', {
         quizId: QUIZ_ID,
@@ -343,8 +346,6 @@ describe('QuizPlayScreen resilience (BUG-1)', () => {
     await waitFor(() => expect(screen.getByText('France')).toBeTruthy());
     fireEvent.press(screen.getByText('France'));
 
-    await waitFor(() => expect(screen.getByTestId('quiz-feedback')).toBeTruthy());
-    fireEvent.press(screen.getByTestId('quiz-feedback-next'));
     await waitFor(() => expect(screen.getByText('Photo 2 of 5')).toBeTruthy());
 
     warnSpy.mockRestore();
@@ -405,7 +406,9 @@ describe('QuizResultsScreen', () => {
     renderResultsScreen();
 
     await waitFor(() => expect(screen.getByTestId('quiz-score-to-beat')).toBeTruthy());
-    expect(screen.getByText('3 of 5')).toBeTruthy();
+    const plate = screen.getByTestId('quiz-score-to-beat');
+    expect(within(plate).getByText('3')).toBeTruthy();
+    expect(within(plate).getByText('/5')).toBeTruthy();
     const memory = screen.getByTestId('quiz-memory-score');
     expect(memory).toBeTruthy();
     expect(screen.getByText(/2 of 4/)).toBeTruthy();
@@ -490,10 +493,15 @@ describe('QuizResultsScreen', () => {
       score_to_beat: { correct: 5, total: 6 },
     });
 
-    await waitFor(() => expect(screen.getByText('5 of 6')).toBeTruthy());
+    await waitFor(() =>
+      expect(within(screen.getByTestId('quiz-score-to-beat')).getByText('/6')).toBeTruthy()
+    );
     fireEvent.press(screen.getByTestId('quiz-remove-5'));
 
-    await waitFor(() => expect(screen.getByText('4 of 5')).toBeTruthy());
+    await waitFor(() =>
+      expect(within(screen.getByTestId('quiz-score-to-beat')).getByText('/5')).toBeTruthy()
+    );
+    expect(within(screen.getByTestId('quiz-score-to-beat')).getByText('4')).toBeTruthy();
     expect(mockApiDelete).toHaveBeenCalledWith(`/quiz/${QUIZ_ID}/questions/q5`);
   });
 
@@ -517,7 +525,7 @@ describe('QuizResultsScreen', () => {
     expect(screen.getByTestId('quiz-share')).toBeTruthy();
   });
 
-  it('share invokes the share sheet with a URL containing the minted slug', async () => {
+  it('share sends the challenge link as its own url item, not buried in text (Q10)', async () => {
     const shareSpy = jest
       .spyOn(ShareModule.Share, 'share')
       .mockResolvedValue({ action: 'sharedAction' } as never);
@@ -537,8 +545,10 @@ describe('QuizResultsScreen', () => {
     fireEvent.press(screen.getByTestId('quiz-share'));
 
     await waitFor(() => expect(shareSpy).toHaveBeenCalled());
-    const content = shareSpy.mock.calls[0][0] as { message?: string };
-    expect(content.message).toContain('https://borderbadge.app/q/abc123slug');
+    const content = shareSpy.mock.calls[0][0] as { message?: string; url?: string };
+    // iOS: the link travels in the url slot so destinations unfurl it.
+    expect(content.url).toBe('https://borderbadge.app/q/abc123slug');
+    expect(content.message).not.toContain('https://borderbadge.app/q/abc123slug');
     // Challenge framing carries the score to beat.
     expect(content.message).toMatch(/3 of 5/);
     shareSpy.mockRestore();

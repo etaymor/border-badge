@@ -1,11 +1,18 @@
 /**
- * QuizPlayScreen - the owner plays their own quiz (R4).
+ * QuizPlayScreen - the owner plays their own Guess Where challenge (R4).
+ *
+ * The photo is the product, so the screen is a full-bleed dark stage: the
+ * photo itself, blurred and dimmed, fills the frame as its own backdrop and
+ * the sharp image sits contained on top (nothing is ever cropped). Options
+ * layer over a bottom scrim. Questions transition like prints dealt onto a
+ * table: the outgoing photo tosses away, the next deals in.
  *
  * Per photo: the four country options first, then (when the photo has a
  * usable capture date) the year memory question - both picks are graded in a
  * SINGLE /answer call because the backend grades each question at most once
- * per session. Feedback is immediate after grading: right/wrong plus the
- * correct country (and the year verdict).
+ * per session. There is NO per-question verdict (Q8): the tapped option gets
+ * a neutral gold acknowledgment and the game moves on; the score lands once,
+ * on the results screen.
  *
  * Resume: every graded verdict is persisted locally with the session id
  * (`quizPlay.recordAnswer`), so killing the app mid-play resumes at the next
@@ -14,14 +21,26 @@
  * QuizResults, handing over the owner-only results payload.
  */
 
+import * as Haptics from 'expo-haptics';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Image, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Image, StatusBar, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Animated, {
+  FadeIn,
+  FadeInDown,
+  FadeOut,
+  withSpring,
+  withTiming,
+  type EntryExitAnimationFunction,
+} from 'react-native-reanimated';
 
 import { Button } from '@components/ui/Button';
-import { Screen } from '@components/ui/Screen';
-import { colors } from '@constants/colors';
+import { GlassBackButton } from '@components/ui/GlassBackButton';
+import { colors, withAlpha } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { useAnswerQuizQuestion, useCompleteQuizPlay, useQuiz } from '@hooks/useQuizzes';
+import { useReducedMotion } from '@hooks/useReducedMotion';
 import { useStableCallback } from '@hooks/useStableCallback';
 import {
   ensurePlaySession,
@@ -32,19 +51,66 @@ import {
 import type { QuizAnswerResult } from '@hooks/useQuizzes';
 import type { RootStackScreenProps } from '@navigation/types';
 
+import { GuessOption } from './components/GuessOption';
+import { ProgressSegments } from './components/ProgressSegments';
+
 type Props = RootStackScreenProps<'QuizPlay'>;
 
-type PlayPhase = 'loading' | 'country' | 'year' | 'feedback' | 'completing' | 'error';
+type PlayPhase = 'loading' | 'country' | 'year' | 'completing' | 'error';
 
 /** The backend 409s when this (session, question) pair was already graded. */
 function isAlreadyAnsweredConflict(error: unknown): boolean {
   return (error as { response?: { status?: number } })?.response?.status === 409;
 }
 
+/** How long the gold acknowledgment holds before the next print deals in. */
+const ACK_HOLD_MS = 420;
+
+const DEAL_SPRING = { damping: 16, stiffness: 220, mass: 0.9 };
+
+/** The incoming photo deals in like a print tossed onto the table. */
+const dealIn: EntryExitAnimationFunction = () => {
+  'worklet';
+  return {
+    initialValues: {
+      opacity: 0,
+      transform: [{ translateY: 28 }, { rotate: '-2.5deg' }, { scale: 0.92 }],
+    },
+    animations: {
+      opacity: withTiming(1, { duration: 200 }),
+      transform: [
+        { translateY: withSpring(0, DEAL_SPRING) },
+        { rotate: withSpring('0deg', DEAL_SPRING) },
+        { scale: withSpring(1, DEAL_SPRING) },
+      ],
+    },
+  };
+};
+
+/** The answered photo tosses away off the table. */
+const tossOut: EntryExitAnimationFunction = () => {
+  'worklet';
+  return {
+    initialValues: {
+      opacity: 1,
+      transform: [{ translateX: 0 }, { rotate: '0deg' }],
+    },
+    animations: {
+      opacity: withTiming(0, { duration: 160 }),
+      transform: [
+        { translateX: withTiming(-140, { duration: 200 }) },
+        { rotate: withTiming('-5deg', { duration: 200 }) },
+      ],
+    },
+  };
+};
+
 export function QuizPlayScreen({ navigation, route }: Props) {
   // A restored navigation state can produce a param-less route (BUG-1):
   // degrade to the handled error phase instead of throwing during render.
   const quizId = route.params?.quizId;
+  const insets = useSafeAreaInsets();
+  const reduceMotion = useReducedMotion();
 
   const {
     data: quiz,
@@ -59,9 +125,8 @@ export function QuizPlayScreen({ navigation, route }: Props) {
   const [playState, setPlayState] = useState<QuizPlayState | null>(null);
   const [activeQuestionId, setActiveQuestionId] = useState<string | null>(null);
   const [pendingCountryIndex, setPendingCountryIndex] = useState<number | null>(null);
-  const [feedback, setFeedback] = useState<QuizAnswerResult | null>(null);
-  // The tapped option pulses while its answer is in flight, so a slow submit
-  // reads as "working" rather than a dead screen (BUG-1).
+  // The tapped option keeps its gold ring while the answer is in flight and
+  // through the acknowledgment hold - a neutral "got it", never a verdict.
   const [pendingAnswerKey, setPendingAnswerKey] = useState<string | null>(null);
 
   const sessionStartedRef = useRef(false);
@@ -74,11 +139,7 @@ export function QuizPlayScreen({ navigation, route }: Props) {
   const activeNumber = activeQuestion
     ? questions.findIndex((question) => question.id === activeQuestion.id) + 1
     : 0;
-  const remainingAfterActive = playState
-    ? questions.filter(
-        (question) => !playState.answers[question.id] && question.id !== activeQuestionId
-      ).length
-    : 0;
+  const answeredCount = playState ? Object.keys(playState.answers).length : 0;
 
   const completePlay = useStableCallback((state: QuizPlayState) => {
     if (!quizId) return;
@@ -125,8 +186,8 @@ export function QuizPlayScreen({ navigation, route }: Props) {
   }, [quizLoadFailed, quizFetching, phase]);
 
   const goToNext = useStableCallback((state: QuizPlayState) => {
-    setFeedback(null);
     setPendingCountryIndex(null);
+    setPendingAnswerKey(null);
     const next = questions.find((question) => !state.answers[question.id]);
     if (next) {
       setActiveQuestionId(next.id);
@@ -136,35 +197,31 @@ export function QuizPlayScreen({ navigation, route }: Props) {
     }
   });
 
-  // Record a graded answer and move the screen forward. A failed local write
+  // Record a graded answer and move the game forward. A failed local write
   // must NOT strand play (BUG-1): react-query never awaits mutate callbacks,
   // so a rejection here would otherwise float away with the phase unchanged
   // and every subsequent tap re-answering into a 409. The server has already
   // graded the answer - carry it in memory and let the next successful save
   // persist the full answers map (state is rebuilt immutably each time).
-  const applyAnswer = useStableCallback(
-    async (stored: StoredQuizAnswer, result: QuizAnswerResult | null) => {
-      if (!playState) return;
-      let nextState: QuizPlayState;
-      try {
-        nextState = await recordAnswer(playState, stored);
-      } catch (error) {
-        console.warn('[QuizPlay] Failed to persist graded answer; continuing in memory', error);
-        nextState = {
-          ...playState,
-          answers: { ...playState.answers, [stored.questionId]: stored },
-        };
-      }
-      setPendingAnswerKey(null);
-      setPlayState(nextState);
-      if (result) {
-        setFeedback(result);
-        setPhase('feedback');
-      } else {
-        goToNext(nextState);
-      }
+  const applyAnswer = useStableCallback(async (stored: StoredQuizAnswer, holdAck: boolean) => {
+    if (!playState) return;
+    let nextState: QuizPlayState;
+    try {
+      nextState = await recordAnswer(playState, stored);
+    } catch (error) {
+      console.warn('[QuizPlay] Failed to persist graded answer; continuing in memory', error);
+      nextState = {
+        ...playState,
+        answers: { ...playState.answers, [stored.questionId]: stored },
+      };
     }
-  );
+    setPlayState(nextState);
+    if (holdAck && !reduceMotion) {
+      setTimeout(() => goToNext(nextState), ACK_HOLD_MS);
+    } else {
+      goToNext(nextState);
+    }
+  });
 
   const submitAnswer = useStableCallback((optionIndex: number, year: number | null) => {
     if (!playState || !activeQuestion) return;
@@ -177,7 +234,7 @@ export function QuizPlayScreen({ navigation, route }: Props) {
         selectedYear: year,
       },
       {
-        onSuccess: (result) => {
+        onSuccess: (result: QuizAnswerResult) => {
           void applyAnswer(
             {
               questionId,
@@ -189,7 +246,7 @@ export function QuizPlayScreen({ navigation, route }: Props) {
               correctOption: result.correct_option,
               correctYear: result.correct_year ?? null,
             },
-            result
+            true
           );
         },
         onError: (error) => {
@@ -209,7 +266,7 @@ export function QuizPlayScreen({ navigation, route }: Props) {
                 correctYear: null,
                 verdictUnknown: true,
               },
-              null
+              false
             );
           } else {
             setPendingAnswerKey(null);
@@ -221,7 +278,8 @@ export function QuizPlayScreen({ navigation, route }: Props) {
   });
 
   const handleSelectCountry = useStableCallback((optionIndex: number) => {
-    if (answerMutation.isPending) return;
+    if (answerMutation.isPending || pendingAnswerKey !== null) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     if (activeQuestion?.year_options?.length) {
       setPendingCountryIndex(optionIndex);
       setPhase('year');
@@ -232,14 +290,11 @@ export function QuizPlayScreen({ navigation, route }: Props) {
   });
 
   const handleSelectYear = useStableCallback((year: number) => {
-    if (answerMutation.isPending || pendingCountryIndex === null) return;
+    if (answerMutation.isPending || pendingAnswerKey !== null) return;
+    if (pendingCountryIndex === null) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     setPendingAnswerKey(`year-${year}`);
     submitAnswer(pendingCountryIndex, year);
-  });
-
-  const handleNext = useStableCallback(() => {
-    if (!playState) return;
-    goToNext(playState);
   });
 
   const handleRetry = useStableCallback(() => {
@@ -258,155 +313,245 @@ export function QuizPlayScreen({ navigation, route }: Props) {
   });
 
   const showQuestion = (phase === 'country' || phase === 'year') && activeQuestion;
+  const entering = reduceMotion ? FadeIn.duration(0) : dealIn;
+  const exiting = reduceMotion ? FadeOut.duration(0) : tossOut;
 
   return (
-    <Screen>
-      <View style={styles.container}>
-        {(phase === 'loading' || phase === 'completing') && (
-          <View style={styles.centered} testID="quiz-play-loading">
-            <ActivityIndicator size="large" color={colors.sunsetGold} />
-            {phase === 'completing' && <Text style={styles.body}>Tallying your score</Text>}
-          </View>
-        )}
+    <View style={styles.stage}>
+      <StatusBar barStyle="light-content" />
 
-        {phase === 'error' && (
-          <View style={styles.centered} testID="quiz-play-error">
-            <Text style={styles.title}>Something Went Wrong</Text>
-            <Text style={styles.body}>
-              We could not load your quiz right now. Your progress is saved - answered photos stay
-              answered.
-            </Text>
-            <Button title="Try Again" onPress={handleRetry} />
-            <Button title="Back" variant="ghost" onPress={handleBack} />
-          </View>
-        )}
+      {/* The photo, blurred, is its own backdrop - landscape shots get
+          atmosphere instead of letterboxing. Crossfades between questions. */}
+      {showQuestion && activeQuestion && (
+        <Animated.View
+          key={`backdrop-${activeQuestion.id}`}
+          entering={FadeIn.duration(reduceMotion ? 0 : 350)}
+          exiting={FadeOut.duration(reduceMotion ? 0 : 250)}
+          style={StyleSheet.absoluteFill}
+        >
+          <Image
+            source={{ uri: activeQuestion.image_url }}
+            style={StyleSheet.absoluteFill}
+            resizeMode="cover"
+            blurRadius={42}
+          />
+          <View style={styles.backdropDim} />
+        </Animated.View>
+      )}
 
-        {showQuestion && activeQuestion && (
-          <ScrollView contentContainerStyle={styles.questionContent}>
-            <Text style={styles.progress} testID="quiz-play-progress">
-              Photo {activeNumber} of {questions.length}
-            </Text>
-            <Image
-              source={{ uri: activeQuestion.image_url }}
-              style={styles.photo}
-              resizeMode="cover"
-              testID="quiz-play-photo"
-            />
+      {(phase === 'loading' || phase === 'completing') && (
+        <View style={[styles.centered, { paddingTop: insets.top }]} testID="quiz-play-loading">
+          <View style={styles.skeletonPhoto} />
+          <View style={styles.skeletonRow}>
+            <View style={styles.skeletonOption} />
+            <View style={styles.skeletonOption} />
+          </View>
+          <ActivityIndicator size="small" color={colors.sunsetGold} />
+          {phase === 'completing' && <Text style={styles.loadingLabel}>Tallying your score</Text>}
+        </View>
+      )}
+
+      {phase === 'error' && (
+        <View style={[styles.centered, { paddingTop: insets.top }]} testID="quiz-play-error">
+          <Text style={styles.errorTitle}>Something Went Wrong</Text>
+          <Text style={styles.errorBody}>
+            We could not load your challenge right now. Your progress is saved - answered photos
+            stay answered.
+          </Text>
+          <Button title="Try Again" onPress={handleRetry} />
+          <Button title="Back" variant="ghost" onPress={handleBack} />
+        </View>
+      )}
+
+      {showQuestion && activeQuestion && (
+        <View style={styles.stageColumn}>
+          <View style={[styles.topBar, { paddingTop: insets.top + 8 }]}>
+            <View style={styles.topBarRow}>
+              <GlassBackButton onPress={handleBack} variant="dark" size="small" />
+              <Text style={styles.progress} testID="quiz-play-progress">
+                Photo {activeNumber} of {questions.length}
+              </Text>
+              {/* Spacer mirrors the back button so the label stays centered. */}
+              <View style={styles.topBarSpacer} />
+            </View>
+            <ProgressSegments total={questions.length} filled={answeredCount} />
+          </View>
+
+          <View style={styles.photoFrame}>
+            <Animated.View
+              key={`photo-${activeQuestion.id}`}
+              entering={entering}
+              exiting={exiting}
+              style={styles.photoWrap}
+            >
+              <Image
+                source={{ uri: activeQuestion.image_url }}
+                style={styles.photo}
+                resizeMode="contain"
+                testID="quiz-play-photo"
+              />
+            </Animated.View>
+          </View>
+
+          <LinearGradient
+            colors={[withAlpha(colors.midnightNavy, 0), withAlpha(colors.midnightNavy, 0.9)]}
+            style={[styles.bottomSheet, { paddingBottom: insets.bottom + 20 }]}
+          >
             {phase === 'country' ? (
-              <>
+              <Animated.View key={`country-${activeQuestion.id}`} style={styles.optionsBlock}>
                 <Text style={styles.prompt} testID="quiz-country-prompt">
-                  Where was this taken?
+                  where was this taken?
                 </Text>
-                <View style={styles.options}>
+                <View style={styles.optionsGrid}>
                   {activeQuestion.options.map((option, index) => (
-                    <Button
+                    <GuessOption
                       key={option}
-                      title={option}
-                      variant="outline"
-                      disabled={answerMutation.isPending}
-                      loading={pendingAnswerKey === `option-${index}`}
+                      label={option}
+                      selected={pendingAnswerKey === `option-${index}`}
+                      disabled={answerMutation.isPending || pendingAnswerKey !== null}
+                      entranceDelay={reduceMotion ? 0 : 120 + index * 50}
                       onPress={() => handleSelectCountry(index)}
+                      style={styles.optionCell}
                       testID={`quiz-option-${index}`}
                     />
                   ))}
                 </View>
-              </>
+              </Animated.View>
             ) : (
-              <>
+              <Animated.View
+                key={`year-${activeQuestion.id}`}
+                entering={reduceMotion ? undefined : FadeInDown.duration(250)}
+                style={styles.optionsBlock}
+              >
                 <Text style={styles.prompt} testID="quiz-year-prompt">
-                  What year did you take this?
+                  what year was this?
                 </Text>
-                <View style={styles.options}>
+                <View style={styles.optionsGrid}>
                   {(activeQuestion.year_options ?? []).map((year) => (
-                    <Button
+                    <GuessOption
                       key={year}
-                      title={String(year)}
-                      variant="outline"
-                      disabled={answerMutation.isPending}
-                      loading={pendingAnswerKey === `year-${year}`}
+                      label={String(year)}
+                      selected={pendingAnswerKey === `year-${year}`}
+                      disabled={answerMutation.isPending || pendingAnswerKey !== null}
                       onPress={() => handleSelectYear(year)}
+                      style={styles.optionCell}
                       testID={`quiz-year-${year}`}
                     />
                   ))}
                 </View>
-              </>
+              </Animated.View>
             )}
-          </ScrollView>
-        )}
-
-        {phase === 'feedback' && feedback && (
-          <View style={styles.centered} testID="quiz-feedback">
-            <Text style={styles.title}>{feedback.place_correct ? 'Correct!' : 'Not quite'}</Text>
-            <Text style={styles.body}>
-              {feedback.place_correct
-                ? `You knew it: ${feedback.correct_option}.`
-                : `It was ${feedback.correct_option}.`}
-            </Text>
-            {feedback.correct_year != null && (
-              <Text style={styles.body} testID="quiz-feedback-year">
-                {feedback.year_correct
-                  ? `And you remembered the year - ${feedback.correct_year}.`
-                  : `It was taken in ${feedback.correct_year}.`}
-              </Text>
-            )}
-            <Button
-              title={remainingAfterActive > 0 ? 'Next Photo' : 'See Results'}
-              onPress={handleNext}
-              testID="quiz-feedback-next"
-            />
-          </View>
-        )}
-      </View>
-    </Screen>
+          </LinearGradient>
+        </View>
+      )}
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  stage: {
     flex: 1,
-    paddingHorizontal: 24,
+    backgroundColor: colors.midnightNavy,
+  },
+  backdropDim: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: withAlpha(colors.midnightNavy, 0.45),
+  },
+  stageColumn: {
+    flex: 1,
+  },
+  topBar: {
+    paddingHorizontal: 16,
+    gap: 10,
+  },
+  topBarRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  topBarSpacer: {
+    width: 36,
+  },
+  progress: {
+    fontFamily: fonts.body.bold,
+    fontSize: 13,
+    letterSpacing: 1.5,
+    textTransform: 'uppercase',
+    color: withAlpha(colors.warmCream, 0.9),
+  },
+  photoFrame: {
+    flex: 1,
+    paddingVertical: 12,
+  },
+  photoWrap: {
+    flex: 1,
+  },
+  photo: {
+    flex: 1,
+    width: '100%',
+  },
+  bottomSheet: {
+    paddingHorizontal: 16,
+    paddingTop: 40,
+  },
+  optionsBlock: {
+    gap: 12,
+  },
+  prompt: {
+    fontFamily: fonts.dawning.regular,
+    fontSize: 26,
+    lineHeight: 30,
+    color: colors.sunsetGold,
+    textAlign: 'center',
+  },
+  optionsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  optionCell: {
+    flexBasis: '48%',
+    flexGrow: 1,
   },
   centered: {
     flex: 1,
     justifyContent: 'center',
+    alignItems: 'stretch',
+    paddingHorizontal: 24,
     gap: 16,
   },
-  questionContent: {
-    paddingVertical: 16,
-    gap: 16,
+  skeletonPhoto: {
+    height: 320,
+    borderRadius: 16,
+    backgroundColor: withAlpha(colors.warmCream, 0.08),
   },
-  progress: {
-    fontFamily: fonts.body.semiBold,
-    fontSize: 14,
-    color: colors.textSecondary,
-    textAlign: 'center',
-  },
-  photo: {
-    width: '100%',
-    aspectRatio: 4 / 3,
-    borderRadius: 12,
-    backgroundColor: colors.backgroundPlaceholder,
-  },
-  prompt: {
-    fontFamily: fonts.playfair.bold,
-    fontSize: 22,
-    color: colors.textPrimary,
-    textAlign: 'center',
-  },
-  options: {
+  skeletonRow: {
+    flexDirection: 'row',
     gap: 10,
   },
-  title: {
-    fontFamily: fonts.playfair.bold,
-    fontSize: 28,
-    color: colors.textPrimary,
+  skeletonOption: {
+    flex: 1,
+    height: 56,
+    borderRadius: 16,
+    backgroundColor: withAlpha(colors.warmCream, 0.08),
+  },
+  loadingLabel: {
+    fontFamily: fonts.body.regular,
+    fontSize: 16,
+    color: withAlpha(colors.warmCream, 0.85),
     textAlign: 'center',
   },
-  body: {
+  errorTitle: {
+    fontFamily: fonts.playfair.bold,
+    fontSize: 28,
+    color: colors.warmCream,
+    textAlign: 'center',
+  },
+  errorBody: {
     fontFamily: fonts.body.regular,
     fontSize: 16,
     lineHeight: 24,
-    color: colors.textSecondary,
+    color: withAlpha(colors.warmCream, 0.8),
     textAlign: 'center',
   },
 });

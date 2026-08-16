@@ -231,25 +231,13 @@ describe('QuizChallengeVariant', () => {
 });
 
 // ---------------------------------------------------------------------------
-// QuizResultsScreen share wiring (capture + Share payload)
+// QuizResultsScreen share wiring (Q10: link as its own activity item)
 // ---------------------------------------------------------------------------
 
-describe('QuizResultsScreen share card capture', () => {
-  function mockRoutes({ displayName }: { displayName?: string } = {}) {
+describe('QuizResultsScreen share wiring (Q10)', () => {
+  function mockRoutes() {
     mockApiGet.mockImplementation((url: string) => {
       if (url === `/quiz/${QUIZ_ID}`) return Promise.resolve({ data: makeDetail() });
-      if (url === '/profile') {
-        return Promise.resolve({
-          data: {
-            id: 'user-1',
-            email: 'owner@example.com',
-            display_name: displayName,
-            tracking_preference: 'all',
-            created_at: '2026-01-01',
-            updated_at: '2026-01-01',
-          },
-        });
-      }
       return Promise.reject(new Error(`Unexpected GET ${url}`));
     });
     mockApiPost.mockImplementation((url: string) => {
@@ -267,51 +255,23 @@ describe('QuizResultsScreen share card capture', () => {
     mockLoadPlayState.mockResolvedValue(makePlayState());
   }
 
-  it('mounts the card in a ViewShot using the established capture options', async () => {
+  it('no longer mounts a card-capture host: the link is the shared artifact', async () => {
     mockRoutes();
 
     renderResultsScreen();
     await waitFor(() => expect(screen.getByTestId('quiz-share')).toBeTruthy());
 
-    expect(viewShotOptions.length).toBeGreaterThan(0);
-    expect(viewShotOptions[0]).toEqual({
-      format: 'png',
-      quality: 0.95,
-      width: 1080,
-      height: 1920,
-      result: 'tmpfile',
-    });
-    // The card itself is mounted and carries the score to beat.
-    expect(screen.getByTestId('quiz-challenge-card')).toBeTruthy();
+    // Q10 resolved the payload conflict in favor of the link: the results
+    // screen ships no ViewShot host, and the unfurl card on the destination
+    // page carries the visual.
+    expect(viewShotOptions).toHaveLength(0);
+    expect(screen.queryByTestId('quiz-challenge-card')).toBeNull();
   });
 
-  it('captures the card and attaches it to the Share payload with the challenge message (iOS)', async () => {
+  it('shares the challenge link in the url slot with a link-free message (iOS)', async () => {
     const shareSpy = jest
       .spyOn(ShareModule.Share, 'share')
       .mockResolvedValue({ action: 'sharedAction' } as never);
-    mockRoutes({ displayName: 'Emerson' });
-
-    renderResultsScreen();
-    await waitFor(() => expect(screen.getByTestId('quiz-share')).toBeTruthy());
-
-    fireEvent.press(screen.getByTestId('quiz-share'));
-
-    await waitFor(() => expect(shareSpy).toHaveBeenCalled());
-    expect(mockCapture).toHaveBeenCalled();
-    const content = shareSpy.mock.calls[0][0] as { message?: string; url?: string };
-    // The challenge-framed link + score-to-beat ride in the message; the
-    // captured card image joins the same payload as the url activity item.
-    expect(content.message).toContain('https://borderbadge.app/q/abc123slug');
-    expect(content.message).toMatch(/3 of 5/);
-    expect(content.url).toBe('file:///tmp/quiz-challenge-card.png');
-    shareSpy.mockRestore();
-  });
-
-  it('still shares the challenge link when card capture fails', async () => {
-    const shareSpy = jest
-      .spyOn(ShareModule.Share, 'share')
-      .mockResolvedValue({ action: 'sharedAction' } as never);
-    mockCapture.mockRejectedValue(new Error('no native module'));
     mockRoutes();
 
     renderResultsScreen();
@@ -320,9 +280,11 @@ describe('QuizResultsScreen share card capture', () => {
     fireEvent.press(screen.getByTestId('quiz-share'));
 
     await waitFor(() => expect(shareSpy).toHaveBeenCalled());
+    expect(mockCapture).not.toHaveBeenCalled();
     const content = shareSpy.mock.calls[0][0] as { message?: string; url?: string };
-    expect(content.message).toContain('https://borderbadge.app/q/abc123slug');
     expect(content.url).toBe('https://borderbadge.app/q/abc123slug');
+    expect(content.message).not.toContain('https://');
+    expect(content.message).toMatch(/3 of 5/);
     shareSpy.mockRestore();
   });
 });

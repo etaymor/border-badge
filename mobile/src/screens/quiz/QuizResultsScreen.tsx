@@ -1,19 +1,28 @@
 /**
- * QuizResultsScreen - owner results, pre-share editing, and share.
+ * QuizResultsScreen - the payoff. Owner results, pre-share editing, share.
+ *
+ * The whole game funnels into this screen (Q8: no per-question verdicts),
+ * so the reveal is staged: the score lands as a passport-stamp press with a
+ * success haptic, then the per-photo breakdown fans out as instant prints
+ * with verdict dots. Back on the warm-cream field-guide ground after the
+ * dark play stage.
  *
  * - The country score is the score-to-beat (R4): always rendered from the
  *   freshest quiz detail (the backend rescales it after swap/remove).
  * - The memory (year) score is OWNER-ONLY (AE3): it exists only in the
- *   completion payload passed via navigation params and is labeled as private.
+ *   completion payload passed via navigation params and is labeled private.
  * - Swap/remove are available only pre-share (R5). A swap drops the local
  *   stored answer, so share stays hidden behind "Answer New Photo" until the
- *   owner has played the replacement (the backend enforces the same rule with
- *   QUIZ_OWNER_ANSWERS_INCOMPLETE).
- * - Share (R6) mints the slug, then presents the system share sheet with a
- *   challenge-framed message carrying the link and the score to beat.
+ *   owner has played the replacement (the backend enforces the same rule
+ *   with QUIZ_OWNER_ANSWERS_INCOMPLETE).
+ * - Share (R6) mints the slug, then presents the system share sheet. The
+ *   challenge link travels in the share sheet's url slot (Q10) so
+ *   destinations unfurl it into a rich preview - never buried inside the
+ *   message text.
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import * as Haptics from 'expo-haptics';
+import { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -26,17 +35,10 @@ import {
   Text,
   View,
 } from 'react-native';
-import ViewShot from 'react-native-view-shot';
 
-import { CARD_CAPTURE_OPTIONS } from '@components/share/constants';
-import {
-  OnboardingShareCard,
-  ONBOARDING_SHARE_CARD_HEIGHT,
-  ONBOARDING_SHARE_CARD_WIDTH,
-} from '@components/share/OnboardingShareCard';
 import { Button } from '@components/ui/Button';
 import { Screen } from '@components/ui/Screen';
-import { colors } from '@constants/colors';
+import { colors, withAlpha } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import {
   confirmRevokeQuiz,
@@ -46,12 +48,15 @@ import {
   useShareQuiz,
   useSwapQuizQuestion,
 } from '@hooks/useQuizzes';
-import { useProfile } from '@hooks/useProfile';
+import { useReducedMotion } from '@hooks/useReducedMotion';
 import { useStableCallback } from '@hooks/useStableCallback';
 import { QUIZ_MIN_PHOTOS, type GeoEligibleCandidate } from '@services/quiz/candidateSelection';
 import { loadPlayState, loadSwapCandidates, type QuizPlayState } from '@services/quiz/quizPlay';
 import { Share } from '@utils/share';
 import type { RootStackScreenProps } from '@navigation/types';
+
+import { PolaroidThumb, type PolaroidVerdict } from './components/PolaroidThumb';
+import { StampScorePlate } from './components/StampScorePlate';
 
 type Props = RootStackScreenProps<'QuizResults'>;
 
@@ -61,6 +66,7 @@ export function QuizResultsScreen({ navigation, route }: Props) {
   const quizId = route.params?.quizId ?? '';
   const results = route.params?.results;
   const paramsMissing = !route.params?.quizId;
+  const reduceMotion = useReducedMotion();
 
   const {
     data: quiz,
@@ -68,14 +74,10 @@ export function QuizResultsScreen({ navigation, route }: Props) {
     isFetching: quizFetching,
     refetch,
   } = useQuiz(quizId);
-  const { data: profile } = useProfile();
   const swapMutation = useSwapQuizQuestion(quizId);
   const removeMutation = useRemoveQuizQuestion(quizId);
   const shareMutation = useShareQuiz(quizId);
   const revokeMutation = useRevokeQuiz(quizId);
-
-  // Off-screen host for the shareable challenge card (see the JSX below).
-  const shareCardRef = useRef<ViewShot | null>(null);
 
   const [playState, setPlayState] = useState<QuizPlayState | null>(null);
   const [swapTargetId, setSwapTargetId] = useState<string | null>(null);
@@ -95,6 +97,19 @@ export function QuizResultsScreen({ navigation, route }: Props) {
       cancelled = true;
     };
   }, [quizId]);
+
+  // Arriving fresh from play (results present) is the reveal moment: the
+  // success haptic lands with the stamp press.
+  useEffect(() => {
+    if (!results) return;
+    const timer = setTimeout(
+      () => {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      },
+      reduceMotion ? 0 : 350
+    );
+    return () => clearTimeout(timer);
+  }, [results, reduceMotion]);
 
   const questions = useMemo(
     () => (quiz ? [...quiz.questions].sort((a, b) => a.position - b.position) : []),
@@ -163,33 +178,21 @@ export function QuizResultsScreen({ navigation, route }: Props) {
 
   const handleShare = useStableCallback(async () => {
     if (!scoreToBeat) return; // Unreachable: share renders only with a score.
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
     try {
       const shared = await shareMutation.mutateAsync();
       const message =
-        `I scored ${scoreToBeat.correct} of ${scoreToBeat.total} guessing where my own ` +
-        `travel photos were taken. Think you know the world better? Beat my score: ` +
-        `${shared.share_url}`;
-      // Capture the challenge results card (R6) so the story/message-sized
-      // image joins this same Share payload. A capture failure never blocks
-      // sharing the link itself.
-      let cardImageUri: string | null = null;
-      try {
-        cardImageUri = (await shareCardRef.current?.capture?.()) ?? null;
-      } catch (captureError) {
-        console.warn(
-          '[QuizResults] Card capture failed:',
-          captureError instanceof Error ? captureError.message : captureError
-        );
-      }
+        `I scored ${scoreToBeat.correct} of ${scoreToBeat.total} on my Guess Where ` +
+        `challenge - my own travel photos. Think you know the world better? Beat my score.`;
       if (Platform.OS === 'ios') {
-        // iOS shares message and url as separate activity items: the challenge
-        // link rides inside the message, while the url slot carries the card
-        // image (falling back to the link when capture failed).
-        await Share.share({ message, url: cardImageUri ?? shared.share_url });
+        // The challenge link is its own activity item (Q10): destinations
+        // unfurl it into a rich preview instead of finding a raw URL glued
+        // into a sentence.
+        await Share.share({ message, url: shared.share_url });
       } else {
-        // Android's Share.share cannot attach a local file; the link-carrying
-        // challenge message is the whole payload there.
-        await Share.share({ message });
+        // Android's Share.share has no url slot; the link rides on its own
+        // line at the end of the message.
+        await Share.share({ message: `${message}\n${shared.share_url}` });
       }
     } catch (error) {
       console.warn('[QuizResults] Share failed:', error instanceof Error ? error.message : error);
@@ -207,7 +210,7 @@ export function QuizResultsScreen({ navigation, route }: Props) {
         'Error',
         typeof serverMessage === 'string' && serverMessage.length > 0
           ? serverMessage
-          : 'Could not share your quiz. Please try again.'
+          : 'Could not share your challenge. Please try again.'
       );
     }
   });
@@ -243,7 +246,7 @@ export function QuizResultsScreen({ navigation, route }: Props) {
           <View style={styles.errorState} testID="quiz-results-error">
             <Text style={styles.heading}>Something Went Wrong</Text>
             <Text style={styles.body}>
-              We could not load your quiz right now. Please try again.
+              We could not load your challenge right now. Please try again.
             </Text>
             <Button title="Try Again" onPress={() => refetch()} testID="quiz-results-retry" />
             <Button title="Back" variant="ghost" onPress={handleBack} testID="quiz-results-back" />
@@ -263,12 +266,18 @@ export function QuizResultsScreen({ navigation, route }: Props) {
   return (
     <Screen>
       <ScrollView contentContainerStyle={styles.content}>
+        <Text style={styles.eyebrow}>Guess Where</Text>
         <Text style={styles.heading}>Your Score to Beat</Text>
-        <Text style={styles.score} testID="quiz-score-to-beat">
-          {scoreToBeat.correct} of {scoreToBeat.total}
-        </Text>
+        <StampScorePlate
+          score={scoreToBeat.correct}
+          total={scoreToBeat.total}
+          label="Score to beat"
+          animateIn={!!results}
+          animateInDelay={200}
+          testID="quiz-score-to-beat"
+        />
         <Text style={styles.body}>
-          Friends who play your quiz will try to beat this country score.
+          Friends who play your challenge will try to beat this country score.
         </Text>
 
         {results && results.memory_total > 0 && (
@@ -283,32 +292,43 @@ export function QuizResultsScreen({ navigation, route }: Props) {
         )}
 
         <Text style={styles.sectionTitle}>Your Photos</Text>
-        {questions.map((question) => {
+        {questions.map((question, index) => {
           const answer = playState?.answers[question.id];
+          const verdict: PolaroidVerdict | null = answer
+            ? answer.verdictUnknown
+              ? 'unknown'
+              : answer.placeCorrect
+                ? 'correct'
+                : 'incorrect'
+            : null;
           return (
             <View
               key={question.id}
               style={styles.reviewRow}
               testID={`quiz-review-${question.position}`}
             >
-              <Image source={{ uri: question.image_url }} style={styles.thumb} resizeMode="cover" />
+              <PolaroidThumb uri={question.image_url} index={index} size={68} verdict={verdict} />
               <View style={styles.reviewBody}>
                 {answer ? (
-                  <>
-                    <Text style={answer.placeCorrect ? styles.reviewRight : styles.reviewWrong}>
-                      {answer.placeCorrect
-                        ? `Right: ${answer.correctOption}`
-                        : `It was ${answer.correctOption} - you picked ` +
-                          `${question.options[answer.selectedOptionIndex] ?? 'another country'}`}
-                    </Text>
-                    {answer.correctYear != null && (
-                      <Text style={styles.reviewYear}>
-                        {answer.yearCorrect
-                          ? `Year remembered: ${answer.correctYear}`
-                          : `Taken in ${answer.correctYear}`}
+                  answer.verdictUnknown ? (
+                    <Text style={styles.reviewYear}>Answered - verdict syncs with your score.</Text>
+                  ) : (
+                    <>
+                      <Text style={answer.placeCorrect ? styles.reviewRight : styles.reviewWrong}>
+                        {answer.placeCorrect
+                          ? `Right: ${answer.correctOption}`
+                          : `It was ${answer.correctOption} - you picked ` +
+                            `${question.options[answer.selectedOptionIndex] ?? 'another country'}`}
                       </Text>
-                    )}
-                  </>
+                      {answer.correctYear != null && (
+                        <Text style={styles.reviewYear}>
+                          {answer.yearCorrect
+                            ? `Year remembered: ${answer.correctYear}`
+                            : `Taken in ${answer.correctYear}`}
+                        </Text>
+                      )}
+                    </>
+                  )
                 ) : (
                   <Text style={styles.reviewPending}>New photo - answer it before sharing</Text>
                 )}
@@ -338,8 +358,8 @@ export function QuizResultsScreen({ navigation, route }: Props) {
         <View style={styles.footer}>
           {state === 'revoked' ? (
             <Text style={styles.revokedNote} testID="quiz-revoked-note">
-              Link revoked. Friends can no longer open this quiz, and its photos are removed from
-              our servers.
+              Link revoked. Friends can no longer open this challenge, and its photos are removed
+              from our servers.
             </Text>
           ) : needsAnswers ? (
             <Button title="Answer New Photo" onPress={handleAnswerNew} testID="quiz-answer-new" />
@@ -364,28 +384,13 @@ export function QuizResultsScreen({ navigation, route }: Props) {
         </View>
       </ScrollView>
 
-      {/* Off-screen host for the shareable challenge card. Mounted
-          permanently (never hidden via opacity, which would capture blank)
-          so capture() always has a laid-out view at share time. */}
-      <View style={styles.shareCardHost} pointerEvents="none">
-        <ViewShot ref={shareCardRef} options={CARD_CAPTURE_OPTIONS}>
-          <OnboardingShareCard
-            variant="quizChallenge"
-            context={{
-              ownerDisplayName: profile?.display_name ?? null,
-              scoreToBeat,
-            }}
-          />
-        </ViewShot>
-      </View>
-
       <Modal visible={swapTargetId !== null} animationType="slide" onRequestClose={closeSwapPicker}>
         <Screen>
           <View style={styles.pickerContainer} testID="quiz-swap-picker">
             <Text style={styles.sectionTitle}>Pick a Replacement Photo</Text>
             <Text style={styles.body}>
-              Choose another geotagged travel photo. You will answer its country and year before the
-              quiz can be shared.
+              Choose another geotagged travel photo. You will answer its country and year before
+              the challenge can be shared.
             </Text>
             {swapLoadFailed ? (
               <View style={styles.pickerError} testID="quiz-swap-error">
@@ -447,16 +452,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     gap: 12,
   },
+  eyebrow: {
+    fontFamily: fonts.body.bold,
+    fontSize: 12,
+    letterSpacing: 2,
+    textTransform: 'uppercase',
+    color: colors.mossGreen,
+    textAlign: 'center',
+  },
   heading: {
     fontFamily: fonts.playfair.bold,
     fontSize: 28,
     color: colors.textPrimary,
-    textAlign: 'center',
-  },
-  score: {
-    fontFamily: fonts.playfair.bold,
-    fontSize: 40,
-    color: colors.adobeBrick,
     textAlign: 'center',
   },
   body: {
@@ -468,7 +475,7 @@ const styles = StyleSheet.create({
   },
   memoryCard: {
     backgroundColor: colors.backgroundCard,
-    borderRadius: 12,
+    borderRadius: 20,
     padding: 16,
     gap: 4,
   },
@@ -491,16 +498,11 @@ const styles = StyleSheet.create({
   },
   reviewRow: {
     flexDirection: 'row',
-    gap: 12,
+    alignItems: 'center',
+    gap: 16,
     backgroundColor: colors.backgroundCard,
-    borderRadius: 12,
-    padding: 12,
-  },
-  thumb: {
-    width: 72,
-    height: 72,
-    borderRadius: 8,
-    backgroundColor: colors.backgroundPlaceholder,
+    borderRadius: 20,
+    padding: 14,
   },
   reviewBody: {
     flex: 1,
@@ -541,13 +543,6 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     textAlign: 'center',
   },
-  shareCardHost: {
-    position: 'absolute',
-    top: 0,
-    left: -ONBOARDING_SHARE_CARD_WIDTH * 2,
-    width: ONBOARDING_SHARE_CARD_WIDTH,
-    height: ONBOARDING_SHARE_CARD_HEIGHT,
-  },
   pickerContainer: {
     flex: 1,
     paddingHorizontal: 24,
@@ -572,6 +567,6 @@ const styles = StyleSheet.create({
     width: 100,
     height: 100,
     borderRadius: 8,
-    backgroundColor: colors.backgroundPlaceholder,
+    backgroundColor: withAlpha(colors.midnightNavy, 0.08),
   },
 });

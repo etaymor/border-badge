@@ -12,17 +12,19 @@ jest.mock(
     // Helper to create animated component wrapper
     const createAnimatedComponent = (Component) =>
       mockReact.forwardRef((props, ref) => mockReact.createElement(Component, { ...props, ref }));
+    // Pass every prop except the animation builders through, so testID,
+    // accessibility props, and pointerEvents survive the mock.
+    const MockAnimatedView = mockReact.forwardRef(
+      ({ children, entering: _entering, exiting: _exiting, layout: _layout, ...props }, ref) =>
+        mockReact.createElement('View', { ...props, ref }, children)
+    );
     return {
       default: {
-        View: mockReact.forwardRef(({ children, style }, ref) =>
-          mockReact.createElement('View', { ref, style }, children)
-        ),
+        View: MockAnimatedView,
         createAnimatedComponent,
       },
       createAnimatedComponent,
-      View: mockReact.forwardRef(({ children, style }, ref) =>
-        mockReact.createElement('View', { ref, style }, children)
-      ),
+      View: MockAnimatedView,
       FadeInUp: {
         duration: () => ({
           springify: () => ({}),
@@ -30,6 +32,16 @@ jest.mock(
       },
       FadeOutUp: {
         duration: () => ({}),
+      },
+      // Chainable entering/exiting builders used by the quiz play stage.
+      FadeIn: {
+        duration: () => ({ delay: () => ({}) }),
+      },
+      FadeOut: {
+        duration: () => ({ delay: () => ({}) }),
+      },
+      FadeInDown: {
+        duration: () => ({ delay: () => ({}) }),
       },
       // Real useSharedValue returns the SAME object across renders. Returning a
       // fresh one each time would hide recycling bugs (a stale offset written by
@@ -52,6 +64,7 @@ jest.mock(
         callback?.(true);
         return value;
       }),
+      withDelay: jest.fn((_delayMs, animation) => animation),
       runOnJS: jest.fn((fn) => fn),
       cancelAnimation: jest.fn(),
       useAnimatedReaction: jest.fn(),
@@ -76,6 +89,8 @@ jest.mock(
       Easing: {
         linear: jest.fn(),
         ease: jest.fn(),
+        cubic: jest.fn(),
+        out: jest.fn((fn) => fn),
       },
       useReducedMotion: jest.fn(() => false),
     };
