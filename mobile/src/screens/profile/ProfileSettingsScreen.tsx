@@ -606,12 +606,12 @@ export function ProfileSettingsScreen({ navigation }: Props) {
           onPress={handleOpenMyQuizzes}
           style={({ pressed }) => [styles.myQuizzesRow, pressed && styles.myQuizzesRowPressed]}
           accessibilityRole="button"
-          accessibilityLabel="My Quizzes"
+          accessibilityLabel="Guess Where"
           testID="profile-my-quizzes"
         >
-          <Text style={styles.myQuizzesTitle}>My Quizzes</Text>
+          <Text style={styles.myQuizzesTitle}>Guess Where</Text>
           <Text style={styles.myQuizzesSubtitle}>
-            Manage your travel photo quizzes and see who beat your score
+            Manage your photo challenges and see who beat your score
           </Text>
         </Pressable>
 

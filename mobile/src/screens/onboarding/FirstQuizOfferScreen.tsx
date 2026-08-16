@@ -16,7 +16,7 @@
  */
 
 import { useEffect, useState } from 'react';
-import { Animated, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { Animated, Image, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Text } from '@components/ui';
@@ -28,10 +28,14 @@ import type { OnboardingStackScreenProps } from '@navigation/types';
 import { Analytics } from '@services/analytics';
 import { useAuthStore } from '@stores/authStore';
 
+/* eslint-disable @typescript-eslint/no-require-imports */
+const polaroidsIllustration = require('../../../assets/illustations/polaroids-illustration.png');
+/* eslint-enable @typescript-eslint/no-require-imports */
+
 type Props = OnboardingStackScreenProps<'FirstQuizOffer'>;
 
 export function FirstQuizOfferScreen(_props: Props) {
-  const { getAnimatedStyle, getButtonStyle } = useScreenEntrance({ elementCount: 4 });
+  const { getAnimatedStyle, getButtonStyle } = useScreenEntrance({ elementCount: 5 });
   const finishOnboarding = useFinishOnboarding();
   const setPendingFirstQuizLaunch = useAuthStore((s) => s.setPendingFirstQuizLaunch);
   const [isFinishing, setIsFinishing] = useState(false);
@@ -60,36 +64,40 @@ export function FirstQuizOfferScreen(_props: Props) {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.content}>
-        <Animated.View style={[styles.textSection, getAnimatedStyle(0)]}>
-          <Text variant="title" style={styles.title}>
-            Think your trips could stump your friends?
-          </Text>
+        <Animated.View style={[styles.illustrationSection, getAnimatedStyle(0)]}>
+          <Image source={polaroidsIllustration} style={styles.illustration} />
         </Animated.View>
 
         <Animated.View style={[styles.textSection, getAnimatedStyle(1)]}>
+          <Text variant="title" style={styles.title}>
+            Can your friends guess where you have been?
+          </Text>
+        </Animated.View>
+
+        <Animated.View style={[styles.textSection, getAnimatedStyle(2)]}>
           <Text variant="body" style={styles.subtext}>
-            Turn your camera roll into a guess-the-country photo quiz and send it to your friends.
-            It takes about a minute, and you play it first.
+            Guess Where deals your travel photos out as a challenge - friends guess the country, you
+            hold the score to beat. It takes about a minute, and you play it first.
           </Text>
         </Animated.View>
       </View>
 
       <View style={styles.footer}>
-        <Animated.View style={[styles.footerItem, getButtonStyle(2)]}>
+        <Animated.View style={[styles.footerItem, getButtonStyle(3)]}>
           <TouchableOpacity
             style={styles.acceptButton}
             onPress={handleAccept}
             activeOpacity={0.9}
             disabled={isFinishing}
             accessibilityRole="button"
-            accessibilityLabel="Make your first quiz"
-            accessibilityHint="Build a photo quiz from your camera roll"
+            accessibilityLabel="Make my first challenge"
+            accessibilityHint="Build a Guess Where challenge from your camera roll"
             testID="first-quiz-offer-accept"
           >
-            <Text style={styles.acceptButtonText}>Make your first quiz</Text>
+            <Text style={styles.acceptButtonText}>Make my first challenge</Text>
           </TouchableOpacity>
         </Animated.View>
-        <Animated.View style={[styles.footerItem, getButtonStyle(3)]}>
+        <Animated.View style={[styles.footerItem, getButtonStyle(4)]}>
           <TouchableOpacity
             style={styles.skipButton}
             onPress={handleSkip}
@@ -116,6 +124,15 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
     justifyContent: 'center',
+  },
+  illustrationSection: {
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  illustration: {
+    width: 150,
+    height: 150,
+    resizeMode: 'contain',
   },
   textSection: {
     paddingHorizontal: 24,

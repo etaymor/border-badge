@@ -471,7 +471,8 @@ describe('QuizLeaderboardScreen', () => {
 
     await waitFor(() => expect(screen.getByTestId('leaderboard-score-to-beat')).toBeTruthy());
     const pinned = screen.getByTestId('leaderboard-score-to-beat');
-    expect(within(pinned).getByText(/3 of 5/)).toBeTruthy();
+    expect(within(pinned).getByText('3')).toBeTruthy();
+    expect(within(pinned).getByText('/5')).toBeTruthy();
 
     // One row per name: best score, attempt count.
     const maya = screen.getByTestId('leaderboard-entry-1');

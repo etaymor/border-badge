@@ -16,6 +16,7 @@ export type RootStackParamList = {
   Main: NavigatorScreenParams<MainTabParamList>;
   PaywallModal: { feature?: GatedFeature };
   QuizCreation: undefined;
+  GuessWhereIntro: undefined;
   QuizPlay: { quizId: string };
   QuizResults: {
     quizId: string;

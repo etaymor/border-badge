@@ -1,23 +1,24 @@
 /**
- * MyQuizzesScreen - the owner's quiz management surface.
+ * MyQuizzesScreen - the owner's Guess Where management surface.
  *
- * Lists every quiz the owner has with its lifecycle state and the actions
- * that state allows:
+ * Lists every challenge the owner has with its lifecycle state and the
+ * actions that state allows:
  * - building ("Draft"): resume creation / delete
  * - awaiting_owner_play ("Ready to play"): play now / delete
  * - playable ("Ready to share"): share (via the results screen)
  * - shared ("Shared"): view leaderboard (R14) / revoke
- * - revoked ("Revoked"): label only - a revoked quiz serves nothing publicly
+ * - revoked ("Revoked"): label only - a revoked challenge serves nothing
+ *   publicly
  *
- * Quizzes are fully independent of one another (R17); the create-another
+ * Challenges are fully independent of one another (R17); the create-another
  * entry point sits at the top.
  */
 
-import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Image, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { Button } from '@components/ui/Button';
 import { Screen } from '@components/ui/Screen';
-import { colors } from '@constants/colors';
+import { colors, withAlpha } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import {
   confirmRevokeQuiz,
@@ -29,6 +30,10 @@ import {
 import { useStableCallback } from '@hooks/useStableCallback';
 import type { RootStackScreenProps } from '@navigation/types';
 
+/* eslint-disable @typescript-eslint/no-require-imports */
+const polaroidsIllustration = require('../../../assets/illustations/polaroids-illustration.png');
+/* eslint-enable @typescript-eslint/no-require-imports */
+
 type Props = RootStackScreenProps<'MyQuizzes'>;
 
 const STATE_LABELS: Record<string, string> = {
@@ -37,6 +42,15 @@ const STATE_LABELS: Record<string, string> = {
   playable: 'Ready to share',
   shared: 'Shared',
   revoked: 'Revoked',
+};
+
+/** State pill colors: each lifecycle stage reads at a glance. */
+const STATE_PILLS: Record<string, { bg: string; text: string }> = {
+  building: { bg: withAlpha(colors.stormGray, 0.15), text: colors.stormGray },
+  awaiting_owner_play: { bg: withAlpha(colors.sunsetGold, 0.25), text: colors.textPrimary },
+  playable: { bg: withAlpha(colors.mossGreen, 0.18), text: colors.mossGreen },
+  shared: { bg: withAlpha(colors.lakeBlue, 0.35), text: colors.textPrimary },
+  revoked: { bg: withAlpha(colors.stormGray, 0.15), text: colors.stormGray },
 };
 
 // Pre-play states: resumable and safely deletable (nothing is shared yet).
@@ -66,7 +80,7 @@ function QuizRow({ quiz, navigation }: QuizRowProps) {
   });
 
   const handleShare = useStableCallback(() => {
-    // The results screen owns share (card capture + share sheet).
+    // The results screen owns share (slug mint + share sheet).
     navigation.navigate('QuizResults', { quizId: quiz.id });
   });
 
@@ -77,8 +91,8 @@ function QuizRow({ quiz, navigation }: QuizRowProps) {
   const handleDelete = useStableCallback(() => {
     if (deleteMutation.isPending) return;
     Alert.alert(
-      'Delete quiz?',
-      'This quiz and its photos are removed from our servers. This cannot be undone.',
+      'Delete challenge?',
+      'This challenge and its photos are removed from our servers. This cannot be undone.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -87,7 +101,7 @@ function QuizRow({ quiz, navigation }: QuizRowProps) {
           onPress: () => {
             deleteMutation.mutate(quiz.id, {
               onError: () => {
-                Alert.alert('Error', 'Could not delete the quiz. Please try again.');
+                Alert.alert('Error', 'Could not delete the challenge. Please try again.');
               },
             });
           },
@@ -115,14 +129,22 @@ function QuizRow({ quiz, navigation }: QuizRowProps) {
       ? `${quiz.question_count} ${quiz.question_count === 1 ? 'photo' : 'photos'}`
       : null;
   const deletable = DELETABLE_STATES.has(quiz.state);
+  const pill = STATE_PILLS[quiz.state] ?? STATE_PILLS.building;
 
   return (
     <View style={styles.row} testID={`quiz-row-${quiz.id}`}>
       <View style={styles.rowHeader}>
-        <Text style={styles.rowTitle}>{createdAt ? `Quiz from ${createdAt}` : 'Quiz'}</Text>
-        <Text style={styles.stateLabel} testID={`quiz-state-${quiz.id}`}>
-          {STATE_LABELS[quiz.state] ?? quiz.state}
+        <Text style={styles.rowTitle}>
+          {createdAt ? `Challenge from ${createdAt}` : 'Challenge'}
         </Text>
+        <View style={[styles.statePill, { backgroundColor: pill.bg }]}>
+          <Text
+            style={[styles.statePillText, { color: pill.text }]}
+            testID={`quiz-state-${quiz.id}`}
+          >
+            {STATE_LABELS[quiz.state] ?? quiz.state}
+          </Text>
+        </View>
       </View>
       {(photoCount || quiz.score_to_beat) && (
         <Text style={styles.rowMeta}>
@@ -203,14 +225,26 @@ export function MyQuizzesScreen({ navigation }: Props) {
     navigation.goBack();
   });
 
+  const handleHowItWorks = useStableCallback(() => {
+    navigation.navigate('GuessWhereIntro');
+  });
+
   return (
     <Screen>
       <ScrollView contentContainerStyle={styles.content}>
-        <Text style={styles.heading}>My Quizzes</Text>
+        <Text style={styles.eyebrow}>Guess Where</Text>
+        <Text style={styles.heading}>Your Challenges</Text>
         <Text style={styles.body}>
-          Each quiz is its own challenge - build as many as you like from different trips.
+          Challenge friends with your travel photos - build as many as you like from different
+          trips.
         </Text>
-        <Button title="Create New Quiz" onPress={handleCreate} testID="quiz-create-new" />
+        <Button title="New Challenge" onPress={handleCreate} testID="quiz-create-new" />
+        <Button
+          title="How It Works"
+          variant="ghost"
+          onPress={handleHowItWorks}
+          testID="quiz-how-it-works"
+        />
 
         {isLoading ? (
           <View style={styles.loading}>
@@ -219,14 +253,19 @@ export function MyQuizzesScreen({ navigation }: Props) {
         ) : isError ? (
           <View style={styles.errorState} testID="quiz-list-error">
             <Text style={styles.body}>
-              We could not load your quizzes right now. Please try again.
+              We could not load your challenges right now. Please try again.
             </Text>
             <Button title="Try Again" variant="ghost" onPress={() => refetch()} />
           </View>
         ) : !quizzes || quizzes.length === 0 ? (
-          <Text style={styles.body} testID="quiz-list-empty">
-            No quizzes yet. Create one from your travel photos and challenge your friends.
-          </Text>
+          <View style={styles.emptyState} testID="quiz-list-empty">
+            <Image source={polaroidsIllustration} style={styles.emptyIllustration} />
+            <Text style={styles.emptyTitle}>No challenges yet</Text>
+            <Text style={styles.body}>
+              Build one from your travel photos and see if your friends can guess where you have
+              been.
+            </Text>
+          </View>
         ) : (
           quizzes.map((quiz) => <QuizRow key={quiz.id} quiz={quiz} navigation={navigation} />)
         )}
@@ -242,6 +281,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingVertical: 16,
     gap: 12,
+  },
+  eyebrow: {
+    fontFamily: fonts.body.bold,
+    fontSize: 12,
+    letterSpacing: 2,
+    textTransform: 'uppercase',
+    color: colors.mossGreen,
+    textAlign: 'center',
   },
   heading: {
     fontFamily: fonts.playfair.bold,
@@ -263,11 +310,31 @@ const styles = StyleSheet.create({
     paddingVertical: 24,
     gap: 8,
   },
+  emptyState: {
+    alignItems: 'center',
+    paddingVertical: 24,
+    gap: 8,
+  },
+  emptyIllustration: {
+    width: 140,
+    height: 140,
+    resizeMode: 'contain',
+  },
+  emptyTitle: {
+    fontFamily: fonts.playfair.bold,
+    fontSize: 22,
+    color: colors.textPrimary,
+  },
   row: {
     backgroundColor: colors.backgroundCard,
-    borderRadius: 12,
+    borderRadius: 20,
     padding: 16,
     gap: 6,
+    shadowColor: colors.midnightNavy,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 2,
   },
   rowHeader: {
     flexDirection: 'row',
@@ -281,10 +348,14 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: colors.textPrimary,
   },
-  stateLabel: {
+  statePill: {
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  statePillText: {
     fontFamily: fonts.body.semiBold,
-    fontSize: 13,
-    color: colors.adobeBrick,
+    fontSize: 12,
   },
   rowMeta: {
     fontFamily: fonts.body.regular,

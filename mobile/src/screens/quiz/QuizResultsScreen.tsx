@@ -389,8 +389,8 @@ export function QuizResultsScreen({ navigation, route }: Props) {
           <View style={styles.pickerContainer} testID="quiz-swap-picker">
             <Text style={styles.sectionTitle}>Pick a Replacement Photo</Text>
             <Text style={styles.body}>
-              Choose another geotagged travel photo. You will answer its country and year before
-              the challenge can be shared.
+              Choose another geotagged travel photo. You will answer its country and year before the
+              challenge can be shared.
             </Text>
             {swapLoadFailed ? (
               <View style={styles.pickerError} testID="quiz-swap-error">

@@ -11,6 +11,7 @@ import {
 
 import { PaywallModalScreen } from '@screens/paywall';
 import {
+  GuessWhereIntroScreen,
   MyQuizzesScreen,
   QuizCreationScreen,
   QuizLeaderboardScreen,
@@ -77,6 +78,7 @@ export function RootNavigator() {
             <Stack.Screen name="Main" component={MainTabNavigator} />
             <Stack.Screen name="PaywallModal" component={PaywallModalScreen} />
             <Stack.Screen name="QuizCreation" component={QuizCreationScreen} />
+            <Stack.Screen name="GuessWhereIntro" component={GuessWhereIntroScreen} />
             <Stack.Screen name="QuizPlay" component={QuizPlayScreen} />
             <Stack.Screen name="QuizResults" component={QuizResultsScreen} />
             <Stack.Screen name="MyQuizzes" component={MyQuizzesScreen} />

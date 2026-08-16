@@ -5,6 +5,7 @@ import * as Haptics from 'expo-haptics';
 
 import {
   CountryRow,
+  GuessWhereCard,
   PassportEmptyState,
   PassportListHeader,
   PassportSectionHeader,
@@ -174,6 +175,14 @@ export function PassportScreen({ navigation }: Props) {
     navigation.navigate('ProfileSettings');
   }, [navigation]);
 
+  const handleOpenGuessWhereIntro = useCallback(() => {
+    navigation.navigate('GuessWhereIntro');
+  }, [navigation]);
+
+  const handleOpenChallenges = useCallback(() => {
+    navigation.navigate('MyQuizzes');
+  }, [navigation]);
+
   const handlePastePress = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setPasteModalVisible(true);
@@ -317,18 +326,28 @@ export function PassportScreen({ navigation }: Props) {
   // List header
   const ListHeader = useMemo(
     () => (
-      <PassportListHeader
-        stats={stats}
-        searchQuery={searchQuery}
-        isLoading={isLoading}
-        filtersActive={filtersActive}
-        activeFilterCount={activeFilterCount}
-        onSearchChange={setSearchQuery}
-        onExplorePress={handleExplorePress}
-        onProfilePress={handleProfilePress}
-        onPastePress={handlePastePress}
-        showPasteButton={showPasteButton}
-      />
+      <>
+        <PassportListHeader
+          stats={stats}
+          searchQuery={searchQuery}
+          isLoading={isLoading}
+          filtersActive={filtersActive}
+          activeFilterCount={activeFilterCount}
+          onSearchChange={setSearchQuery}
+          onExplorePress={handleExplorePress}
+          onProfilePress={handleProfilePress}
+          onPastePress={handlePastePress}
+          showPasteButton={showPasteButton}
+        />
+        {/* Guess Where lives on the home surface (Q3); it steps aside while
+            the user is searching countries. */}
+        {searchQuery.length === 0 && (
+          <GuessWhereCard
+            onOpenIntro={handleOpenGuessWhereIntro}
+            onOpenChallenges={handleOpenChallenges}
+          />
+        )}
+      </>
     ),
     [
       stats,
@@ -341,6 +360,8 @@ export function PassportScreen({ navigation }: Props) {
       handleProfilePress,
       handlePastePress,
       showPasteButton,
+      handleOpenGuessWhereIntro,
+      handleOpenChallenges,
     ]
   );
 

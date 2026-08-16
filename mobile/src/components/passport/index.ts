@@ -1,5 +1,6 @@
 export { AnimatedCardWrapper } from './AnimatedCardWrapper';
 export { CountryRow } from './CountryRow';
+export { GuessWhereCard } from './GuessWhereCard';
 export { PassportEmptyState } from './PassportEmptyState';
 export { PassportHeader } from './PassportHeader';
 export { PassportListHeader } from './PassportListHeader';

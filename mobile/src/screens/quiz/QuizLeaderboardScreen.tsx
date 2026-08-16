@@ -1,9 +1,10 @@
 /**
- * QuizLeaderboardScreen - the owner's view of one quiz's leaderboard (R14).
+ * QuizLeaderboardScreen - the owner's view of one challenge's leaderboard
+ * (R14). The logbook of everyone who took the challenge.
  *
  * - One row per player name (AE4): best score with the attempt count, served
  *   pre-aggregated by GET /quiz/{id}/leaderboard.
- * - The owner's score-to-beat pair is pinned at the top.
+ * - The owner's score-to-beat lands pinned at the top as the stamp plate.
  * - Hidden entries stay visible to the owner, marked "Hidden"; visible ones
  *   offer a hide action that hides every session behind the entry (the
  *   public board drops it on its next read).
@@ -13,7 +14,7 @@ import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, View } from 're
 
 import { Button } from '@components/ui/Button';
 import { Screen } from '@components/ui/Screen';
-import { colors } from '@constants/colors';
+import { colors, withAlpha } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import {
   useHideQuizSessions,
@@ -22,6 +23,8 @@ import {
 } from '@hooks/useQuizzes';
 import { useStableCallback } from '@hooks/useStableCallback';
 import type { RootStackScreenProps } from '@navigation/types';
+
+import { StampScorePlate } from './components/StampScorePlate';
 
 type Props = RootStackScreenProps<'QuizLeaderboard'>;
 
@@ -64,15 +67,17 @@ export function QuizLeaderboardScreen({ navigation, route }: Props) {
   return (
     <Screen>
       <ScrollView contentContainerStyle={styles.content}>
+        <Text style={styles.eyebrow}>Guess Where</Text>
         <Text style={styles.heading}>Leaderboard</Text>
 
         {scoreToBeat && (
-          <View style={styles.scoreCard} testID="leaderboard-score-to-beat">
-            <Text style={styles.scoreCardLabel}>Your score to beat</Text>
-            <Text style={styles.scoreCardValue}>
-              {scoreToBeat.correct} of {scoreToBeat.total}
-            </Text>
-          </View>
+          <StampScorePlate
+            score={scoreToBeat.correct}
+            total={scoreToBeat.total}
+            label="Your score to beat"
+            size="small"
+            testID="leaderboard-score-to-beat"
+          />
         )}
 
         {isLoading ? (
@@ -87,17 +92,20 @@ export function QuizLeaderboardScreen({ navigation, route }: Props) {
             <Button title="Try Again" variant="ghost" onPress={() => refetch()} />
           </View>
         ) : entries.length === 0 ? (
-          <Text style={styles.body} testID="leaderboard-empty">
-            No one has played your quiz yet. Share the link and check back here.
-          </Text>
+          <View style={styles.emptyState} testID="leaderboard-empty">
+            <Text style={styles.emptyTitle}>No one has played yet</Text>
+            <Text style={styles.body}>Share the link and check back here for the standings.</Text>
+          </View>
         ) : (
           entries.map((entry, index) => (
             <View
               key={entry.session_ids[0] ?? `${entry.display_name}-${index}`}
-              style={styles.row}
+              style={[styles.row, entry.hidden && styles.rowHidden]}
               testID={`leaderboard-entry-${index}`}
             >
-              <Text style={styles.rank}>{index + 1}</Text>
+              <View style={styles.rankBadge}>
+                <Text style={styles.rank}>{index + 1}</Text>
+              </View>
               <View style={styles.rowBody}>
                 <Text style={styles.name} numberOfLines={1}>
                   {entry.display_name}
@@ -137,6 +145,14 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     gap: 12,
   },
+  eyebrow: {
+    fontFamily: fonts.body.bold,
+    fontSize: 12,
+    letterSpacing: 2,
+    textTransform: 'uppercase',
+    color: colors.mossGreen,
+    textAlign: 'center',
+  },
   heading: {
     fontFamily: fonts.playfair.bold,
     fontSize: 28,
@@ -157,37 +173,41 @@ const styles = StyleSheet.create({
     paddingVertical: 24,
     gap: 8,
   },
-  scoreCard: {
-    backgroundColor: colors.backgroundCard,
-    borderRadius: 12,
-    padding: 16,
+  emptyState: {
     alignItems: 'center',
-    gap: 4,
+    paddingVertical: 24,
+    gap: 6,
   },
-  scoreCardLabel: {
-    fontFamily: fonts.body.semiBold,
-    fontSize: 14,
-    color: colors.textSecondary,
-  },
-  scoreCardValue: {
+  emptyTitle: {
     fontFamily: fonts.playfair.bold,
-    fontSize: 32,
-    color: colors.adobeBrick,
+    fontSize: 22,
+    color: colors.textPrimary,
   },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
     backgroundColor: colors.backgroundCard,
-    borderRadius: 12,
-    paddingVertical: 8,
+    borderRadius: 20,
+    paddingVertical: 10,
     paddingHorizontal: 16,
+  },
+  rowHidden: {
+    opacity: 0.6,
+  },
+  rankBadge: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderColor: withAlpha(colors.adobeBrick, 0.6),
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   rank: {
     fontFamily: fonts.playfair.bold,
-    fontSize: 18,
-    color: colors.textSecondary,
-    minWidth: 24,
+    fontSize: 15,
+    color: colors.adobeBrick,
   },
   rowBody: {
     flex: 1,
