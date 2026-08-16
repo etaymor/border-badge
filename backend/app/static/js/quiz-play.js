@@ -1,5 +1,5 @@
 /*
- * Public quiz play (/q/{slug}).
+ * Public Guess Where play (/q/{slug}).
  *
  * The page is server-rendered down to the challenge intro; this script runs
  * the game against the /q/{slug}/* JSON endpoints. Design constraints it
@@ -7,15 +7,18 @@
  *
  *   1. Ground truth never exists client-side. The data island carries image
  *      URLs and four options per question; whether an answer is right comes
- *      back only from POST /q/{slug}/answer, one question at a time.
+ *      back only from POST /q/{slug}/answer, one question at a time - and is
+ *      never SHOWN mid-run. The tapped option gets a neutral gold
+ *      acknowledgment and the game moves on; the score lands once, on the
+ *      results view (mirrors the in-app Q8 decision).
  *   2. Strict CSP: no inline handlers, no inline styles. All state changes
  *      are class/hidden toggles; all dynamic text lands via textContent
  *      (display names are user-controlled and must never touch innerHTML).
  *   3. Refresh mid-run resumes: the session token lives in sessionStorage
  *      keyed by slug, and POST /q/{slug}/session echoes back what that
  *      session already answered.
- *   4. A 404/410 from any call means the quiz was revoked (or never shared):
- *      the game surrenders to the "gone" view, mid-run included.
+ *   4. A 404/410 from any call means the challenge was revoked (or never
+ *      shared): the game surrenders to the "gone" view, mid-run included.
  *
  * API contract (implemented server-side in app/api/public_quiz.py):
  *   POST /q/{slug}/session  {token?} -> {token, answered: [{question_id,
@@ -49,6 +52,10 @@
   var tokenKey = 'atlasi-quiz-token:' + slug;
   var nameKey = 'atlasi-quiz-name:' + slug;
 
+  var reducedMotion =
+    window.matchMedia &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
   // --- Views ---------------------------------------------------------------
   var views = {
     intro: document.getElementById('quiz-intro'),
@@ -57,11 +64,12 @@
     results: document.getElementById('quiz-results'),
     gone: document.getElementById('quiz-gone'),
   };
+  var questionStage = views.question;
   var progressEl = document.getElementById('quiz-progress');
+  var progressTrackEl = document.getElementById('quiz-progress-track');
   var photoEl = document.getElementById('quiz-photo');
+  var photoBackdropEl = document.getElementById('quiz-photo-backdrop');
   var optionsEl = document.getElementById('quiz-options');
-  var feedbackEl = document.getElementById('quiz-feedback');
-  var nextButton = document.getElementById('quiz-next');
   var startButton = document.getElementById('quiz-start');
   var nameForm = document.getElementById('quiz-name-form');
   var nameInput = document.getElementById('quiz-display-name');
@@ -87,7 +95,7 @@
   // --- Game state ----------------------------------------------------------
   var token = null;
   var index = 0; // next question to show
-  var score = 0; // count of correct answers so far
+  var score = 0; // count of correct answers so far (revealed only at the end)
 
   function storedToken() {
     try {
@@ -103,6 +111,25 @@
     } catch (err) {
       /* private mode: the run simply won't survive a refresh */
     }
+  }
+
+  // --- Progress segments ---------------------------------------------------
+  // One thin segment per question; filled = answered. This is the only
+  // in-run signal - a tick of progress, never a verdict.
+  function ensureProgressTrack() {
+    if (!progressTrackEl || progressTrackEl.childNodes.length) return;
+    questions.forEach(function () {
+      var seg = document.createElement('div');
+      seg.className = 'quiz-progress-seg';
+      progressTrackEl.appendChild(seg);
+    });
+  }
+
+  function fillProgress(count) {
+    if (!progressTrackEl) return;
+    Array.prototype.forEach.call(progressTrackEl.children, function (seg, i) {
+      seg.classList.toggle('is-filled', i < count);
+    });
   }
 
   // --- API -----------------------------------------------------------------
@@ -188,14 +215,13 @@
     var question = questions[index];
     showView('question');
     clearError();
+    ensureProgressTrack();
+    fillProgress(index);
 
     progressEl.textContent =
       'Photo ' + (index + 1) + ' of ' + questions.length;
     photoEl.src = question.image_url;
-
-    feedbackEl.hidden = true;
-    feedbackEl.textContent = '';
-    nextButton.hidden = true;
+    if (photoBackdropEl) photoBackdropEl.src = question.image_url;
 
     optionsEl.textContent = '';
     question.options.forEach(function (option, optionIndex) {
@@ -208,6 +234,14 @@
       });
       optionsEl.appendChild(button);
     });
+
+    // Deal the new print in: restart the entrance animation by re-applying
+    // the class after a forced reflow (CSP-safe, CSS-driven).
+    if (questionStage && !reducedMotion) {
+      questionStage.classList.remove('quiz-stage-enter');
+      void questionStage.offsetWidth;
+      questionStage.classList.add('quiz-stage-enter');
+    }
   }
 
   function setOptionsDisabled(disabled) {
@@ -221,13 +255,22 @@
 
   function submitAnswer(question, optionIndex, button) {
     setOptionsDisabled(true);
+    // Neutral acknowledgment only: a gold ring on the tapped option. The
+    // verdict is counted silently; nothing right/wrong shows until the end.
+    button.classList.add('is-picked');
     api('/answer', {
       token: token,
       question_id: question.id,
       selected_option_index: optionIndex,
     })
       .then(function (verdict) {
-        showFeedback(question, optionIndex, button, verdict);
+        if (verdict.correct) score += 1;
+        fillProgress(index + 1);
+        if (reducedMotion) {
+          advance();
+        } else {
+          window.setTimeout(advance, 350);
+        }
       })
       .catch(function (err) {
         if (err && err.handled) return;
@@ -236,33 +279,10 @@
           advance();
           return;
         }
+        button.classList.remove('is-picked');
         setOptionsDisabled(false);
         handleFailure(err);
       });
-  }
-
-  function showFeedback(question, optionIndex, button, verdict) {
-    if (verdict.correct) {
-      score += 1;
-      button.classList.add('is-correct');
-      feedbackEl.textContent = 'Correct! ' + verdict.correct_country + ' it is.';
-    } else {
-      button.classList.add('is-incorrect');
-      feedbackEl.textContent = 'Not quite. It was ' + verdict.correct_country + '.';
-      // Reveal the right option so the miss teaches something.
-      Array.prototype.forEach.call(
-        optionsEl.querySelectorAll('.quiz-option'),
-        function (candidate) {
-          if (candidate.textContent === verdict.correct_country) {
-            candidate.classList.add('is-correct');
-          }
-        }
-      );
-    }
-    feedbackEl.hidden = false;
-    nextButton.textContent =
-      index + 1 >= questions.length ? 'See your score' : 'Next';
-    nextButton.hidden = false;
   }
 
   function advance() {
@@ -277,8 +297,8 @@
   // --- Completion ----------------------------------------------------------
   function showNameEntry() {
     showView('name');
-    nameScoreEl.textContent =
-      'You got ' + score + ' of ' + questions.length + ' right.';
+    // The score stays sealed until the results view (Q8: one reveal).
+    nameScoreEl.textContent = 'Your score is stamped and waiting.';
     nameInput.focus();
   }
 
@@ -315,7 +335,7 @@
       compareEl.textContent =
         owner + ' scored ' + toBeat.correct + '/' + toBeat.total + '.';
     } else {
-      headline.textContent = 'Quiz complete';
+      headline.textContent = 'Challenge complete';
       compareEl.textContent = '';
     }
 
@@ -344,7 +364,6 @@
 
   // --- Wiring --------------------------------------------------------------
   startButton.addEventListener('click', startSession);
-  nextButton.addEventListener('click', advance);
   nameForm.addEventListener('submit', function (event) {
     event.preventDefault();
     var displayName = nameInput.value.trim();

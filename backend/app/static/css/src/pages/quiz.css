@@ -1,61 +1,358 @@
 /* ==============================================
-   PUBLIC QUIZ PAGE (/q/{slug})
+   PUBLIC GUESS WHERE PAGE (/q/{slug})
 
-   Mobile-web-first: the page is opened from a shared link on a phone, so the
-   base layout targets ~375px and widens gracefully. Everything is scoped
-   under .quiz-page so nothing leaks into the other public pages.
+   The recipient's whole first impression of Atlasi. Design language:
+   "prints from the field" - the photo is the stage. Intro and play run on a
+   full-viewport dark stage (the photo, blurred, is its own backdrop; the
+   sharp image sits contained on top so nothing is cropped). Name entry and
+   results return to the warm-cream field-guide ground, where the score lands
+   as a passport-stamp press (stampIn, base.css).
 
-   Strict CSP: all state styling here is class-driven (is-correct,
-   is-incorrect, hidden attribute) -- no inline styles exist on the page.
+   Mobile-web-first: opened from a shared link on a phone; widens gracefully.
+   Everything is scoped under .quiz-page.
+
+   Strict CSP: all state styling is class-driven (is-picked, is-filled,
+   hidden attribute) - no inline styles exist on the page.
    ============================================== */
 
 .quiz-page {
-  max-width: 560px;
+  /* The floating header needs clearance on light states. */
+  --quiz-header-clearance: 88px;
   margin: 0 auto;
-  padding: calc(var(--header-height, 72px) + 24px) 16px 48px;
 }
 
-.quiz-card {
-  background: var(--color-cloud-white);
-  border-radius: 16px;
-  padding: 28px 20px;
-  box-shadow: 0 2px 12px rgba(23, 42, 58, 0.08);
+/* While a dark stage view is showing, the floating header adapts: the navy
+   wordmark inverts to cream and the CTA goes glassy. Card states (name,
+   results, gone) fall back to the default header. Browsers without :has()
+   simply keep the default header - functional, just less polished. */
+body:has(.quiz-view--stage:not([hidden])) .header .logo-image {
+  filter: brightness(0) invert(0.96) drop-shadow(0 2px 6px rgba(11, 20, 28, 0.4));
+}
+
+body:has(.quiz-view--stage:not([hidden])) .header .cta-button {
+  background: rgba(23, 42, 58, 0.55);
+  border-color: rgba(253, 246, 237, 0.4);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+/* Card states (name entry, results, gone) stay narrow and centered;
+   stage states (intro, question) go full-bleed and manage themselves.
+   margin-inline only - the vertical margins (header clearance) belong to
+   .quiz-card itself and must not be clobbered here. */
+.quiz-page .quiz-card {
+  width: min(560px, calc(100% - 32px));
+  margin-inline: auto;
+  text-align: center;
+}
+
+/* ==========================================================================
+   Full-viewport photo stage (intro + question)
+   ========================================================================== */
+
+.quiz-stage {
+  position: relative;
+  min-height: 100svh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--color-midnight-navy);
+}
+
+/* Intro bottom-anchors its single content block. */
+.quiz-stage--intro {
+  justify-content: flex-end;
+}
+
+/* The question stage is exactly one viewport tall: a definite height is what
+   lets the photo's max-height resolve, so options always stay on screen and
+   the game never scrolls. */
+.quiz-stage:not(.quiz-stage--intro) {
+  height: 100svh;
+  min-height: 0;
+}
+
+/* The photo itself, blurred and dimmed, fills the frame behind the sharp
+   image - landscape photos get atmosphere instead of letterboxing. */
+.quiz-backdrop {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scale(1.15);
+  filter: blur(26px) brightness(0.5) saturate(1.05);
+}
+
+/* Intro keeps only the atmosphere: the blur is heavier so the first photo
+   stays a mystery until Play is tapped. */
+.quiz-stage--intro .quiz-backdrop {
+  filter: blur(48px) brightness(0.42) saturate(1.1);
+}
+
+.quiz-stage-scrim {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    180deg,
+    rgba(23, 42, 58, 0.62) 0%,
+    rgba(23, 42, 58, 0.12) 22%,
+    rgba(23, 42, 58, 0) 45%,
+    rgba(23, 42, 58, 0.55) 72%,
+    rgba(23, 42, 58, 0.88) 100%
+  );
+}
+
+/* The sharp photo: contained, never cropped, filling whatever vertical room
+   the top bar and bottom sheet leave over (flex: 1). */
+.quiz-photo-frame {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 0;
+}
+
+.quiz-photo {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  display: block;
+  filter: drop-shadow(0 10px 30px rgba(11, 20, 28, 0.55));
+}
+
+/* Stage chrome sits above backdrop + scrim. */
+.quiz-stage-top,
+.quiz-stage-bottom,
+.quiz-intro-body {
+  position: relative;
+}
+
+.quiz-stage-top {
+  padding: calc(var(--quiz-header-clearance) - 20px) 20px 0;
+}
+
+.quiz-progress {
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(253, 246, 237, 0.85);
+  text-align: center;
+  margin: 0 0 10px;
+}
+
+.quiz-progress-track {
+  display: flex;
+  gap: 5px;
+  max-width: 420px;
+  margin: 0 auto;
+}
+
+.quiz-progress-seg {
+  flex: 1;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(253, 246, 237, 0.32);
+  transition: background-color 0.35s ease;
+}
+
+.quiz-progress-seg.is-filled {
+  background: var(--color-sunset-gold);
+}
+
+/* --- Bottom sheet: prompt + options ------------------------------------- */
+
+.quiz-stage-bottom {
+  padding: 24px 20px calc(28px + env(safe-area-inset-bottom, 0px));
+  max-width: 560px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.quiz-prompt {
+  font-family: var(--font-family-hand);
+  font-size: 1.65rem;
+  line-height: 1.1;
+  color: var(--color-sunset-gold);
+  text-align: center;
+  margin: 0 0 14px;
+}
+
+.quiz-options {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.quiz-option {
+  font: inherit;
+  font-weight: 600;
+  font-size: 0.98rem;
+  text-align: center;
+  padding: 14px 12px;
+  border-radius: 14px;
+  border: 1.5px solid rgba(253, 246, 237, 0.4);
+  background: rgba(23, 42, 58, 0.55);
+  color: var(--color-warm-cream);
+  cursor: pointer;
+  min-height: 54px; /* comfortable thumb target */
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  transition:
+    border-color 0.15s ease,
+    background-color 0.15s ease,
+    transform 0.15s var(--ease-out-back);
+}
+
+.quiz-option:hover:enabled {
+  border-color: var(--color-sunset-gold);
+  transform: translateY(-1px);
+}
+
+.quiz-option:focus-visible {
+  outline: 2px solid var(--color-sunset-gold);
+  outline-offset: 2px;
+}
+
+.quiz-option:disabled {
+  cursor: default;
+  opacity: 0.75;
+}
+
+/* Neutral acknowledgment only - the tapped option glows gold. Right or
+   wrong is never revealed mid-run; the score lands once, at the end. */
+.quiz-option.is-picked {
+  border-color: var(--color-sunset-gold);
+  border-width: 2px;
+  background: rgba(23, 42, 58, 0.8);
+  box-shadow: 0 0 0 3px rgba(255, 198, 54, 0.25);
+  opacity: 1;
+}
+
+/* Per-question entrance: renderQuestion re-adds this class after a reflow,
+   so each photo deals in and its options rise with it. */
+.quiz-stage-enter .quiz-photo {
+  animation: quizPhotoDeal 0.5s var(--ease-out-back) both;
+}
+
+.quiz-stage-enter .quiz-option {
+  animation: fadeInUp 0.4s ease-out both;
+}
+
+.quiz-stage-enter .quiz-option:nth-child(2) {
+  animation-delay: 0.05s;
+}
+
+.quiz-stage-enter .quiz-option:nth-child(3) {
+  animation-delay: 0.1s;
+}
+
+.quiz-stage-enter .quiz-option:nth-child(4) {
+  animation-delay: 0.15s;
+}
+
+@keyframes quizPhotoDeal {
+  from {
+    opacity: 0;
+    transform: rotate(-2.2deg) scale(0.94) translateY(14px);
+  }
+
+  to {
+    opacity: 1;
+    transform: rotate(0deg) scale(1) translateY(0);
+  }
+}
+
+/* ==========================================================================
+   Intro stage
+   ========================================================================== */
+
+.quiz-intro-body {
+  padding: 24px 20px calc(40px + env(safe-area-inset-bottom, 0px));
+  max-width: 640px;
+  width: 100%;
+  margin: 0 auto;
   text-align: center;
 }
 
 .quiz-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
   font-size: 0.75rem;
   font-weight: 700;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.16em;
   text-transform: uppercase;
-  color: var(--color-storm-gray);
-  margin: 0 0 12px;
+  color: rgba(253, 246, 237, 0.9);
+  margin: 0 0 10px;
+}
+
+.quiz-eyebrow::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  background: var(--color-sunset-gold);
+  transform: rotate(45deg);
+}
+
+.quiz-script {
+  font-family: var(--font-family-hand);
+  font-size: 1.9rem;
+  line-height: 1;
+  color: var(--color-sunset-gold);
+  margin: 0 0 6px;
 }
 
 .quiz-title {
-  font-family: var(--font-display, 'Playfair Display', serif);
-  font-size: 1.75rem;
-  line-height: 1.2;
-  color: var(--color-text-main);
-  margin: 0 0 12px;
+  font-family: var(--font-family-title);
+  font-weight: 800;
+  font-size: clamp(2.2rem, 9vw, 3.4rem);
+  line-height: 1.02;
+  letter-spacing: -0.01em;
+  color: var(--color-warm-cream);
+  margin: 0 0 14px;
   overflow-wrap: anywhere;
-}
-
-.quiz-title-small {
-  font-size: 1.4rem;
+  text-wrap: balance;
+  text-shadow: 0 2px 24px rgba(11, 20, 28, 0.45);
 }
 
 .quiz-copy {
-  color: var(--color-text-secondary);
-  font-size: 1rem;
-  line-height: 1.5;
-  margin: 0 0 16px;
+  color: rgba(253, 246, 237, 0.85);
+  font-size: 1.02rem;
+  line-height: 1.55;
+  margin: 0 auto 18px;
+  max-width: 40ch;
 }
 
-.quiz-score-to-beat {
-  font-size: 1.05rem;
-  color: var(--color-text-main);
-  margin: 0 0 20px;
+/* Score-to-beat as a passport-stamp plate. */
+.quiz-plate {
+  display: inline-block;
+  border: 3px solid rgba(255, 198, 54, 0.85);
+  border-radius: 16px;
+  padding: 10px 26px 14px;
+  margin: 0 0 22px;
+  transform: rotate(-2deg);
+  color: var(--color-warm-cream);
+}
+
+.quiz-plate-label {
+  display: block;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--color-sunset-gold);
+  margin-bottom: 2px;
+}
+
+.quiz-plate-score {
+  font-family: var(--font-family-title);
+  font-weight: 800;
+  font-size: 2.4rem;
+  line-height: 1;
 }
 
 /* --- Buttons ------------------------------------------------------------ */
@@ -66,103 +363,74 @@
   font-weight: 700;
   border: none;
   border-radius: 999px;
-  padding: 14px 32px;
+  padding: 15px 40px;
   cursor: pointer;
-  transition: background-color 0.15s ease;
+  transition:
+    background-color 0.15s ease,
+    transform 0.15s var(--ease-out-back),
+    box-shadow 0.15s ease;
 }
 
 .quiz-button-primary {
   background: var(--color-primary-action);
   color: var(--color-text-main);
+  box-shadow: 0 6px 18px rgba(11, 20, 28, 0.25);
 }
 
 .quiz-button-primary:hover {
   background: var(--color-primary-action-hover);
+  transform: translateY(-1px);
+}
+
+.quiz-button-primary:focus-visible {
+  outline: 2px solid var(--color-midnight-navy);
+  outline-offset: 3px;
 }
 
 .quiz-cta-link {
   text-decoration: none;
 }
 
-/* --- Question view ------------------------------------------------------ */
+/* ==========================================================================
+   Card states (logbook, results, gone) - back on the field-guide ground
+   ========================================================================== */
 
-.quiz-progress {
-  font-size: 0.85rem;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--color-storm-gray);
-  margin: 0 0 12px;
+.quiz-card {
+  background: var(--color-cloud-white);
+  border-radius: 20px;
+  padding: 36px 24px;
+  margin-top: calc(var(--quiz-header-clearance) + 16px);
+  margin-bottom: 56px;
+  box-shadow: var(--shadow-soft);
 }
 
-.quiz-photo-frame {
-  border-radius: 12px;
-  overflow: hidden;
-  background: var(--color-dusty-beige);
-  aspect-ratio: 4 / 3;
-  margin-bottom: 16px;
-}
-
-.quiz-photo {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
-
-.quiz-options {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 10px;
-  margin-bottom: 16px;
-}
-
-.quiz-option {
-  font: inherit;
-  font-weight: 600;
-  text-align: center;
-  padding: 14px 16px;
-  border-radius: 12px;
-  border: 2px solid var(--color-dusty-beige);
-  background: var(--color-warm-cream);
+.quiz-card .quiz-title,
+.quiz-card .quiz-title-small {
   color: var(--color-text-main);
-  cursor: pointer;
-  min-height: 48px; /* comfortable thumb target */
-  transition:
-    border-color 0.15s ease,
-    background-color 0.15s ease;
+  text-shadow: none;
 }
 
-.quiz-option:hover:enabled {
-  border-color: var(--color-sunset-gold);
+.quiz-title-small {
+  font-family: var(--font-family-title);
+  font-weight: 700;
+  font-size: 1.6rem;
+  line-height: 1.15;
+  margin: 0 0 10px;
 }
 
-.quiz-option:disabled {
-  cursor: default;
-  opacity: 0.85;
+.quiz-card .quiz-copy {
+  color: var(--color-text-secondary);
 }
 
-.quiz-option.is-correct {
-  border-color: var(--color-moss-green);
-  background: var(--color-tint-sage);
-  color: var(--color-text-on-sage);
-  opacity: 1;
+.quiz-card .quiz-eyebrow {
+  color: var(--color-moss-green);
 }
 
-.quiz-option.is-incorrect {
-  border-color: var(--color-adobe-brick);
-  background: var(--color-tint-rose);
-  color: var(--color-text-on-rose);
-  opacity: 1;
+.quiz-card .quiz-script {
+  color: var(--color-adobe-brick);
 }
 
-.quiz-feedback {
-  font-weight: 600;
-  color: var(--color-text-main);
-  margin: 0 0 16px;
-}
-
-/* --- Name entry --------------------------------------------------------- */
+/* --- Name entry: sign the logbook --------------------------------------- */
 
 .quiz-name-form {
   display: grid;
@@ -177,38 +445,88 @@
 }
 
 .quiz-input {
-  font: inherit;
+  font-family: var(--font-family-hand);
+  font-size: 1.5rem;
   width: 100%;
   max-width: 320px;
-  padding: 12px 16px;
-  border-radius: 12px;
-  border: 2px solid var(--color-dusty-beige);
-  background: var(--color-cloud-white);
+  padding: 8px 16px 6px;
+  border: none;
+  border-bottom: 2px solid var(--color-midnight-navy);
+  border-radius: 0;
+  background: transparent;
   color: var(--color-text-main);
   text-align: center;
 }
 
 .quiz-input:focus {
-  border-color: var(--color-sunset-gold);
+  outline: none;
+  border-bottom-color: var(--color-sunset-gold);
 }
 
 .quiz-input:focus-visible {
   outline: 2px solid var(--color-sunset-gold);
-  outline-offset: 2px;
+  outline-offset: 4px;
 }
 
-/* --- Results ------------------------------------------------------------ */
+/* --- Results: the stamp lands -------------------------------------------- */
+
+.quiz-result-plate {
+  display: inline-block;
+  border: 3px solid rgba(193, 84, 62, 0.85);
+  border-radius: 18px;
+  padding: 12px 30px 16px;
+  margin: 6px 0 16px;
+  transform: rotate(-2deg);
+  box-shadow: var(--shadow-stamp);
+}
+
+/* base.css's stampIn lands at rotate(0), which would erase the plate's tilt
+   under fill-mode both - this press lands on the plate's own -2deg. */
+@keyframes quizStampIn {
+  0% {
+    transform: scale(1.8) rotate(4deg);
+    opacity: 0;
+  }
+
+  60% {
+    transform: scale(0.96) rotate(-2.5deg);
+    opacity: 1;
+  }
+
+  100% {
+    transform: scale(1) rotate(-2deg);
+    opacity: 1;
+  }
+}
+
+#quiz-results:not([hidden]) .quiz-result-plate {
+  animation: quizStampIn 0.45s var(--ease-out-back) both;
+  animation-delay: 0.15s;
+}
+
+.quiz-result-plate .quiz-plate-label {
+  color: var(--color-adobe-brick);
+}
 
 .quiz-result-score {
-  font-family: var(--font-display, 'Playfair Display', serif);
-  font-size: 3rem;
-  font-weight: 700;
-  color: var(--color-text-main);
+  font-family: var(--font-family-title);
+  font-weight: 800;
+  font-size: 3.4rem;
+  line-height: 1;
+  color: var(--color-adobe-brick);
+  margin: 0;
+}
+
+.quiz-result-compare {
+  color: var(--color-text-secondary);
+  font-size: 1rem;
   margin: 0 0 8px;
 }
 
+/* --- Leaderboard: the logbook's standings -------------------------------- */
+
 .quiz-leaderboard {
-  margin: 24px 0;
+  margin: 26px 0;
   text-align: left;
 }
 
@@ -232,15 +550,17 @@
   counter-increment: quiz-rank;
   display: flex;
   align-items: baseline;
-  gap: 10px;
-  padding: 10px 12px;
-  border-radius: 10px;
+  gap: 12px;
+  padding: 11px 14px;
+  border-radius: 12px;
 }
 
 .quiz-leaderboard-row::before {
-  content: counter(quiz-rank) '.';
+  content: counter(quiz-rank);
+  font-family: var(--font-family-title);
   font-weight: 700;
-  color: var(--color-storm-gray);
+  font-size: 1.05rem;
+  color: var(--color-adobe-brick);
   min-width: 1.4em;
 }
 
@@ -250,6 +570,7 @@
 
 .quiz-leaderboard-row.is-you {
   background: var(--color-tint-butter);
+  box-shadow: inset 0 0 0 2px rgba(255, 198, 54, 0.6);
 }
 
 .quiz-leaderboard-name {
@@ -267,30 +588,70 @@
 
 .quiz-install {
   border-top: 1px solid var(--color-dusty-beige);
-  padding-top: 20px;
+  padding-top: 22px;
 }
 
 /* --- Error / gone ------------------------------------------------------- */
 
 .quiz-error {
+  position: relative;
   text-align: center;
-  color: var(--color-adobe-brick);
+  color: var(--color-warm-cream);
+  background: rgba(193, 84, 62, 0.92);
+  border-radius: 12px;
   font-weight: 600;
-  margin: 16px 0 0;
+  margin: 12px auto;
+  padding: 10px 16px;
+  max-width: 480px;
 }
 
-.quiz-gone {
-  margin-top: 24px;
+/* View entrances: `hidden` toggles re-trigger the animation on display. */
+.quiz-view:not([hidden]) {
+  animation: fadeIn 0.35s ease-out both;
+}
+
+/* The stage sets its own display, which would otherwise beat the UA's
+   [hidden] { display: none } - make the game's view toggle authoritative. */
+.quiz-view[hidden] {
+  display: none !important;
 }
 
 /* --- Wider screens ------------------------------------------------------ */
 
-@media (min-width: 480px) {
+@media (min-width: 640px) {
   .quiz-card {
-    padding: 36px 32px;
+    padding: 44px 40px;
+  }
+
+  .quiz-photo-frame {
+    padding: 20px 24px;
   }
 
   .quiz-options {
-    grid-template-columns: 1fr 1fr;
+    max-width: 520px;
+    margin: 0 auto;
+    width: 100%;
+  }
+}
+
+/* --- Reduced motion ------------------------------------------------------ */
+
+@media (prefers-reduced-motion: reduce) {
+  .quiz-view:not([hidden]),
+  .quiz-stage-enter .quiz-photo,
+  .quiz-stage-enter .quiz-option,
+  #quiz-results:not([hidden]) .quiz-result-plate {
+    animation: none;
+  }
+
+  /* Without the press animation the plate still needs its resting tilt. */
+  #quiz-results:not([hidden]) .quiz-result-plate {
+    transform: rotate(-2deg);
+  }
+
+  .quiz-option,
+  .quiz-button,
+  .quiz-progress-seg {
+    transition: none;
   }
 }

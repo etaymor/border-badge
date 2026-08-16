@@ -789,8 +789,8 @@ def _quiz_unavailable_response(request: Request, status_code: int) -> HTMLRespon
             "app_store_url": settings.app_store_url,
             "google_analytics_id": settings.google_analytics_id,
             "current_year": get_current_year(),
-            "page_title": "Quiz unavailable - Atlasi",
-            "og_title": "This quiz is no longer available",
+            "page_title": "Challenge unavailable - Atlasi",
+            "og_title": "This challenge is no longer available",
             "og_description": "The link may have been revoked by its owner.",
         },
         status_code=status_code,
@@ -888,8 +888,8 @@ async def view_quiz_page(
     }
 
     challenger = owner_name or "A friend"
-    og_title = f"Can you beat {challenger}'s travel photo quiz?"
-    og_description = f"Guess the country in {len(questions)} photos."
+    og_title = f"Can you beat {challenger}'s Guess Where challenge?"
+    og_description = f"Guess the country in {len(questions)} travel photos."
     if score_to_beat:
         og_description += (
             f" The score to beat: {score_to_beat['score']}/{score_to_beat['total']}."
@@ -907,7 +907,7 @@ async def view_quiz_page(
             "app_store_url": settings.app_store_url,
             "google_analytics_id": settings.google_analytics_id,
             "current_year": get_current_year(),
-            "page_title": f"{challenger}'s travel photo quiz - Atlasi",
+            "page_title": f"{challenger}'s Guess Where challenge - Atlasi",
             "og_title": og_title,
             "og_description": og_description,
             # R13: the unfurl card image route ships in a later unit; the meta

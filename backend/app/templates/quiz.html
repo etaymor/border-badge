@@ -1,9 +1,11 @@
 {% extends "base.html" %}
 {# ============================================================================
-   Public playable quiz page (/q/{slug}).
+   Public playable Guess Where page (/q/{slug}).
 
    Two modes, one template:
-     mode == "play": the shared quiz's challenge intro + game scaffolding. The
+     mode == "play": the shared challenge. Intro and question views run on a
+       full-viewport dark photo stage (the photo, blurred, is its own
+       backdrop); name entry and results return to the warm-cream card. The
        game itself runs in static, nonce'd JS (quiz-play.js) against the JSON
        data island below; the server-rendered HTML carries only the intro so
        the page is meaningful before (and without) hydration.
@@ -12,7 +14,9 @@
 
    Strict default CSP: no inline handlers, no inline styles; all dynamic text
    is inserted via textContent in quiz-play.js. Ground truth (correct answers,
-   capture years) never appears anywhere in this document.
+   capture years) never appears anywhere in this document. Per-question
+   verdicts are never shown mid-run - the score lands once, on the results
+   view (mirrors the in-app Q8 decision).
    ============================================================================ #}
 
 {% block robots %}
@@ -36,8 +40,8 @@
 {% if mode == 'gone' %}
 <div class="quiz-page">
   <section class="quiz-card quiz-gone">
-    <p class="quiz-eyebrow">Travel photo quiz</p>
-    <h1 class="quiz-title">This quiz is no longer available</h1>
+    <p class="quiz-eyebrow">Guess Where</p>
+    <h1 class="quiz-title-small">This challenge has been packed away</h1>
     <p class="quiz-copy">
       The link may have been revoked by the person who shared it, or it may
       never have existed.
@@ -52,32 +56,53 @@
 </div>
 {% else %}
 <div class="quiz-page" id="quiz-root">
-  {# --- Challenge intro (server-rendered, visible pre-hydration) --------- #}
-  <section class="quiz-card quiz-view" id="quiz-intro">
-    <p class="quiz-eyebrow">Travel photo quiz</p>
-    <h1 class="quiz-title">
-      {% if owner_name %}{{ owner_name }} challenges you{% else %}A friend challenges you{% endif %}
-    </h1>
-    <p class="quiz-copy">
-      Guess which country each of {{ question_count }} travel photos was taken in.
-    </p>
-    {% if score_to_beat %}
-    <p class="quiz-score-to-beat">
-      The score to beat:
-      <strong>{{ score_to_beat.score }}/{{ score_to_beat.total }}</strong>
-    </p>
-    {% endif %}
-    <button class="quiz-button quiz-button-primary" id="quiz-start" type="button">
-      Play
-    </button>
-    <noscript>
-      <p class="quiz-copy">Playing the quiz requires JavaScript.</p>
-    </noscript>
+  {# --- Challenge intro (server-rendered, visible pre-hydration) ---------
+     The first photo, heavily blurred, is pure atmosphere: the mystery is the
+     point, and the sharp image is only dealt once Play is tapped. #}
+  <section class="quiz-stage quiz-stage--intro quiz-view quiz-view--stage" id="quiz-intro">
+    <img
+      class="quiz-backdrop"
+      src="{{ quiz_payload.questions[0].image_url }}"
+      alt=""
+      aria-hidden="true"
+      fetchpriority="high"
+      decoding="async"
+    />
+    <div class="quiz-stage-scrim"></div>
+    <div class="quiz-intro-body">
+      <p class="quiz-eyebrow">A Guess Where challenge</p>
+      <p class="quiz-script">can you guess where?</p>
+      <h1 class="quiz-title">
+        {% if owner_name %}{{ owner_name }} challenges you{% else %}A friend challenges you{% endif %}
+      </h1>
+      <p class="quiz-copy">
+        Guess which country each of {{ question_count }} travel photos was taken in.
+      </p>
+      {% if score_to_beat %}
+      <p class="quiz-plate quiz-score-to-beat">
+        <span class="quiz-plate-label">The score to beat</span>
+        <span class="quiz-plate-score">{{ score_to_beat.score }}/{{ score_to_beat.total }}</span>
+      </p>
+      {% endif %}
+      <div>
+        <button class="quiz-button quiz-button-primary" id="quiz-start" type="button">
+          Play
+        </button>
+      </div>
+      <noscript>
+        <p class="quiz-copy">Playing the challenge requires JavaScript.</p>
+      </noscript>
+    </div>
   </section>
 
-  {# --- Question view (filled by quiz-play.js) --------------------------- #}
-  <section class="quiz-card quiz-view" id="quiz-question" hidden>
-    <p class="quiz-progress" id="quiz-progress"></p>
+  {# --- Question stage (filled by quiz-play.js) -------------------------- #}
+  <section class="quiz-stage quiz-view quiz-view--stage" id="quiz-question" hidden>
+    <img class="quiz-backdrop" id="quiz-photo-backdrop" alt="" aria-hidden="true" />
+    <div class="quiz-stage-scrim"></div>
+    <div class="quiz-stage-top">
+      <p class="quiz-progress" id="quiz-progress"></p>
+      <div class="quiz-progress-track" id="quiz-progress-track" aria-hidden="true"></div>
+    </div>
     <div class="quiz-photo-frame">
       <img
         class="quiz-photo"
@@ -86,19 +111,21 @@
         decoding="async"
       />
     </div>
-    <div class="quiz-options" id="quiz-options"></div>
-    <p class="quiz-feedback" id="quiz-feedback" hidden></p>
-    <button class="quiz-button quiz-button-primary" id="quiz-next" type="button" hidden>
-      Next
-    </button>
+    <div class="quiz-stage-bottom">
+      <p class="quiz-prompt">where was this taken?</p>
+      <div class="quiz-options" id="quiz-options"></div>
+    </div>
   </section>
 
-  {# --- Display-name entry ----------------------------------------------- #}
+  {# --- Sign the logbook (display-name entry) -----------------------------
+     The score stays sealed until the results view: sign first, then the
+     stamp lands (Q8: one reveal, at the very end). #}
   <section class="quiz-card quiz-view" id="quiz-name" hidden>
-    <h2 class="quiz-title quiz-title-small">That's all {{ question_count }}</h2>
+    <p class="quiz-script">sign the logbook</p>
+    <h2 class="quiz-title-small">That's all {{ question_count }}</h2>
     <p class="quiz-copy" id="quiz-name-score"></p>
     <form id="quiz-name-form" class="quiz-name-form">
-      <label class="quiz-label" for="quiz-display-name">Add your name to the leaderboard</label>
+      <label class="quiz-label" for="quiz-display-name">Your name, for the leaderboard</label>
       <input
         class="quiz-input"
         id="quiz-display-name"
@@ -110,7 +137,7 @@
         required
       />
       <button class="quiz-button quiz-button-primary" type="submit">
-        See results
+        Reveal my score
       </button>
     </form>
   </section>
@@ -118,22 +145,25 @@
   {# --- Results + leaderboard + install CTA (R12) ------------------------ #}
   <section class="quiz-card quiz-view" id="quiz-results" hidden>
     <p class="quiz-eyebrow">Results</p>
-    <h2 class="quiz-title quiz-title-small" id="quiz-result-headline"></h2>
-    <p class="quiz-result-score" id="quiz-result-score"></p>
-    <p class="quiz-copy" id="quiz-result-compare"></p>
+    <h2 class="quiz-title-small" id="quiz-result-headline"></h2>
+    <div class="quiz-result-plate">
+      <span class="quiz-plate-label">Your score</span>
+      <p class="quiz-result-score" id="quiz-result-score"></p>
+    </div>
+    <p class="quiz-result-compare" id="quiz-result-compare"></p>
     <div class="quiz-leaderboard">
       <h3 class="quiz-leaderboard-title">Leaderboard</h3>
       <ol class="quiz-leaderboard-list" id="quiz-leaderboard-list"></ol>
     </div>
     <div class="quiz-install">
       <p class="quiz-copy">
-        Think your own trips could stump your friends? Build your quiz from
-        your camera roll with Atlasi.
+        Think your own trips could stump your friends? Build your own Guess
+        Where challenge from your camera roll with Atlasi.
       </p>
       {# Funnel: the results CTA routes through the logged /install redirect so
          each tap lands in the per-quiz funnel before reaching the store. The
-         gone-state CTAs below deliberately do NOT: by the time they render,
-         the quiz no longer serves and /install would 404 the tap away. #}
+         gone-state CTAs deliberately do NOT: by the time they render, the
+         challenge no longer serves and /install would 404 the tap away. #}
       <a
         href="/q/{{ quiz_payload.slug }}/install"
         class="quiz-button quiz-button-primary quiz-cta-link"
@@ -143,9 +173,9 @@
     </div>
   </section>
 
-  {# --- Mid-run gone state (quiz revoked while playing) ------------------ #}
+  {# --- Mid-run gone state (challenge revoked while playing) ------------- #}
   <section class="quiz-card quiz-view" id="quiz-gone" hidden>
-    <h2 class="quiz-title quiz-title-small">This quiz is no longer available</h2>
+    <h2 class="quiz-title-small">This challenge has been packed away</h2>
     <p class="quiz-copy">The link was revoked by the person who shared it.</p>
     <a
       href="{{ app_store_url | safe_external_url or '#download' }}"
