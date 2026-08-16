@@ -389,6 +389,29 @@ export const Analytics = {
      * per-batch durations would over-count overlapped time.
      */
     wallClockMs?: number;
+    /**
+     * U11/R18. The most batches this dispatch ever had on the wire at once.
+     *
+     * The pool SIZE is a constant, so it says nothing about whether the pool was
+     * ever used: a preparation-bound run at concurrency 3 can peak at 1. Read it
+     * with `meanInFlightBatches` — a peak of 3 with a mean of 0.4 is a pool that
+     * briefly filled and then starved.
+     */
+    peakInFlightBatches?: number;
+    /**
+     * U11/R18. Time-weighted mean batches on the wire across the dispatch span —
+     * occupancy over TIME, not a count of events. Compare against the configured
+     * concurrency to see how much of the pool the run actually used.
+     */
+    meanInFlightBatches?: number;
+    /** U11/R18. Milliseconds with at least one batch on the wire. */
+    wireBusyMs?: number;
+    /**
+     * U11/R18. Milliseconds from the first batch leaving to the last one
+     * settling. `wireSpanMs - wireBusyMs` is dead air inside dispatch — the
+     * preparation-bound share that more concurrency cannot remove.
+     */
+    wireSpanMs?: number;
   }) =>
     track('photo_import_suggestions_completed', {
       suggestion_count: props.suggestionCount,
@@ -402,10 +425,21 @@ export const Analytics = {
       total_api_duration_ms: props.totalApiDurationMs ?? null,
       time_to_first_suggestion_ms: props.timeToFirstSuggestionMs ?? null,
       wall_clock_ms: props.wallClockMs ?? null,
+      peak_in_flight_batches: props.peakInFlightBatches ?? null,
+      mean_in_flight_batches: props.meanInFlightBatches ?? null,
+      wire_busy_ms: props.wireBusyMs ?? null,
+      wire_span_ms: props.wireSpanMs ?? null,
     }),
 
-  photoImportApiError: (props: { errorType: 'quota_exhausted' | 'rate_limited' | 'unknown' }) =>
-    track('photo_import_api_error', { error_type: props.errorType }),
+  /**
+   * `entitlement_exhausted` (U11) is the 402 `PHOTO_IMPORT_LIMIT_REACHED` stop.
+   * It shared `unknown` with genuine client faults until U11 split it out, which
+   * made an entitlement gate — a product outcome, with its own paywall follow-up
+   * — indistinguishable from a bug in the error bucket.
+   */
+  photoImportApiError: (props: {
+    errorType: 'quota_exhausted' | 'rate_limited' | 'entitlement_exhausted' | 'unknown';
+  }) => track('photo_import_api_error', { error_type: props.errorType }),
 
   photoImportWorkflowCompleted: (props: {
     totalClusters: number;
@@ -415,6 +449,10 @@ export const Analytics = {
     workflowDurationMs: number;
     successRate: number;
     acceptanceRate: number;
+    /** U11. Clusters whose row was ever scrolled into view. See `viewedClusterRate`. */
+    viewedClusters?: number;
+    /** U11. `viewedClusters / totalClusters` as a percentage. */
+    viewedClusterRate?: number;
   }) =>
     track('photo_import_workflow_completed', {
       total_clusters: props.totalClusters,
@@ -424,6 +462,8 @@ export const Analytics = {
       workflow_duration_ms: props.workflowDurationMs,
       success_rate: props.successRate,
       acceptance_rate: props.acceptanceRate,
+      viewed_clusters: props.viewedClusters ?? null,
+      viewed_cluster_rate: props.viewedClusterRate ?? null,
     }),
 
   photoImportWorkflowExited: (props: {
@@ -431,12 +471,60 @@ export const Analytics = {
     processedClusters: number;
     remainingClusters: number;
     workflowDurationMs: number;
+    /**
+     * U11. Clusters whose row was ever scrolled into view before the user left.
+     *
+     * This is the number that decides the deferred on-demand-dispatch idea: if
+     * most imports only ever surface a fraction of their clusters, matching every
+     * cluster up front is buying results nobody looks at. A row counts once it
+     * has been at least half visible, so mounting a cell offscreen does not.
+     */
+    viewedClusters?: number;
+    /** U11. `viewedClusters / totalClusters` as a percentage. */
+    viewedClusterRate?: number;
+    /**
+     * U11/R18. Clusters the dispatch controller had ACCEPTED at the moment the
+     * user left. The denominator of the settled split — always >= `settledClusters`.
+     */
+    enqueuedClusters?: number;
+    /**
+     * U11/R18. Of `enqueuedClusters`, the ones that had reached a terminal state
+     * (a response arrived, or a failure was attributed) when the user left.
+     */
+    settledClusters?: number;
+    /**
+     * U11/R18. `enqueuedClusters - settledClusters`: accepted, shown as a pending
+     * row, and still unresolved at departure. Concurrent dispatch makes leaving
+     * mid-flight normal, so this is the honest size of the abandoned tail.
+     */
+    unsettledClusters?: number;
+    /**
+     * U11/R18. Retry batch attempts summed over every dispatch generation in this
+     * import (per-row retries and bulk retries alike).
+     */
+    retryAttempts?: number;
+    /** U11/R18. Dispatch generations that needed at least one retry attempt. */
+    retryGenerations?: number;
+    /**
+     * U11/R18. The largest retry-attempt count any single generation reached.
+     * Separates "one bad generation" from "steady low-level retrying", which the
+     * summed total cannot.
+     */
+    maxRetryAttemptsPerGeneration?: number;
   }) =>
     track('photo_import_workflow_exited', {
       total_clusters: props.totalClusters,
       processed_clusters: props.processedClusters,
       remaining_clusters: props.remainingClusters,
       workflow_duration_ms: props.workflowDurationMs,
+      viewed_clusters: props.viewedClusters ?? null,
+      viewed_cluster_rate: props.viewedClusterRate ?? null,
+      enqueued_clusters: props.enqueuedClusters ?? null,
+      settled_clusters: props.settledClusters ?? null,
+      unsettled_clusters: props.unsettledClusters ?? null,
+      retry_attempts: props.retryAttempts ?? null,
+      retry_generations: props.retryGenerations ?? null,
+      max_retry_attempts_per_generation: props.maxRetryAttemptsPerGeneration ?? null,
     }),
 
   // Entry organization (Saved Places feature)

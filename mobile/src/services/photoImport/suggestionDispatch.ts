@@ -379,6 +379,35 @@ export interface SuggestionBatchOutcome {
 }
 
 /**
+ * Concurrency telemetry (U11/R18).
+ *
+ * Everything here is a COUNT or a DURATION. No cluster id, coordinate, geohash
+ * or place id is recorded, so the whole object is safe to hand to analytics
+ * verbatim (R27).
+ *
+ * Scope: reset by a fresh (non-retry) main dispatch, so one object describes one
+ * candidate's matching run plus every retry that repairs it. Survives `reset()`
+ * on purpose — the exit event reads it after the user has navigated away, and
+ * `reset()` runs on exactly that path.
+ */
+export interface DispatchTelemetry {
+  /** Most batches simultaneously on the wire. */
+  peakInFlightBatches: number;
+  /** Time-weighted mean batches on the wire across the dispatch span. */
+  meanInFlightBatches: number;
+  /** Milliseconds with at least one batch on the wire. */
+  wireBusyMs: number;
+  /** Milliseconds from the first batch leaving to the last one settling. */
+  wireSpanMs: number;
+  /** Retry batch attempts summed over every generation. */
+  retryAttempts: number;
+  /** Generations that issued at least one retry attempt. */
+  retryGenerations: number;
+  /** The largest retry-attempt count a single generation reached. */
+  maxRetryAttemptsPerGeneration: number;
+}
+
+/**
  * The snapshot React subscribes to. Replaced (never mutated) on every change so
  * `useSyncExternalStore` can compare by identity.
  */
@@ -486,6 +515,38 @@ class SuggestionDispatchController {
   /** Monotonic id of the newest main dispatch (see `dispatchGeneration`). */
   private currentGeneration = 0;
 
+  // -- concurrency telemetry (U11/R18) --------------------------------------
+  //
+  // Occupancy is accumulated as an INTEGRAL over time rather than sampled: a
+  // sampler would have to run on a timer through a screen that is deliberately
+  // idle between batches, and would miss exactly the short spikes that say
+  // whether the pool is being used. Every transition of the wire already passes
+  // through `addActiveAbort` / `removeActiveAbort`, so integrating there is both
+  // exact and free.
+
+  /** `Date.now()` of the last occupancy transition, or 0 before the first batch. */
+  private wireLastChangeAt = 0;
+
+  /** `Date.now()` of the first batch of this measurement window leaving. */
+  private wireSpanStartedAt = 0;
+
+  /** Σ (batches on the wire × ms at that count). */
+  private wireWeightedMs = 0;
+
+  /** Σ ms with at least one batch on the wire. */
+  private wireBusyMs = 0;
+
+  /** High-water mark of `activeAborts.size`. */
+  private peakInFlightBatches = 0;
+
+  /**
+   * Retry batch attempts keyed by `dispatchGeneration` (U6's note: the
+   * generation is the natural key). A bulk retry bumps the generation, so its
+   * attempts land on their own key; a per-row retry runs inside the generation
+   * it repairs, which is what makes "retries this generation needed" readable.
+   */
+  private retryAttemptsByGeneration = new Map<number, number>();
+
   // -- subscription --------------------------------------------------------
 
   subscribe = (listener: () => void): (() => void) => {
@@ -496,6 +557,107 @@ class SuggestionDispatchController {
   };
 
   getState = (): SuggestionDispatchState => this.state;
+
+  // -- concurrency telemetry (U11/R18) --------------------------------------
+
+  /**
+   * How many batches are on the wire right now.
+   *
+   * Deliberately exposed rather than re-derived by the caller: the abort-
+   * controller set IS the record of what is outstanding, and a second counter
+   * kept alongside it would be a second thing to keep correct across abort,
+   * pause and partial resolution.
+   */
+  getInFlightBatchCount = (): number => this.activeAborts.size;
+
+  /** Snapshot of the concurrency telemetry (U11/R18). Never carries an id. */
+  getTelemetry = (): DispatchTelemetry => {
+    // Fold in the time since the last transition so a snapshot taken mid-flight
+    // is not systematically short by the current interval.
+    const now = Date.now();
+    const inFlight = this.activeAborts.size;
+    const openMs = this.wireLastChangeAt > 0 ? now - this.wireLastChangeAt : 0;
+    const weightedMs = this.wireWeightedMs + inFlight * openMs;
+    const busyMs = this.wireBusyMs + (inFlight > 0 ? openMs : 0);
+    const spanMs =
+      this.wireSpanStartedAt > 0
+        ? Math.max(0, (inFlight > 0 ? now : this.wireLastChangeAt) - this.wireSpanStartedAt)
+        : 0;
+
+    let retryAttempts = 0;
+    let maxRetryAttemptsPerGeneration = 0;
+    for (const count of this.retryAttemptsByGeneration.values()) {
+      retryAttempts += count;
+      if (count > maxRetryAttemptsPerGeneration) maxRetryAttemptsPerGeneration = count;
+    }
+
+    return {
+      peakInFlightBatches: this.peakInFlightBatches,
+      // Rounded to 2dp: this is an occupancy ratio read against a pool size of
+      // 1-3, so more precision is noise.
+      meanInFlightBatches: spanMs > 0 ? Math.round((weightedMs / spanMs) * 100) / 100 : 0,
+      wireBusyMs: busyMs,
+      wireSpanMs: spanMs,
+      retryAttempts,
+      retryGenerations: this.retryAttemptsByGeneration.size,
+      maxRetryAttemptsPerGeneration,
+    };
+  };
+
+  /**
+   * Record a retry batch attempt against the CURRENT generation (U11/R18).
+   *
+   * Called by the retry paths rather than inferred here, because "is this batch
+   * a repair?" is the caller's knowledge: the controller sees an ordinary batch
+   * either way.
+   */
+  recordRetryAttempt = (): void => {
+    const generation = this.currentGeneration;
+    this.retryAttemptsByGeneration.set(
+      generation,
+      (this.retryAttemptsByGeneration.get(generation) ?? 0) + 1
+    );
+  };
+
+  /** Start a fresh telemetry window. Called by a non-retry main dispatch. */
+  private resetTelemetry(): void {
+    this.wireLastChangeAt = 0;
+    this.wireSpanStartedAt = 0;
+    this.wireWeightedMs = 0;
+    this.wireBusyMs = 0;
+    this.peakInFlightBatches = 0;
+    this.retryAttemptsByGeneration.clear();
+  }
+
+  /** Integrate occupancy up to now, then apply the transition. */
+  private accrueOccupancy(): void {
+    const now = Date.now();
+    if (this.wireLastChangeAt === 0) {
+      this.wireLastChangeAt = now;
+      if (this.wireSpanStartedAt === 0) this.wireSpanStartedAt = now;
+      return;
+    }
+    const elapsed = now - this.wireLastChangeAt;
+    const inFlight = this.activeAborts.size;
+    this.wireWeightedMs += inFlight * elapsed;
+    if (inFlight > 0) this.wireBusyMs += elapsed;
+    this.wireLastChangeAt = now;
+  }
+
+  /** Put a batch on the wire, keeping the occupancy integral exact. */
+  private addActiveAbort(controller: AbortController): void {
+    this.accrueOccupancy();
+    this.activeAborts.add(controller);
+    if (this.activeAborts.size > this.peakInFlightBatches) {
+      this.peakInFlightBatches = this.activeAborts.size;
+    }
+  }
+
+  /** Take a batch off the wire, keeping the occupancy integral exact. */
+  private removeActiveAbort(controller: AbortController): void {
+    this.accrueOccupancy();
+    this.activeAborts.delete(controller);
+  }
 
   private setState(patch: Partial<SuggestionDispatchState>): void {
     this.state = { ...this.state, ...patch };
@@ -681,6 +843,10 @@ class SuggestionDispatchController {
     // that lands after a reset would otherwise re-publish state for a candidate
     // the user has already left.
     for (const controller of this.activeAborts) controller.abort();
+    // Close the occupancy interval BEFORE emptying the set, or the aborted
+    // batches' final interval is credited at occupancy zero. The telemetry
+    // window itself survives: the exit event reads it after this runs.
+    this.accrueOccupancy();
     this.activeAborts.clear();
     // A parked worker (U9) would otherwise never observe the abort and its
     // dispatch promise would never settle. Waking it lets it see `aborted` and
@@ -711,6 +877,7 @@ class SuggestionDispatchController {
     this.currentGeneration = 0;
     this.activeAborts.clear();
     this.paused = false;
+    this.resetTelemetry();
     this.releaseParkedWorkers();
     this.state = INITIAL_STATE;
     for (const listener of this.listeners) listener();
@@ -751,7 +918,14 @@ class SuggestionDispatchController {
     prepare: () => Promise<PlaceSuggestionCluster[]>;
     /** The trip being matched (U16/R17). Sent so the server can honor R17. */
     tripId?: string | null;
+    /**
+     * This batch is a REPAIR of clusters an earlier attempt failed (U11/R18).
+     * Counted against the current generation's retry tally. Purely telemetry —
+     * it changes nothing about how the batch is dispatched.
+     */
+    isRetry?: boolean;
   }): Promise<SuggestionBatchOutcome> => {
+    if (params.isRetry) this.recordRetryAttempt();
     const payload = await params.prepare();
     const response = await this.postBatch(payload, params.tripId);
     this.markResolved(params.clusterIds);
@@ -819,6 +993,10 @@ class SuggestionDispatchController {
     this.activeDispatches += 1;
     this.currentGeneration += 1;
     const generation = this.currentGeneration;
+    // U11/R18. A fresh run opens a new measurement window; a bulk retry is a
+    // repair OF that window and accumulates into it, which is what makes
+    // "retries this import needed" answerable at exit.
+    if (!isRetry) this.resetTelemetry();
     // Per-dispatch preparation pipeline (U5/KTD10): serialized, one batch ahead.
     const startPreparing = createBatchPreparer(request.prepareBatch);
 
@@ -964,7 +1142,9 @@ class SuggestionDispatchController {
           // only checked between batches, which cancels nothing that is already
           // on the wire — and with a pool that is most of the work.
           const abortController = new AbortController();
-          this.activeAborts.add(abortController);
+          this.addActiveAbort(abortController);
+          // U11/R18: a batch dispatched by a retry run is a retry attempt.
+          if (isRetry) this.recordRetryAttempt();
           const chunkStartTime = Date.now();
           try {
             for (const id of chunkIds) dispatchedIds.add(id);
@@ -1070,7 +1250,7 @@ class SuggestionDispatchController {
               console.warn(`[PhotoImport] Chunk ${entry.index + 1} failed, continuing...`, error);
             }
           } finally {
-            this.activeAborts.delete(abortController);
+            this.removeActiveAbort(abortController);
             this.releaseClaim(claimedIds);
             // Settled — success or failure — so the counter only ever rises.
             clustersCompleted += chunk.length;

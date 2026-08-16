@@ -189,7 +189,25 @@ jest.mock('../../../services/photoImport/suggestionDispatch', () => {
       beginOwner: jest.fn(),
       endOwner: jest.fn(),
       reset: jest.fn(),
-      getState: jest.fn(() => ({ progress: null, failedClusterIds: new Map() })),
+      // U11: the exit event reads the settled-versus-enqueued split and the
+      // concurrency telemetry off the singleton, so the stub carries both.
+      getState: jest.fn(() => ({
+        progress: null,
+        failedClusterIds: new Map(),
+        enqueuedClusterIds: new Set<string>(),
+        dispatchedAndResolvedClusterIds: new Set<string>(),
+      })),
+      getTelemetry: jest.fn(() => ({
+        peakInFlightBatches: 0,
+        meanInFlightBatches: 0,
+        wireBusyMs: 0,
+        wireSpanMs: 0,
+        retryAttempts: 0,
+        retryGenerations: 0,
+        maxRetryAttemptsPerGeneration: 0,
+      })),
+      getInFlightBatchCount: jest.fn(() => 0),
+      recordRetryAttempt: jest.fn(),
       subscribe: jest.fn(() => () => undefined),
     },
   };

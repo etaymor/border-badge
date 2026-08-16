@@ -233,6 +233,54 @@ Large venues' Google points often sit beyond the dense-city Nearby radii, so two
 
 Set `PLACES_DIAGNOSTICS=true` to emit one structured JSON trace per cluster (raw candidate world, filter-drop tallies, vision signals, finalists, outcome). Off by default — retaining the raw world has a memory cost, so production stays clean. Use it to capture real imports for the labeling workflow in `backend/docs/how-to-label-place-matcher-dataset.md`.
 
+## Telemetry and Dashboards
+
+Everything a dashboard needs about photo import is either a PostHog event from the client or the `place_matcher_phase_metrics` log line from the backend. **No coordinate, cluster id, geohash or place id appears in any of them** — every field is a count, a duration, or a ratio. Keep it that way when adding fields.
+
+### Client events (PostHog)
+
+| Event                                | Fires when                                                  | Carries                                                                                                                                                                                                                                                                                                        |
+| ------------------------------------ | ----------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `photo_import_suggestions_completed` | A suggestion fetch finishes (including the all-cached path) | `suggestion_count`, `failed_chunks`, `cached_clusters`, `uncached_clusters`, `cache_hit_rate`, `api_p50/p95/p99_ms`, `total_api_duration_ms`, `time_to_first_suggestion_ms`, `wall_clock_ms`, plus the U11 occupancy fields `peak_in_flight_batches`, `mean_in_flight_batches`, `wire_busy_ms`, `wire_span_ms` |
+| `photo_import_api_error`             | A dispatch is stopped by a rejection                        | `error_type`: `quota_exhausted` \| `rate_limited` \| `entitlement_exhausted` \| `unknown`                                                                                                                                                                                                                      |
+| `photo_import_workflow_completed`    | Every cluster confirmed, rejected or hidden                 | the existing counts and rates, plus `viewed_clusters` / `viewed_cluster_rate`                                                                                                                                                                                                                                  |
+| `photo_import_workflow_exited`       | The user leaves with clusters unprocessed                   | the existing counts, plus `viewed_clusters`, `viewed_cluster_rate`, `enqueued_clusters`, `settled_clusters`, `unsettled_clusters`, `retry_attempts`, `retry_generations`, `max_retry_attempts_per_generation`                                                                                                  |
+
+**Reading the occupancy fields.** `peak_in_flight_batches` is the high-water mark of requests on the wire; `mean_in_flight_batches` is the same quantity integrated over time and divided by `wire_span_ms`, so it reports how much of the pool the run actually used. A peak of 3 with a mean near 1 is a preparation-bound run, not a network-bound one — `wire_span_ms - wire_busy_ms` is the dead air more concurrency cannot remove. `total_api_duration_ms` sums per-batch durations and therefore **over-counts** once batches overlap; use `wall_clock_ms` for elapsed time and the occupancy pair for the shape of it.
+
+**Reading the exit split.** `enqueued_clusters` is what dispatch accepted, `settled_clusters` the subset that got a response or a failure. `unsettled_clusters` is the abandoned tail, and it is expected to be non-zero: progressive results are designed so a user can confirm what they want and leave. `viewed_cluster_rate` is the input to the deferred on-demand-dispatch idea — if the median import only ever surfaces a fraction of its clusters, matching all of them up front is buying results nobody looks at.
+
+### Population changes — read this before comparing across releases
+
+Three shifts break naive time-series comparisons through the progressive-loading release:
+
+1. **`failed_chunks` was always 0 before U14.** It was read through a stale closure that predated the dispatch it described. It is live now, so a jump at that release boundary is instrumentation coming online, not a reliability regression.
+2. **A rate-limited run now emits completion _as well as_ an error (U6).** Dispatch used to throw on a fatal 429/503, which suppressed `photo_import_suggestions_completed` entirely; it now resolves partially and reports the rejection on the result. The completion population therefore gained runs that never used to appear in it, and those runs have a **lower `suggestion_count`** and a **non-zero `failed_chunks`** that this population never previously contained. Segment on `photo_import_api_error` when comparing suggestion counts across the boundary.
+3. **`entitlement_exhausted` was split out of `unknown` (U11).** The 402 photo-import limit used to land in the `unknown` error bucket. A drop in `unknown` at this release is that reclassification.
+
+### Backend phase metrics
+
+The backend emits one `place_matcher_phase_metrics` line per request with `phase_ms` (search / vision_wait / enrichment / backfill), `cache`, `outbound`, `retries` and `vision.null_reasons`. Two vision numbers exist and they answer different questions: **`phase_ms.vision_wait` is the RESIDUAL wait vision adds on top of search** (the two run concurrently), while **`vision.total_ms` is vision's total wall time**. Tune ordering with the residual; size the vision budget with the total. `retries` is the rate-limit retry counter and is the leading indicator on the release watch list; the client-side counterpart is `retry_attempts` on the exit event.
+
+### Ad-conversion baseline (`FirstPhotoImport`)
+
+The once-per-lifetime photo-import ad conversion (`AdEvents.firstPhotoImportDone` → `/ad-events` → Meta CAPI + TikTok Events) was **re-anchored in U11** from "every cluster confirmed, rejected or hidden" to "first confirmation plus departure" — the same signal the review prompt on this screen uses. The old trigger becomes markedly rarer under progressive interaction, so the change should _raise_ volume; it must still be watched, because the trigger moved.
+
+**Capture the baseline before this release ships.** It cannot be reconstructed afterwards.
+
+- **What to query:** weekly count of distinct users with a `FirstPhotoImport` event, in Meta Events Manager (or the equivalent TikTok Events report), for the **four full weeks before the release date**. Record the four weekly numbers and their mean in the table below. Cross-check against the backend's `/ad-events` request log for the same window — the ad networks dedupe, the backend does not.
+- **When to read it:** weekly, for the **first six weeks after release**, alongside the rest of the release watch list.
+- **Threshold that triggers a further change:** a drop of **more than 25% against the four-week baseline mean, sustained over two consecutive weeks**. One bad week is noise (the event is per-user-lifetime, so it tracks new-user volume as much as behavior). If the threshold trips, the trigger is the suspect: check whether `photo_import_workflow_exited` volume held steady while conversions fell, which would mean departures stopped carrying a confirmation.
+- **Who reads it:** the product owner (Emerson), as part of the weekly release watch. Nobody else is subscribed to this number.
+
+| Week (pre-release) | `FirstPhotoImport` users |
+| ------------------ | ------------------------ |
+| W-4                | _fill before release_    |
+| W-3                | _fill before release_    |
+| W-2                | _fill before release_    |
+| W-1                | _fill before release_    |
+| **Baseline mean**  | _fill before release_    |
+
 ## Key Files
 
 | File                                                            | Purpose                                 |

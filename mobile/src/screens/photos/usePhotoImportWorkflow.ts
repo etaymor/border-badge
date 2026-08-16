@@ -351,7 +351,13 @@ export function usePhotoImportWorkflow({
   // ==========================================================================
   const apiSuggestionsData = suggestionDispatch.data?.suggestions;
 
-  const { incrementConfirmed, incrementRejected, incrementHidden } = useWorkflowAnalytics({
+  const {
+    incrementConfirmed,
+    incrementRejected,
+    incrementHidden,
+    markClustersViewed,
+    trackDeparture,
+  } = useWorkflowAnalytics({
     phase,
     selectedCandidate,
     dismissedClusterIdsInternal,
@@ -600,5 +606,15 @@ export function usePhotoImportWorkflow({
     switchCandidate,
     closeManualSearch,
     cancelUpload,
+    /**
+     * U11: record cluster rows scrolled into view. Stable identity — safe to
+     * hand straight to the list's viewability callback.
+     */
+    markClustersViewed,
+    /**
+     * U11: the user is leaving the import. Fires the once-per-lifetime ad
+     * conversion when at least one place was confirmed.
+     */
+    trackDeparture,
   };
 }

@@ -15,6 +15,7 @@ import { ActivityIndicator, Text, TouchableOpacity, View } from 'react-native';
 import { FlashList, ListRenderItem } from '@shopify/flash-list';
 
 import { Button } from '@components/ui';
+import { useStableCallback } from '@hooks/useStableCallback';
 import type { TripCandidateDisplay } from '@services/photoImport';
 import { colors } from '@constants/colors';
 import { getFlagEmoji } from '@utils/flags';
@@ -51,6 +52,39 @@ export interface SuggestionsPhaseProps {
   onUpgrade: () => void;
   /** Retry every retry-eligible failed cluster in one action (U9/R15). */
   onRetryAllFailed?: (clusterIds: string[]) => void;
+  /**
+   * U11: cluster rows that have been scrolled into view. Called with the ids of
+   * the rows now visible; the consumer counts them and keeps no ids in any
+   * emitted event (R27).
+   */
+  onClustersViewed?: (clusterIds: string[]) => void;
+}
+
+/**
+ * Viewability rule for the "ever scrolled into view" count (U11).
+ *
+ * Half the row must be on screen, so a cell FlashList mounts just off the
+ * viewport does not count as seen — the measurement exists to answer whether
+ * users actually reach the tail of a long import, and a mount-based count would
+ * always say yes.
+ *
+ * Frozen at module scope: FlashList does not support a changing
+ * `viewabilityConfig`, and a fresh object literal per render is a change.
+ */
+const VIEWABILITY_CONFIG = { itemVisiblePercentThreshold: 50, minimumViewTime: 200 } as const;
+
+/** The cluster id behind a rendered row, whatever its type. */
+function clusterIdOfItem(item: ClusterDisplayItem): string {
+  switch (item.type) {
+    case 'merged-suggestion':
+      return item.data.primaryClusterId;
+    case 'suggestion':
+      return item.data.cluster_id;
+    case 'lookup-failed':
+    case 'photos-only':
+    case 'pending':
+      return item.cluster.id;
+  }
 }
 
 export function SuggestionsPhase({
@@ -67,7 +101,22 @@ export function SuggestionsPhase({
   renderClusterItem,
   onUpgrade,
   onRetryAllFailed,
+  onClustersViewed,
 }: SuggestionsPhaseProps) {
+  // Permanently stable identity: FlashList captures `onViewableItemsChanged`
+  // once and warns when it changes, and this fires during scroll — long after
+  // commit — so the ref-synced indirection is safe here.
+  const handleViewableItemsChanged = useStableCallback(
+    ({ viewableItems }: { viewableItems: { item?: ClusterDisplayItem }[] }) => {
+      if (!onClustersViewed) return;
+      const ids: string[] = [];
+      for (const entry of viewableItems) {
+        if (entry.item) ids.push(clusterIdOfItem(entry.item));
+      }
+      onClustersViewed(ids);
+    }
+  );
+
   // ONE progress source (U8). The header used to read the dispatch controller's
   // own counters while the list rendered a different set of rows, so the two
   // disagreed: the controller counts only the uncached clusters it dispatched,
@@ -186,18 +235,11 @@ export function SuggestionsPhase({
         data={clusterItems}
         renderItem={renderClusterItem}
         contentContainerStyle={styles.listContent}
-        keyExtractor={(item) => {
-          switch (item.type) {
-            case 'merged-suggestion':
-              return item.data.primaryClusterId;
-            case 'suggestion':
-              return item.data.cluster_id;
-            case 'lookup-failed':
-            case 'photos-only':
-            case 'pending':
-              return item.cluster.id;
-          }
-        }}
+        keyExtractor={clusterIdOfItem}
+        // U11: the fraction of clusters ever scrolled into view. Only the count
+        // leaves the screen — no id reaches an analytics event (R27).
+        onViewableItemsChanged={handleViewableItemsChanged}
+        viewabilityConfig={VIEWABILITY_CONFIG}
         // Recycling pools are keyed by item type, so `pending` gets its own pool
         // and a resolved card is never handed a pending cell's layout.
         getItemType={(item) => item.type}

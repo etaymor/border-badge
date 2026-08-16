@@ -1179,3 +1179,112 @@ describe('suggestionDispatch - additive retry run (U9)', () => {
     expect(state.progress?.clustersTotal).toBe(retryClusters.length);
   });
 });
+
+// ---- U11: concurrency telemetry --------------------------------------------
+
+describe('suggestionDispatch - concurrency telemetry (U11/R18)', () => {
+  /** Real elapsed time — the occupancy integral is measured, not simulated. */
+  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  it('records in-flight batch occupancy over TIME, not just the configured pool size', async () => {
+    const clusters = buildClustersForBatches(3);
+    const batches = planSuggestionBatches(clusters);
+    const gates = batches.map(() => deferred<void>());
+
+    mockedApi.post.mockImplementation(async (_url, body) => {
+      const index = batchIndexOfRequest(batches, body);
+      await gates[index].promise;
+      return emptyResponse;
+    });
+
+    const run = suggestionDispatch.dispatch({ clusters, concurrency: 3 });
+    await flush();
+
+    // The wire is observable rather than re-derived by the caller.
+    expect(suggestionDispatch.getInFlightBatchCount()).toBe(3);
+
+    // Three batches for a while, then one: a peak-only metric would call this a
+    // full pool for the whole run.
+    await sleep(30);
+    gates[0].resolve();
+    gates[1].resolve();
+    await flush();
+    expect(suggestionDispatch.getInFlightBatchCount()).toBe(1);
+
+    await sleep(30);
+    gates[2].resolve();
+    await run;
+
+    const telemetry = suggestionDispatch.getTelemetry();
+    expect(telemetry.peakInFlightBatches).toBe(3);
+    expect(telemetry.wireSpanMs).toBeGreaterThan(0);
+    expect(telemetry.wireBusyMs).toBeGreaterThan(0);
+    expect(telemetry.wireBusyMs).toBeLessThanOrEqual(telemetry.wireSpanMs);
+    // Time-weighted: strictly between the two occupancy levels it actually held.
+    expect(telemetry.meanInFlightBatches).toBeGreaterThan(1);
+    expect(telemetry.meanInFlightBatches).toBeLessThan(3);
+    expect(suggestionDispatch.getInFlightBatchCount()).toBe(0);
+  });
+
+  it('reports a peak of one at the shipped sequential default', async () => {
+    mockedApi.post.mockResolvedValue(emptyResponse);
+    await suggestionDispatch.dispatch({ clusters: buildClustersForBatches(3) });
+
+    expect(suggestionDispatch.getTelemetry().peakInFlightBatches).toBe(
+      SUGGESTION_DISPATCH_CONCURRENCY
+    );
+  });
+
+  it('keys retry attempts by dispatch generation', async () => {
+    mockedApi.post.mockResolvedValue(emptyResponse);
+    const clusters = buildClustersForBatches(2);
+
+    await suggestionDispatch.dispatch({ clusters });
+    expect(suggestionDispatch.getTelemetry()).toMatchObject({
+      retryAttempts: 0,
+      retryGenerations: 0,
+      maxRetryAttemptsPerGeneration: 0,
+    });
+
+    // A per-row retry repairs the generation it runs inside.
+    await suggestionDispatch.dispatchBatch({
+      clusterIds: [clusters[0].id],
+      prepare: async () => [clusters[0]] as PlaceSuggestionCluster[],
+      isRetry: true,
+    });
+    expect(suggestionDispatch.getTelemetry()).toMatchObject({
+      retryAttempts: 1,
+      retryGenerations: 1,
+      maxRetryAttemptsPerGeneration: 1,
+    });
+
+    // A bulk retry bumps the generation, so its two batches land on their own
+    // key — which is what separates "one bad generation" from steady retrying.
+    await suggestionDispatch.dispatch({ clusters, isRetry: true });
+    expect(suggestionDispatch.getTelemetry()).toMatchObject({
+      retryAttempts: 3,
+      retryGenerations: 2,
+      maxRetryAttemptsPerGeneration: 2,
+    });
+  });
+
+  it('opens a fresh window for a new main dispatch but survives reset()', async () => {
+    mockedApi.post.mockResolvedValue(emptyResponse);
+    const clusters = buildClustersForBatches(2);
+
+    await suggestionDispatch.dispatch({ clusters });
+    await suggestionDispatch.dispatch({ clusters, isRetry: true });
+    expect(suggestionDispatch.getTelemetry().retryAttempts).toBe(2);
+
+    // `reset()` runs on the very navigation the exit event is emitted from, so
+    // the measurement has to outlive it.
+    suggestionDispatch.reset();
+    expect(suggestionDispatch.getTelemetry().retryAttempts).toBe(2);
+
+    await suggestionDispatch.dispatch({ clusters });
+    expect(suggestionDispatch.getTelemetry()).toMatchObject({
+      retryAttempts: 0,
+      retryGenerations: 0,
+    });
+  });
+});

@@ -791,6 +791,78 @@ describe('usePlaceSuggestions - timing instrumentation (U15)', () => {
       expect(serialized).not.toContain(forbidden);
     }
   });
+
+  // ---- U11: concurrency-aware fields ---------------------------------------
+
+  it('U11: carries the in-flight batch occupancy alongside the existing timings', async () => {
+    const clusters = Array.from({ length: 6 }, (_, i) => makeCluster(`o-${i}`, 35 + i, 139));
+
+    mockedApi.post.mockImplementation(async (_url, body) => {
+      const ids = (body as { clusters: { id: string }[] }).clusters.map((c) => c.id);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      return {
+        data: {
+          suggestions: ids.map((id) => ({
+            cluster_id: id,
+            photo_ids: [`photo-${id}`],
+            places: [placeFor(id)],
+          })),
+          failed_cluster_count: 0,
+        },
+      };
+    });
+
+    const { result } = setup(clusters);
+
+    await act(async () => {
+      await result.current.fetchSuggestions(
+        buildCandidate(
+          clusters.map((c) => c.id),
+          'cand-occupancy'
+        )
+      );
+    });
+
+    const props = lastCompletedProps();
+    // The pool ships at 1, so the peak is 1 — but it is MEASURED, not assumed.
+    expect(props.peakInFlightBatches).toBeGreaterThanOrEqual(1);
+    expect(props.meanInFlightBatches).toBeGreaterThan(0);
+    expect(props.wireSpanMs).toBeGreaterThan(0);
+    expect(props.wireBusyMs).toBeLessThanOrEqual(props.wireSpanMs);
+    // The U15 fields keep their existing computation.
+    expect(props.apiP50Ms).toBe(100);
+    expect(props.totalApiDurationMs).toBeGreaterThan(0);
+    expect(props.suggestionCount).toBe(6);
+
+    // R27 again: occupancy is counts and durations only.
+    const serialized = JSON.stringify(props);
+    for (const forbidden of ['o-0', 'ChIJ_', '139']) {
+      expect(serialized).not.toContain(forbidden);
+    }
+  });
+
+  it('U11: names the 402 entitlement stop instead of filing it under unknown', async () => {
+    const clusters = [makeCluster('e-1', 35.5, 139.5)];
+    const limitReached = new AxiosError('payment required');
+    limitReached.response = {
+      status: 402,
+      headers: {},
+      data: { code: 'PHOTO_IMPORT_LIMIT_REACHED' },
+      statusText: '',
+      config: {} as never,
+    };
+    mockedApi.post.mockRejectedValueOnce(limitReached);
+
+    const { result } = setup(clusters);
+
+    await act(async () => {
+      await result.current.fetchSuggestions(buildCandidate(['e-1'], 'cand-402'));
+    });
+
+    expect(Analytics.photoImportApiError).toHaveBeenCalledWith({
+      errorType: 'entitlement_exhausted',
+    });
+  });
 });
 
 // ---- Dispatch owner accounting (U2 / R1 / KTD13) ---------------------------

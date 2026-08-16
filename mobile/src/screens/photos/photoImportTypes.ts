@@ -110,6 +110,18 @@ export interface PhotoImportWorkflowResult {
   /** Cancel upload for a specific cluster */
   cancelUpload: (clusterId: string) => void;
 
+  /**
+   * U11: record that these cluster rows have been scrolled into view. Stable
+   * identity, so it can be handed straight to the list's viewability callback.
+   * Only the resulting COUNT is ever emitted (R27).
+   */
+  markClustersViewed: (clusterIds: string[]) => void;
+  /**
+   * U11: the user is leaving the import. Fires the once-per-lifetime photo-import
+   * ad conversion when at least one place has been confirmed.
+   */
+  trackDeparture: () => void;
+
   // Premium gating
   /** Whether user has premium access (subscribed or trialing) */
   isPremium: boolean;

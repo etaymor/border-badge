@@ -18,6 +18,7 @@ import {
   suggestionDispatch,
   RateLimitError,
   QuotaExhaustedError,
+  PhotoImportLimitReachedError,
   type PlaceSuggestionCluster,
 } from '@services/photoImport/suggestionDispatch';
 import {
@@ -647,11 +648,13 @@ export function usePlaceSuggestions({
           Analytics.photoImportApiError({ errorType: 'quota_exhausted' });
         } else if (result.fatalError instanceof RateLimitError) {
           Analytics.photoImportApiError({ errorType: 'rate_limited' });
+        } else if (result.fatalError instanceof PhotoImportLimitReachedError) {
+          // U11: the 402 entitlement stop gets its OWN type rather than sharing
+          // `unknown` with genuine faults. It is a product outcome with a paywall
+          // follow-up, so burying it in the bug bucket both inflates the error
+          // rate and hides the funnel step.
+          Analytics.photoImportApiError({ errorType: 'entitlement_exhausted' });
         } else if (result.fatalError !== null) {
-          // Includes PhotoImportLimitReachedError (402). Deliberately NOT
-          // classified as a transient failure. Naming it in telemetry belongs to
-          // U11; U10 only has to make sure it cannot be reached by a user whose
-          // trip is exempt.
           Analytics.photoImportApiError({ errorType: 'unknown' });
         }
 
@@ -668,6 +671,10 @@ export function usePlaceSuggestions({
         const failedChunks = suggestionDispatch.getState().progress?.failedChunks ?? 0;
         const apiTimes = result.chunkResponseTimes ?? [];
         const percentiles = apiTimes.length > 0 ? calculateApiPercentiles(apiTimes) : null;
+        // U11/R18. Concurrency's own numbers. `totalApiDurationMs` sums per-batch
+        // durations, so under a pool it over-counts overlapped time and cannot
+        // say whether the pool was ever full; the occupancy integral can.
+        const telemetry = suggestionDispatch.getTelemetry();
 
         Analytics.photoImportSuggestionsCompleted({
           suggestionCount: result.suggestions.length + cachedResults.length,
@@ -686,6 +693,10 @@ export function usePlaceSuggestions({
           timeToFirstSuggestionMs:
             result.firstSuggestionAt !== null ? result.firstSuggestionAt - fetchStartedAt : null,
           wallClockMs: Date.now() - fetchStartedAt,
+          peakInFlightBatches: telemetry.peakInFlightBatches,
+          meanInFlightBatches: telemetry.meanInFlightBatches,
+          wireBusyMs: telemetry.wireBusyMs,
+          wireSpanMs: telemetry.wireSpanMs,
         });
       } catch (error) {
         if (__DEV__) console.error('[PhotoImport] Suggestion error:', error);
@@ -995,6 +1006,9 @@ export function usePlaceSuggestions({
         const { response: result, respondedIds } = await suggestionDispatch.dispatchBatch({
           clusterIds: uncached.map((c) => c.id),
           tripId: activeTripIdRef.current,
+          // U11/R18: counted against the current generation's retry tally. A
+          // cache hit above is NOT an attempt — nothing went on the wire.
+          isRetry: true,
           prepare: async () => {
             const visionImages = await prepareVisionImagesBounded(uncached);
             return uncached.map((c, i) => mapClusterToApiPayload(c, visionImages[i]));
@@ -1180,6 +1194,8 @@ export function usePlaceSuggestions({
           Analytics.photoImportApiError({ errorType: 'quota_exhausted' });
         } else if (result.fatalError instanceof RateLimitError) {
           Analytics.photoImportApiError({ errorType: 'rate_limited' });
+        } else if (result.fatalError instanceof PhotoImportLimitReachedError) {
+          Analytics.photoImportApiError({ errorType: 'entitlement_exhausted' });
         } else if (result.fatalError !== null) {
           Analytics.photoImportApiError({ errorType: 'unknown' });
         }

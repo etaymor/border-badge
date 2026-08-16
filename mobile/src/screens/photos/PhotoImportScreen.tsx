@@ -129,6 +129,8 @@ export function PhotoImportScreen({ navigation, route }: Props) {
     switchCandidate,
     closeManualSearch,
     cancelUpload,
+    markClustersViewed,
+    trackDeparture,
   } = usePhotoImportWorkflow({
     filterCountryCode,
     tripId,
@@ -196,6 +198,12 @@ export function PhotoImportScreen({ navigation, route }: Props) {
   // Handle back navigation with potential review trigger
   const handleBackNavigation = useCallback(
     (action: 'candidates' | 'goBack') => {
+      // U11: the ad conversion rides the SAME first-confirmation-plus-departure
+      // signal as the review prompt below, instead of waiting for every cluster
+      // to be confirmed, rejected or hidden. Fired before the review modal can
+      // hold up the navigation, and idempotent per lifetime.
+      trackDeparture();
+
       if (hasConfirmedPlaceRef.current && checkEligibility('first_photo_import')) {
         if (startReviewFlow('first_photo_import')) {
           setPendingBackAction(action);
@@ -210,7 +218,7 @@ export function PhotoImportScreen({ navigation, route }: Props) {
         navigation.goBack();
       }
     },
-    [checkEligibility, startReviewFlow, backToCandidates, navigation]
+    [checkEligibility, startReviewFlow, backToCandidates, navigation, trackDeparture]
   );
 
   // Complete pending back navigation after review modal closes
@@ -486,6 +494,7 @@ export function PhotoImportScreen({ navigation, route }: Props) {
           renderClusterItem={renderClusterItem}
           onUpgrade={() => rootNavigation.navigate('PaywallModal', { feature: 'photoImport' })}
           onRetryAllFailed={handleRetryAllClusters}
+          onClustersViewed={markClustersViewed}
         />
       )}
 
