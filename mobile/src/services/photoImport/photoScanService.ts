@@ -33,6 +33,7 @@ import { photoToCachedPhoto, segmentTripsFromCache } from './photoClusteringCach
 import { applyPersistedSplits, applySavedPhotoFilter } from './photoClusteringDisplay';
 import { getAllSavedPhotoIds, getClusterSplitsForParents } from './photoCacheDbSuggestions';
 import { extractPhotosWithLocation } from './photoImportService';
+import { recordSyncError, recordSyncSuccess } from './photoLibrarySyncStatus';
 import { _setScanRunning, isScanRunning } from './photoScanState';
 import type {
   CachedPhoto,
@@ -198,6 +199,8 @@ export function markFailed(failure: PhotoScanFailure): void {
     scanFailure: failure,
     hasResult: false,
   });
+  // P1: leave a trace in the shared sync status (fire-and-forget).
+  void recordSyncError('trip-scan', failure.message || failure.reason || 'scan failed');
 }
 
 /**
@@ -522,6 +525,9 @@ async function runScan(
       hasResult: true,
       scanFailure: null,
     });
+    // P1: a completed trip scan makes the shared cache fresh for everyone
+    // (e.g. the next quiz creation skips its scan). Fire-and-forget.
+    void recordSyncSuccess('trip-scan', newPhotos.length);
   } catch (error) {
     if (isAbortLike(error)) {
       // Cancellation: store and metadata are reset by `cancelScan`. Nothing else to do.
@@ -569,6 +575,8 @@ function publishFailure(failure: PhotoScanFailure): void {
     scanFailure: failure,
     hasResult: false,
   });
+  // P1: leave a trace in the shared sync status (fire-and-forget).
+  void recordSyncError('trip-scan', failure.message || failure.reason || 'scan failed');
 }
 
 async function clearScanMetadata(): Promise<void> {

@@ -38,18 +38,8 @@ import { api } from '@services/api';
 import { getAllCountries } from '@services/countriesDb';
 import { getImageDimensions } from '@services/mediaUpload';
 import { iso1A2Code } from '@services/photoImport/countryCoder';
-import { isBackgroundSyncInProgress } from '@services/photoImport/photoBackgroundSync';
-import {
-  cachePhotos,
-  getAllCachedPhotos,
-  getLastImportTime,
-  getMetadata,
-  setLastImportTime,
-  setMetadata,
-} from '@services/photoImport/photoCacheDb';
-import { photoToCachedPhoto } from '@services/photoImport/photoClusteringCache';
-import { extractPhotosWithLocation } from '@services/photoImport/photoImportService';
-import { isScanRunning } from '@services/photoImport/photoScanState';
+import { ensureFreshLibrary } from '@services/photoImport/photoBackgroundSync';
+import { getAllCachedPhotos, getMetadata, setMetadata } from '@services/photoImport/photoCacheDb';
 import { prepareVisionImage } from '@services/photoImport/visionPhoto';
 import type { CachedPhoto } from '@services/photoImport/types';
 
@@ -210,40 +200,6 @@ function isBudgetExceededError(error: unknown): boolean {
   return (
     httpStatus(error) === 429 && httpDetailCode(error) === 'QUIZ_CLASSIFICATION_BUDGET_EXCEEDED'
   );
-}
-
-// ---------------------------------------------------------------------------
-// Photo cache refresh (KTD1)
-// ---------------------------------------------------------------------------
-
-/**
- * Bring the SQLite photo cache up to date using the background-sync mechanics:
- * an incremental extract since the last import when a cache exists, or the
- * initial extraction when it does not (fresh install, R7). Skipped entirely
- * when the scan service or background sync already owns the cache.
- */
-async function refreshPhotoCache(
-  onProgress: ((progress: QuizCreationProgress) => void) | undefined,
-  signal: AbortSignal | undefined
-): Promise<void> {
-  if (isScanRunning() || isBackgroundSyncInProgress()) {
-    return; // Another writer owns the cache right now; use it as-is.
-  }
-  const lastImportTime = await getLastImportTime();
-  const newPhotos = await extractPhotosWithLocation(
-    (progress) =>
-      onProgress?.({ step: 'scanning', current: progress.current, total: progress.total }),
-    signal,
-    lastImportTime ? new Date(lastImportTime) : undefined
-  );
-  if (signal?.aborted || newPhotos.length === 0) return;
-
-  await cachePhotos(newPhotos.map((photo) => photoToCachedPhoto(photo)));
-  const newestTime = newPhotos.reduce(
-    (max, photo) => Math.max(max, photo.creationTime.getTime()),
-    0
-  );
-  await setLastImportTime(newestTime);
 }
 
 // ---------------------------------------------------------------------------
@@ -562,20 +518,31 @@ async function runQuizCreation(
     return outcome;
   }
 
-  // Step 1: bring the photo cache up to date (KTD1).
-  onProgress?.({ step: 'scanning' });
+  // Step 1: bring the photo cache up to date (KTD1) - via the shared
+  // ensureFreshLibrary flow (P1). A fresh or writer-owned cache emits NO
+  // scanning progress at all: the wizard's scan step only exists when a
+  // scan actually runs.
   let cached: CachedPhoto[];
-  try {
-    await refreshPhotoCache(onProgress, signal);
-    if (signal?.aborted) return { status: 'cancelled' };
-    cached = await getAllCachedPhotos();
-  } catch {
+  const refresh = await ensureFreshLibrary({
+    source: 'quiz',
+    onProgress: (progress) => {
+      onProgress?.({ step: 'scanning', current: progress.current, total: progress.total });
+    },
+    signal,
+  });
+  if (signal?.aborted) return { status: 'cancelled' };
+  if (refresh.status === 'failed') {
     // A failed refresh with an existing cache degrades to stale candidates;
     // with no cache at all there is nothing to build from - retryable.
     cached = await getAllCachedPhotos().catch(() => []);
     if (cached.length === 0) {
       return { status: 'service-error', stage: 'scan' };
     }
+  } else {
+    // 'fresh', 'refreshed', 'deferred' (another writer owns the cache: use
+    // it as-is), and 'no-permission' (screens gate permission before the
+    // mutation ever starts; an empty cache is caught below) all proceed.
+    cached = await getAllCachedPhotos();
   }
   if (signal?.aborted) return { status: 'cancelled' };
 

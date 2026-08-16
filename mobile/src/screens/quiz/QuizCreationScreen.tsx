@@ -1,9 +1,24 @@
 /**
- * QuizCreationScreen - one tap from the entry point to a built quiz.
+ * QuizCreationScreen - the Guess Where creation wizard (Q5).
+ *
+ * A stepper instead of a single blocking screen: an intro step confirms what
+ * is about to happen (pre-flighted against the shared library freshness, so
+ * a warm cache promises no scan), then the build runs with only the steps
+ * that actually exist. The photo-scan step is SKIPPED entirely when the
+ * cache is fresh (P1: ensureFreshLibrary emits no scanning progress then) -
+ * repeat creations no longer feel as heavy as the first.
+ *
+ * The service keeps sole ownership of sequencing: one createQuiz.mutate call
+ * drives refresh + classify + build exactly as before, and the rendered step
+ * list follows ACTUAL progress events - the pre-flight only chooses the
+ * initial list, so a fresh->stale race between pre-flight and mutate cannot
+ * desync the UI.
  *
  * Owns every state of the creation flow:
+ * - intro (freshness-aware confirm) and resume-draft confirm (pre-flighted
+ *   via loadDraftState instead of discovered after an interruption)
  * - permission request / denied (Settings link) / limited-access awareness
- * - staged progress (scanning -> checking -> building), never a frozen spinner
+ * - staged progress, never a frozen spinner
  * - thin-library decline with guidance (AE2), with a distinct "allow more
  *   photos" branch when access is limited
  * - retryable service failure, DISTINCT from the thin-library decline
@@ -18,11 +33,16 @@ import { ActivityIndicator, Linking, StyleSheet, Text, View } from 'react-native
 
 import { Button } from '@components/ui/Button';
 import { Screen } from '@components/ui/Screen';
-import { colors } from '@constants/colors';
+import { colors, withAlpha } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { usePhotoPermissionStatus } from '@hooks/usePhotoPermissions';
 import { useCreateQuiz } from '@hooks/useQuizzes';
 import { useStableCallback } from '@hooks/useStableCallback';
+import {
+  getLibraryFreshness,
+  type LibraryFreshness,
+} from '@services/photoImport/photoLibrarySyncStatus';
+import { loadDraftState } from '@services/quiz/quizCreation';
 import type {
   QuizCreationOutcome,
   QuizCreationProgress,
@@ -34,6 +54,8 @@ type Props = RootStackScreenProps<'QuizCreation'>;
 
 type ScreenPhase =
   | 'checking-permission'
+  | 'intro'
+  | 'resume-draft'
   | 'permission-request'
   | 'permission-denied'
   | 'working'
@@ -41,13 +63,19 @@ type ScreenPhase =
   | 'service-error'
   | 'interrupted';
 
-const STEP_ORDER: QuizCreationStep[] = ['scanning', 'checking', 'building'];
-
 const STEP_LABELS: Record<QuizCreationStep, string> = {
-  scanning: 'Scanning your library',
-  checking: 'Checking photos',
-  building: 'Building your quiz',
+  scanning: 'Checking for new photos',
+  checking: 'Reading the scenery',
+  building: 'Dealing your challenge',
 };
+
+function formatSyncedAgo(lastSuccessAt: number | null): string | null {
+  if (!lastSuccessAt) return null;
+  const minutes = Math.max(1, Math.round((Date.now() - lastSuccessAt) / 60_000));
+  if (minutes < 60) return `synced ${minutes} min ago`;
+  const hours = Math.round(minutes / 60);
+  return `synced ${hours} ${hours === 1 ? 'hour' : 'hours'} ago`;
+}
 
 export function QuizCreationScreen({ navigation }: Props) {
   const {
@@ -60,9 +88,22 @@ export function QuizCreationScreen({ navigation }: Props) {
   const [phase, setPhase] = useState<ScreenPhase>('checking-permission');
   const [progress, setProgress] = useState<QuizCreationProgress | null>(null);
   const [outcome, setOutcome] = useState<QuizCreationOutcome | null>(null);
+  const [freshness, setFreshness] = useState<LibraryFreshness | null>(null);
+  const [draftUploadCounts, setDraftUploadCounts] = useState<{
+    uploaded: number;
+    total: number;
+  } | null>(null);
+  // Steps the wizard shows: the pre-flight picks the initial list, and a
+  // real 'scanning' progress event re-adds the step if the pre-flight was
+  // optimistic (fresh->stale race).
+  const [visibleSteps, setVisibleSteps] = useState<QuizCreationStep[]>([
+    'scanning',
+    'checking',
+    'building',
+  ]);
 
   const abortRef = useRef<AbortController | null>(null);
-  const startedRef = useRef(false);
+  const preflightRef = useRef(false);
 
   const limitedAccess = permissionStatus === 'limited';
 
@@ -87,14 +128,24 @@ export function QuizCreationScreen({ navigation }: Props) {
     }
   });
 
+  const handleProgress = useStableCallback((update: QuizCreationProgress) => {
+    setProgress(update);
+    // The service is the truth: if a scan actually runs, the step exists.
+    if (update.step === 'scanning') {
+      setVisibleSteps((steps) => (steps.includes('scanning') ? steps : ['scanning', ...steps]));
+    }
+  });
+
   const startCreation = useStableCallback(() => {
     setPhase('working');
     setOutcome(null);
-    setProgress({ step: 'scanning' });
+    const scanExpected = !freshness?.fresh;
+    setVisibleSteps(scanExpected ? ['scanning', 'checking', 'building'] : ['checking', 'building']);
+    setProgress({ step: scanExpected ? 'scanning' : 'checking' });
     const controller = new AbortController();
     abortRef.current = controller;
     createQuiz.mutate(
-      { onProgress: setProgress, signal: controller.signal },
+      { onProgress: handleProgress, signal: controller.signal },
       {
         onSuccess: handleOutcome,
         onError: () => {
@@ -106,18 +157,44 @@ export function QuizCreationScreen({ navigation }: Props) {
     );
   });
 
-  // Route the initial permission state once it is known.
+  // Pre-flight once the permission state is known: a picks-bearing draft
+  // goes to the resume confirm, everything else to the freshness-aware
+  // intro. Permission prompting stays behind the intro CTA.
   useEffect(() => {
-    if (permissionLoading || startedRef.current) return;
-    if (permissionStatus === 'granted' || permissionStatus === 'limited') {
-      startedRef.current = true;
-      startCreation();
-    } else if (permissionStatus === 'denied') {
+    if (permissionLoading || preflightRef.current) return;
+    preflightRef.current = true;
+
+    if (permissionStatus === 'denied') {
       setPhase('permission-denied');
-    } else {
-      setPhase('permission-request');
+      return;
     }
-  }, [permissionLoading, permissionStatus, startCreation]);
+
+    let cancelled = false;
+    (async () => {
+      const [draft, currentFreshness] = await Promise.all([
+        loadDraftState().catch(() => null),
+        permissionStatus === 'granted' || permissionStatus === 'limited'
+          ? getLibraryFreshness().catch(() => null)
+          : Promise.resolve(null),
+      ]);
+      if (cancelled) return;
+      setFreshness(currentFreshness);
+      if (draft && draft.picks.length > 0) {
+        setDraftUploadCounts({
+          uploaded: draft.picks.filter((pick) => pick.uploaded).length,
+          total: draft.picks.length,
+        });
+        setPhase('resume-draft');
+      } else if (permissionStatus === 'granted' || permissionStatus === 'limited') {
+        setPhase('intro');
+      } else {
+        setPhase('permission-request');
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [permissionLoading, permissionStatus]);
 
   // Abandoning the screen mid-flight keeps the persisted draft resumable (KTD7).
   useEffect(() => {
@@ -129,8 +206,9 @@ export function QuizCreationScreen({ navigation }: Props) {
   const handleRequestPermission = useStableCallback(async () => {
     const granted = await requestPermission();
     if (granted === 'granted' || granted === 'limited') {
-      startedRef.current = true;
-      startCreation();
+      const currentFreshness = await getLibraryFreshness().catch(() => null);
+      setFreshness(currentFreshness);
+      setPhase('intro');
     } else {
       setPhase('permission-denied');
     }
@@ -149,6 +227,17 @@ export function QuizCreationScreen({ navigation }: Props) {
     Linking.openSettings();
   });
 
+  const syncedAgo = formatSyncedAgo(freshness?.lastSuccessAt ?? null);
+  const freshnessLine = freshness?.fresh
+    ? freshness.reason === 'writer-active'
+      ? 'Your library is syncing right now - we will use the freshest photos.'
+      : `Your photo library is ready${syncedAgo ? ` - ${syncedAgo}` : ''}${
+          freshness.cachedPhotoCount > 0
+            ? ` - ${freshness.cachedPhotoCount.toLocaleString()} photos`
+            : ''
+        }.`
+    : 'We will check your library for new photos first.';
+
   return (
     <Screen>
       <View style={styles.container}>
@@ -158,13 +247,44 @@ export function QuizCreationScreen({ navigation }: Props) {
           </View>
         )}
 
+        {phase === 'intro' && (
+          <View style={styles.centered} testID="quiz-intro-step">
+            <Text style={styles.eyebrow}>Guess Where</Text>
+            <Text style={styles.title}>New Challenge</Text>
+            <Text style={styles.body}>
+              We pick 5-10 geotagged photos from your trips, you play them once to set the score to
+              beat, then the challenge is ready to share.
+            </Text>
+            <Text style={styles.freshnessLine} testID="quiz-freshness-line">
+              {freshnessLine}
+            </Text>
+            <Button title="Build My Challenge" onPress={startCreation} testID="quiz-build-start" />
+            <Button title="Not Now" variant="ghost" onPress={handleBack} />
+          </View>
+        )}
+
+        {phase === 'resume-draft' && (
+          <View style={styles.centered} testID="quiz-resume-draft">
+            <Text style={styles.eyebrow}>Guess Where</Text>
+            <Text style={styles.title}>An Unfinished Challenge</Text>
+            <Text style={styles.body}>
+              {draftUploadCounts
+                ? `${draftUploadCounts.uploaded} of ${draftUploadCounts.total} photos already made it up. `
+                : ''}
+              Resuming only uploads the rest - your picks are saved.
+            </Text>
+            <Button title="Resume" onPress={startCreation} testID="quiz-resume-start" />
+            <Button title="Finish Later" variant="ghost" onPress={handleBack} />
+          </View>
+        )}
+
         {phase === 'permission-request' && (
           <View style={styles.centered} testID="quiz-permission-request">
-            <Text style={styles.title}>Travel Photo Quiz</Text>
+            <Text style={styles.title}>Your Photos, Their Guesses</Text>
             <Text style={styles.body}>
-              We build a quiz from your own travel photos. Allow photo access so we can find
+              A challenge is built from your own travel photos. Allow photo access so we can find
               geotagged shots from your trips. We check your photos on your device to pick the
-              eligible ones, then upload copies of just those photos to build your quiz.
+              eligible ones, then upload copies of just those photos to build your challenge.
             </Text>
             <Button title="Allow Photo Access" onPress={handleRequestPermission} />
             <Button title="Not Now" variant="ghost" onPress={handleBack} />
@@ -175,8 +295,8 @@ export function QuizCreationScreen({ navigation }: Props) {
           <View style={styles.centered} testID="quiz-permission-denied">
             <Text style={styles.title}>Photo Access Needed</Text>
             <Text style={styles.body}>
-              The quiz is built from your own travel photos, so it needs photo library access.
-              Enable it in Settings, then come back to build your quiz.
+              The challenge is built from your own travel photos, so it needs photo library access.
+              Enable it in Settings, then come back to build your challenge.
             </Text>
             <Button title="Open Settings" onPress={handleOpenSettings} />
             <Button title="Back" variant="ghost" onPress={handleBack} />
@@ -185,11 +305,11 @@ export function QuizCreationScreen({ navigation }: Props) {
 
         {phase === 'working' && (
           <View style={styles.centered} testID="quiz-progress">
-            <Text style={styles.title}>Building Your Quiz</Text>
+            <Text style={styles.title}>Building Your Challenge</Text>
             <View style={styles.steps}>
-              {STEP_ORDER.map((step) => {
-                const activeIndex = STEP_ORDER.indexOf(progress?.step ?? 'scanning');
-                const stepIndex = STEP_ORDER.indexOf(step);
+              {visibleSteps.map((step) => {
+                const activeIndex = visibleSteps.indexOf(progress?.step ?? visibleSteps[0]);
+                const stepIndex = visibleSteps.indexOf(step);
                 const state =
                   stepIndex < activeIndex
                     ? 'done'
@@ -219,7 +339,8 @@ export function QuizCreationScreen({ navigation }: Props) {
               })}
             </View>
             <Text style={styles.hint}>
-              This usually takes under a minute. Your photos stay private until you share the quiz.
+              This usually takes under a minute. Your photos stay private until you share the
+              challenge.
             </Text>
             <Button title="Cancel" variant="ghost" onPress={handleCancel} />
           </View>
@@ -231,8 +352,8 @@ export function QuizCreationScreen({ navigation }: Props) {
               <Text style={styles.title}>Limited Photo Access</Text>
               <Text style={styles.body}>
                 Border Badge can only see the photos you selected, and that was not enough to build
-                a quiz. Allow access to more of your library - especially geotagged outdoor shots
-                from your trips - and try again.
+                a challenge. Allow access to more of your library - especially geotagged outdoor
+                shots from your trips - and try again.
               </Text>
               <Button title="Allow More Photos" onPress={handleOpenSettings} />
               <Button title="Try Again" variant="secondary" onPress={startCreation} />
@@ -240,10 +361,10 @@ export function QuizCreationScreen({ navigation }: Props) {
             </View>
           ) : (
             <View style={styles.centered} testID="quiz-thin-library">
-              <Text style={styles.title}>Not Enough Quiz Photos Yet</Text>
+              <Text style={styles.title}>Not Enough Photos Yet</Text>
               <Text style={styles.body}>
-                A quiz needs at least 5 photos that are geotagged, outdoors, and show scenery or
-                landmarks without people.
+                A challenge needs at least 5 photos that are geotagged, outdoors, and show scenery
+                or landmarks without people.
                 {outcome?.status === 'thin-library' && outcome.hasGeoCandidates
                   ? ' We found travel photos, but too few passed those checks.'
                   : ' We could not find geotagged travel photos in your library.'}
@@ -295,6 +416,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 16,
   },
+  eyebrow: {
+    fontFamily: fonts.body.bold,
+    fontSize: 12,
+    letterSpacing: 2,
+    textTransform: 'uppercase',
+    color: colors.mossGreen,
+    textAlign: 'center',
+  },
   title: {
     fontFamily: fonts.playfair.bold,
     fontSize: 28,
@@ -306,6 +435,13 @@ const styles = StyleSheet.create({
     fontSize: 16,
     lineHeight: 24,
     color: colors.textSecondary,
+    textAlign: 'center',
+  },
+  freshnessLine: {
+    fontFamily: fonts.body.semiBold,
+    fontSize: 13,
+    lineHeight: 19,
+    color: withAlpha(colors.midnightNavy, 0.6),
     textAlign: 'center',
   },
   steps: {

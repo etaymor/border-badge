@@ -39,6 +39,7 @@ import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import type { PassportStackScreenProps } from '@navigation/types';
 
+import { LibrarySyncFooter } from './components/LibrarySyncFooter';
 import { PhotoTripCard } from './components/PhotoTripCard';
 
 /* eslint-disable @typescript-eslint/no-require-imports */
@@ -300,6 +301,7 @@ export function PhotoTripsScreen({ navigation, route }: Props) {
         getItemType={getItemType}
         contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + 20 }]}
         ListEmptyComponent={EmptyComponent}
+        ListFooterComponent={LibrarySyncFooter}
         refreshControl={
           <RefreshControl
             refreshing={isRefreshing}

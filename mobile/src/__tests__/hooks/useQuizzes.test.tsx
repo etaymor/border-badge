@@ -58,6 +58,18 @@ jest.mock('@services/photoImport/photoClusteringCache', () => ({
 
 jest.mock('@services/photoImport/photoBackgroundSync', () => ({
   isBackgroundSyncInProgress: jest.fn(() => false),
+  // The creation flow consults the shared refresh (P1); "fresh" means it
+  // proceeds straight to the cache with no scanning progress.
+  ensureFreshLibrary: jest.fn(async () => ({
+    status: 'fresh',
+    freshness: {
+      fresh: true,
+      reason: 'synced-recently',
+      lastSuccessAt: 1_700_000_000_000,
+      cachedPhotoCount: 10,
+      permission: 'granted',
+    },
+  })),
 }));
 
 jest.mock('@services/photoImport/photoScanState', () => ({
@@ -278,13 +290,51 @@ describe('useQuizzes', () => {
       expect(finalized.every((p) => p.storage_path.startsWith('quiz/quiz-1/'))).toBe(true);
       expect(finalized.every((p) => p.landscape === 'prairie')).toBe(true);
 
-      // Real progress feel: all three steps reported, in order.
+      // Real progress feel: checking then building, in order. The cache was
+      // FRESH (ensureFreshLibrary mock), so NO scanning step is ever emitted
+      // (Q5: the scan step only exists when a scan actually runs).
       const seenSteps = progressSteps.map((p) => p.step);
-      expect(seenSteps).toContain('scanning');
+      expect(seenSteps).not.toContain('scanning');
       expect(seenSteps).toContain('checking');
       expect(seenSteps).toContain('building');
-      expect(seenSteps.indexOf('scanning')).toBeLessThan(seenSteps.indexOf('checking'));
       expect(seenSteps.indexOf('checking')).toBeLessThan(seenSteps.indexOf('building'));
+    });
+
+    it('emits scanning progress only when the cache is actually stale (Q5)', async () => {
+      const photos = Array.from({ length: 8 }, () => makeCachedPhoto());
+      mockGetAllCachedPhotos.mockResolvedValue(photos);
+      installQuizApi({ eligibleIds: new Set(photos.map((p) => p.id)) });
+      // Stale cache: the shared refresh runs and reports extract progress.
+      const { ensureFreshLibrary } = jest.requireMock(
+        '@services/photoImport/photoBackgroundSync'
+      ) as {
+        ensureFreshLibrary: jest.Mock;
+      };
+      ensureFreshLibrary.mockImplementationOnce(
+        async (options: { onProgress?: (p: { current: number; total: number }) => void }) => {
+          options.onProgress?.({ current: 1, total: 4 });
+          options.onProgress?.({ current: 4, total: 4 });
+          return {
+            status: 'refreshed',
+            newPhotos: 4,
+            freshness: {
+              fresh: true,
+              reason: 'synced-recently',
+              lastSuccessAt: 1_700_000_000_000,
+              cachedPhotoCount: 8,
+              permission: 'granted',
+            },
+          };
+        }
+      );
+
+      const progressSteps: Array<{ step: string }> = [];
+      const outcome = await runCreation(queryClient, (p) => progressSteps.push(p));
+
+      expect(outcome).toEqual(expect.objectContaining({ status: 'created' }));
+      const seenSteps = progressSteps.map((p) => p.step);
+      expect(seenSteps).toContain('scanning');
+      expect(seenSteps.indexOf('scanning')).toBeLessThan(seenSteps.indexOf('checking'));
     });
 
     it('resamples once when the first batch is front-loaded with people shots (KTD3)', async () => {
