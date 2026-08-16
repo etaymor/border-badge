@@ -204,4 +204,27 @@ describe('loadSwapCandidates (BUG-2: never re-offer the quiz its own photos)', (
     );
     await expect(getQuizAssetIds('quiz-b')).resolves.toEqual(new Set(['asset-9']));
   });
+
+  it('excludes photos from the same day as an existing quiz photo', async () => {
+    // The quiz holds a Rome photo from one day; a distinct shot from that
+    // same day (different venue, hours later) must not be offered as a swap -
+    // same-day photos never share a game.
+    const inQuiz = makeCached('asset-1', { creationTime: Date.UTC(2023, 5, 15, 10, 0, 0) });
+    const sameDayElsewhere = makeCached('asset-2', {
+      creationTime: Date.UTC(2023, 5, 15, 18, 0, 0),
+      latitude: 45.44,
+      longitude: 9.19,
+    });
+    const otherDay = makeCached('asset-3', {
+      creationTime: Date.UTC(2023, 8, 2, 12, 0, 0),
+      latitude: 40.85,
+      longitude: 14.27,
+    });
+    mockGetAllCachedPhotos.mockResolvedValue([inQuiz, sameDayElsewhere, otherDay]);
+    await recordQuizAssets('quiz-a', ['asset-1']);
+
+    const candidates = await loadSwapCandidates('quiz-a');
+
+    expect(candidates.map((candidate) => candidate.id)).toEqual(['asset-3']);
+  });
 });

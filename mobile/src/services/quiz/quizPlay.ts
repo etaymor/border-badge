@@ -24,6 +24,7 @@ import { getAllCachedPhotos, getMetadata, setMetadata } from '@services/photoImp
 
 import {
   filterNearDuplicatesOf,
+  filterSameDayAs,
   selectEligibilityBatch,
   toCandidate,
   type GeoEligibleCandidate,
@@ -144,9 +145,11 @@ export const SWAP_CANDIDATE_LIMIT = 30;
  * used-photo deprioritization (already-used assets sort strictly after fresh
  * ones).
  *
- * This quiz's own photos - and their near-duplicates (burst siblings) - are
- * EXCLUDED outright (BUG-2): a swap must never re-insert a photo the quiz
- * already contains, or one that plays as its twin.
+ * This quiz's own photos - their near-duplicates (burst siblings, BUG-2) and
+ * anything from the SAME CALENDAR DAY as a photo already in the quiz - are
+ * EXCLUDED outright: a swap must never re-insert a photo the quiz already
+ * contains, one that plays as its twin, or one that breaks the
+ * no-same-day-in-one-game rule.
  *
  * Note: these candidates have passed the geo gate only - the vision
  * eligibility budget belongs to the 'building' state and is not re-spent on
@@ -163,7 +166,7 @@ export async function loadSwapCandidates(quizId: string): Promise<GeoEligibleCan
   const pool = cached.map(toCandidate);
   const anchors = pool.filter((photo) => quizAssetIds.has(photo.id));
   return selectEligibilityBatch({
-    pool: filterNearDuplicatesOf(pool, anchors),
+    pool: filterSameDayAs(filterNearDuplicatesOf(pool, anchors), anchors),
     validCodes,
     coder: iso1A2Code,
     usedAssetIds,

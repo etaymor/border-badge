@@ -418,3 +418,123 @@ describe('near-duplicate collapse (BUG-2)', () => {
     expect(picks.filter((candidate) => candidate.id === photo.id)).toHaveLength(1);
   });
 });
+
+describe('day and country-year diversity (game variety)', () => {
+  const DAY_MS = 24 * 3_600_000;
+  // Noon UTC anchor: fixtures stay on one UTC calendar day regardless of offsets.
+  const NOON = Date.UTC(2023, 5, 15, 12, 0, 0);
+
+  /** Same UTC day, hours apart, kilometres apart: distinct shots, one day. */
+  function makeSameDayTrio(countryCode: string, dayOffset: number) {
+    return [0, 1, 2].map((i) =>
+      makePhoto({
+        countryCode,
+        creationTime: NOON + dayOffset * DAY_MS + i * 4 * 3_600_000,
+        latitude: 41.0 + i * 0.5,
+        longitude: 12.0 + i * 0.5,
+      })
+    );
+  }
+
+  it('never picks two photos from the same day when other days exist', () => {
+    // One day holds three distinct shots; five other days hold one each.
+    const busyDay = makeSameDayTrio('IT', 0);
+    const otherDays = [1, 2, 3, 4, 5].map(
+      (d) =>
+        makePhoto({
+          countryCode: 'FR',
+          creationTime: NOON + d * DAY_MS,
+          latitude: 48.0 + d,
+          longitude: 2.0 + d,
+        }) as GeoEligibleCandidate
+    );
+
+    const picks = pickQuizPhotos(
+      [...busyDay, ...otherDays] as GeoEligibleCandidate[],
+      new Set(),
+      6
+    );
+
+    const fromBusyDay = picks.filter((p) => busyDay.some((b) => b.id === p.id));
+    expect(fromBusyDay).toHaveLength(1);
+    expect(picks).toHaveLength(6);
+  });
+
+  it('never repeats a (country, year) pair when enough distinct pairs exist', () => {
+    // Five distinct (country, year) pairs, plus three extra FR photos in the
+    // same year on different days.
+    const YEAR_MS = 366 * DAY_MS;
+    const distinct = ['FR', 'IT', 'JP', 'US', 'PT'].map(
+      (code, i) =>
+        makePhoto({
+          countryCode: code,
+          creationTime: NOON - i * YEAR_MS,
+          latitude: 20 + i * 5,
+          longitude: 10 + i * 5,
+        }) as GeoEligibleCandidate
+    );
+    const frRepeats = [10, 20, 30].map(
+      (d) =>
+        makePhoto({
+          countryCode: 'FR',
+          creationTime: NOON + d * DAY_MS,
+          latitude: 43,
+          longitude: 5,
+        }) as GeoEligibleCandidate
+    );
+
+    const picks = pickQuizPhotos([...distinct, ...frRepeats], new Set(), 5);
+
+    expect(picks).toHaveLength(5);
+    const pairs = picks.map((p) => `${p.countryCode}:${new Date(p.creationTime).getUTCFullYear()}`);
+    expect(new Set(pairs).size).toBe(5);
+  });
+
+  it('relaxes to same-year (then same-day) repeats only to fill a thin game', () => {
+    // A single-trip library: one country, one year, four days, plus one
+    // same-day extra. The game still fills rather than shrinking.
+    const trip = [0, 1, 2, 3].map(
+      (d) =>
+        makePhoto({
+          countryCode: 'IT',
+          creationTime: NOON + d * DAY_MS,
+          latitude: 41 + d,
+          longitude: 12 + d,
+        }) as GeoEligibleCandidate
+    );
+    const sameDayExtra = makePhoto({
+      countryCode: 'IT',
+      creationTime: NOON + 6 * 3_600_000,
+      latitude: 45.5,
+      longitude: 9.2,
+    }) as GeoEligibleCandidate;
+
+    const picks = pickQuizPhotos([...trip, sameDayExtra], new Set(), 5);
+
+    expect(picks).toHaveLength(5);
+    // Four distinct days for five slots: the one unavoidable same-day repeat
+    // is the LAST pick - a day never repeats before every day has had a turn.
+    const dayKeys = picks.map((p) => new Date(p.creationTime).toISOString().slice(0, 10));
+    expect(new Set(dayKeys).size).toBe(4);
+    expect(dayKeys.slice(0, 4)).toEqual([...new Set(dayKeys.slice(0, 4))]);
+    expect(dayKeys.slice(0, 4)).toContain(dayKeys[4]);
+  });
+
+  it('spreads the classification batch across days before repeating one (sparingly)', () => {
+    // Four days, three distinct shots each, one country: the first four batch
+    // slots must cover four distinct days, not one busy day.
+    const pool = [0, 1, 2, 3].flatMap((d) => makeSameDayTrio('FR', d));
+
+    const batch = selectEligibilityBatch({
+      pool,
+      validCodes: VALID_CODES,
+      coder: neutralCoder,
+      limit: 8,
+    });
+
+    const firstFourDays = batch
+      .slice(0, 4)
+      .map((p) => new Date(p.creationTime).toISOString().slice(0, 10));
+    expect(new Set(firstFourDays).size).toBe(4);
+  });
+});

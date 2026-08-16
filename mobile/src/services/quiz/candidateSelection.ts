@@ -127,6 +127,34 @@ export function filterNearDuplicatesOf<T extends QuizPhotoCandidate>(
   );
 }
 
+/**
+ * Diversity keys (game variety): two photos from the same calendar day - or
+ * the same (country, year) pair - play as near-repeats even when they are
+ * genuinely distinct shots. UTC days keep the keys deterministic; a photo's
+ * exact local midnight is irrelevant to variety.
+ */
+export function photoDayKey(candidate: QuizPhotoCandidate): string {
+  return new Date(candidate.creationTime).toISOString().slice(0, 10);
+}
+
+function countryYearKey(candidate: GeoEligibleCandidate): string {
+  return `${candidate.countryCode}:${new Date(candidate.creationTime).getUTCFullYear()}`;
+}
+
+/**
+ * Drop pool entries that share a calendar day with any anchor. Used by the
+ * swap picker: a replacement photo from the same day as one already in the
+ * quiz would break the no-same-day-in-one-game rule.
+ */
+export function filterSameDayAs<T extends QuizPhotoCandidate>(
+  pool: T[],
+  anchors: QuizPhotoCandidate[]
+): T[] {
+  if (anchors.length === 0) return pool;
+  const anchorDays = new Set(anchors.map(photoDayKey));
+  return pool.filter((candidate) => !anchorDays.has(photoDayKey(candidate)));
+}
+
 export type GeoExclusionReason = 'no-country' | 'unmapped-territory' | 'border-ambiguous';
 
 export type CandidateCountryResolution =
@@ -195,10 +223,39 @@ export function resolveCandidateCountry(
 }
 
 /**
- * Round-robin candidates across countries, newest first within a country.
- * Country order within each cycle is deterministic (largest pool first, then
- * code) so tests and retries behave identically. Yields lazily so consumers
- * that stop at a limit never materialize the full interleaving.
+ * Order one country's candidates by DAY spread: newest first, but each
+ * distinct day's first photo comes before any day's second photo. Same-day
+ * repeats therefore enter a capped batch only sparingly - after every day
+ * has had its turn - instead of one busy day monopolizing the country's
+ * slots.
+ */
+function orderByDaySpread(list: GeoEligibleCandidate[]): GeoEligibleCandidate[] {
+  const sorted = [...list].sort((a, b) => b.creationTime - a.creationTime);
+  const byDay = new Map<string, GeoEligibleCandidate[]>();
+  for (const candidate of sorted) {
+    const key = photoDayKey(candidate);
+    const day = byDay.get(key);
+    if (day) {
+      day.push(candidate);
+    } else {
+      byDay.set(key, [candidate]);
+    }
+  }
+  const days = [...byDay.values()];
+  const ordered: GeoEligibleCandidate[] = [];
+  for (let index = 0; ordered.length < sorted.length; index++) {
+    for (const day of days) {
+      if (index < day.length) ordered.push(day[index]);
+    }
+  }
+  return ordered;
+}
+
+/**
+ * Round-robin candidates across countries, day-spread newest-first within a
+ * country. Country order within each cycle is deterministic (largest pool
+ * first, then code) so tests and retries behave identically. Yields lazily
+ * so consumers that stop at a limit never materialize the full interleaving.
  */
 function* roundRobinByCountry(candidates: GeoEligibleCandidate[]): Generator<GeoEligibleCandidate> {
   const byCountry = new Map<string, GeoEligibleCandidate[]>();
@@ -210,8 +267,8 @@ function* roundRobinByCountry(candidates: GeoEligibleCandidate[]): Generator<Geo
       byCountry.set(candidate.countryCode, [candidate]);
     }
   }
-  for (const list of byCountry.values()) {
-    list.sort((a, b) => b.creationTime - a.creationTime);
+  for (const [code, list] of byCountry) {
+    byCountry.set(code, orderByDaySpread(list));
   }
   const countries = [...byCountry.keys()].sort((a, b) => {
     const sizeDiff = byCountry.get(b)!.length - byCountry.get(a)!.length;
@@ -358,5 +415,35 @@ export function pickQuizPhotos(
     if (!uniqueById.has(candidate.id)) uniqueById.set(candidate.id, candidate);
   }
   const collapsed = collapseNearDuplicates([...uniqueById.values()]);
-  return orderByCountrySpread(collapsed, usedAssetIds, new Set(), max);
+  const ordered = orderByCountrySpread(collapsed, usedAssetIds, new Set(), Infinity);
+
+  // Diversity passes: a game should never repeat a calendar day or a
+  // (country, year) pair - two shots from one day (or one trip) play as the
+  // same question. Each pass relaxes one rule, and later passes run ONLY
+  // when the library is too thin to fill the game diversely:
+  //   1. distinct day AND distinct (country, year)
+  //   2. distinct day (a country-year may repeat across different days)
+  //   3. anything left (same-day repeats are the last resort)
+  const picks: GeoEligibleCandidate[] = [];
+  const pickedIds = new Set<string>();
+  const usedDays = new Set<string>();
+  const usedCountryYears = new Set<string>();
+  const passes: Array<(candidate: GeoEligibleCandidate) => boolean> = [
+    (candidate) =>
+      !usedDays.has(photoDayKey(candidate)) && !usedCountryYears.has(countryYearKey(candidate)),
+    (candidate) => !usedDays.has(photoDayKey(candidate)),
+    () => true,
+  ];
+  for (const accept of passes) {
+    for (const candidate of ordered) {
+      if (picks.length >= max) break;
+      if (pickedIds.has(candidate.id) || !accept(candidate)) continue;
+      picks.push(candidate);
+      pickedIds.add(candidate.id);
+      usedDays.add(photoDayKey(candidate));
+      usedCountryYears.add(countryYearKey(candidate));
+    }
+    if (picks.length >= max) break;
+  }
+  return picks;
 }
