@@ -98,6 +98,24 @@ RETRY_BUDGET_FRACTION_OF_CLUSTER_TIMEOUT = 0.4
 # the `places_cluster_timeout_seconds` default in app.core.config.
 DEFAULT_CLUSTER_TIMEOUT_SECONDS = 15.0
 
+# THE REQUEST-LEVEL CEILING. The per-cluster timeout bounds ONE CLUSTER, not one
+# request, and the two are far apart: the per-cluster clock deliberately starts
+# after the semaphore is acquired, so queue time is charged to nobody. With
+# MAX_CLUSTERS_PER_REQUEST = 25 clusters against a per-request share of 5, the
+# Nearby phase alone runs 5 sequential WAVES -- up to 5 x 15s = 75s before the
+# vision join, text rescue, popularity probe and enrichment phases even begin.
+#
+# The only wall clock above that was the mobile client's 90s
+# (SUGGEST_PLACES_TIMEOUT_MS), and hitting it fails the WHOLE chunk: the client
+# discards results the server already paid Google for. This budget is the
+# server's own ceiling, set below the client's so the server decides how the
+# request degrades. It is a DISPATCH gate, not a cancel: work already in flight
+# is never interrupted (which would waste a paid call), and no phase timeout is
+# changed. Once the budget is spent, a cluster that has not started is reported
+# as failed -- retryable, and delivered inside the client's window along with
+# every cluster that did complete.
+DEFAULT_REQUEST_BUDGET_SECONDS = 75.0
+
 # Process-wide circuit breaker. Under sustained throttling every concurrent
 # cluster is an independent retry multiplier, so a shared window of upstream
 # 429s short-circuits new attempts for a cooldown instead.

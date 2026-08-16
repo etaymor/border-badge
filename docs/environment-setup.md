@@ -38,6 +38,7 @@ POSTHOG_API_KEY=<posthog-api-key>  # Optional: same project key as mobile app, f
 POSTHOG_HOST=https://us.i.posthog.com  # Optional: defaults to US region
 PLACES_API_TIMEOUT_SECONDS=5.0  # Optional: timeout for Google Places API requests (default 5s)
 PLACES_CLUSTER_TIMEOUT_SECONDS=15.0  # Optional: timeout for processing a single cluster (default 15s)
+PLACES_REQUEST_BUDGET_SECONDS=75.0  # Optional: whole-request ceiling for /photos/suggest-places (default 75s, below the client's 90s); bounds the WAVES the per-cluster timeout above cannot
 GOOGLE_PLACES_API_KEY=<google-places-key>  # Required: server-side Google Places API key for place matching
 GOOGLE_MAPS_BROWSER_API_KEY=<maps-js-key>  # Optional: browser-restricted Maps JS API key for public share-page maps (/l/{slug}, /t/{slug}); MUST be a separate HTTP-referrer-restricted key, not GOOGLE_PLACES_API_KEY
 GOOGLE_MAPS_MAP_ID=<cloud-map-id>  # Optional: Cloud-styled Map ID for share-page maps (required by Advanced Markers)

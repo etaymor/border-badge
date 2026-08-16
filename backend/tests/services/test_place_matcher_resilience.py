@@ -19,18 +19,24 @@ import contextlib
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
+import httpx
 import pytest
+from fastapi import HTTPException
 
+from app.api import photos as photos_api
+from app.schemas.photos import PlaceSuggestionRequest
 from app.services.place_matcher import PlaceMatcher, places_cache, rate_limit
 from app.services.place_matcher import _matcher_search as search_mod
 from app.services.place_matcher import instrumentation as instr
 from app.services.place_matcher.constants import (
+    DEFAULT_CLUSTER_TIMEOUT_SECONDS,
+    DEFAULT_REQUEST_BUDGET_SECONDS,
     MAX_CONCURRENT_PLACES_REQUESTS,
     MAX_CONCURRENT_PLACES_REQUESTS_PROCESS,
     MIN_REVIEW_COUNT,
 )
 from app.services.place_matcher.exceptions import RateLimitError
-from app.services.place_matcher.rate_limit import with_google_retry
+from app.services.place_matcher.rate_limit import request_budget_for, with_google_retry
 
 TOKYO_LAT = 35.6762
 TOKYO_LNG = 139.6503
@@ -317,6 +323,59 @@ class TestCapacityFailuresAreCountedSeparately:
         assert matcher.last_capacity_failed_cluster_count == 0
 
     @pytest.mark.asyncio
+    async def test_pool_saturation_is_a_capacity_failure(self, monkeypatch) -> None:
+        """``httpx.PoolTimeout`` is local saturation, exactly like a lost slot.
+
+        ``SlotUnavailableError``'s own docstring calls the two the same class of
+        purely local signal. Counting one as capacity and the other as an
+        ordinary cluster failure returns 200 with inflated failures, which the
+        client renders as retry-ENABLED rows plus a "Retry all" control that
+        dispatches straight back into the saturated pool.
+        """
+        _bind(monkeypatch, _settings())
+
+        async def post(*args: Any, **kwargs: Any) -> Any:
+            raise httpx.PoolTimeout("no connection became free")
+
+        client = AsyncMock()
+        client.post = post
+        matcher = PlaceMatcher(http_client=client)
+
+        clusters = [_cluster(f"c{i}", TOKYO_LAT + i * 0.02) for i in range(2)]
+        results, failed_count = await matcher.find_places_for_clusters(clusters)
+
+        assert results == []
+        assert failed_count == 2
+        assert matcher.last_capacity_failed_cluster_count == 2, (
+            "a pool-saturated cluster is reported as an ordinary failure, so "
+            "the caller retries straight back into the saturated pool"
+        )
+
+    @pytest.mark.asyncio
+    async def test_pool_saturation_is_still_never_retried_or_counted_upstream(
+        self, monkeypatch
+    ) -> None:
+        """Counting it as capacity must not make it an upstream signal."""
+        _bind(monkeypatch, _settings())
+        calls = {"n": 0}
+
+        async def post(*args: Any, **kwargs: Any) -> Any:
+            calls["n"] += 1
+            raise httpx.PoolTimeout("no connection became free")
+
+        client = AsyncMock()
+        client.post = post
+        matcher = PlaceMatcher(http_client=client)
+
+        with instr.request_metrics() as metrics:
+            await matcher.find_places_for_clusters([_cluster()])
+
+        assert calls["n"] == 1, "the pool-saturated call was retried"
+        retries = metrics.snapshot()["retries"]
+        assert retries["search_timeouts"] == 0
+        assert retries["rate_limited"] == 0
+
+    @pytest.mark.asyncio
     async def test_the_count_is_reset_between_requests(self, monkeypatch) -> None:
         _bind(monkeypatch, _settings())
         monkeypatch.setattr(rate_limit.rate_limit_breaker, "threshold", 10_000)
@@ -344,6 +403,58 @@ class TestCapacityFailuresAreCountedSeparately:
         await matcher.find_places_for_clusters([_cluster("cluster-2")])
 
         assert matcher.last_capacity_failed_cluster_count == 0
+
+    @pytest.mark.asyncio
+    async def test_a_pool_saturated_request_answers_busy_not_a_200(
+        self, monkeypatch
+    ) -> None:
+        """End to end: the route must not hand back retryable failed rows.
+
+        The pool timeout never escapes ``find_places_for_clusters`` (the gather
+        collects it), so the route's own ``except httpx.PoolTimeout`` branch is
+        not what saves it -- the capacity COUNT is.
+        """
+        _bind(monkeypatch, _settings())
+
+        async def post(*args: Any, **kwargs: Any) -> Any:
+            raise httpx.PoolTimeout("no connection became free")
+
+        client = AsyncMock()
+        client.post = post
+        monkeypatch.setattr(photos_api, "get_places_client", lambda: client)
+        monkeypatch.setattr(
+            photos_api, "classify_cluster_photos", AsyncMock(return_value={})
+        )
+
+        data = PlaceSuggestionRequest.model_validate(
+            {
+                "clusters": [
+                    {
+                        "id": f"c{i}",
+                        "centroid": {
+                            "latitude": TOKYO_LAT + i * 0.02,
+                            "longitude": TOKYO_LNG,
+                        },
+                        "photos": [
+                            {
+                                "asset_id": f"c{i}-photo-1",
+                                "latitude": TOKYO_LAT + i * 0.02,
+                                "longitude": TOKYO_LNG,
+                            }
+                        ],
+                    }
+                    for i in range(2)
+                ]
+            }
+        )
+
+        with pytest.raises(HTTPException) as excinfo:
+            await photos_api._suggest_places(data)
+
+        assert excinfo.value.status_code == 503
+        # Header-less: a genuine quota 503 is the only one that carries
+        # Retry-After, and this is a seconds-long local blip.
+        assert not (excinfo.value.headers or {})
 
 
 # ===========================================================================
@@ -426,6 +537,99 @@ class TestEveryPhaseIsBounded:
         assert enriched == {}, "enrichment must degrade, not hang"
         # And the lost ranking inputs are attributed rather than silent.
         assert metrics.dropped_ranking_inputs[instr.SITE_ENRICHMENT] == 2
+
+
+# ===========================================================================
+# The REQUEST has a ceiling too, not just each cluster
+# ===========================================================================
+
+
+def _tiered(place_id: str = "place-nearby"):
+    from app.services.place_matcher import DensityLevel
+    from app.services.place_matcher._matcher_search import TieredSearchResult
+
+    return TieredSearchResult(
+        places=[_quality_place(place_id, "Nearby Cafe")],
+        radius_used=15,
+        radii_searched={15},
+        raw_count_per_radius={15: 1},
+        raw_places_per_radius={},
+        stopped_early=True,
+        density=DensityLevel.DENSE,
+    )
+
+
+class TestTheRequestItselfIsBounded:
+    """The per-cluster timeout bounds a CLUSTER; waves multiply it.
+
+    With MAX_CLUSTERS_PER_REQUEST = 25 against a per-request share of 5, the
+    Nearby phase alone is five sequential waves of the per-cluster timeout, and
+    the queue wait is charged to nobody's clock. The only wall clock above that
+    used to be the mobile client's 90s -- and a client timeout fails the WHOLE
+    chunk, discarding results the server already paid Google for.
+    """
+
+    @pytest.mark.asyncio
+    async def test_a_spent_request_budget_stops_dispatching_new_clusters(
+        self, monkeypatch
+    ) -> None:
+        _bind(
+            monkeypatch,
+            _settings(
+                places_cluster_timeout_seconds=5.0,
+                places_max_concurrent_requests=1,
+                places_request_budget_seconds=0.05,
+            ),
+        )
+        dispatched = {"n": 0}
+
+        async def slow_nearby(latitude: float, longitude: float):
+            dispatched["n"] += 1
+            await asyncio.sleep(0.1)
+            return _tiered()
+
+        matcher = PlaceMatcher(http_client=AsyncMock())
+        monkeypatch.setattr(matcher, "_search_nearby_tiered", slow_nearby)
+
+        clusters = [_cluster(f"c{i}", TOKYO_LAT + i * 0.02) for i in range(3)]
+        results, failed_count = await asyncio.wait_for(
+            matcher.find_places_for_clusters(clusters), timeout=5.0
+        )
+
+        # Wave 1 ran and is never cancelled -- a paid call in flight always
+        # finishes. Waves 2 and 3 never start.
+        assert dispatched["n"] == 1
+        assert len(results) == 1
+        assert failed_count == 2, (
+            "the request kept dispatching wave after wave past its budget, so "
+            "the client's own timeout is the only thing that ends it"
+        )
+
+    @pytest.mark.asyncio
+    async def test_a_request_inside_its_budget_is_untouched(self, monkeypatch) -> None:
+        """The gate must never fire on an ordinary request (R22)."""
+        _bind(monkeypatch, _settings(places_max_concurrent_requests=1))
+
+        async def nearby(latitude: float, longitude: float):
+            return _tiered()
+
+        matcher = PlaceMatcher(http_client=AsyncMock())
+        monkeypatch.setattr(matcher, "_search_nearby_tiered", nearby)
+
+        clusters = [_cluster(f"c{i}", TOKYO_LAT + i * 0.02) for i in range(3)]
+        results, failed_count = await matcher.find_places_for_clusters(clusters)
+
+        assert failed_count == 0
+        assert len(results) == 3
+        assert all(r["places"][0]["place_id"] == "place-nearby" for r in results)
+
+    def test_the_budget_sits_below_the_mobile_clients_own_timeout(self) -> None:
+        """75s vs the client's 90s: the SERVER decides how this degrades."""
+        assert request_budget_for(_settings()) == DEFAULT_REQUEST_BUDGET_SECONDS
+        assert DEFAULT_REQUEST_BUDGET_SECONDS < 90.0
+        # ...and above one full wave of the default per-cluster timeout, so an
+        # honest request can never be cut short by it.
+        assert DEFAULT_REQUEST_BUDGET_SECONDS > 4 * DEFAULT_CLUSTER_TIMEOUT_SECONDS
 
 
 # ===========================================================================

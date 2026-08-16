@@ -126,6 +126,21 @@ class Settings(BaseSettings):
         le=60.0,
         description="Timeout for processing a single cluster (includes retries)",
     )
+    places_request_budget_seconds: float = Field(
+        default=75.0,
+        gt=0.0,
+        le=600.0,
+        description=(
+            "U8: whole-request ceiling for /photos/suggest-places, kept below "
+            "the mobile client's 90s SUGGEST_PLACES_TIMEOUT_MS so the SERVER "
+            "decides how an overlong request degrades. The per-cluster timeout "
+            "bounds one cluster, not one request: 25 clusters against a "
+            "per-request share of 5 is five sequential waves before the vision "
+            "join, text rescue, probe and enrichment phases even begin. Once "
+            "the budget is spent, clusters that have not STARTED are reported "
+            "as failed; work already in flight is never cancelled."
+        ),
+    )
     places_max_concurrent_requests: int = Field(
         default=5,
         ge=1,

@@ -325,6 +325,13 @@ async def _charge_photo_import(
     should not lose their one free import to an outage, and replaying failures
     is already bounded by the per-minute cost budgets.
 
+    `processed_cluster_count` is both the gate AND the amount, on BOTH charge
+    paths -- the first charge (which grants the allowance) and the draw-down a
+    later request on the recorded trip makes. Charging every SUBMITTED cluster
+    billed the same failure twice: once when it failed, again when the client
+    retried it, so a trip with repeated partial failures could exhaust the R17
+    allowance and 402 the user out of the trip they already paid for.
+
     Never raises: the paid calls have already been made and the results are
     valid, so a bookkeeping failure is logged rather than turned into a 5xx.
     """
@@ -342,7 +349,9 @@ async def _charge_photo_import(
     # or on the caller choosing to report anything.
     db = get_supabase_client(user_token=None)
     try:
-        await charge_photo_import_usage(db, str(user.id), trip_id, len(data.clusters))
+        await charge_photo_import_usage(
+            db, str(user.id), trip_id, processed_cluster_count
+        )
     except Exception as e:
         logger.error("Photo import charge failed for user %s: %s", user.id, e)
 

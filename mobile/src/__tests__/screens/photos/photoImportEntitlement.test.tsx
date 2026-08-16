@@ -18,6 +18,7 @@ import { SuggestionsPhase } from '../../../screens/photos/components/Suggestions
 import {
   claimPhotoImportForTrip,
   isPhotoImportExempt,
+  ensurePhotoImportGrandfatherPass,
   noteServerRefusedPhotoImport,
   resetPhotoImportEntitlementForTests,
 } from '@services/photoImport/photoImportEntitlement';
@@ -38,6 +39,17 @@ import {
   type LocationCluster,
   type TripCandidateDisplay,
 } from '@services/photoImport';
+
+/**
+ * Settle a fire-and-forget charge.
+ *
+ * A MACROTASK flush, not `await Promise.resolve()`. The charge awaits several
+ * promises before it POSTs, so a single microtask tick couples the assertion to
+ * the implementation's exact await depth -- adding one `await` inside
+ * `chargePhotoImport` would silently start passing a test that no longer waits
+ * for the request.
+ */
+const flushCharge = () => act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
 
 // ---- Mocks -----------------------------------------------------------------
 
@@ -456,10 +468,11 @@ describe('U10 counting', () => {
           onBatchSuccess: () => claimPhotoImportForTrip(TRIP_ID),
         });
       });
-      // Let the fire-and-forget charge settle.
-      await act(async () => {
-        await Promise.resolve();
-      });
+      // Let the fire-and-forget charge settle. A macrotask flush, not a
+      // single microtask tick: the charge awaits several promises before it
+      // POSTs, so one tick would couple this assertion to the implementation's
+      // exact await depth.
+      await flushCharge();
 
       expect(callLog.filter((c) => c.includes('usage/increment'))).toHaveLength(1);
       expect(serverUsage.photo_import_count).toBe(1);
@@ -469,7 +482,6 @@ describe('U10 counting', () => {
   // The claim is taken SYNCHRONOUSLY and released again when the charge throws,
   // on the rationale that a run whose charge never landed has not been paid for.
   // Both directions are money-relevant and neither was exercised.
-  const flushCharge = () => act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
 
   it('releases the claim when the charge fails, so a later batch charges it', async () => {
     let incrementCalls = 0;
@@ -630,9 +642,7 @@ describe('U10 exemption', () => {
     // not proof it recorded the trip we sent.
     expect(await isPhotoImportExempt(TRIP_ID)).toBe(true); // warms the server read
     claimPhotoImportForTrip(OTHER_TRIP_ID);
-    await act(async () => {
-      await Promise.resolve();
-    });
+    await flushCharge();
 
     expect(await getConsumedPhotoImportTripIds(USER_A)).not.toContain(OTHER_TRIP_ID);
     expect(await isPhotoImportExempt(OTHER_TRIP_ID)).toBe(false);
@@ -667,6 +677,24 @@ describe('U10 exemption revocation on a server refusal', () => {
     expect(await isPhotoImportExempt(TRIP_ID)).toBe(false);
   });
 
+  it('honours a refusal recorded in a different case', async () => {
+    // `sameTrip` compares case-insensitively but a Set does not. Recording
+    // `TRIP-CONSUMED` and later checking `trip-consumed` used to MISS the
+    // refusal; the server-consumed read then matched case-insensitively and the
+    // client re-claimed an exemption the server had already denied — the exact
+    // loop the refusal set exists to stop.
+    noteServerRefusedPhotoImport(TRIP_ID.toUpperCase());
+
+    expect(await isPhotoImportExempt(TRIP_ID)).toBe(false);
+    expect(await isPhotoImportExempt(TRIP_ID.toUpperCase())).toBe(false);
+  });
+
+  it('matches the server trip regardless of the case the caller asks in', async () => {
+    // The other direction: a genuinely exempt trip must stay exempt when the
+    // caller happens to hold a differently-cased id.
+    expect(await isPhotoImportExempt(TRIP_ID.toUpperCase())).toBe(true);
+  });
+
   it('records the refusal when a dispatch is stopped by the 402', async () => {
     // The server answers the entitlement stop with the FastAPI envelope.
     mockedApi.post.mockImplementation((async (url: string) => {
@@ -697,6 +725,37 @@ describe('U10 exemption revocation on a server refusal', () => {
 // ===========================================================================
 
 describe('U10 grandfather pass', () => {
+  it('runs once the session lands, even when the first call had none', async () => {
+    // `runGrandfatherPass` reaches its no-session `return` without awaiting, so
+    // it ran SYNCHRONOUSLY inside `ensurePhotoImportGrandfatherPass` — its
+    // `grandfatherPass = null` completed BEFORE the caller's assignment and was
+    // immediately overwritten. The memo was never cleared, so the pass could
+    // never run afterwards, and a returning free user with prior imports stayed
+    // gated. That is the KTD18 regression the pass exists to prevent.
+    //
+    // Driven through `ensurePhotoImportGrandfatherPass` directly because that
+    // is the surface that can actually be reached without a session:
+    // `isPhotoImportExempt` returns early on a missing user and never gets
+    // here, but `canRunImportForTrip` calls it with no session check at all.
+    markerStore.__setHistory([TRIP_ID]);
+    serverUsage = { photo_import_count: 0, photo_import_trip_id: null };
+
+    useAuthStore.setState({ session: null } as unknown as Parameters<
+      typeof useAuthStore.setState
+    >[0]);
+    await ensurePhotoImportGrandfatherPass();
+    expect(markPhotoImportGrandfatherPassRun).not.toHaveBeenCalled();
+
+    // Session hydrates; the pass must still be able to run.
+    signIn(USER_A);
+    await ensurePhotoImportGrandfatherPass();
+    expect(markPhotoImportGrandfatherPassRun).toHaveBeenCalledWith(USER_A);
+
+    // ...and exactly once, however many callers ask afterwards.
+    await ensurePhotoImportGrandfatherPass();
+    expect(callLog.filter((c) => c.includes('usage/increment'))).toHaveLength(1);
+  });
+
   it('seeds the counter from real history and exempts the trip it charged', async () => {
     markerStore.__setHistory([TRIP_ID, 'trip-older']);
     serverUsage = { photo_import_count: 0, photo_import_trip_id: null };

@@ -549,6 +549,72 @@ class TestTheImportIsChargedServerSide:
         assert response.status_code == 200
         assert len(_charges(db)) == 1
 
+    def test_only_the_clusters_that_were_processed_are_charged(
+        self,
+        client: TestClient,
+        auth_headers: dict[str, str],
+        as_user: None,
+        paid_calls: type[_SpyMatcher],
+    ) -> None:
+        """The allowance buys WORK, so it is drawn down by work done (F1).
+
+        Charging every SUBMITTED cluster makes a failure cost the user twice:
+        once when it fails, again when the client retries it. Repeated partial
+        failures then exhaust the allowance and 402 the user out of the very
+        trip they already paid for -- the scenario R17 exists to prevent.
+        """
+        clusters = [_cluster(i) for i in range(5)]
+        paid_calls.result = ([], 2)
+        with _with_profile(_profile("free")) as db:
+            response = _post(client, auth_headers, clusters)
+
+        assert response.status_code == 200
+        assert _charges(db) == [
+            {
+                "p_user_id": TEST_USER_ID,
+                "p_trip_id": TEST_TRIP_ID,
+                "p_clusters": 3,
+            }
+        ]
+
+    def test_retrying_the_failed_clusters_does_not_charge_them_twice(
+        self,
+        client: TestClient,
+        auth_headers: dict[str, str],
+        as_user: None,
+        paid_calls: type[_SpyMatcher],
+    ) -> None:
+        """Five distinct clusters cost five, however many attempts it took."""
+        clusters = [_cluster(i) for i in range(5)]
+
+        # First attempt: 3 of 5 clusters come back, 2 fail.
+        paid_calls.result = ([], 2)
+        with _with_profile(_profile("free")) as first_db:
+            first = _post(client, auth_headers, clusters)
+
+        # The client retries exactly the two that failed, on the same trip --
+        # the recorded-trip path, which only draws the allowance down.
+        paid_calls.result = ([], 0)
+        with _with_profile(
+            _profile(
+                "free",
+                photo_import_count=1,
+                consumed_trip_id=TEST_TRIP_ID,
+                cluster_allowance=PHOTO_IMPORT_CLUSTER_ALLOWANCE - 3,
+            )
+        ) as second_db:
+            second = _post(client, auth_headers, [_cluster(3), _cluster(4)])
+
+        assert first.status_code == 200
+        assert second.status_code == 200
+        spent = sum(
+            charge["p_clusters"] for charge in _charges(first_db) + _charges(second_db)
+        )
+        assert spent == len(clusters), (
+            "the failed clusters were charged on the failing request AND again "
+            "on the retry, so partial failures burn the R17 allowance twice"
+        )
+
     def test_a_charge_failure_does_not_fail_the_request(
         self,
         client: TestClient,

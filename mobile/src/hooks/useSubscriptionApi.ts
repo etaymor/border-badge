@@ -126,14 +126,28 @@ export function useSubscriptionUsage() {
  * records it as the consuming trip, and without it there is no trip to exempt on
  * re-entry, so the user's half-matched trip becomes uncompletable.
  */
+/**
+ * Increment input, discriminated so `photo_import` cannot omit its trip.
+ *
+ * The RPC still increments `usage_photo_import_count` when `p_trip_id` is NULL,
+ * but records NO consuming trip -- spending the user's lifetime import while
+ * leaving nothing to exempt on re-entry, which permanently gates the very trip
+ * they just paid for. Making it required here means that call cannot be written
+ * by accident; the backend rejects it independently.
+ */
+export type IncrementUsageInput =
+  | { feature: 'photo_import'; trip_id: string }
+  | { feature: Exclude<UsageFeature, 'photo_import'>; trip_id?: string };
+
 export function useIncrementUsage() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (input: {
-      feature: UsageFeature;
-      trip_id?: string;
-    }): Promise<IncrementUsageResponse> => {
+    mutationFn: async (input: IncrementUsageInput): Promise<IncrementUsageResponse> => {
+      if (input.feature === 'photo_import' && !input.trip_id?.trim()) {
+        // Belt and braces for a JS caller the type cannot reach.
+        throw new Error('photo_import usage increments require a trip_id');
+      }
       const response = await api.post('/subscriptions/usage/increment', input);
       return response.data;
     },

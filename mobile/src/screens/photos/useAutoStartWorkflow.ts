@@ -341,6 +341,17 @@ export function useAutoStartWorkflow({
         beginFetchOwner();
         try {
           await runAutoStart();
+        } catch (error) {
+          // The SQLite reads above (last import time, cached photos, last
+          // candidate) can reject. Without this the rejection was unhandled and
+          // the screen simply STOPPED: `autoStartAttemptedRef` stays true, the
+          // phase never advances, and no fallback runs -- an initial state with
+          // no error and no way forward. Owner accounting was always fine (the
+          // `finally` released it); what was missing was a way out for the user.
+          console.error('[PhotoImport][AutoStart] Sequence failed', error);
+          startScan(false).catch(() => {
+            /* error handled by scan hook */
+          });
         } finally {
           endFetchOwner();
         }

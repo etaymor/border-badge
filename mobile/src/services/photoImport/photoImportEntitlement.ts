@@ -103,9 +103,27 @@ function currentUserId(): string | null {
   return useAuthStore.getState().session?.user?.id ?? null;
 }
 
+/**
+ * The one form a trip id takes inside this module.
+ *
+ * Trip ids are compared case-insensitively (the server does the same), but a
+ * `Set` is not: recording a refusal for `Trip-A` and later checking `trip-a`
+ * missed the refusal, `sameTrip` then matched the server's consumed trip
+ * case-insensitively, and the client re-claimed an exemption the server had
+ * already denied — the exact loop the refusal set exists to stop. Every key,
+ * membership test, and comparison below goes through this.
+ */
+function normalizeTripId(tripId: string | null | undefined): string | null {
+  if (!tripId) return null;
+  const trimmed = tripId.trim();
+  return trimmed ? trimmed.toLowerCase() : null;
+}
+
 function sameTrip(a: string | null | undefined, b: string | null | undefined): boolean {
-  if (!a || !b) return false;
-  return a.toLowerCase() === b.toLowerCase();
+  const left = normalizeTripId(a);
+  const right = normalizeTripId(b);
+  if (left === null || right === null) return false;
+  return left === right;
 }
 
 // ---------------------------------------------------------------------------
@@ -120,12 +138,14 @@ function sameTrip(a: string | null | undefined, b: string | null | undefined): b
  * dispatch rather than reported afterwards in the past tense.
  */
 export function hasDisclosedFreeImport(tripId: string | null | undefined): boolean {
-  return tripId != null && disclosedTripIds.has(tripId);
+  const key = normalizeTripId(tripId);
+  return key !== null && disclosedTripIds.has(key);
 }
 
 /** Record that the user accepted the free-import confirmation for this trip. */
 export function markFreeImportDisclosed(tripId: string | null | undefined): void {
-  if (tripId) disclosedTripIds.add(tripId);
+  const key = normalizeTripId(tripId);
+  if (key) disclosedTripIds.add(key);
 }
 
 // ---------------------------------------------------------------------------
@@ -144,7 +164,8 @@ export function markFreeImportDisclosed(tripId: string | null | undefined): void
  * and over fail-open.
  */
 export function noteServerRefusedPhotoImport(tripId: string | null | undefined): void {
-  if (tripId) refusedTripIds.add(tripId);
+  const key = normalizeTripId(tripId);
+  if (key) refusedTripIds.add(key);
 }
 
 // ---------------------------------------------------------------------------
@@ -160,17 +181,24 @@ export function noteServerRefusedPhotoImport(tripId: string | null | undefined):
 async function readDeviceMarkers(userId: string): Promise<Set<string>> {
   if (deviceMarkers && deviceMarkers.userId === userId) return deviceMarkers.tripIds;
   const ids = await getConsumedPhotoImportTripIds(userId);
-  const cached = { userId, tripIds: new Set(ids) };
+  // Normalized on the way in: rows written before this module normalized its
+  // keys would otherwise never match a lookup.
+  const cached = {
+    userId,
+    tripIds: new Set(ids.map(normalizeTripId).filter((id): id is string => id !== null)),
+  };
   deviceMarkers = cached;
   return cached.tripIds;
 }
 
 async function writeDeviceMarker(userId: string, tripId: string): Promise<void> {
+  const key = normalizeTripId(tripId);
+  if (!key) return;
   try {
     const markers = await readDeviceMarkers(userId);
-    if (markers.has(tripId)) return;
-    markers.add(tripId);
-    await addConsumedPhotoImportTripId(userId, tripId);
+    if (markers.has(key)) return;
+    markers.add(key);
+    await addConsumedPhotoImportTripId(userId, key);
   } catch (error) {
     // The marker is only a fast path; losing it costs a round trip, not access.
     console.warn('[PhotoImport] Could not persist the photo-import marker', error);
@@ -228,8 +256,9 @@ async function readServerConsumedTripId(userId: string): Promise<string | null> 
  * server has already refused, where "allow" is known to be wrong.
  */
 export async function isPhotoImportExempt(tripId: string | null | undefined): Promise<boolean> {
-  if (!tripId) return false;
-  if (refusedTripIds.has(tripId)) return false;
+  const key = normalizeTripId(tripId);
+  if (!key) return false;
+  if (refusedTripIds.has(key)) return false;
   const userId = currentUserId();
   if (!userId) return false;
 
@@ -237,8 +266,8 @@ export async function isPhotoImportExempt(tripId: string | null | undefined): Pr
     await ensurePhotoImportGrandfatherPass();
 
     const consumed = await readServerConsumedTripId(userId);
-    if (sameTrip(consumed, tripId)) {
-      void writeDeviceMarker(userId, tripId);
+    if (sameTrip(consumed, key)) {
+      void writeDeviceMarker(userId, key);
       return true;
     }
     return false;
@@ -265,10 +294,11 @@ export async function isPhotoImportExempt(tripId: string | null | undefined): Pr
  * because a run whose charge never landed has not been paid for.
  */
 export function claimPhotoImportForTrip(tripId: string | null | undefined): void {
-  if (!tripId) return;
-  if (claimedTripIds.has(tripId)) return;
-  claimedTripIds.add(tripId);
-  void chargePhotoImport(tripId);
+  const key = normalizeTripId(tripId);
+  if (!key) return;
+  if (claimedTripIds.has(key)) return;
+  claimedTripIds.add(key);
+  void chargePhotoImport(key);
 }
 
 async function chargePhotoImport(tripId: string): Promise<void> {
@@ -308,7 +338,7 @@ async function chargePhotoImport(tripId: string): Promise<void> {
     // unenforced.
     queryClient.invalidateQueries({ queryKey: SUBSCRIPTION_USAGE_QUERY_KEY });
   } catch (error) {
-    claimedTripIds.delete(tripId);
+    claimedTripIds.delete(normalizeTripId(tripId) ?? tripId);
     console.warn('[PhotoImport] Failed to record the free photo import', error);
   }
 }
@@ -344,22 +374,33 @@ async function chargePhotoImport(tripId: string): Promise<void> {
  */
 export function ensurePhotoImportGrandfatherPass(): Promise<void> {
   if (!grandfatherPass) {
-    grandfatherPass = runGrandfatherPass().catch((error) => {
-      console.warn('[PhotoImport] Grandfather pass failed', error);
-    });
+    // The memo is cleared HERE, not inside the pass. `runGrandfatherPass`'s
+    // no-session branch reaches its `return` without ever awaiting, so it runs
+    // synchronously during this call: a `grandfatherPass = null` written there
+    // completed BEFORE the assignment below and was immediately overwritten by
+    // it. The memo was never cleared, so a first check that landed before the
+    // auth session hydrated -- the ordinary cold-start ordering -- meant the
+    // pass never ran at all, and a returning free user with prior imports was
+    // gated. That is the regression the pass exists to prevent.
+    const pass = runGrandfatherPass()
+      .then((ran) => {
+        // Only clear OUR memo: a later call may already have installed a new
+        // one, and dropping that would let the pass run twice.
+        if (!ran && grandfatherPass === pass) grandfatherPass = null;
+      })
+      .catch((error) => {
+        console.warn('[PhotoImport] Grandfather pass failed', error);
+      });
+    grandfatherPass = pass;
   }
   return grandfatherPass;
 }
 
-async function runGrandfatherPass(): Promise<void> {
+/** Returns whether the pass actually ran; false means "no session yet". */
+async function runGrandfatherPass(): Promise<boolean> {
   const userId = currentUserId();
-  if (!userId) {
-    // Nothing to grandfather without an account, and nothing to remember either:
-    // clear the memo so the pass runs once the session lands.
-    grandfatherPass = null;
-    return;
-  }
-  if (await hasRunPhotoImportGrandfatherPass(userId)) return;
+  if (!userId) return false;
+  if (await hasRunPhotoImportGrandfatherPass(userId)) return true;
 
   const history = await getPhotoImportHistoryTripIds();
   if (history.length > 0) {
@@ -369,8 +410,11 @@ async function runGrandfatherPass(): Promise<void> {
       // trip is opened next. `chargePhotoImport` writes the device marker for
       // the trip it actually recorded, so the marker set stays in step with the
       // server's single consuming trip.
-      claimedTripIds.add(history[0]);
-      await chargePhotoImport(history[0]);
+      const seed = normalizeTripId(history[0]);
+      if (seed) {
+        claimedTripIds.add(seed);
+        await chargePhotoImport(seed);
+      }
     } else {
       // Already recorded — mark that trip (and only that trip) so the fast path
       // is warm without a second usage read.
@@ -379,4 +423,5 @@ async function runGrandfatherPass(): Promise<void> {
   }
 
   await markPhotoImportGrandfatherPassRun(userId);
+  return true;
 }

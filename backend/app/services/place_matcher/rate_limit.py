@@ -63,6 +63,7 @@ import httpx
 from . import instrumentation
 from .constants import (
     DEFAULT_CLUSTER_TIMEOUT_SECONDS,
+    DEFAULT_REQUEST_BUDGET_SECONDS,
     GOOGLE_RETRY_INITIAL_DELAY_SECONDS,
     GOOGLE_RETRY_JITTER_RATIO,
     GOOGLE_RETRY_MAX_ATTEMPTS,
@@ -163,6 +164,23 @@ def cluster_timeout_for(settings: Any) -> float:
         float(raw)
         if isinstance(raw, int | float) and not isinstance(raw, bool)
         else DEFAULT_CLUSTER_TIMEOUT_SECONDS
+    )
+
+
+def request_budget_for(settings: Any) -> float:
+    """The whole-request dispatch budget, guarded the same way (U8).
+
+    Distinct from :func:`cluster_timeout_for`, which bounds ONE cluster: with 25
+    clusters against a per-request share of 5 the search phase alone is five
+    sequential waves of that timeout. See
+    :data:`DEFAULT_REQUEST_BUDGET_SECONDS` for why the ceiling exists and what
+    it deliberately does not do.
+    """
+    raw = getattr(settings, "places_request_budget_seconds", None)
+    return (
+        float(raw)
+        if isinstance(raw, int | float) and not isinstance(raw, bool) and raw > 0
+        else DEFAULT_REQUEST_BUDGET_SECONDS
     )
 
 

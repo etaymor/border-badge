@@ -7,6 +7,8 @@ import json
 import logging
 from typing import Any, TypeVar
 
+import httpx
+
 from app.services.photo_vision import VisionResult
 from app.services.photo_vision.constants import VISION_TO_PLACE_TYPES
 
@@ -29,7 +31,12 @@ from .instrumentation import (
     record_clusters,
     request_metrics,
 )
-from .rate_limit import budget_seconds_for, cluster_timeout_for, retry_budget_scope
+from .rate_limit import (
+    budget_seconds_for,
+    cluster_timeout_for,
+    request_budget_for,
+    retry_budget_scope,
+)
 from .utils import name_match_strength, name_matches_candidate
 
 logger = logging.getLogger(__name__)
@@ -60,8 +67,9 @@ class ClusterProcessingMixin:
     """Orchestration logic for processing many clusters."""
 
     #: Clusters this request failed for a CAPACITY reason (upstream throttling,
-    #: our own circuit breaker, or an exhausted outbound-slot bound) rather than
-    #: because the cluster legitimately found nothing.
+    #: our own circuit breaker, an exhausted outbound-slot bound, or a saturated
+    #: connection pool) rather than because the cluster legitimately found
+    #: nothing.
     #:
     #: Read it after `find_places_for_clusters` returns. It exists because
     #: `failed_cluster_count` cannot distinguish the two, and the difference
@@ -112,6 +120,19 @@ class ClusterProcessingMixin:
         created up front, so a budget that included the queue wait would expire on
         the clusters at the back of the line before they ever called Google.
 
+        Because of that, the per-cluster timeout bounds a CLUSTER and says
+        nothing about the request: 25 clusters against a share of 5 is five
+        sequential waves in the search phase alone. ``request_budget_for``
+        supplies the request-level ceiling and is enforced as a DISPATCH gate on
+        the three per-cluster outbound phases (Nearby, text rescue, popularity
+        probe): once it is spent, work that has not started does not start.
+        Deliberately NOT gated are (a) work already in flight, which is allowed
+        to finish rather than waste a paid call, and (b) the two enrichment
+        batches, which are one bounded global call each and whose omission would
+        change ranking. The real ceiling is therefore the budget plus one
+        cluster's remaining phase timeout plus enrichment — which is why the
+        budget sits well below the client's 90s rather than at it.
+
         Args:
             clusters: List of cluster dicts with centroid and photos
             vision_results_task: Optional asyncio.Task that resolves to
@@ -147,6 +168,17 @@ class ClusterProcessingMixin:
         # (U3). Stated in constants as RETRY_BUDGET_FRACTION_OF_CLUSTER_TIMEOUT.
         retry_budget = budget_seconds_for(self._settings)
         diagnostics = self._settings.places_diagnostics
+
+        # THE REQUEST-LEVEL CEILING (U8). The per-cluster timeout above bounds
+        # ONE CLUSTER; this bounds the whole request. See
+        # DEFAULT_REQUEST_BUDGET_SECONDS for the arithmetic that separates the
+        # two. Enforced as a DISPATCH gate below -- never as a cancellation, so
+        # a paid call already in flight is always allowed to finish.
+        loop = asyncio.get_running_loop()
+        request_deadline = loop.time() + request_budget_for(self._settings)
+
+        def _remaining_budget() -> float:
+            return request_deadline - loop.time()
 
         async def search_with_timeout(
             cluster: dict[str, Any],
@@ -187,14 +219,49 @@ class ClusterProcessingMixin:
             the Nearby path — only. A cluster can run up to four phases, and
             each opens its own ``retry_budget_scope``: this search, the text
             rescue, the popularity probe, and finalist enrichment. Every one of
-            them is now separately wrapped in an ``asyncio.wait_for`` of the
-            same per-cluster timeout, so a cluster's real worst-case ceiling is
-            ``4 x places_cluster_timeout_seconds`` (60s at the default 15s), not
-            15s — bounded and stated, where before the later three phases had no
-            enclosing timeout at all and the only wall clock in the system was
-            the mobile client's 90s, which fails the entire chunk.
+            them is separately wrapped in an ``asyncio.wait_for`` of the same
+            per-cluster timeout, so ONE CLUSTER's worst case is
+            ``4 x places_cluster_timeout_seconds`` (60s at the default 15s).
+
+            THAT BOUND IS PER CLUSTER, NOT PER REQUEST, and the two are far
+            apart. The per-cluster clock starts AFTER the semaphore is acquired
+            (see above), so queue time is charged to nobody: with
+            ``MAX_CLUSTERS_PER_REQUEST`` = 25 clusters against a per-request
+            share of 5, this phase alone is 5 sequential WAVES — up to
+            ``5 x 15s = 75s`` — before the vision join, text rescue, popularity
+            probe and enrichment phases begin. Stated honestly, a full request's
+            phase-composed worst case is ``waves x phases``, i.e. several
+            minutes, which is far past the mobile client's 90s
+            ``SUGGEST_PLACES_TIMEOUT_MS`` — and a client timeout fails the
+            WHOLE chunk, discarding results already paid for.
+
+            ``request_deadline`` (U8) is the ceiling that actually holds. It is
+            a DISPATCH gate, not a cancellation: a cluster that has not started
+            when the budget is spent is reported as failed (retryable) and the
+            request returns inside the client's window with everything that did
+            complete. It cannot bound work already in flight, so the true
+            ceiling is the budget PLUS one cluster's remaining phase timeout —
+            which is why the budget is set well below 90s rather than at it.
             """
+            # Past the request budget: do not start a paid call whose answer
+            # the client will not be around to receive.
+            if _remaining_budget() <= 0:
+                # R27: no cluster id on an always-on log line.
+                logger.warning(
+                    "Request budget spent before a cluster's search started; "
+                    "reporting it as failed rather than overrunning the client"
+                )
+                return None
+
             async with semaphore:
+                # Re-checked after the queue wait, which is where a large
+                # request actually spends its time.
+                if _remaining_budget() <= 0:
+                    logger.warning(
+                        "Request budget spent while a cluster queued for its "
+                        "share of the outbound bound; reporting it as failed"
+                    )
+                    return None
                 # Retry backoff and this timeout are ONE budget (U3): the scope
                 # caps how much of the cluster's clock jittered backoff may burn
                 # across every radius it searches. wait_for's inner task copies
@@ -276,14 +343,26 @@ class ClusterProcessingMixin:
         # bound is not — retrying it immediately dispatches straight back into
         # the condition that refused it. `failed_cluster_count` alone cannot
         # tell the caller which of the two it is holding.
+        #
+        # `httpx.PoolTimeout` belongs in this set for exactly the reason
+        # `SlotUnavailableError`'s docstring gives: it is the same purely LOCAL
+        # saturation signal, differing only in which bound ran out (the
+        # connection pool rather than the outbound-slot semaphore). This is a
+        # COUNT only — it does not make the pool timeout retryable, nor an
+        # upstream rate-limit/timeout signal; `with_google_retry` still excludes
+        # it from both, ahead of `TimeoutException`, which it subclasses.
         capacity_failed_count = 0
+        capacity_failures = (
+            RateLimitError,
+            QuotaExhaustedError,
+            SlotUnavailableError,
+            httpx.PoolTimeout,
+        )
 
         for r in results:
             if r is None or isinstance(r, BaseException):
                 failed_count += 1
-                if isinstance(
-                    r, RateLimitError | QuotaExhaustedError | SlotUnavailableError
-                ):
+                if isinstance(r, capacity_failures):
                     capacity_failed_count += 1
                 continue
             cluster, places, radius_used, search_result = r
@@ -377,7 +456,17 @@ class ClusterProcessingMixin:
             lng: float,
             radius: float = 200.0,
         ) -> tuple[str, list[dict]]:
+            # Same request-budget dispatch gate as the Nearby phase (U8). The
+            # rescue already degrades to "fall back to nearby results" on a
+            # timeout or a capacity refusal; an overrun budget is one more
+            # reason not to start it.
+            if _remaining_budget() <= 0:
+                logger.warning("Request budget spent; skipping a text rescue")
+                return cluster_id, []
             async with semaphore:
+                if _remaining_budget() <= 0:
+                    logger.warning("Request budget spent; skipping a text rescue")
+                    return cluster_id, []
                 try:
                     # Bounded by the same per-cluster timeout as the Nearby
                     # phase (U8). The retry budget caps only backoff SLEEPING;
@@ -575,7 +664,15 @@ class ClusterProcessingMixin:
             async def probe_for_cluster(
                 cluster_id: str, lat: float, lng: float
             ) -> tuple[str, list[dict]]:
+                # Request-budget dispatch gate (U8), as above. The probe is a
+                # last-resort extra call, so it is the first thing to skip.
+                if _remaining_budget() <= 0:
+                    logger.warning("Request budget spent; skipping a probe")
+                    return cluster_id, []
                 async with semaphore:
+                    if _remaining_budget() <= 0:
+                        logger.warning("Request budget spent; skipping a probe")
+                        return cluster_id, []
                     try:
                         # Same per-cluster wall clock as the other phases (U8).
                         with retry_budget_scope(retry_budget):
@@ -917,8 +1014,8 @@ class ClusterProcessingMixin:
             # OURS (breaker / bound / upstream throttle), not the clusters'.
             logger.warning(
                 "%d/%d clusters failed for a capacity reason (rate limit, "
-                "circuit breaker, or outbound slot bound); an immediate retry "
-                "will hit the same condition",
+                "circuit breaker, outbound slot bound, or connection pool); an "
+                "immediate retry will hit the same condition",
                 capacity_failed_count,
                 len(clusters),
             )
