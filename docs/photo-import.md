@@ -46,18 +46,18 @@ The photo import feature allows users to scan their device photo library and aut
 
 **Ownership split**
 
-| Concern                                                                                        | Owner                 |
-| ---------------------------------------------------------------------------------------------- | --------------------- |
-| Batch planning, claiming, abort, progress, failure attribution, the HTTP call                  | `suggestionDispatch`  |
-| Cache read/write discipline, premium gating, analytics, candidate-stale guard, retry spinner    | `usePlaceSuggestions` |
+| Concern                                                                                      | Owner                 |
+| -------------------------------------------------------------------------------------------- | --------------------- |
+| Batch planning, claiming, abort, progress, failure attribution, the HTTP call                | `suggestionDispatch`  |
+| Cache read/write discipline, premium gating, analytics, candidate-stale guard, retry spinner | `usePlaceSuggestions` |
 
 **All three fetch paths go through it**
 
-| Path          | Entry point            | Controller call                                          |
-| ------------- | ---------------------- | -------------------------------------------------------- |
-| Main dispatch | `fetchSuggestions`     | `dispatch()` — plans batches, dispatches one at a time    |
-| Manual split  | `fetchForClusters`     | `claim()` -> `dispatchBatch()` -> `releaseClaim()`        |
-| Scoped retry  | `retryFailedClusters`  | `claim()` -> `dispatchBatch()` -> `releaseClaim()`        |
+| Path          | Entry point           | Controller call                                        |
+| ------------- | --------------------- | ------------------------------------------------------ |
+| Main dispatch | `fetchSuggestions`    | `dispatch()` — plans batches, dispatches one at a time |
+| Manual split  | `fetchForClusters`    | `claim()` -> `dispatchBatch()` -> `releaseClaim()`     |
+| Scoped retry  | `retryFailedClusters` | `claim()` -> `dispatchBatch()` -> `releaseClaim()`     |
 
 **Batch plan.** `planSuggestionBatches()` splits clusters into a small opening batch (`FIRST_CHUNK_SIZE = 2`) followed by full-size ones (`CHUNK_SIZE = 5`), so time-to-first-suggestion is not gated on a full batch's on-device preparation. Preparation is pipelined exactly one batch ahead and serialized on a per-dispatch tail: Expo's async function queue is serial at the native layer, so extra preparation workers buy no parallelism. A preparation failure never rejects — the batch dispatches without vision images.
 
@@ -121,16 +121,16 @@ The photo import pipeline optionally uses computer vision to improve place match
 
 ### Vision Categories
 
-| Category  | Maps to Entry Type | Example Places                  |
-| --------- | ------------------ | ------------------------------- |
-| food      | Food               | Restaurants, cafes, bars        |
-| landmark  | Place              | Museums, monuments, temples     |
-| stay      | Stay               | Hotels, resorts, hostels        |
-| shopping  | Experience         | Markets, malls, stores          |
-| nature    | Experience         | Parks, beaches, gardens         |
-| nightlife | Experience         | Clubs, casinos, bars            |
-| transport | (no mapping)       | Airports, stations              |
-| unknown   | (no mapping)       | Unclear photos                  |
+| Category  | Maps to Entry Type | Example Places              |
+| --------- | ------------------ | --------------------------- |
+| food      | Food               | Restaurants, cafes, bars    |
+| landmark  | Place              | Museums, monuments, temples |
+| stay      | Stay               | Hotels, resorts, hostels    |
+| shopping  | Experience         | Markets, malls, stores      |
+| nature    | Experience         | Parks, beaches, gardens     |
+| nightlife | Experience         | Clubs, casinos, bars        |
+| transport | (no mapping)       | Airports, stations          |
+| unknown   | (no mapping)       | Unclear photos              |
 
 ### How Vision Improves Matching
 
@@ -250,6 +250,16 @@ Everything a dashboard needs about photo import is either a PostHog event from t
 
 **Reading the exit split.** `enqueued_clusters` is what dispatch accepted, `settled_clusters` the subset that got a response or a failure. `unsettled_clusters` is the abandoned tail, and it is expected to be non-zero: progressive results are designed so a user can confirm what they want and leave. `viewed_cluster_rate` is the input to the deferred on-demand-dispatch idea — if the median import only ever surfaces a fraction of its clusters, matching all of them up front is buying results nobody looks at.
 
+### Place ids are hashed — `original_suggestion_place_id` is gone
+
+`photo_import_place_confirmed` and `photo_import_place_rejected` used to emit the raw Google Place ID as `original_suggestion_place_id`. That violated the rule at the top of this section: a place id next to an identified PostHog user says that a specific person was at a specific venue. The property is now **`original_suggestion_place_hash`** — a stable, non-reversible 16-hex-char digest produced by `stableHash()` in `mobile/src/utils/stableHash.ts`.
+
+The hash is computed inside the analytics helper, not at the call sites, so no current or future caller can forget it. The caller-facing prop is still `originalSuggestionPlaceId` and still takes the raw id; the helper is the boundary where the id stops. A missing id stays `null` rather than becoming a digest.
+
+The digest is deterministic across app launches, devices and users (there is deliberately no per-install salt), so grouping by venue, joining a confirm against a reject for the same place, and spotting a venue that is mis-ranked repeatedly all still work. What is gone is the readable venue identity — you can no longer tell _which_ venue a bucket is without already knowing its place id, and you can no longer look one up in the Places API from analytics alone.
+
+**Dashboard owners must repoint.** Anything keyed on `original_suggestion_place_id` — match-quality breakdowns, repeat-mis-ranking queries, any saved PostHog insight or cohort filtering on that property — has to move to `original_suggestion_place_hash`. The property was renamed rather than reused precisely so a stale dashboard fails loudly (empty) instead of silently mixing hashed and raw values in one bucket. Values recorded before the rename cannot be joined to values recorded after it, so treat the release boundary as a hard break in that series.
+
 ### Population changes — read this before comparing across releases
 
 Three shifts break naive time-series comparisons through the progressive-loading release:
@@ -283,17 +293,17 @@ The once-per-lifetime photo-import ad conversion (`AdEvents.firstPhotoImportDone
 
 ## Key Files
 
-| File                                                            | Purpose                                 |
-| --------------------------------------------------------------- | --------------------------------------- |
-| `mobile/src/screens/photos/PhotoImportScreen.tsx`               | Main photo import UI                    |
-| `mobile/src/screens/photos/PhotoTripsScreen.tsx`                | Browse photo-discovered trips           |
-| `mobile/src/services/photoImport/visionPhoto.ts`                | Vision photo selection and preparation  |
-| `mobile/src/services/photoImport/photoBackgroundSync.ts`        | Background cache refresh                |
-| `mobile/src/services/photoImport/photoClustering.ts`            | Geohash clustering with adjacent merge  |
-| `mobile/src/hooks/usePhotoTrips.ts`                             | SQLite cache access for photo trips     |
-| `mobile/src/hooks/useMultiClusterUpload.ts`                     | Concurrent cluster uploads              |
-| `backend/app/api/photos.py`                                     | `/photos/suggest-places` endpoint       |
-| `backend/app/services/place_matcher/matcher.py`                 | PlaceMatcher orchestrator               |
-| `backend/app/services/place_matcher/_matcher_ranking.py`        | Vision-integrated place ranking         |
-| `backend/app/services/place_matcher/_matcher_search.py`         | Density-adaptive search logic           |
-| `backend/app/services/photo_vision/classifier.py`               | Photo classification via Gemini         |
+| File                                                     | Purpose                                |
+| -------------------------------------------------------- | -------------------------------------- |
+| `mobile/src/screens/photos/PhotoImportScreen.tsx`        | Main photo import UI                   |
+| `mobile/src/screens/photos/PhotoTripsScreen.tsx`         | Browse photo-discovered trips          |
+| `mobile/src/services/photoImport/visionPhoto.ts`         | Vision photo selection and preparation |
+| `mobile/src/services/photoImport/photoBackgroundSync.ts` | Background cache refresh               |
+| `mobile/src/services/photoImport/photoClustering.ts`     | Geohash clustering with adjacent merge |
+| `mobile/src/hooks/usePhotoTrips.ts`                      | SQLite cache access for photo trips    |
+| `mobile/src/hooks/useMultiClusterUpload.ts`              | Concurrent cluster uploads             |
+| `backend/app/api/photos.py`                              | `/photos/suggest-places` endpoint      |
+| `backend/app/services/place_matcher/matcher.py`          | PlaceMatcher orchestrator              |
+| `backend/app/services/place_matcher/_matcher_ranking.py` | Vision-integrated place ranking        |
+| `backend/app/services/place_matcher/_matcher_search.py`  | Density-adaptive search logic          |
+| `backend/app/services/photo_vision/classifier.py`        | Photo classification via Gemini        |

@@ -7,6 +7,7 @@
 import PostHog from 'posthog-react-native';
 
 import { isProduction } from '@config/env';
+import { stableHashOrNull } from '@utils/stableHash';
 
 let posthog: PostHog | null = null;
 let isInitialized = false;
@@ -321,7 +322,10 @@ export const Analytics = {
     category: string;
     suggestionRank: number;
     wasFromCache: boolean;
-    /** Google Place ID of the system's top-ranked suggestion. Null on pure manual entries. */
+    /**
+     * Google Place ID of the system's top-ranked suggestion. Null on pure manual entries.
+     * Hashed here before it is emitted (R27) - never sent raw.
+     */
     originalSuggestionPlaceId?: string | null;
     alternativesCount?: number;
     alternativesViewed?: number;
@@ -332,7 +336,7 @@ export const Analytics = {
       category: props.category,
       suggestion_rank: props.suggestionRank,
       was_from_cache: props.wasFromCache,
-      original_suggestion_place_id: props.originalSuggestionPlaceId ?? null,
+      original_suggestion_place_hash: stableHashOrNull(props.originalSuggestionPlaceId),
       alternatives_count: props.alternativesCount ?? null,
       alternatives_viewed: props.alternativesViewed ?? null,
       was_override: props.wasOverride ?? null,
@@ -341,7 +345,10 @@ export const Analytics = {
   photoImportPlaceRejected: (props: {
     suggestionCount: number;
     wasFromCache: boolean;
-    /** Google Place ID currently shown when the user tapped the edit/override button. */
+    /**
+     * Google Place ID currently shown when the user tapped the edit/override button.
+     * Hashed here before it is emitted (R27) - never sent raw.
+     */
     originalSuggestionPlaceId?: string | null;
     /** 1-based rank of the suggestion shown at reject time. */
     suggestedRank?: number;
@@ -350,7 +357,7 @@ export const Analytics = {
     track('photo_import_place_rejected', {
       suggestion_count: props.suggestionCount,
       was_from_cache: props.wasFromCache,
-      original_suggestion_place_id: props.originalSuggestionPlaceId ?? null,
+      original_suggestion_place_hash: stableHashOrNull(props.originalSuggestionPlaceId),
       suggested_rank: props.suggestedRank ?? null,
       alternatives_viewed: props.alternativesViewed ?? null,
     }),
