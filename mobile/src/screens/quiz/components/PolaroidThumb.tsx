@@ -1,9 +1,10 @@
 /**
  * PolaroidThumb - a photo as a small instant print: white frame, deep bottom
- * lip, alternating tilt. Used for the results breakdown, the challenge list
- * thumbnails, and the intro. The verdict dot (moss / brick / gray) is the
- * only correctness language - color-coded, no iconography (per CLAUDE.md the
- * marks stay custom-free until approved artwork exists).
+ * lip, alternating tilt. Used for the results recap, the challenge list
+ * thumbnails, and the intro. Correctness is spoken by a corner VerdictMark
+ * sitting on the bottom lip - never over the photo itself. An unknown
+ * verdict (graded server-side, verdict lost locally) keeps a neutral gray
+ * dot in the same spot.
  */
 
 import { Image } from 'expo-image';
@@ -11,6 +12,8 @@ import { StyleSheet, Text, View, type ViewStyle } from 'react-native';
 
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
+
+import { VerdictMark } from './VerdictMark';
 
 export type PolaroidVerdict = 'correct' | 'incorrect' | 'unknown';
 
@@ -28,12 +31,6 @@ interface PolaroidThumbProps {
 }
 
 const TILTS = ['-2.5deg', '2deg', '-1.5deg', '2.5deg'];
-
-const VERDICT_COLORS: Record<PolaroidVerdict, string> = {
-  correct: colors.mossGreen,
-  incorrect: colors.adobeBrick,
-  unknown: colors.stormGray,
-};
 
 export function PolaroidThumb({
   uri,
@@ -61,10 +58,19 @@ export function PolaroidThumb({
         ) : null}
       </View>
       {verdict ? (
-        <View
-          style={[styles.verdictDot, { backgroundColor: VERDICT_COLORS[verdict] }]}
-          testID={testID ? `${testID}-verdict-${verdict}` : undefined}
-        />
+        verdict === 'unknown' ? (
+          <View
+            style={styles.unknownDot}
+            testID={testID ? `${testID}-verdict-unknown` : undefined}
+          />
+        ) : (
+          <VerdictMark
+            verdict={verdict}
+            size={20}
+            style={styles.verdictMark}
+            testID={testID ? `${testID}-verdict-${verdict}` : undefined}
+          />
+        )
       ) : null}
     </View>
   );
@@ -93,13 +99,21 @@ const styles = StyleSheet.create({
     color: colors.midnightNavy,
     paddingHorizontal: 2,
   },
-  verdictDot: {
+  // Both marks sit on the bottom lip's right corner, so they never cover the
+  // photo content above.
+  verdictMark: {
     position: 'absolute',
-    top: -5,
-    right: -5,
-    width: 16,
-    height: 16,
-    borderRadius: 8,
+    bottom: 3,
+    right: 4,
+  },
+  unknownDot: {
+    position: 'absolute',
+    bottom: 6,
+    right: 7,
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: colors.stormGray,
     borderWidth: 2,
     borderColor: colors.cloudWhite,
   },

@@ -28,6 +28,7 @@ jest.mock(
       FadeInUp: {
         duration: () => ({
           springify: () => ({}),
+          delay: () => ({}),
         }),
       },
       FadeOutUp: {

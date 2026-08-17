@@ -79,6 +79,7 @@ import {
   type QuizPlayState,
   type StoredQuizAnswer,
 } from '@services/quiz/quizPlay';
+import { getAllCountries } from '@services/countriesDb';
 import { deriveOrientation, QuizPlayScreen } from '@screens/quiz/QuizPlayScreen';
 import { QuizResultsScreen } from '@screens/quiz/QuizResultsScreen';
 
@@ -187,13 +188,13 @@ function renderPlayScreen() {
   return { navigation };
 }
 
-function renderResultsScreen(results = COMPLETE_RESULTS) {
+function renderResultsScreen(results: typeof COMPLETE_RESULTS | 'none' = COMPLETE_RESULTS) {
   const navigation =
     createMockNavigation() as unknown as RootStackScreenProps<'QuizResults'>['navigation'];
   const route = {
     key: 'test-results',
     name: 'QuizResults',
-    params: { quizId: QUIZ_ID, results },
+    params: results === 'none' ? { quizId: QUIZ_ID } : { quizId: QUIZ_ID, results },
   } as RootStackScreenProps<'QuizResults'>['route'];
   render(<QuizResultsScreen navigation={navigation} route={route} />);
   return { navigation };
@@ -581,20 +582,96 @@ describe('QuizPlayScreen resilience (BUG-1)', () => {
 });
 
 describe('QuizResultsScreen', () => {
-  it('shows the seeded score-to-beat and the owner-only memory score (AE3)', async () => {
+  it('reveals the photo hero with the serif score and the owner-only memory module (AE3)', async () => {
     mockQuizDetail(makeDetail({ state: 'playable', score_to_beat: { correct: 3, total: 5 } }));
     mockLoadPlayState.mockResolvedValue(makePlayState(['q0', 'q1', 'q2', 'q3', 'q4']));
 
     renderResultsScreen();
 
-    await waitFor(() => expect(screen.getByTestId('quiz-score-to-beat')).toBeTruthy());
-    const plate = screen.getByTestId('quiz-score-to-beat');
-    expect(within(plate).getByText('3')).toBeTruthy();
-    expect(within(plate).getByText('/5')).toBeTruthy();
+    // The hero is photo-first: the first challenge photo under the wordmark,
+    // the title, and the serif score lockup. No stamp plate, no trophy.
+    await waitFor(() => expect(screen.getByTestId('quiz-results-hero')).toBeTruthy());
+    expect(screen.getByText('Your Score to Beat')).toBeTruthy();
+    const lockup = screen.getByTestId('quiz-score-to-beat');
+    expect(within(lockup).getByText('3')).toBeTruthy();
+    expect(within(lockup).getByText('5')).toBeTruthy();
+
+    // Memory module: owner-only (arrives only in the completion payload).
     const memory = screen.getByTestId('quiz-memory-score');
-    expect(memory).toBeTruthy();
-    expect(screen.getByText(/2 of 4/)).toBeTruthy();
-    expect(screen.getByText(/Only you/)).toBeTruthy();
+    expect(within(memory).getByText('Memory')).toBeTruthy();
+    expect(screen.getByText('2 of 4 years right')).toBeTruthy();
+    expect(screen.getByText('Only you see this.')).toBeTruthy();
+  });
+
+  it('hides the memory module when there is no fresh completion payload', async () => {
+    // Arriving from My Quizzes: no results param, only the quiz detail.
+    mockQuizDetail(makeDetail({ state: 'playable', score_to_beat: { correct: 3, total: 5 } }));
+    mockLoadPlayState.mockResolvedValue(makePlayState(['q0', 'q1', 'q2', 'q3', 'q4']));
+
+    renderResultsScreen('none');
+
+    await waitFor(() => expect(screen.getByTestId('quiz-score-to-beat')).toBeTruthy());
+    expect(screen.queryByTestId('quiz-memory-score')).toBeNull();
+  });
+
+  it('hides the memory module when no photo carried a year question', async () => {
+    mockQuizDetail(makeDetail({ state: 'playable', score_to_beat: { correct: 3, total: 5 } }));
+    mockLoadPlayState.mockResolvedValue(makePlayState(['q0', 'q1', 'q2', 'q3', 'q4']));
+
+    renderResultsScreen({ ...COMPLETE_RESULTS, memory_correct: 0, memory_total: 0 });
+
+    await waitFor(() => expect(screen.getByTestId('quiz-score-to-beat')).toBeTruthy());
+    expect(screen.queryByTestId('quiz-memory-score')).toBeNull();
+  });
+
+  it('keeps country names out of the recap until Review Answers is opened', async () => {
+    mockQuizDetail(makeDetail({ state: 'playable', score_to_beat: { correct: 3, total: 5 } }));
+    mockLoadPlayState.mockResolvedValue(makePlayState(['q0', 'q1', 'q2', 'q3', 'q4']));
+
+    renderResultsScreen();
+
+    // The recap thumbnails carry corner verdict marks - but no reveal text.
+    await waitFor(() =>
+      expect(screen.getByTestId('quiz-recap-thumb-0-verdict-correct')).toBeTruthy()
+    );
+    expect(screen.queryByText(/France/)).toBeNull();
+
+    fireEvent.press(screen.getByTestId('quiz-review-toggle'));
+
+    // Opening the review reveals the serif country lines for every photo.
+    expect(screen.getAllByText('Right: France')).toHaveLength(5);
+  });
+
+  it('names the correct country and the owner pick on a miss once answers are open', async () => {
+    mockQuizDetail(makeDetail({ state: 'playable', score_to_beat: { correct: 3, total: 5 } }));
+    const playState = makePlayState(['q0', 'q1', 'q2', 'q3', 'q4']);
+    playState.answers.q1 = makeAnswer('q1', { placeCorrect: false, selectedOptionIndex: 1 });
+    mockLoadPlayState.mockResolvedValue(playState);
+
+    renderResultsScreen();
+
+    await waitFor(() =>
+      expect(screen.getByTestId('quiz-recap-thumb-1-verdict-incorrect')).toBeTruthy()
+    );
+    fireEvent.press(screen.getByTestId('quiz-review-toggle'));
+
+    expect(screen.getByText('It was France — you picked Spain')).toBeTruthy();
+  });
+
+  it('stamps reviewed rows with country artwork when the country is known', async () => {
+    (getAllCountries as jest.Mock).mockResolvedValueOnce([
+      { code: 'FR', name: 'France', region: 'Europe', subregion: null, recognition: null },
+    ]);
+    mockQuizDetail(makeDetail({ state: 'playable', score_to_beat: { correct: 3, total: 5 } }));
+    mockLoadPlayState.mockResolvedValue(makePlayState(['q0', 'q1', 'q2', 'q3', 'q4']));
+
+    renderResultsScreen();
+
+    await waitFor(() => expect(screen.getByTestId('quiz-review-toggle')).toBeTruthy());
+    fireEvent.press(screen.getByTestId('quiz-review-toggle'));
+
+    // The stamp accent is post-answer only, inside the opened review rows.
+    await waitFor(() => expect(screen.getByTestId('quiz-review-stamp-0')).toBeTruthy());
   });
 
   it('forces answering a swapped-in photo before share is available', async () => {
@@ -638,6 +715,10 @@ describe('QuizResultsScreen', () => {
 
     const { navigation } = renderResultsScreen();
 
+    // Swap chips live inside the opened Review Answers rows (pre-share only).
+    await waitFor(() => expect(screen.getByTestId('quiz-review-toggle')).toBeTruthy());
+    fireEvent.press(screen.getByTestId('quiz-review-toggle'));
+
     await waitFor(() => expect(screen.getByTestId('quiz-swap-2')).toBeTruthy());
     fireEvent.press(screen.getByTestId('quiz-swap-2'));
 
@@ -678,14 +759,18 @@ describe('QuizResultsScreen', () => {
     });
 
     await waitFor(() =>
-      expect(within(screen.getByTestId('quiz-score-to-beat')).getByText('/6')).toBeTruthy()
+      expect(within(screen.getByTestId('quiz-score-to-beat')).getByText('6')).toBeTruthy()
     );
+    fireEvent.press(screen.getByTestId('quiz-review-toggle'));
+    await waitFor(() => expect(screen.getByTestId('quiz-remove-5')).toBeTruthy());
     fireEvent.press(screen.getByTestId('quiz-remove-5'));
 
+    // 5 of 6 rescales to 4 of 5: the '4' numeral only exists post-remove.
     await waitFor(() =>
-      expect(within(screen.getByTestId('quiz-score-to-beat')).getByText('/5')).toBeTruthy()
+      expect(within(screen.getByTestId('quiz-score-to-beat')).getByText('4')).toBeTruthy()
     );
-    expect(within(screen.getByTestId('quiz-score-to-beat')).getByText('4')).toBeTruthy();
+    expect(within(screen.getByTestId('quiz-score-to-beat')).getByText('5')).toBeTruthy();
+    expect(within(screen.getByTestId('quiz-score-to-beat')).queryByText('6')).toBeNull();
     expect(mockApiDelete).toHaveBeenCalledWith(`/quiz/${QUIZ_ID}/questions/q5`);
   });
 
@@ -703,6 +788,9 @@ describe('QuizResultsScreen', () => {
     renderResultsScreen({ ...COMPLETE_RESULTS, state: 'shared' });
 
     await waitFor(() => expect(screen.getByTestId('quiz-score-to-beat')).toBeTruthy());
+    // Even inside the opened review, the pre-share-only chips are gone.
+    fireEvent.press(screen.getByTestId('quiz-review-toggle'));
+    await waitFor(() => expect(screen.getByTestId('quiz-review-0')).toBeTruthy());
     expect(screen.queryByTestId('quiz-swap-0')).toBeNull();
     expect(screen.queryByTestId('quiz-remove-0')).toBeNull();
     // Re-sharing an already-shared quiz stays possible (idempotent slug).
@@ -726,6 +814,8 @@ describe('QuizResultsScreen', () => {
     renderResultsScreen();
 
     await waitFor(() => expect(screen.getByTestId('quiz-share')).toBeTruthy());
+    // The primary action carries the challenge framing from the mockup.
+    expect(screen.getByText('Challenge Your Friends')).toBeTruthy();
     fireEvent.press(screen.getByTestId('quiz-share'));
 
     await waitFor(() => expect(shareSpy).toHaveBeenCalled());
