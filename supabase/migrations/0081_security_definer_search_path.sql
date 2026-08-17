@@ -3,9 +3,13 @@
 -- lack the SET search_path = public clause, which could allow search_path hijacking.
 --
 -- Functions fixed:
--- 1. is_blocked_bidirectional() from 0033_social_tables.sql
--- 2. get_friends_ranking() from 0035_ranking_function.sql
+-- 1. is_blocked_bidirectional() from 0059_social_tables.sql
+-- 2. get_friends_ranking() from 0061_ranking_function.sql
 -- 3. soft_delete_trip() from 0011_atomic_soft_delete.sql
+--
+-- MERGE RECONCILIATION (renumbered 0057 -> 0081): soft_delete_trip below is
+-- kept in sync with main's 0034_soft_delete_system_check, which added the
+-- is_system = false guard. Do not remove that guard here.
 
 --------------------------------------------------------------------------------
 -- FIX is_blocked_bidirectional()
@@ -102,9 +106,10 @@ BEGIN
   SET deleted_at = now()
   WHERE id = p_trip_id
     AND user_id = auth.uid()
-    AND deleted_at IS NULL;
+    AND deleted_at IS NULL
+    AND is_system = false;  -- Defense-in-depth (from 0034): prevent system trip deletion
   RETURN FOUND;
 END;
 $$ LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public;
+SET search_path = public, pg_catalog;

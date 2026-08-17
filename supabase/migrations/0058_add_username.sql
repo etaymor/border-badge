@@ -83,6 +83,7 @@ RETURNS TABLE (
 )
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = public
 AS $$
 DECLARE
   v_suggestions TEXT[] := ARRAY[]::TEXT[];
