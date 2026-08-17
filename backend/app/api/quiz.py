@@ -33,6 +33,7 @@ import random
 import re
 import secrets
 import uuid as uuid_mod
+from collections import Counter
 from dataclasses import asdict
 from datetime import UTC, datetime
 from typing import Any
@@ -165,11 +166,13 @@ async def list_quizzes(user: CurrentUser) -> QuizListResponse:
 @router.post("/eligibility", response_model=QuizEligibilityResponse)
 # Cost logic for this limit: each image is one vision call (~$0.00008 at
 # 768px, same envelope as /photos/suggest-places). A full draft can spend at
-# most the ~70-image budget, delivered in <=50-image batches, so an honest
-# creation needs only 2-3 requests -- 30/hour leaves generous room for
-# batching plus resampling after ineligible photos, while the per-draft budget
-# and the global daily circuit breaker (both enforced below, server-side)
-# bound the actual spend regardless of request count.
+# most the per-draft budget, delivered in <=50-image batches. The client sizes
+# each resample by the pass rate it is seeing, so a healthy library finishes in
+# 2-3 requests and the worst case -- a library whose photos almost never clear
+# the gate, hunting all the way to the 300-image cap -- is ~7. 30/hour still
+# leaves room for a few creations, while the per-draft budget and the global
+# daily circuit breaker (both enforced below, server-side) bound the actual
+# spend regardless of request count.
 @limiter.limit("30/hour")
 async def check_photo_eligibility(
     request: Request,  # Required for rate limiter
@@ -341,6 +344,22 @@ async def check_photo_eligibility(
                     reason=reason,
                 )
             )
+
+    # Verdict histogram. A thin-library decline is otherwise indistinguishable
+    # from "the model returned nothing": both look like a clean 200 with no
+    # eligible photos. `unclassifiable` in particular is a SILENT path
+    # (extract_content returned empty), so without this line an empty-response
+    # outage reads exactly like a library full of people photos.
+    histogram = Counter(
+        "eligible" if result.eligible else (result.reason or result.status)
+        for result in results
+    )
+    logger.info(
+        "quiz eligibility: quiz=%s batch=%d %s",
+        data.quiz_id,
+        batch_size,
+        " ".join(f"{reason}={count}" for reason, count in sorted(histogram.items())),
+    )
 
     new_count = classified_count + batch_size
     return QuizEligibilityResponse(

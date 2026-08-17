@@ -8,7 +8,7 @@ Covers:
   that image ineligible without failing the batch.
 - Transport failures (timeout/network) surface as a retryable "error" status,
   distinct from "ineligible".
-- Server-side budgets: per-draft classification cap (~70) anchored on the quiz
+- Server-side budgets: the per-draft classification cap anchored on the quiz
   row's classified_count, and a global daily circuit breaker reserved
   atomically through the reserve_daily_classification RPC (durable counter,
   migration 0060).
@@ -21,6 +21,7 @@ existing photo-vision tests use: quiz_classifier's get_http_client.
 
 import base64
 import json
+import logging
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -52,6 +53,8 @@ def quiz_settings(monkeypatch):
     settings = get_settings()
     monkeypatch.setattr(settings, "openrouter_api_key", "test-key")
     monkeypatch.setattr(settings, "multimodal_model", "test-model")
+    # Deliberately NOT the production default (300): the budget tests below
+    # assert boundary behavior, and a small pinned cap keeps them readable.
     monkeypatch.setattr(settings, "quiz_classification_budget_per_quiz", 70)
     monkeypatch.setattr(settings, "quiz_classification_daily_cap", 2000)
     yield
@@ -814,3 +817,67 @@ class TestReasoningTokenBudget:
         results = response.json()["results"]
         assert len(results) == 1
         assert results[0]["status"] == "ineligible"
+
+
+# ============================================================================
+# Observability
+# ============================================================================
+
+
+class TestVerdictHistogram:
+    """A decline must be diagnosable from the server log alone.
+
+    Before this, `check_photo_eligibility` computed a per-image `reason` and
+    threw it away: a library full of people photos, a vision model returning
+    empty content, and a genuinely thin library all produced the same silent
+    200 with zero eligible photos.
+    """
+
+    def test_logs_verdict_histogram(
+        self, client: TestClient, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        images = [{"id": f"img-{i}", "image_base64": VALID_B64} for i in range(3)]
+        with caplog.at_level(logging.INFO, logger="app.api.quiz"):
+            response, _ = _post_eligibility(
+                client,
+                _db(_quiz_row()),
+                [
+                    _openrouter_response(
+                        _model_result(setting="outdoor", category="scenery")
+                    ),
+                    _openrouter_response(
+                        _model_result(has_people=True, setting="outdoor")
+                    ),
+                    _openrouter_response(_model_result(setting="indoor")),
+                ],
+                images=images,
+            )
+
+        assert response.status_code == 200
+        line = next(
+            record.getMessage()
+            for record in caplog.records
+            if "quiz eligibility:" in record.getMessage()
+        )
+        assert "batch=3" in line
+        assert "eligible=1" in line
+        assert "people_present=1" in line
+        assert "indoor=1" in line
+
+    def test_histogram_names_the_silent_unclassifiable_path(
+        self, client: TestClient, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """An empty model response logs nothing of its own - the histogram is
+        the only signal that the model, not the library, is the problem."""
+        with caplog.at_level(logging.INFO, logger="app.api.quiz"):
+            response, _ = _post_eligibility(
+                client, _db(_quiz_row()), _openrouter_response("")
+            )
+
+        assert response.status_code == 200
+        line = next(
+            record.getMessage()
+            for record in caplog.records
+            if "quiz eligibility:" in record.getMessage()
+        )
+        assert "unclassifiable=1" in line
