@@ -341,12 +341,45 @@
   }
 
   // --- Completion (reveal-first) -------------------------------------------
+  // The /complete call fires automatically after the last answer, with the
+  // options already locked - so a transient failure here must leave a way
+  // forward, or the guest is dead-ended until a refresh. The retry button
+  // lives inside the error toast (which is textContent-cleared on every
+  // showError, so it never goes stale) and replays complete() with the same
+  // intent; the endpoint tolerates replays server-side.
+  var completeShowPostScore = true; // the intent a retry must preserve
+
+  function showCompleteRetry() {
+    var retry = document.createElement('button');
+    retry.type = 'button';
+    retry.className = 'quiz-button quiz-button-primary';
+    retry.textContent = 'Try again';
+    retry.addEventListener('click', function () {
+      complete(completeShowPostScore);
+    });
+    if (errorEl && !errorEl.hidden) {
+      errorEl.appendChild(document.createTextNode(' '));
+      errorEl.appendChild(retry);
+    } else {
+      root.appendChild(retry);
+    }
+    // Focus doubles as scroll-into-view: the question stage fills the
+    // viewport, and the toast sits in flow beneath it.
+    retry.focus();
+  }
+
   function complete(showPostScore) {
+    completeShowPostScore = showPostScore;
+    clearError();
     api('/complete', { token: token })
       .then(function (results) {
         renderResults(results, showPostScore);
       })
-      .catch(handleFailure);
+      .catch(function (err) {
+        if (err && err.handled) return; // revoked: the gone view took over
+        handleFailure(err);
+        showCompleteRetry();
+      });
   }
 
   function renderResults(results, showPostScore) {
