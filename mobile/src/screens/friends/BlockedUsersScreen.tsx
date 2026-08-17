@@ -15,6 +15,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { UserAvatar } from '@components/friends';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
+import { socialKeys } from '@hooks/queryKeys';
 import { useBlockedUsers, useUnblockUser, type BlockedUser } from '@hooks/useBlocks';
 import type { FriendsStackScreenProps } from '@navigation/types';
 
@@ -76,7 +77,7 @@ export function BlockedUsersScreen({ navigation }: Props) {
 
   const handleRefetch = useCallback(() => {
     refetch();
-    queryClient.invalidateQueries({ queryKey: ['blocks'] });
+    queryClient.invalidateQueries({ queryKey: socialKeys.blocks });
   }, [refetch, queryClient]);
 
   const renderItem = useCallback(

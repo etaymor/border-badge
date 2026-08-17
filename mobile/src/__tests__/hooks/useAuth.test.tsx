@@ -11,6 +11,7 @@ import { renderHook, act, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 import { useSignUpWithPassword, useSignOut } from '@hooks/useAuth';
+import { unregisterPushNotifications } from '@services/pushNotifications';
 import { supabase } from '@services/supabase';
 import { clearTokens, clearOnboardingComplete } from '@services/api';
 import { useAuthStore } from '@stores/authStore';
@@ -36,6 +37,12 @@ jest.mock('@services/api', () => ({
   clearTokens: jest.fn().mockResolvedValue(undefined),
   clearOnboardingComplete: jest.fn().mockResolvedValue(undefined),
   storeTokens: jest.fn().mockResolvedValue(undefined),
+}));
+
+// Mock push notification service so we can observe sign-out ordering
+jest.mock('@services/pushNotifications', () => ({
+  registerForPushNotifications: jest.fn().mockResolvedValue(null),
+  unregisterPushNotifications: jest.fn().mockResolvedValue(undefined),
 }));
 
 // Mock guestMigration service
@@ -265,6 +272,30 @@ describe('useAuth', () => {
 
       expect(mockedClearTokens).toHaveBeenCalled();
       expect(mockedClearOnboardingComplete).toHaveBeenCalled();
+    });
+
+    it('unregisters the push token exactly once, before supabase sign-out', async () => {
+      const callOrder: string[] = [];
+      (unregisterPushNotifications as jest.Mock).mockImplementation(async () => {
+        callOrder.push('unregister');
+      });
+      mockSignOut.mockImplementation(async () => {
+        callOrder.push('signOut');
+        return { error: null };
+      });
+
+      const { result } = renderHook(() => useSignOut(), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      await act(async () => {
+        result.current.mutate();
+      });
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+      expect(unregisterPushNotifications).toHaveBeenCalledTimes(1);
+      expect(callOrder).toEqual(['unregister', 'signOut']);
     });
 
     it('returns error state on failure', async () => {

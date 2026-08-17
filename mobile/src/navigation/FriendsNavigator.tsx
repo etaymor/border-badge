@@ -2,7 +2,6 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
 import {
   BlockedUsersScreen,
-  FeedScreen,
   FollowersListScreen,
   FollowingListScreen,
   FriendsScreen,
@@ -18,7 +17,6 @@ export function FriendsNavigator() {
   return (
     <Stack.Navigator>
       <Stack.Screen name="FriendsHome" component={FriendsScreen} options={{ headerShown: false }} />
-      <Stack.Screen name="FeedHome" component={FeedScreen} options={{ headerShown: false }} />
       <Stack.Screen
         name="UserProfile"
         component={UserProfileScreen}

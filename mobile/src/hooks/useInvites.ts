@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Alert } from 'react-native';
 
+import { socialKeys } from '@hooks/queryKeys';
 import { api } from '@services/api';
 
 // Types
@@ -23,9 +24,6 @@ interface InviteResponse {
   email: string;
 }
 
-// Query keys
-const INVITES_KEY = ['invites'];
-
 /**
  * Hook to get list of pending invites sent by the current user.
  */
@@ -34,7 +32,7 @@ export function usePendingInvites(options?: { limit?: number; offset?: number })
   const offset = options?.offset ?? 0;
 
   return useQuery<PendingInvite[]>({
-    queryKey: [...INVITES_KEY, 'pending', { limit, offset }],
+    queryKey: socialKeys.pendingInvites(limit, offset),
     queryFn: async () => {
       const response = await api.get<PendingInvite[]>('/invites/pending', {
         params: { limit, offset },
@@ -50,7 +48,7 @@ export function usePendingInvites(options?: { limit?: number; offset?: number })
  */
 export function useTripPendingInvites(tripId: string | undefined) {
   return useQuery<PendingInvite[]>({
-    queryKey: [...INVITES_KEY, 'trip', tripId],
+    queryKey: socialKeys.tripInvites(tripId as string),
     queryFn: async () => {
       const response = await api.get<PendingInvite[]>(`/invites/trip/${tripId}`);
       return response.data;
@@ -74,7 +72,7 @@ export function useSendInvite() {
 
     onSuccess: (data) => {
       // Invalidate pending invites query
-      queryClient.invalidateQueries({ queryKey: INVITES_KEY });
+      queryClient.invalidateQueries({ queryKey: socialKeys.invites });
 
       if (data.status === 'already_pending') {
         Alert.alert('Already Invited', `An invite is already pending for ${data.email}`);
@@ -106,7 +104,7 @@ export function useCancelInvite() {
 
     onSuccess: () => {
       // Invalidate pending invites query
-      queryClient.invalidateQueries({ queryKey: INVITES_KEY });
+      queryClient.invalidateQueries({ queryKey: socialKeys.invites });
     },
 
     onError: (error) => {

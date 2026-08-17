@@ -1,5 +1,6 @@
-import { useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 
+import { socialKeys } from '@hooks/queryKeys';
 import { useDebounce } from '@hooks/useDebounce';
 import { api } from '@services/api';
 
@@ -26,7 +27,7 @@ export function useUserSearch(query: string, options: UseUserSearchOptions = {})
   const debouncedQuery = useDebounce(query, debounceMs);
 
   return useQuery<UserSearchResult[]>({
-    queryKey: ['users', 'search', debouncedQuery, limit],
+    queryKey: socialKeys.userSearchQuery(debouncedQuery, limit),
     queryFn: async ({ signal }) => {
       const response = await api.get<UserSearchResult[]>('/users/search', {
         params: { q: debouncedQuery, limit },
@@ -35,6 +36,9 @@ export function useUserSearch(query: string, options: UseUserSearchOptions = {})
       return response.data;
     },
     enabled: enabled && debouncedQuery.length >= 2,
+    // Keep showing the previous results while the next query fetches so the
+    // dropdown never flickers to empty mid-typing.
+    placeholderData: keepPreviousData,
     staleTime: 1000 * 30, // 30 seconds
   });
 }

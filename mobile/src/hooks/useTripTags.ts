@@ -3,9 +3,12 @@
  */
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import type { QueryClient } from '@tanstack/react-query';
 import { Alert } from 'react-native';
 
 import { features } from '@config/features';
+import { socialKeys } from '@hooks/queryKeys';
+import { updateSocialHomeFirstPage } from '@hooks/useSocialHome';
 import { api } from '@services/api';
 
 /**
@@ -30,15 +33,12 @@ export interface TripTagActionResponse {
   responded_at: string;
 }
 
-const PENDING_TAGS_KEY = ['trip-tags', 'pending'];
-const PENDING_TAG_COUNT_KEY = ['trip-tags', 'pending', 'count'];
-
 /**
  * Fetch pending trip tag invitations for the current user.
  */
 export function usePendingTripTags() {
   return useQuery({
-    queryKey: PENDING_TAGS_KEY,
+    queryKey: socialKeys.pendingTags,
     queryFn: async (): Promise<PendingTripTag[]> => {
       const response = await api.get('/trip-tags/pending');
       return response.data;
@@ -52,7 +52,7 @@ export function usePendingTripTags() {
  */
 export function usePendingTripTagCount() {
   return useQuery({
-    queryKey: PENDING_TAG_COUNT_KEY,
+    queryKey: socialKeys.pendingTagCount,
     queryFn: async (): Promise<number> => {
       const response = await api.get('/trip-tags/pending/count');
       return response.data.count;
@@ -61,6 +61,23 @@ export function usePendingTripTagCount() {
     // Trip tags are a social feature; the endpoint 404s when the flag is off.
     enabled: features.enableSocial,
   });
+}
+
+/**
+ * After a tag is approved or declined it is no longer pending: refresh the
+ * pending list (exact key, so the badge count query is not refetched) and
+ * decrement the badge counts in place instead of refetching them.
+ */
+function settlePendingTag(queryClient: QueryClient): void {
+  queryClient.invalidateQueries({ queryKey: socialKeys.pendingTags, exact: true });
+
+  queryClient.setQueryData<number>(socialKeys.pendingTagCount, (old) =>
+    old === undefined ? old : Math.max(0, old - 1)
+  );
+  updateSocialHomeFirstPage(queryClient, (page) => ({
+    ...page,
+    pending_tag_count: Math.max(0, page.pending_tag_count - 1),
+  }));
 }
 
 /**
@@ -75,8 +92,7 @@ export function useApproveTripTag() {
       return response.data;
     },
     onSuccess: () => {
-      // Invalidate pending tags to refresh the list
-      queryClient.invalidateQueries({ queryKey: PENDING_TAGS_KEY });
+      settlePendingTag(queryClient);
       // Also invalidate trips in case tags affect trip visibility
       queryClient.invalidateQueries({ queryKey: ['trips'] });
     },
@@ -99,8 +115,7 @@ export function useDeclineTripTag() {
       return response.data;
     },
     onSuccess: () => {
-      // Invalidate pending tags to refresh the list
-      queryClient.invalidateQueries({ queryKey: PENDING_TAGS_KEY });
+      settlePendingTag(queryClient);
     },
     onError: (error) => {
       const message = error instanceof Error ? error.message : 'Failed to decline invitation';

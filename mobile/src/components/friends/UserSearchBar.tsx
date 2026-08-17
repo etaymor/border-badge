@@ -15,7 +15,6 @@ import {
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { useSendInvite } from '@hooks/useInvites';
-import type { UserSearchResult } from '@hooks/useUserSearch';
 import { useUserSearch } from '@hooks/useUserSearch';
 
 import { FollowButton } from './FollowButton';
@@ -34,7 +33,6 @@ export function UserSearchBar({
 }: UserSearchBarProps) {
   const [query, setQuery] = useState('');
   const [isFocused, setIsFocused] = useState(false);
-  const [displayUsers, setDisplayUsers] = useState<UserSearchResult[] | undefined>(undefined);
   const [recentFollow, setRecentFollow] = useState<{
     username: string;
     action: 'follow' | 'unfollow';
@@ -43,13 +41,11 @@ export function UserSearchBar({
   // Ref to track blur timeout for cleanup
   const blurTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const { data: users, isLoading } = useUserSearch(query, {
+  // keepPreviousData in the hook keeps the last results visible while the
+  // next query fetches, so no local mirror state is needed.
+  const { data: users, isFetching } = useUserSearch(query, {
     enabled: query.length >= 2,
   });
-
-  useEffect(() => {
-    setDisplayUsers(users);
-  }, [users]);
 
   // Cleanup blur timeout on unmount
   useEffect(() => {
@@ -69,8 +65,8 @@ export function UserSearchBar({
   const sendInviteMutation = useSendInvite();
 
   const isEmail = useMemo(() => EMAIL_REGEX.test(query.trim()), [query]);
-  const noUsersFound = displayUsers !== undefined && displayUsers.length === 0;
-  const showInviteOption = isEmail && noUsersFound && !isLoading;
+  const noUsersFound = users !== undefined && users.length === 0;
+  const showInviteOption = isEmail && noUsersFound && !isFetching;
 
   const handleUserPress = useCallback(
     (userId: string, username: string) => {
@@ -80,15 +76,11 @@ export function UserSearchBar({
     [onUserSelect]
   );
 
-  const handleFollowStateChange = useCallback(
-    (userId: string, username: string, nextState: boolean) => {
-      setDisplayUsers((prev) =>
-        prev?.map((user) => (user.id === userId ? { ...user, is_following: nextState } : user))
-      );
-      setRecentFollow({ username, action: nextState ? 'follow' : 'unfollow' });
-    },
-    []
-  );
+  const handleFollowStateChange = useCallback((username: string, nextState: boolean) => {
+    // The follow mutations update the search cache optimistically; only the
+    // confirmation banner is component state.
+    setRecentFollow({ username, action: nextState ? 'follow' : 'unfollow' });
+  }, []);
 
   const handleInviteByEmail = useCallback(() => {
     const email = query.trim();
@@ -137,8 +129,8 @@ export function UserSearchBar({
                 blurTimeoutRef.current = setTimeout(() => setIsFocused(false), 200);
               }}
             />
-            {isLoading && <ActivityIndicator size="small" color={colors.adobeBrick} />}
-            {query.length > 0 && !isLoading && (
+            {isFetching && <ActivityIndicator size="small" color={colors.adobeBrick} />}
+            {query.length > 0 && !isFetching && (
               <TouchableOpacity onPress={() => setQuery('')} style={styles.clearButton}>
                 <Ionicons name="close-circle" size={18} color={colors.stormGray} />
               </TouchableOpacity>
@@ -163,14 +155,14 @@ export function UserSearchBar({
               </Text>
             </View>
           )}
-          {isLoading ? (
+          {users === undefined && isFetching ? (
             <View style={styles.emptyResults}>
               <ActivityIndicator size="small" color={colors.adobeBrick} />
               <Text style={styles.noResults}>Searching...</Text>
             </View>
-          ) : displayUsers && displayUsers.length > 0 ? (
+          ) : users && users.length > 0 ? (
             <FlatList
-              data={displayUsers}
+              data={users}
               keyExtractor={(item) => item.id}
               keyboardShouldPersistTaps="handled"
               renderItem={({ item }) => (
@@ -194,7 +186,7 @@ export function UserSearchBar({
                     username={item.username}
                     isFollowing={item.is_following}
                     size="small"
-                    onFollowChange={(next) => handleFollowStateChange(item.id, item.username, next)}
+                    onFollowChange={(next) => handleFollowStateChange(item.username, next)}
                   />
                 </TouchableOpacity>
               )}

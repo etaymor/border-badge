@@ -2,13 +2,13 @@ import React from 'react';
 import { renderHook, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
-import type { FeedItem } from '@hooks/useFeed';
 import {
   useSocialHome,
   getSocialFeedItems,
   getSocialHomeStats,
   getSocialHomeRanking,
   getSocialPendingTagCount,
+  type FeedItem,
   type SocialHomePage,
 } from '@hooks/useSocialHome';
 import { api } from '@services/api';

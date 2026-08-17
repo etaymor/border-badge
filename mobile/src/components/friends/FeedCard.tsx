@@ -5,7 +5,7 @@ import { Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { getCountryImage } from '../../assets/countryImages';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
-import type { FeedItem } from '@hooks/useFeed';
+import type { FeedItem } from '@hooks/useSocialHome';
 import { getFlagEmoji } from '@utils/flags';
 
 import { UserAvatar } from './UserAvatar';

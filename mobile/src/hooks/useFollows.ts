@@ -1,6 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import type { QueryClient, QueryKey } from '@tanstack/react-query';
 import { Alert } from 'react-native';
 
+import { socialKeys } from '@hooks/queryKeys';
+import type { SocialHomeInfiniteData } from '@hooks/useSocialHome';
+import { updateSocialHomeFirstPage } from '@hooks/useSocialHome';
+import type { UserProfile } from '@hooks/useUserProfile';
+import type { UserSearchResult } from '@hooks/useUserSearch';
 import { api } from '@services/api';
 import { getSocialErrorMessage } from '@utils/socialErrors';
 
@@ -25,29 +31,9 @@ interface FollowResponse {
 }
 
 interface FollowMutationContext {
-  previousStats?: FollowStats;
-  previousFollowing?: UserSummary[];
-}
-
-// Query keys
-const FOLLOWS_KEY = ['follows'];
-const STATS_KEY = [...FOLLOWS_KEY, 'stats'];
-const FOLLOWING_KEY = [...FOLLOWS_KEY, 'following'];
-const FOLLOWERS_KEY = [...FOLLOWS_KEY, 'followers'];
-const SOCIAL_HOME_KEY = ['social-home'];
-
-/**
- * Hook to get follow statistics for the current user.
- */
-export function useFollowStats() {
-  return useQuery<FollowStats>({
-    queryKey: STATS_KEY,
-    queryFn: async () => {
-      const response = await api.get<FollowStats>('/follows/stats');
-      return response.data;
-    },
-    staleTime: 1000 * 60 * 5, // 5 minutes
-  });
+  previousProfile?: UserProfile;
+  previousSocialHome: Array<[QueryKey, SocialHomeInfiniteData | undefined]>;
+  previousSearches: Array<[QueryKey, UserSearchResult[] | undefined]>;
 }
 
 /**
@@ -58,7 +44,7 @@ export function useFollowing(options?: { limit?: number; offset?: number }) {
   const offset = options?.offset ?? 0;
 
   return useQuery<UserSummary[]>({
-    queryKey: [...FOLLOWING_KEY, { limit, offset }],
+    queryKey: socialKeys.followingPage(limit, offset),
     queryFn: async () => {
       const response = await api.get<UserSummary[]>('/follows/following', {
         params: { limit, offset },
@@ -77,7 +63,7 @@ export function useFollowers(options?: { limit?: number; offset?: number }) {
   const offset = options?.offset ?? 0;
 
   return useQuery<UserSummary[]>({
-    queryKey: [...FOLLOWERS_KEY, { limit, offset }],
+    queryKey: socialKeys.followersPage(limit, offset),
     queryFn: async () => {
       const response = await api.get<UserSummary[]>('/follows/followers', {
         params: { limit, offset },
@@ -86,6 +72,84 @@ export function useFollowers(options?: { limit?: number; offset?: number }) {
     },
     staleTime: 1000 * 60, // 1 minute
   });
+}
+
+/**
+ * Surgically apply a follow/unfollow change to every cache the user can see:
+ * the target's profile, my social-home follow stats (page 1), and any cached
+ * search results showing the target. Snapshots are returned for rollback.
+ */
+async function applyOptimisticFollowChange(
+  queryClient: QueryClient,
+  userId: string,
+  username: string | undefined,
+  isFollowing: boolean
+): Promise<FollowMutationContext> {
+  const delta = isFollowing ? 1 : -1;
+
+  // Cancel in-flight fetches so they cannot clobber the optimistic values.
+  await queryClient.cancelQueries({ queryKey: socialKeys.socialHome });
+  await queryClient.cancelQueries({ queryKey: socialKeys.userSearch });
+  if (username) {
+    await queryClient.cancelQueries({ queryKey: socialKeys.userProfile(username) });
+  }
+
+  // Snapshot previous values for rollback.
+  const previousProfile = username
+    ? queryClient.getQueryData<UserProfile>(socialKeys.userProfile(username))
+    : undefined;
+  const previousSocialHome = queryClient.getQueriesData<SocialHomeInfiniteData>({
+    queryKey: socialKeys.socialHome,
+  });
+  const previousSearches = queryClient.getQueriesData<UserSearchResult[]>({
+    queryKey: socialKeys.userSearch,
+  });
+
+  // Target user's profile: flip follow state, adjust their follower count.
+  if (username) {
+    queryClient.setQueryData<UserProfile>(socialKeys.userProfile(username), (old) =>
+      old
+        ? {
+            ...old,
+            is_following: isFollowing,
+            follower_count: Math.max(0, old.follower_count + delta),
+          }
+        : old
+    );
+  }
+
+  // Social-home page 1: adjust my following count. Feed pages stay untouched.
+  updateSocialHomeFirstPage(queryClient, (page) => ({
+    ...page,
+    follow_stats: {
+      ...page.follow_stats,
+      following_count: Math.max(0, page.follow_stats.following_count + delta),
+    },
+  }));
+
+  // Cached search results showing this user: flip follow state.
+  queryClient.setQueriesData<UserSearchResult[]>({ queryKey: socialKeys.userSearch }, (old) =>
+    old?.map((user) => (user.id === userId ? { ...user, is_following: isFollowing } : user))
+  );
+
+  return { previousProfile, previousSocialHome, previousSearches };
+}
+
+function rollbackFollowChange(
+  queryClient: QueryClient,
+  username: string | undefined,
+  context: FollowMutationContext | undefined
+): void {
+  if (!context) return;
+  if (username && context.previousProfile !== undefined) {
+    queryClient.setQueryData(socialKeys.userProfile(username), context.previousProfile);
+  }
+  for (const [queryKey, data] of context.previousSocialHome) {
+    queryClient.setQueryData(queryKey, data);
+  }
+  for (const [queryKey, data] of context.previousSearches) {
+    queryClient.setQueryData(queryKey, data);
+  }
 }
 
 /**
@@ -100,48 +164,16 @@ export function useFollowUser(userId: string, username?: string) {
       return response.data;
     },
 
-    onMutate: async () => {
-      // Cancel outgoing queries
-      await queryClient.cancelQueries({ queryKey: STATS_KEY });
-      await queryClient.cancelQueries({ queryKey: ['user'] });
-
-      // Snapshot previous values
-      const previousStats = queryClient.getQueryData<FollowStats>(STATS_KEY);
-
-      // Optimistically update stats
-      queryClient.setQueryData<FollowStats>(STATS_KEY, (old) => {
-        if (!old) return old;
-        return {
-          ...old,
-          following_count: old.following_count + 1,
-        };
-      });
-
-      return { previousStats };
-    },
+    onMutate: () => applyOptimisticFollowChange(queryClient, userId, username, true),
 
     onError: (error, _variables, context) => {
-      // Rollback on error
-      if (context?.previousStats) {
-        queryClient.setQueryData(STATS_KEY, context.previousStats);
-      }
-
-      const message = getSocialErrorMessage(error, 'follow');
-      Alert.alert('Error', message);
+      rollbackFollowChange(queryClient, username, context);
+      Alert.alert('Error', getSocialErrorMessage(error, 'follow'));
     },
 
     onSettled: () => {
-      // Always refetch after mutation
-      queryClient.invalidateQueries({ queryKey: STATS_KEY });
-      queryClient.invalidateQueries({ queryKey: FOLLOWING_KEY });
-      // Invalidate all user queries to ensure profile is_following is refreshed
-      queryClient.invalidateQueries({ queryKey: ['user'] });
-      // Also invalidate by username if provided for more targeted invalidation
-      if (username) {
-        queryClient.invalidateQueries({ queryKey: ['user', username, 'profile'] });
-      }
-      queryClient.invalidateQueries({ queryKey: ['feed'] });
-      queryClient.invalidateQueries({ queryKey: SOCIAL_HOME_KEY });
+      // The following list is the only visible cache not updated in place.
+      queryClient.invalidateQueries({ queryKey: socialKeys.following });
     },
   });
 }
@@ -158,48 +190,16 @@ export function useUnfollowUser(userId: string, username?: string) {
       return response.data;
     },
 
-    onMutate: async () => {
-      // Cancel outgoing queries
-      await queryClient.cancelQueries({ queryKey: STATS_KEY });
-      await queryClient.cancelQueries({ queryKey: ['user'] });
-
-      // Snapshot previous values
-      const previousStats = queryClient.getQueryData<FollowStats>(STATS_KEY);
-
-      // Optimistically update stats
-      queryClient.setQueryData<FollowStats>(STATS_KEY, (old) => {
-        if (!old) return old;
-        return {
-          ...old,
-          following_count: Math.max(0, old.following_count - 1),
-        };
-      });
-
-      return { previousStats };
-    },
+    onMutate: () => applyOptimisticFollowChange(queryClient, userId, username, false),
 
     onError: (error, _variables, context) => {
-      // Rollback on error
-      if (context?.previousStats) {
-        queryClient.setQueryData(STATS_KEY, context.previousStats);
-      }
-
-      const message = getSocialErrorMessage(error, 'unfollow');
-      Alert.alert('Error', message);
+      rollbackFollowChange(queryClient, username, context);
+      Alert.alert('Error', getSocialErrorMessage(error, 'unfollow'));
     },
 
     onSettled: () => {
-      // Always refetch after mutation
-      queryClient.invalidateQueries({ queryKey: STATS_KEY });
-      queryClient.invalidateQueries({ queryKey: FOLLOWING_KEY });
-      // Invalidate all user queries to ensure profile is_following is refreshed
-      queryClient.invalidateQueries({ queryKey: ['user'] });
-      // Also invalidate by username if provided for more targeted invalidation
-      if (username) {
-        queryClient.invalidateQueries({ queryKey: ['user', username, 'profile'] });
-      }
-      queryClient.invalidateQueries({ queryKey: ['feed'] });
-      queryClient.invalidateQueries({ queryKey: SOCIAL_HOME_KEY });
+      // The following list is the only visible cache not updated in place.
+      queryClient.invalidateQueries({ queryKey: socialKeys.following });
     },
   });
 }

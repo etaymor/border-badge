@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import React, { useCallback } from 'react';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
@@ -15,79 +15,53 @@ interface FollowButtonProps {
   size?: 'small' | 'medium';
 }
 
+/**
+ * Follow/unfollow toggle. The rendered state comes straight from the
+ * `isFollowing` prop, whose source cache the mutations update optimistically
+ * (and roll back on error) - the query cache is the single source of truth.
+ */
 export function FollowButton({
   userId,
   username,
-  isFollowing: isFollowingProp,
+  isFollowing,
   onFollowChange,
   size = 'medium',
 }: FollowButtonProps) {
-  // Local optimistic state for instant UI feedback
-  const [optimisticFollowing, setOptimisticFollowing] = useState(isFollowingProp);
-
-  // Sync with prop when it changes (e.g., after refetch)
-  useEffect(() => {
-    setOptimisticFollowing(isFollowingProp);
-  }, [isFollowingProp]);
-
   const followMutation = useFollowUser(userId, username);
   const unfollowMutation = useUnfollowUser(userId, username);
 
-  const isLoading = followMutation.isPending || unfollowMutation.isPending;
+  const isPending = followMutation.isPending || unfollowMutation.isPending;
 
   const handlePress = useCallback(() => {
     // Prevent rapid clicks during pending mutations to avoid state desync
-    if (isLoading) {
+    if (isPending) {
       return;
     }
 
-    if (optimisticFollowing) {
-      // Optimistically update UI immediately
-      setOptimisticFollowing(false);
-      unfollowMutation.mutate(undefined, {
-        onSuccess: () => {
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-          onFollowChange?.(false);
-        },
-        onError: () => {
-          // Rollback on error
-          setOptimisticFollowing(true);
-        },
-      });
-    } else {
-      // Optimistically update UI immediately
-      setOptimisticFollowing(true);
-      followMutation.mutate(undefined, {
-        onSuccess: () => {
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-          onFollowChange?.(true);
-        },
-        onError: () => {
-          // Rollback on error
-          setOptimisticFollowing(false);
-        },
-      });
-    }
-  }, [optimisticFollowing, followMutation, unfollowMutation, onFollowChange, isLoading]);
+    const next = !isFollowing;
+    const mutation = next ? followMutation : unfollowMutation;
+    mutation.mutate(undefined, {
+      onSuccess: () => {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        onFollowChange?.(next);
+      },
+    });
+  }, [isFollowing, isPending, followMutation, unfollowMutation, onFollowChange]);
 
   const isSmall = size === 'small';
 
-  if (optimisticFollowing) {
+  if (isFollowing) {
     return (
       <TouchableOpacity
         style={[styles.followingButton, isSmall && styles.smallButton]}
         onPress={handlePress}
-        disabled={isLoading}
+        disabled={isPending}
         activeOpacity={0.7}
       >
-        {isLoading ? (
-          <ActivityIndicator size="small" color={colors.mossGreen} />
-        ) : (
-          <View style={styles.followingContent}>
-            <Ionicons name="checkmark-circle" size={isSmall ? 14 : 16} color={colors.mossGreen} />
-            <Text style={[styles.followingText, isSmall && styles.smallText]}>Following</Text>
-          </View>
-        )}
+        <View style={styles.followingContent}>
+          <Ionicons name="checkmark-circle" size={isSmall ? 14 : 16} color={colors.mossGreen} />
+          <Text style={[styles.followingText, isSmall && styles.smallText]}>Following</Text>
+        </View>
       </TouchableOpacity>
     );
   }
@@ -96,17 +70,13 @@ export function FollowButton({
     <TouchableOpacity
       style={[styles.followButton, isSmall && styles.smallButton]}
       onPress={handlePress}
-      disabled={isLoading}
+      disabled={isPending}
       activeOpacity={0.8}
     >
-      {isLoading ? (
-        <ActivityIndicator size="small" color={colors.cloudWhite} />
-      ) : (
-        <View style={styles.followContent}>
-          <Ionicons name="add" size={isSmall ? 14 : 16} color={colors.cloudWhite} />
-          <Text style={[styles.followText, isSmall && styles.smallText]}>Follow</Text>
-        </View>
-      )}
+      <View style={styles.followContent}>
+        <Ionicons name="add" size={isSmall ? 14 : 16} color={colors.cloudWhite} />
+        <Text style={[styles.followText, isSmall && styles.smallText]}>Follow</Text>
+      </View>
     </TouchableOpacity>
   );
 }

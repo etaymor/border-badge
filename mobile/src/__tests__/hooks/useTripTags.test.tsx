@@ -64,6 +64,20 @@ function createWrapper(queryClient: QueryClient) {
   };
 }
 
+/**
+ * Client with a realistic gcTime so seeded (unobserved) caches survive long
+ * enough to be read back - createTestQueryClient's gcTime of 0 would
+ * garbage-collect them immediately.
+ */
+function createSeededQueryClient() {
+  return new QueryClient({
+    defaultOptions: {
+      queries: { retry: false, gcTime: 1000 * 60 * 30, staleTime: 0 },
+      mutations: { retry: false },
+    },
+  });
+}
+
 describe('useTripTags', () => {
   let queryClient: QueryClient;
   const mockedApi = api as jest.Mocked<typeof api>;
@@ -175,7 +189,56 @@ describe('useTripTags', () => {
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['trip-tags', 'pending'] });
+      expect(invalidateSpy).toHaveBeenCalledWith({
+        queryKey: ['trip-tags', 'pending'],
+        exact: true,
+      });
+    });
+
+    it('decrements the pending tag badge in caches without refetching social-home', async () => {
+      queryClient = createSeededQueryClient();
+      queryClient.setQueryData(['trip-tags', 'pending', 'count'], 3);
+      queryClient.setQueryData(['social-home', { limit: 20 }], {
+        pages: [
+          {
+            feed: { items: [], next_cursor: null, has_more: false },
+            follow_stats: { follower_count: 1, following_count: 1 },
+            friends_ranking: {
+              rank: 1,
+              total_friends: 1,
+              my_countries: 1,
+              leader_username: null,
+              leader_countries: null,
+            },
+            pending_tag_count: 3,
+          },
+        ],
+        pageParams: [null],
+      });
+
+      mockedApi.post.mockResolvedValue({ data: mockApproveResponse });
+      const invalidateSpy = jest.spyOn(queryClient, 'invalidateQueries');
+
+      const { result } = renderHook(() => useApproveTripTag(), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      await act(async () => {
+        result.current.mutate('trip-456');
+      });
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+      expect(queryClient.getQueryData(['trip-tags', 'pending', 'count'])).toBe(2);
+      const socialHome = queryClient.getQueryData<{
+        pages: Array<{ pending_tag_count: number }>;
+      }>(['social-home', { limit: 20 }]);
+      expect(socialHome?.pages[0].pending_tag_count).toBe(2);
+
+      const invalidatedRoots = invalidateSpy.mock.calls.map(
+        ([filters]) => (filters?.queryKey as unknown[])?.[0]
+      );
+      expect(invalidatedRoots).not.toContain('social-home');
+      expect(mockedApi.get).not.toHaveBeenCalled();
     });
 
     it('handles error state', async () => {
@@ -229,7 +292,28 @@ describe('useTripTags', () => {
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['trip-tags', 'pending'] });
+      expect(invalidateSpy).toHaveBeenCalledWith({
+        queryKey: ['trip-tags', 'pending'],
+        exact: true,
+      });
+    });
+
+    it('decrements the pending tag badge on decline', async () => {
+      queryClient = createSeededQueryClient();
+      queryClient.setQueryData(['trip-tags', 'pending', 'count'], 1);
+
+      mockedApi.post.mockResolvedValue({ data: mockDeclineResponse });
+
+      const { result } = renderHook(() => useDeclineTripTag(), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      await act(async () => {
+        result.current.mutate('trip-456');
+      });
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+      expect(queryClient.getQueryData(['trip-tags', 'pending', 'count'])).toBe(0);
     });
 
     it('handles error state', async () => {

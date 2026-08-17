@@ -53,7 +53,6 @@ export type MainTabParamList = {
 // Friends stack (nested in tab)
 export type FriendsStackParamList = {
   FriendsHome: undefined;
-  FeedHome: undefined;
   UserProfile: { userId: string; username: string };
   FollowersList: undefined;
   FollowingList: undefined;

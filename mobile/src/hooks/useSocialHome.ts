@@ -1,9 +1,57 @@
 import { useInfiniteQuery } from '@tanstack/react-query';
+import type { InfiniteData, QueryClient } from '@tanstack/react-query';
 
+import { socialKeys } from '@hooks/queryKeys';
 import type { FollowStats } from '@hooks/useFollows';
-import type { FriendsRanking } from '@hooks/useFriendsRanking';
-import type { FeedItem, FeedResponse } from '@hooks/useFeed';
 import { api } from '@services/api';
+
+// ---------------------------------------------------------------------------
+// Feed types — the social-home feed is the app's one feed surface.
+// ---------------------------------------------------------------------------
+
+export type ActivityType = 'country_visited' | 'entry_added';
+
+export interface FeedItemUser {
+  user_id: string;
+  username: string;
+  avatar_url: string | null;
+}
+
+export interface FeedItemCountry {
+  country_id: string;
+  country_name: string;
+  country_code: string;
+}
+
+export interface FeedItemEntry {
+  entry_id: string;
+  entry_name: string;
+  entry_type: string;
+  location_name: string | null;
+  image_url: string | null;
+}
+
+export interface FeedItem {
+  activity_type: ActivityType;
+  created_at: string;
+  user: FeedItemUser;
+  country: FeedItemCountry | null;
+  entry: FeedItemEntry | null;
+}
+
+export interface FeedResponse {
+  items: FeedItem[];
+  next_cursor: string | null;
+  has_more: boolean;
+}
+
+export interface FriendsRanking {
+  rank: number;
+  total_friends: number;
+  my_countries: number;
+  leader_username: string | null;
+  leader_countries: number | null;
+}
 
 export interface SocialHomePage {
   feed: FeedResponse;
@@ -12,7 +60,8 @@ export interface SocialHomePage {
   pending_tag_count: number;
 }
 
-export const SOCIAL_HOME_QUERY_KEY = ['social-home'];
+export type SocialHomeInfiniteData = InfiniteData<SocialHomePage, string | null>;
+
 export const SOCIAL_HOME_DEFAULT_LIMIT = 20;
 
 export async function fetchSocialHomePage(
@@ -32,7 +81,7 @@ export function useSocialHome(options?: { limit?: number }) {
   const limit = options?.limit ?? SOCIAL_HOME_DEFAULT_LIMIT;
 
   return useInfiniteQuery<SocialHomePage>({
-    queryKey: [...SOCIAL_HOME_QUERY_KEY, { limit }],
+    queryKey: socialKeys.socialHomePage(limit),
     queryFn: ({ pageParam }) => fetchSocialHomePage(limit, (pageParam as string | null) ?? null),
     initialPageParam: null as string | null,
     getNextPageParam: (lastPage) => {
@@ -42,6 +91,22 @@ export function useSocialHome(options?: { limit?: number }) {
       return undefined;
     },
     staleTime: 1000 * 60 * 5, // 5 minutes - feeds are pre-computed server-side
+  });
+}
+
+/**
+ * Surgically update the first page of every cached social-home query.
+ * Used by mutations to keep visible stats/badges accurate without refetching
+ * loaded feed pages.
+ */
+export function updateSocialHomeFirstPage(
+  queryClient: QueryClient,
+  update: (page: SocialHomePage) => SocialHomePage
+): void {
+  queryClient.setQueriesData<SocialHomeInfiniteData>({ queryKey: socialKeys.socialHome }, (old) => {
+    if (!old?.pages?.length) return old;
+    const [first, ...rest] = old.pages;
+    return { ...old, pages: [update(first), ...rest] };
   });
 }
 

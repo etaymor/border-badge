@@ -8,7 +8,6 @@ import { NotificationBell } from '@components/ui';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { FlashList } from '@shopify/flash-list';
-import type { FeedItem } from '@hooks/useFeed';
 import { useResponsive } from '@hooks/useResponsive';
 import {
   useSocialHome,
@@ -16,6 +15,7 @@ import {
   getSocialHomeStats,
   getSocialHomeRanking,
   getSocialPendingTagCount,
+  type FeedItem,
 } from '@hooks/useSocialHome';
 import type { FriendsStackScreenProps } from '@navigation/types';
 

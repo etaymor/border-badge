@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Alert } from 'react-native';
 
+import { socialKeys } from '@hooks/queryKeys';
 import { api } from '@services/api';
 import { getSocialErrorMessage } from '@utils/socialErrors';
 
@@ -17,9 +18,6 @@ interface BlockResponse {
   blocked_id: string;
 }
 
-// Query keys
-const BLOCKS_KEY = ['blocks'];
-
 /**
  * Hook to get list of blocked users.
  */
@@ -28,7 +26,7 @@ export function useBlockedUsers(options?: { limit?: number; offset?: number }) {
   const offset = options?.offset ?? 0;
 
   return useQuery<BlockedUser[]>({
-    queryKey: [...BLOCKS_KEY, { limit, offset }],
+    queryKey: socialKeys.blocksPage(limit, offset),
     queryFn: async () => {
       const response = await api.get<BlockedUser[]>('/blocks', {
         params: { limit, offset },
@@ -41,8 +39,13 @@ export function useBlockedUsers(options?: { limit?: number; offset?: number }) {
 
 /**
  * Hook to block a user.
+ *
+ * On success the blocked user's content is purged (`removeQueries`, not
+ * invalidated) from every cache that could show it. Removal also scrubs the
+ * entries from the persisted query cache, so a cold-start rehydration cannot
+ * resurrect the blocked user's items.
  */
-export function useBlockUser(userId: string) {
+export function useBlockUser(userId: string, username?: string) {
   const queryClient = useQueryClient();
 
   return useMutation<BlockResponse, Error>({
@@ -52,11 +55,17 @@ export function useBlockUser(userId: string) {
     },
 
     onSuccess: () => {
-      // Invalidate relevant queries
-      queryClient.invalidateQueries({ queryKey: BLOCKS_KEY });
-      queryClient.invalidateQueries({ queryKey: ['follows'] });
-      queryClient.invalidateQueries({ queryKey: ['user', userId] });
-      queryClient.invalidateQueries({ queryKey: ['feed'] });
+      // Relationship lists refetch on next use.
+      queryClient.invalidateQueries({ queryKey: socialKeys.blocks });
+      queryClient.invalidateQueries({ queryKey: socialKeys.follows });
+
+      // Purge caches that may contain the blocked user's content.
+      queryClient.removeQueries({ queryKey: socialKeys.socialHome });
+      queryClient.removeQueries({ queryKey: socialKeys.userFeed(userId) });
+      queryClient.removeQueries({ queryKey: socialKeys.userSearch });
+      if (username) {
+        queryClient.removeQueries({ queryKey: socialKeys.userProfile(username) });
+      }
     },
 
     onError: (error) => {
@@ -79,8 +88,7 @@ export function useUnblockUser(userId: string) {
     },
 
     onSuccess: () => {
-      // Invalidate relevant queries
-      queryClient.invalidateQueries({ queryKey: BLOCKS_KEY });
+      queryClient.invalidateQueries({ queryKey: socialKeys.blocks });
     },
 
     onError: (error) => {

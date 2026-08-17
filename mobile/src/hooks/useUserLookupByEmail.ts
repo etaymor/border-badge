@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 
+import { socialKeys } from '@hooks/queryKeys';
 import { api } from '@services/api';
 
 import type { UserSearchResult } from './useUserSearch';
@@ -22,7 +23,7 @@ export function useUserLookupByEmail(email: string, options: UseUserLookupByEmai
   const isValidEmail = EMAIL_REGEX.test(trimmedEmail);
 
   return useQuery<UserSearchResult | null>({
-    queryKey: ['users', 'lookup-by-email', trimmedEmail],
+    queryKey: socialKeys.userLookupByEmail(trimmedEmail),
     queryFn: async () => {
       const response = await api.get<UserSearchResult | null>('/users/lookup-by-email', {
         params: { email: trimmedEmail },

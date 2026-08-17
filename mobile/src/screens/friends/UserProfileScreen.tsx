@@ -19,7 +19,7 @@ import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { useBlockUser } from '@hooks/useBlocks';
 import { useResponsive } from '@hooks/useResponsive';
-import type { FeedItem } from '@hooks/useFeed';
+import type { FeedItem } from '@hooks/useSocialHome';
 import { useUserFeed, getUserFeedItems } from '@hooks/useUserFeed';
 import { useUserProfile } from '@hooks/useUserProfile';
 import type { FriendsStackScreenProps } from '@navigation/types';
@@ -94,7 +94,7 @@ export function UserProfileScreen({ navigation, route }: Props) {
   const feedCardPaddingHorizontal = isTablet ? (screenWidth * 0.25) / 2 : 0;
 
   const { data: profile, isLoading, error } = useUserProfile(username);
-  const blockMutation = useBlockUser(userId);
+  const blockMutation = useBlockUser(userId, username);
 
   const { data: feedData, isFetchingNextPage, hasNextPage, fetchNextPage } = useUserFeed(userId);
 

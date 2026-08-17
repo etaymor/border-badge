@@ -41,11 +41,8 @@ import { useAuthSession } from '@hooks/useAuthSession';
 import { useCountriesSync } from '@hooks/useCountriesSync';
 import { useNavigationPersistence } from '@hooks/useNavigationPersistence';
 import { useShareExtensionHandler } from '@hooks/useShareExtensionHandler';
-import {
-  fetchSocialHomePage,
-  SOCIAL_HOME_DEFAULT_LIMIT,
-  SOCIAL_HOME_QUERY_KEY,
-} from '@hooks/useSocialHome';
+import { socialKeys } from '@hooks/queryKeys';
+import { fetchSocialHomePage, SOCIAL_HOME_DEFAULT_LIMIT } from '@hooks/useSocialHome';
 import { RootNavigator } from '@navigation/RootNavigator';
 import type { RootStackParamList } from '@navigation/types';
 import { queryClient } from './src/queryClient';
@@ -155,7 +152,7 @@ export default function App() {
 
     queryClient
       .prefetchInfiniteQuery({
-        queryKey: [...SOCIAL_HOME_QUERY_KEY, { limit: SOCIAL_HOME_DEFAULT_LIMIT }],
+        queryKey: socialKeys.socialHomePage(SOCIAL_HOME_DEFAULT_LIMIT),
         queryFn: ({ pageParam }) =>
           fetchSocialHomePage(SOCIAL_HOME_DEFAULT_LIMIT, (pageParam as string | null) ?? null),
         initialPageParam: null,

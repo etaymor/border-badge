@@ -12,7 +12,10 @@ import { AdEvents } from '@services/adEvents';
 import { Analytics } from '@services/analytics';
 import { migrateGuestData, captureOnboardingSnapshot } from '@services/guestMigration';
 import { clearPhotoCache } from '@services/photoImport/photoCacheDb';
-import { registerForPushNotifications } from '@services/pushNotifications';
+import {
+  registerForPushNotifications,
+  unregisterPushNotifications,
+} from '@services/pushNotifications';
 import { queryClient } from '../queryClient';
 import { supabase } from '@services/supabase';
 import { useAuthStore } from '@stores/authStore';
@@ -239,6 +242,10 @@ export function useSignOut() {
 
   return useMutation({
     mutationFn: async () => {
+      // Unregister the device push token BEFORE signing out - the server-side
+      // delete needs the auth token. Errors are swallowed inside
+      // unregisterPushNotifications, so a failure never blocks sign-out.
+      await unregisterPushNotifications();
       const { error } = await supabase.auth.signOut();
       // Ignore "Auth session missing" error - user is effectively signed out
       // This can happen if the session was already cleared or expired

@@ -1,13 +1,8 @@
 import { useInfiniteQuery } from '@tanstack/react-query';
 
+import { socialKeys } from '@hooks/queryKeys';
 import { api } from '@services/api';
-import type { FeedItem } from './useFeed';
-
-interface FeedResponse {
-  items: FeedItem[];
-  next_cursor: string | null;
-  has_more: boolean;
-}
+import type { FeedItem, FeedResponse } from './useSocialHome';
 
 /**
  * Hook to fetch a specific user's activity feed with infinite scroll pagination.
@@ -19,7 +14,7 @@ export function useUserFeed(userId: string, options?: { limit?: number }) {
   const limit = options?.limit ?? 20;
 
   return useInfiniteQuery<FeedResponse>({
-    queryKey: ['user-feed', userId, { limit }],
+    queryKey: socialKeys.userFeedPage(userId, limit),
     queryFn: async ({ pageParam }) => {
       const params: Record<string, string | number> = { limit };
       if (pageParam) {

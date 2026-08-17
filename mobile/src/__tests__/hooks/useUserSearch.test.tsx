@@ -10,7 +10,7 @@
  */
 
 import React from 'react';
-import { renderHook, waitFor } from '@testing-library/react-native';
+import { act, renderHook, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 import { useUserSearch } from '@hooks/useUserSearch';
@@ -162,6 +162,42 @@ describe('useUserSearch', () => {
     // API should not have been called when disabled
     expect(mockedApi.get).not.toHaveBeenCalled();
     expect(result.current.fetchStatus).toBe('idle');
+  });
+
+  it('keeps previous results visible while the next query fetches (no flicker)', async () => {
+    mockedApi.get.mockResolvedValueOnce({ data: mockSearchResults });
+
+    const { result, rerender } = renderHook(
+      ({ query }: { query: string }) => useUserSearch(query, { debounceMs: 0 }),
+      {
+        wrapper: createWrapper(queryClient),
+        initialProps: { query: 'trav' },
+      }
+    );
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data).toEqual(mockSearchResults);
+
+    // Second query resolves later; previous results must remain as placeholder.
+    let resolveSecond: (value: unknown) => void = () => {};
+    mockedApi.get.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveSecond = resolve;
+      }) as ReturnType<typeof api.get>
+    );
+
+    rerender({ query: 'trave' });
+
+    await waitFor(() => expect(result.current.isFetching).toBe(true));
+    expect(result.current.data).toEqual(mockSearchResults);
+    expect(result.current.isPlaceholderData).toBe(true);
+
+    await act(async () => {
+      resolveSecond({ data: [] });
+    });
+
+    await waitFor(() => expect(result.current.data).toEqual([]));
+    expect(result.current.isPlaceholderData).toBe(false);
   });
 
   it('includes all user fields in results', async () => {

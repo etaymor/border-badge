@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 
+import { socialKeys } from '@hooks/queryKeys';
 import { api } from '@services/api';
 
 export interface UserProfile {
@@ -20,7 +21,7 @@ export interface UserProfile {
  */
 export function useUserProfile(username: string) {
   return useQuery<UserProfile>({
-    queryKey: ['user', username, 'profile'],
+    queryKey: socialKeys.userProfile(username),
     queryFn: async () => {
       const response = await api.get<UserProfile>(`/users/${username}/profile`);
       return response.data;
