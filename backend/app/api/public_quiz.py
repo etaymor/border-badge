@@ -53,6 +53,7 @@ from app.schemas.quiz import (
     PublicQuizCompleteRequest,
     PublicQuizCompleteResponse,
     PublicQuizLeaderboardResponse,
+    PublicQuizNameRequest,
     PublicQuizSessionRequest,
     PublicQuizSessionResponse,
     ScoreToBeat,
@@ -223,11 +224,13 @@ async def _session_snapshot(
         )
     answered.sort(key=lambda a: by_id[a.question_id]["position"])
     completed = session.get("completed_at") is not None
+    display_name = session.get("display_name")
     return PublicQuizSessionResponse(
         token=str(session["token"]),
         answered=answered,
         completed=completed,
         score=int(session.get("score") or 0) if completed else None,
+        display_name=str(display_name) if display_name else None,
     )
 
 
@@ -287,13 +290,17 @@ async def complete_public_quiz_session(
     background_tasks: BackgroundTasks,
     slug: str = SlugPath,
 ) -> PublicQuizCompleteResponse:
-    """Finish the session, bind the display name, and return the board.
+    """Finish the session (reveal-first) and return the board.
 
-    IDEMPOTENT: the game re-calls this on refresh-after-completion. The name
-    binds at FIRST completion (a conditional write on completed_at being
-    unset); repeat calls -- same name or different -- return the original
-    result with `already_completed` true and never create a second entry.
-    The score is recomputed from recorded answers on every call; the request
+    The score reveals immediately; `display_name` is OPTIONAL. A named
+    completion binds the name at FIRST completion (a conditional write on
+    completed_at being unset) exactly as before; an unnamed one stays off
+    the leaderboard until the player posts a name via /q/{slug}/name.
+
+    IDEMPOTENT: the game re-calls this on refresh-after-completion. Repeat
+    calls -- same name, different, or none -- return the original result
+    with `already_completed` true and never create a second entry. The
+    score is recomputed from recorded answers on every call; the request
     carries no score and any client-sent one is ignored by schema.
     """
     db = get_supabase_client()  # service role: quiz tables are backend-only
@@ -350,34 +357,118 @@ async def complete_public_quiz_session(
             if refreshed:
                 session = refreshed[0]
 
-    bound_name = str(session.get("display_name") or data.display_name)
-    viewer_key = canonical_name(bound_name)
+    # Reveal-first: the viewer's board identity is the name BOUND to the
+    # session -- an unnamed completion has none (never the string "None"),
+    # stays off the board, and can post a name later via /q/{slug}/name.
+    bound_name = str(session.get("display_name") or "").strip()
+    viewer_key = canonical_name(bound_name) if bound_name else None
 
-    entries = aggregate_leaderboard(
-        await completed_public_sessions(db, quiz["id"]),
-        max_names=QUIZ_LEADERBOARD_MAX_NAMES,
-    )
-    on_board = any(e["key"] == viewer_key for e in entries)
-    # Board-full indicator (KTD9): a completed, named session missing from
-    # the aggregation means the distinct-name cap excluded it.
-    leaderboard_full = not on_board and len(entries) >= QUIZ_LEADERBOARD_MAX_NAMES
-
+    leaderboard, leaderboard_full = await _viewer_leaderboard(db, quiz, viewer_key)
     return PublicQuizCompleteResponse(
         score=score,
         total=total,
         score_to_beat=_score_to_beat(quiz),
-        leaderboard=[
-            PublicCompleteLeaderboardEntry(
-                display_name=e["display_name"],
-                best_score=e["best_score"],
-                attempts=e["attempts"],
-                is_you=e["key"] == viewer_key,
-            )
-            for e in top_entries(
-                entries, viewer_key=viewer_key, top_n=QUIZ_LEADERBOARD_TOP_N
-            )
-        ],
+        leaderboard=leaderboard,
         already_completed=already_completed,
+        leaderboard_full=leaderboard_full,
+    )
+
+
+async def _viewer_leaderboard(
+    db: SupabaseClient, quiz: dict[str, Any], viewer_key: str | None
+) -> tuple[list[PublicCompleteLeaderboardEntry], bool]:
+    """The completion-shaped board for one viewer: top rows flagged is_you,
+    plus the board-full indicator.
+
+    Board-full indicator (KTD9): a completed, NAMED session missing from the
+    aggregation means the distinct-name cap excluded it. An unnamed viewer
+    (viewer_key None) posted no name, so a full board never claims the cap
+    excluded them -- the flag stays False and every is_you is False.
+    """
+    entries = aggregate_leaderboard(
+        await completed_public_sessions(db, quiz["id"]),
+        max_names=QUIZ_LEADERBOARD_MAX_NAMES,
+    )
+    on_board = viewer_key is not None and any(e["key"] == viewer_key for e in entries)
+    leaderboard_full = (
+        viewer_key is not None
+        and not on_board
+        and len(entries) >= QUIZ_LEADERBOARD_MAX_NAMES
+    )
+    rows = [
+        PublicCompleteLeaderboardEntry(
+            display_name=e["display_name"],
+            best_score=e["best_score"],
+            attempts=e["attempts"],
+            is_you=viewer_key is not None and e["key"] == viewer_key,
+        )
+        for e in top_entries(
+            entries, viewer_key=viewer_key, top_n=QUIZ_LEADERBOARD_TOP_N
+        )
+    ]
+    return rows, leaderboard_full
+
+
+# ============================================================================
+# POST /q/{slug}/name -- bind-once name post for a completed unnamed session
+# ============================================================================
+
+
+@router.post("/q/{slug}/name", response_model=PublicQuizCompleteResponse)
+@limiter.limit("20/minute")
+async def name_public_quiz_session(
+    request: Request,  # Required for rate limiter
+    data: PublicQuizNameRequest,
+    slug: str = SlugPath,
+) -> PublicQuizCompleteResponse:
+    """Post the optional display name AFTER a reveal-first completion.
+
+    Bind-once: the write is conditional on the session being completed and
+    still unnamed, mirroring the completion path's conditional-write idiom.
+    A rename, a replay, or an uncompleted session all 409 -- the name a
+    session shows on the board can never change once set.
+    """
+    db = get_supabase_client()  # service role: quiz tables are backend-only
+    quiz = await _get_shared_quiz(db, slug)
+    session = await _require_public_session(db, quiz, data.token)
+
+    claimed = await db.patch(
+        "quiz_session",
+        {"display_name": data.display_name},
+        {
+            "id": f"eq.{session['id']}",
+            "completed_at": "not.is.null",
+            "display_name": "is.null",
+        },
+    )
+    if not claimed:
+        if session.get("completed_at") is None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "code": "QUIZ_PLAY_INCOMPLETE",
+                    "message": "Finish the quiz before posting your score.",
+                },
+            )
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "QUIZ_NAME_ALREADY_SET",
+                "message": "This session already posted a name to the leaderboard.",
+            },
+        )
+    session = claimed[0]
+
+    questions = await _get_questions(db, quiz["id"])
+    leaderboard, leaderboard_full = await _viewer_leaderboard(
+        db, quiz, canonical_name(data.display_name)
+    )
+    return PublicQuizCompleteResponse(
+        score=int(session.get("score") or 0),
+        total=len(questions),
+        score_to_beat=_score_to_beat(quiz),
+        leaderboard=leaderboard,
+        already_completed=True,
         leaderboard_full=leaderboard_full,
     )
 

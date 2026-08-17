@@ -864,6 +864,233 @@ class TestFunnelCounters:
 
 
 # ============================================================================
+# Reveal-first completion: unnamed completion + bind-once POST /q/{slug}/name
+# ============================================================================
+
+
+def finish_unnamed(client, db, slug, token):
+    """Complete with NO display_name -- the reveal-first path."""
+    return public(client, db, "POST", f"/q/{slug}/complete", json={"token": token})
+
+
+def post_name(client, db, slug, token, name):
+    return public(
+        client,
+        db,
+        "POST",
+        f"/q/{slug}/name",
+        json={"token": token, "display_name": name},
+    )
+
+
+def run_through_unnamed(client, db, slug, quiz_id, wrong_positions=()):
+    """One full anonymous play completed WITHOUT a name."""
+    resp = start_session(client, db, slug)
+    assert resp.status_code == 200, resp.text
+    token = resp.json()["token"]
+    answer_all_public(client, db, slug, quiz_id, token, wrong_positions)
+    resp = finish_unnamed(client, db, slug, token)
+    assert resp.status_code == 200, resp.text
+    return token, resp.json()
+
+
+class TestRevealFirstCompletion:
+    def test_unnamed_completion_returns_score_with_no_board_entry(
+        self, client: TestClient
+    ) -> None:
+        db = FakeDB()
+        quiz_id, slug = shared_quiz(client, db, n=5)
+        token, result = run_through_unnamed(
+            client, db, slug, quiz_id, wrong_positions=(1, 3)
+        )
+        assert result["score"] == 3
+        assert result["total"] == 5
+        assert result["already_completed"] is False
+        assert result["leaderboard"] == []
+        assert result["leaderboard_full"] is False
+        # The session stays genuinely unnamed -- never the string "None".
+        session = db.find("quiz_session", token=token)[0]
+        assert session["display_name"] is None
+        assert session["completed_at"] is not None
+
+    def test_unnamed_sessions_never_surface_on_any_board(
+        self, client: TestClient
+    ) -> None:
+        db = FakeDB()
+        quiz_id, slug = shared_quiz(client, db, n=5)
+        run_through_unnamed(client, db, slug, quiz_id)  # perfect score, no name
+        _, result = run_through(
+            client, db, slug, quiz_id, "Priya", wrong_positions=(0,)
+        )
+        names = [e["display_name"] for e in result["leaderboard"]]
+        assert names == ["Priya"]
+        board = leaderboard(client, db, slug).json()["leaderboard"]
+        assert [e["display_name"] for e in board] == ["Priya"]
+
+    def test_unnamed_repeat_completion_is_idempotent(self, client: TestClient) -> None:
+        db = FakeDB()
+        quiz_id, slug = shared_quiz(client, db, n=5)
+        token, first = run_through_unnamed(
+            client, db, slug, quiz_id, wrong_positions=(0,)
+        )
+        again = finish_unnamed(client, db, slug, token)
+        assert again.status_code == 200
+        body = again.json()
+        assert body["already_completed"] is True
+        assert body["score"] == first["score"] == 4
+        assert body["leaderboard"] == []
+
+    def test_unnamed_completion_at_cap_is_not_flagged_board_full(
+        self, client: TestClient, monkeypatch
+    ) -> None:
+        """`leaderboard_full` means 'the distinct-name cap excluded YOUR
+        name'. An unnamed completion posted no name, so a full board must
+        not claim the viewer was excluded by the cap."""
+        monkeypatch.setattr("app.api.public_quiz.QUIZ_LEADERBOARD_MAX_NAMES", 1)
+        db = FakeDB()
+        quiz_id, slug = shared_quiz(client, db, n=5)
+        run_through(client, db, slug, quiz_id, "First")
+        _, result = run_through_unnamed(client, db, slug, quiz_id)
+        assert result["leaderboard_full"] is False
+        assert [e["display_name"] for e in result["leaderboard"]] == ["First"]
+        assert not any(e["is_you"] for e in result["leaderboard"])
+
+
+class TestSessionSnapshotDisplayName:
+    def test_fresh_session_has_no_display_name(self, client: TestClient) -> None:
+        db = FakeDB()
+        _, slug = shared_quiz(client, db)
+        data = start_session(client, db, slug).json()
+        assert data["display_name"] is None
+
+    def test_resumed_named_completion_returns_the_bound_name(
+        self, client: TestClient
+    ) -> None:
+        db = FakeDB()
+        quiz_id, slug = shared_quiz(client, db, n=5)
+        token, _ = run_through(client, db, slug, quiz_id, "Priya")
+        resumed = start_session(client, db, slug, token=token).json()
+        assert resumed["completed"] is True
+        assert resumed["display_name"] == "Priya"
+
+    def test_resumed_unnamed_completion_returns_null_name(
+        self, client: TestClient
+    ) -> None:
+        """A resuming completed-but-unnamed player must see display_name null
+        so the web page knows to offer the 'post my score' module."""
+        db = FakeDB()
+        quiz_id, slug = shared_quiz(client, db, n=5)
+        token, _ = run_through_unnamed(client, db, slug, quiz_id)
+        resumed = start_session(client, db, slug, token=token).json()
+        assert resumed["completed"] is True
+        assert resumed["score"] == 5
+        assert resumed["display_name"] is None
+
+
+class TestNameBinding:
+    def test_name_binds_once_and_returns_refreshed_board(
+        self, client: TestClient
+    ) -> None:
+        db = FakeDB()
+        quiz_id, slug = shared_quiz(client, db, n=5)
+        token, result = run_through_unnamed(
+            client, db, slug, quiz_id, wrong_positions=(0,)
+        )
+        assert result["leaderboard"] == []
+
+        resp = post_name(client, db, slug, token, "Priya")
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["score"] == 4
+        assert body["total"] == 5
+        assert body["score_to_beat"] == {"correct": 5, "total": 5}
+        assert len(body["leaderboard"]) == 1
+        entry = body["leaderboard"][0]
+        assert entry["display_name"] == "Priya"
+        assert entry["best_score"] == 4
+        assert entry["attempts"] == 1
+        assert entry["is_you"] is True
+        assert db.find("quiz_session", token=token)[0]["display_name"] == "Priya"
+
+    def test_names_are_trimmed_before_storage(self, client: TestClient) -> None:
+        db = FakeDB()
+        quiz_id, slug = shared_quiz(client, db, n=5)
+        token, _ = run_through_unnamed(client, db, slug, quiz_id)
+        resp = post_name(client, db, slug, token, "  Bo \n")
+        assert resp.status_code == 200, resp.text
+        assert db.find("quiz_session", token=token)[0]["display_name"] == "Bo"
+        assert resp.json()["leaderboard"][0]["display_name"] == "Bo"
+
+    def test_rename_is_rejected(self, client: TestClient) -> None:
+        db = FakeDB()
+        quiz_id, slug = shared_quiz(client, db, n=5)
+        token, _ = run_through_unnamed(client, db, slug, quiz_id)
+        assert post_name(client, db, slug, token, "Priya").status_code == 200
+
+        again = post_name(client, db, slug, token, "Somebody Else")
+        assert again.status_code == 409
+        assert db.find("quiz_session", token=token)[0]["display_name"] == "Priya"
+        board = leaderboard(client, db, slug).json()["leaderboard"]
+        assert [e["display_name"] for e in board] == ["Priya"]
+
+    def test_name_on_a_named_completion_is_rejected(self, client: TestClient) -> None:
+        """A session that bound its name at completion cannot rebind."""
+        db = FakeDB()
+        quiz_id, slug = shared_quiz(client, db, n=5)
+        token, _ = run_through(client, db, slug, quiz_id, "Priya")
+        resp = post_name(client, db, slug, token, "Somebody Else")
+        assert resp.status_code == 409
+        assert db.find("quiz_session", token=token)[0]["display_name"] == "Priya"
+
+    def test_name_on_an_uncompleted_session_is_rejected(
+        self, client: TestClient
+    ) -> None:
+        db = FakeDB()
+        quiz_id, slug = shared_quiz(client, db)
+        token = start_session(client, db, slug).json()["token"]
+        grade(client, db, slug, token, db.questions(quiz_id)[0])
+        resp = post_name(client, db, slug, token, "Priya")
+        assert resp.status_code == 409
+        session = db.find("quiz_session", token=token)[0]
+        assert session["display_name"] is None
+        assert session["completed_at"] is None
+
+    @pytest.mark.parametrize("bad", ["", "   ", "A", "x" * 51, "!!--", "\u200b\u200b"])
+    def test_invalid_names_rejected(self, client: TestClient, bad: str) -> None:
+        db = FakeDB()
+        quiz_id, slug = shared_quiz(client, db, n=5)
+        token, _ = run_through_unnamed(client, db, slug, quiz_id)
+        resp = post_name(client, db, slug, token, bad)
+        assert resp.status_code == 422, repr(bad)
+        # Still unnamed: the session can bind a valid name afterwards.
+        assert db.find("quiz_session", token=token)[0]["display_name"] is None
+
+    def test_missing_name_is_schema_rejected(self, client: TestClient) -> None:
+        """Unlike /complete, display_name is REQUIRED on /name."""
+        db = FakeDB()
+        quiz_id, slug = shared_quiz(client, db, n=5)
+        token, _ = run_through_unnamed(client, db, slug, quiz_id)
+        resp = public(client, db, "POST", f"/q/{slug}/name", json={"token": token})
+        assert resp.status_code == 422
+
+    def test_name_is_quiz_scoped(self, client: TestClient) -> None:
+        db = FakeDB()
+        quiz_a, slug_a = shared_quiz(client, db, n=5)
+        _, slug_b = shared_quiz(client, db, n=5)
+        token_a, _ = run_through_unnamed(client, db, slug_a, quiz_a)
+
+        resp = post_name(client, db, slug_b, token_a, "Priya")
+        assert resp.status_code == 404
+        assert db.find("quiz_session", token=token_a)[0]["display_name"] is None
+
+    def test_unknown_slug_404s(self, client: TestClient) -> None:
+        db = FakeDB()
+        shared_quiz(client, db)
+        resp = post_name(client, db, "deadbeef", "t" * 43, "Priya")
+        assert resp.status_code == 404
+
+
+# ============================================================================
 # Rate limiting
 # ============================================================================
 
@@ -882,6 +1109,7 @@ class TestRateLimits:
             "start_public_quiz_session",
             "answer_public_quiz_question",
             "complete_public_quiz_session",
+            "name_public_quiz_session",
             "get_public_quiz_leaderboard",
             "quiz_install_redirect",
         ):

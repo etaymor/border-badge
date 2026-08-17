@@ -304,13 +304,16 @@ class PublicQuizSessionResponse(BaseModel):
 
     `score` is populated only for completed sessions; mid-run the client
     derives progress from `answered` and the server recomputes the score
-    from recorded answers at every grade.
+    from recorded answers at every grade. `display_name` tells a resuming
+    completed player whether their score is already on the board (named) or
+    the optional "post my score" module should still be offered (null).
     """
 
     token: str
     answered: list[PublicAnsweredQuestion]
     completed: bool
     score: int | None = None
+    display_name: str | None = None
 
 
 class PublicQuizAnswerRequest(BaseModel):
@@ -328,8 +331,37 @@ class PublicQuizAnswerResponse(BaseModel):
     answered_count: int
 
 
+def _validate_public_display_name(v: str) -> str:
+    """The one display-name rule: trim, 2-50 chars, at least one letter/digit.
+
+    Shared by completion (name optional) and the bind-once /name endpoint
+    (name required) so both surfaces accept exactly the same names.
+    """
+    v = v.strip()
+    if len(v) < DISPLAY_NAME_MIN_LENGTH:
+        raise ValueError(
+            f"display_name must be at least {DISPLAY_NAME_MIN_LENGTH} characters"
+        )
+    if len(v) > DISPLAY_NAME_MAX_LENGTH:
+        raise ValueError(
+            f"display_name must be {DISPLAY_NAME_MAX_LENGTH} characters or less"
+        )
+    # Format/control characters (Cf/Cc, e.g. zero-width spaces) pass the
+    # length checks and stay distinct after NFKC/casefold, so blank-looking
+    # names could otherwise fill the distinct-name leaderboard cap.
+    normalized = unicodedata.normalize("NFKC", v)
+    if not any(unicodedata.category(c)[0] in ("L", "N") for c in normalized):
+        raise ValueError("display_name must contain at least one letter or number")
+    return v
+
+
 class PublicQuizCompleteRequest(BaseModel):
-    """Finish a session and post a display name to the leaderboard.
+    """Finish a session; the score reveals immediately, name optional.
+
+    Reveal-first: `display_name` may be omitted (or null) -- the completion
+    then stays off the leaderboard and the player can post their name
+    afterwards through POST /q/{slug}/name. When a name IS sent it binds at
+    first completion exactly as before.
 
     There is deliberately no score field; a client-sent score is ignored by
     schema (extra fields dropped) and the response score is always recomputed
@@ -339,27 +371,28 @@ class PublicQuizCompleteRequest(BaseModel):
     token: str = Field(..., min_length=1, max_length=MAX_SESSION_TOKEN_LENGTH)
     # Loose Field bound so the trim-then-check validator owns the real rule
     # (" A " must fail as 1 char, not pass as 3).
+    display_name: str | None = Field(None, max_length=200)
+
+    @field_validator("display_name")
+    @classmethod
+    def validate_display_name(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        return _validate_public_display_name(v)
+
+
+class PublicQuizNameRequest(BaseModel):
+    """Bind-once name post for an already-completed unnamed session."""
+
+    token: str = Field(..., min_length=1, max_length=MAX_SESSION_TOKEN_LENGTH)
+    # Same loose bound + trim-then-check validator as the completion request,
+    # but the name is REQUIRED here: this endpoint exists only to post one.
     display_name: str = Field(..., max_length=200)
 
     @field_validator("display_name")
     @classmethod
     def validate_display_name(cls, v: str) -> str:
-        v = v.strip()
-        if len(v) < DISPLAY_NAME_MIN_LENGTH:
-            raise ValueError(
-                f"display_name must be at least {DISPLAY_NAME_MIN_LENGTH} " "characters"
-            )
-        if len(v) > DISPLAY_NAME_MAX_LENGTH:
-            raise ValueError(
-                f"display_name must be {DISPLAY_NAME_MAX_LENGTH} characters or less"
-            )
-        # Format/control characters (Cf/Cc, e.g. zero-width spaces) pass the
-        # length checks and stay distinct after NFKC/casefold, so blank-looking
-        # names could otherwise fill the distinct-name leaderboard cap.
-        normalized = unicodedata.normalize("NFKC", v)
-        if not any(unicodedata.category(c)[0] in ("L", "N") for c in normalized):
-            raise ValueError("display_name must contain at least one letter or number")
-        return v
+        return _validate_public_display_name(v)
 
 
 class PublicLeaderboardEntry(BaseModel):
