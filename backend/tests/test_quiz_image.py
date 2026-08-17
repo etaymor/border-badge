@@ -1,14 +1,23 @@
-"""Tests for the quiz unfurl challenge-card image (U9: GET /q/{slug}/card.png).
+"""Tests for the quiz unfurl challenge-card image (GET /q/{slug}/card.png).
 
-The unfurl preview is a fully generated card -- owner name, score-to-beat,
-challenge framing, Atlasi branding -- and NEVER a quiz photo (KTD11: messaging
-apps cache unfurls on their own CDNs indefinitely, so a real photo would
-outlive revocation). The non-negotiables under test:
+The unfurl preview is a photo-rich 1200x630 poster: the LAST question's photo
+full-bleed under a midnight-navy scrim, with the challenge framing set on top.
+Carrying a real user photo here is a deliberate product decision (2026-08-17)
+that REVERSED the earlier KTD11 rule ("share assets never carry user photos");
+the accepted tradeoff is that messaging-app unfurl CDNs cache images
+indefinitely, so a card photo can outlive revocation. Do not reinstate the
+photo-free rule. The non-negotiables under test:
 
 - Fixed 1200x630 PNG; query parameters never influence the output.
-- Fully synthetic bytes: the render path makes no outbound fetch of any kind.
-- ETag is keyed on the rendered tuple (quiz id, owner name, score-to-beat);
-  matching If-None-Match returns 304.
+- The composited photo is the LAST question's, never photo 1 (the web intro
+  blurs photo 1 as a mystery; a crisp photo 1 in previews would spoil it).
+- The photo fetch is best-effort in the ROUTE (the render stays pure): any
+  failure -- network error, timeout, undecodable bytes, a quiz with no
+  questions -- falls back to the fully synthetic type-only card, and the
+  route NEVER 500s.
+- ETag is keyed on the rendered tuple (quiz id, owner name, score-to-beat,
+  question count, chosen photo storage path) at render version 3; matching
+  If-None-Match returns 304.
 - The slug resolves UNCACHED on every request: a revoked slug 404s BEFORE any
   conditional/ETag short-circuit, so a cached validator cannot resurrect a
   revoked card.
@@ -28,14 +37,24 @@ import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 
+from app.core.quiz_image import _RENDER_VERSION, card_etag, render_challenge_card
 from app.main import limiter
 from tests.conftest import TEST_USER_ID, supabase_tables
+
+
+@pytest.fixture(autouse=True)
+def reset_rate_limiter() -> None:
+    """Keep the 30/minute route limit from tripping across this file's tests."""
+    limiter.reset()
+
 
 QUIZ_ID = "770e8400-e29b-41d4-a716-446655440000"
 QUIZ_SLUG = "0123456789abcdef0123456789abcdef"
 
 CARD_PATH = f"/q/{QUIZ_SLUG}/card.png"
 PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
+
+PHOTO_GREEN = (20, 160, 90)
 
 
 def _quiz_row(state: str = "shared", **overrides: Any) -> dict[str, Any]:
@@ -59,8 +78,36 @@ def _profile(display_name: str = "Maya") -> list[dict[str, Any]]:
     return [{"display_name": display_name, "avatar_url": None}]
 
 
-def _no_outbound(*args: Any, **kwargs: Any) -> Any:
-    raise AssertionError("card render must not make outbound HTTP requests")
+def _question(position: int, storage_path: str | None = None) -> dict[str, Any]:
+    return {
+        "position": position,
+        "storage_path": storage_path or f"quiz/{QUIZ_ID}/{position}.jpg",
+        "options": ["France", "Japan", "Peru", "Ghana"],
+    }
+
+
+def _photo_png(color: tuple[int, int, int] = PHOTO_GREEN) -> bytes:
+    buffer = io.BytesIO()
+    Image.new("RGB", (32, 32), color).save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+def _http_mock(get: Any = None) -> AsyncMock:
+    """A stand-in for the shared pooled HTTP client.
+
+    `get` may be an httpx.Response (returned), an Exception (raised), or None
+    for the default: any fetch attempt raises AssertionError, which the route
+    is expected to swallow into the type-only fallback -- tests that must
+    prove NO fetch happened assert on `mock.get.await_count` instead.
+    """
+    mock = AsyncMock()
+    if get is None:
+        mock.get = AsyncMock(side_effect=AssertionError("unexpected photo fetch"))
+    elif isinstance(get, Exception):
+        mock.get = AsyncMock(side_effect=get)
+    else:
+        mock.get = AsyncMock(return_value=get)
+    return mock
 
 
 def _get_card(
@@ -69,25 +116,30 @@ def _get_card(
     *,
     quiz: list[dict[str, Any]] | None = None,
     profile: list[dict[str, Any]] | None = None,
+    questions: list[dict[str, Any]] | None = None,
+    http: AsyncMock | None = None,
     slug: str = QUIZ_SLUG,
     query: str = "",
     headers: dict[str, str] | None = None,
 ) -> Any:
+    http = http if http is not None else _http_mock()
     mock_supabase_client.get.side_effect = supabase_tables(
         quiz=quiz if quiz is not None else [_quiz_row()],
         user_profile=profile if profile is not None else _profile(),
+        quiz_question=questions if questions is not None else [],
     )
     with (
         patch("app.api.public.get_supabase_client", return_value=mock_supabase_client),
-        # Prove the render is fully synthetic: any outbound HTTP attempt fails
-        # the test outright. The backend is async throughout, so every real
-        # outbound call (storage included) goes through httpx.AsyncClient;
-        # the sync httpx.Client cannot be patched here because the TestClient
-        # itself is built on it.
-        patch.object(httpx.AsyncClient, "send", _no_outbound),
-        patch.object(httpx.AsyncClient, "request", _no_outbound),
+        # The ONLY sanctioned outbound call is the photo fetch through the
+        # shared pooled client, which is mocked here.
+        patch("app.api.public.get_http_client", return_value=http),
     ):
         return client.get(f"/q/{slug}/card.png{query}", headers=headers or {})
+
+
+def _type_only_card(owner_name: str | None = "Maya") -> bytes:
+    """The synthetic fallback card the route must serve when no photo lands."""
+    return render_challenge_card(owner_name, 7, 10)
 
 
 # ============================================================================
@@ -129,22 +181,197 @@ def test_card_renders_the_score_to_beat(
     assert with_score.content != different_score.content
 
 
-def test_card_bytes_are_fully_synthetic_no_storage_fetch(
+# ============================================================================
+# Photo-rich card (KTD11 reversed 2026-08-17)
+# ============================================================================
+
+
+def test_card_composites_the_challenge_photo(
     client: TestClient, mock_supabase_client: AsyncMock
 ) -> None:
-    """KTD11: no quiz photo in the unfurl. The render path never touches
-    storage or any HTTP client (the _get_card harness raises on any outbound
-    send); the only I/O is the two uncached DB lookups."""
-    response = _get_card(client, mock_supabase_client)
+    """With questions seeded and the fetch succeeding, the served card carries
+    the photo: its bytes differ from the type-only fallback and the photo's
+    hue shows through the scrim."""
+    http = _http_mock(httpx.Response(200, content=_photo_png()))
+    response = _get_card(
+        client,
+        mock_supabase_client,
+        questions=[_question(1), _question(2), _question(3)],
+        http=http,
+    )
 
     assert response.status_code == 200
-    tables = {call.args[0] for call in mock_supabase_client.get.call_args_list}
-    assert tables == {"quiz", "user_profile"}
+    assert http.get.await_count == 1
+    assert response.content != _type_only_card()
+    image = Image.open(io.BytesIO(response.content)).convert("RGB")
+    assert image.size == (1200, 630)
+    # Top of the card is lightly scrimmed: the solid-green photo dominates.
+    r, g, b = image.getpixel((1100, 60))
+    assert g > r + 40
+    assert g > b
+
+
+def test_render_fn_accepts_photo_bytes_and_composites_them() -> None:
+    """The pure render path: photo bytes in, a different (photo) card out."""
+    with_photo = render_challenge_card(
+        "Maya", 7, 10, question_count=10, choice_count=4, photo=_photo_png()
+    )
+    type_only = render_challenge_card("Maya", 7, 10)
+
+    assert with_photo != type_only
+    assert Image.open(io.BytesIO(with_photo)).size == (1200, 630)
+    assert Image.open(io.BytesIO(type_only)).size == (1200, 630)
+
+
+def test_last_question_photo_chosen_never_the_first(
+    client: TestClient, mock_supabase_client: AsyncMock
+) -> None:
+    """The web intro blurs photo 1 as a mystery, so the unfurl must never show
+    it crisp: the LAST question's photo is the one fetched -- regardless of
+    row order coming back from the database."""
+    http = _http_mock(httpx.Response(200, content=_photo_png()))
+    response = _get_card(
+        client,
+        mock_supabase_client,
+        questions=[_question(3, "quiz/last.jpg"), _question(1, "quiz/first.jpg")],
+        http=http,
+    )
+
+    assert response.status_code == 200
+    assert http.get.await_count == 1
+    fetched_url = http.get.await_args.args[0]
+    assert fetched_url.endswith("/quiz/last.jpg")
 
 
 # ============================================================================
-# ETag: keyed on the rendered tuple
+# Never 500: every photo failure falls back to the type-only card
 # ============================================================================
+
+
+def test_photo_fetch_timeout_falls_back_to_type_only(
+    client: TestClient, mock_supabase_client: AsyncMock
+) -> None:
+    response = _get_card(
+        client,
+        mock_supabase_client,
+        questions=[_question(1)],
+        http=_http_mock(httpx.TimeoutException("storage too slow")),
+    )
+
+    assert response.status_code == 200
+    assert response.content == _type_only_card()
+
+
+def test_photo_fetch_error_status_falls_back_to_type_only(
+    client: TestClient, mock_supabase_client: AsyncMock
+) -> None:
+    response = _get_card(
+        client,
+        mock_supabase_client,
+        questions=[_question(1)],
+        http=_http_mock(httpx.Response(404, content=b"gone")),
+    )
+
+    assert response.status_code == 200
+    assert response.content == _type_only_card()
+
+
+def test_undecodable_photo_bytes_fall_back_to_type_only(
+    client: TestClient, mock_supabase_client: AsyncMock
+) -> None:
+    response = _get_card(
+        client,
+        mock_supabase_client,
+        questions=[_question(1)],
+        http=_http_mock(httpx.Response(200, content=b"not an image at all")),
+    )
+
+    assert response.status_code == 200
+    assert response.content == _type_only_card()
+
+
+def test_no_questions_falls_back_and_never_fetches(
+    client: TestClient, mock_supabase_client: AsyncMock
+) -> None:
+    http = _http_mock()
+    response = _get_card(client, mock_supabase_client, questions=[], http=http)
+
+    assert response.status_code == 200
+    assert http.get.await_count == 0
+    assert response.content == _type_only_card()
+
+
+def test_question_table_failure_falls_back_not_500(
+    client: TestClient, mock_supabase_client: AsyncMock
+) -> None:
+    """A quiz_question lookup failure degrades to the type-only card."""
+    response = _get_card(
+        client,
+        mock_supabase_client,
+        questions=None,
+        http=_http_mock(),
+    )
+    # Re-run with the table raising instead of returning rows.
+    mock_supabase_client.get.side_effect = supabase_tables(
+        quiz=[_quiz_row()],
+        user_profile=_profile(),
+        quiz_question=RuntimeError("postgrest down"),
+    )
+    with (
+        patch("app.api.public.get_supabase_client", return_value=mock_supabase_client),
+        patch("app.api.public.get_http_client", return_value=_http_mock()),
+    ):
+        degraded = client.get(CARD_PATH)
+
+    assert response.status_code == 200
+    assert degraded.status_code == 200
+    assert degraded.content == _type_only_card()
+
+
+def test_render_fn_falls_back_on_undecodable_photo() -> None:
+    assert render_challenge_card("Maya", 7, 10, photo=b"junk") == render_challenge_card(
+        "Maya", 7, 10
+    )
+
+
+# ============================================================================
+# ETag: keyed on the rendered tuple, render version 3
+# ============================================================================
+
+
+def test_render_version_is_3() -> None:
+    """The photo-rich redesign must invalidate every cached v2 validator."""
+    assert _RENDER_VERSION == 3
+
+
+def test_etag_varies_with_photo_storage_path() -> None:
+    base = card_etag(QUIZ_ID, "Maya", 7, 10, 10, "quiz/a.jpg")
+    other = card_etag(QUIZ_ID, "Maya", 7, 10, 10, "quiz/b.jpg")
+    none = card_etag(QUIZ_ID, "Maya", 7, 10, None, None)
+
+    assert base != other
+    assert base != none
+
+
+def test_etag_varies_with_photo_at_the_route(
+    client: TestClient, mock_supabase_client: AsyncMock
+) -> None:
+    photo = httpx.Response(200, content=_photo_png())
+    first = _get_card(
+        client,
+        mock_supabase_client,
+        questions=[_question(1, "quiz/a.jpg")],
+        http=_http_mock(photo),
+    )
+    second = _get_card(
+        client,
+        mock_supabase_client,
+        questions=[_question(1, "quiz/b.jpg")],
+        http=_http_mock(httpx.Response(200, content=_photo_png())),
+    )
+
+    assert first.status_code == second.status_code == 200
+    assert first.headers["ETag"] != second.headers["ETag"]
 
 
 def test_same_score_different_owner_names_differ(
@@ -174,11 +401,36 @@ def test_matching_if_none_match_returns_304(
     assert revalidated.content == b""
 
 
+def test_304_short_circuits_before_the_photo_fetch(
+    client: TestClient, mock_supabase_client: AsyncMock
+) -> None:
+    """A revalidation hit must not pay for a storage fetch."""
+    photo = _http_mock(httpx.Response(200, content=_photo_png()))
+    first = _get_card(
+        client, mock_supabase_client, questions=[_question(1)], http=photo
+    )
+    etag = first.headers["ETag"]
+
+    revalidation_http = _http_mock()
+    revalidated = _get_card(
+        client,
+        mock_supabase_client,
+        questions=[_question(1)],
+        http=revalidation_http,
+        headers={"If-None-Match": etag},
+    )
+
+    assert revalidated.status_code == 304
+    assert revalidation_http.get.await_count == 0
+
+
 def test_revoked_slug_404s_before_any_etag_short_circuit(
     client: TestClient, mock_supabase_client: AsyncMock
 ) -> None:
     """Revocation gates serving BEFORE conditional handling: a cached
-    validator from before the revoke must get 404, never 304."""
+    validator from before the revoke must get 404, never 304. (The unfurl
+    CDNs' own copies persisting past this 404 is the accepted KTD11-reversal
+    tradeoff.)"""
     live = _get_card(client, mock_supabase_client)
     pre_revoke_etag = live.headers["ETag"]
 
@@ -202,7 +454,11 @@ def test_400_char_display_name_renders_clipped_without_raising(
     client: TestClient, mock_supabase_client: AsyncMock
 ) -> None:
     response = _get_card(
-        client, mock_supabase_client, profile=_profile("Wolfeschlegelstein" * 23)
+        client,
+        mock_supabase_client,
+        profile=_profile("Wolfeschlegelstein" * 23),
+        questions=[_question(1)],
+        http=_http_mock(httpx.Response(200, content=_photo_png())),
     )
 
     assert response.status_code == 200
@@ -213,7 +469,13 @@ def test_rtl_and_control_character_names_render_without_raising(
     client: TestClient, mock_supabase_client: AsyncMock
 ) -> None:
     hostile = "‮أحمد الطويل\x00\x1b[31m"
-    response = _get_card(client, mock_supabase_client, profile=_profile(hostile))
+    response = _get_card(
+        client,
+        mock_supabase_client,
+        profile=_profile(hostile),
+        questions=[_question(1)],
+        http=_http_mock(httpx.Response(200, content=_photo_png())),
+    )
 
     assert response.status_code == 200
     assert Image.open(io.BytesIO(response.content)).size == (1200, 630)

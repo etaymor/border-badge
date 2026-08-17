@@ -28,6 +28,7 @@ from app.api.utils import get_flag_emoji
 from app.core.analytics import log_landing_viewed, log_list_viewed, log_trip_viewed
 from app.core.blog import get_registry
 from app.core.config import get_settings
+from app.core.http_client import get_http_client
 from app.core.kml import KML_MEDIA_TYPE, Placemark, build_kml
 from app.core.media import (
     AVATAR_WIDTH,
@@ -938,6 +939,53 @@ def _etag_matches(if_none_match: str | None, etag: str) -> bool:
     return etag in candidates
 
 
+# How long the card route will wait on storage for the challenge photo. A miss
+# is not worth a slow unfurl: past this, the type-only fallback ships instead.
+_CARD_PHOTO_TIMEOUT_SECONDS = 2.5
+
+
+async def _fetch_quiz_card_questions(
+    db: SupabaseClient, quiz_id: str
+) -> list[dict[str, Any]]:
+    """The quiz's question rows, or [] on any lookup failure.
+
+    Like the owner-name lookup, this is best-effort framing: a failed query
+    degrades the card to the type-only fallback instead of taking it down.
+    """
+    try:
+        return await db.get(
+            "quiz_question",
+            {
+                "quiz_id": f"eq.{quiz_id}",
+                "select": "position,storage_path,options",
+                "order": "position.asc",
+            },
+        )
+    except Exception as e:
+        logger.warning("Failed to fetch card questions for quiz %s: %s", quiz_id, e)
+        return []
+
+
+async def _fetch_card_photo(storage_path: str) -> bytes | None:
+    """The challenge photo's bytes from public storage, or None.
+
+    Best-effort with a short timeout: any failure (network, non-200, empty
+    body) returns None so the caller falls back to the type-only render --
+    this path must never let the card route 500.
+    """
+    url = build_media_url(storage_path)
+    if not url:
+        return None
+    try:
+        response = await get_http_client().get(url, timeout=_CARD_PHOTO_TIMEOUT_SECONDS)
+        if response.status_code != 200 or not response.content:
+            return None
+        return response.content
+    except Exception as e:
+        logger.warning("Failed to fetch card photo %s: %s", storage_path, e)
+        return None
+
+
 @router.get("/q/{slug}/card.png")
 @limiter.limit("30/minute")
 async def view_quiz_card_image(
@@ -946,19 +994,30 @@ async def view_quiz_card_image(
 ) -> Response:
     """The unfurl challenge-card PNG for a shared quiz (R13).
 
-    A fully generated 1200x630 card -- owner name, score-to-beat, challenge
-    framing, Atlasi branding -- and never a quiz photo (KTD11: unfurl CDNs
-    cache forever; a real photo here would outlive revocation). Rendering is
-    entirely local (Pillow), with no outbound fetches.
+    A 1200x630 poster: the LAST question's photo full-bleed under a navy
+    scrim, with the owner's challenge framing on top. Shipping a real user
+    photo here is a deliberate decision (2026-08-17) that REVERSED the
+    earlier KTD11 rule ("share assets never carry user photos"); the accepted
+    tradeoff is that unfurl CDNs cache images indefinitely, so the photo can
+    outlive revocation there -- the route itself still 404s once revoked.
+
+    The LAST question's photo is chosen on purpose, never photo 1: the web
+    intro blurs photo 1 as a mystery, and a crisp photo 1 in link previews
+    would spoil question 1.
+
+    The photo fetch is best-effort with a short timeout; ANY failure (fetch
+    error, timeout, undecodable bytes, a quiz with no questions) falls back
+    to the fully synthetic type-only card. This route never 500s on imagery.
 
     Ordering matters: the slug resolves UNCACHED and revocation 404s BEFORE
     any conditional/ETag handling, so a validator cached pre-revoke can never
     turn into a 304 that resurrects the card. The ETag covers the full
-    rendered tuple (quiz id, owner name, score-to-beat) and nothing else --
-    query parameters are ignored entirely.
+    rendered tuple (quiz id, owner name, score-to-beat, question count,
+    chosen photo storage path) and nothing else -- query parameters are
+    ignored entirely.
 
     Rate limited at 30/minute -- deliberately stricter than the page's
-    60/minute, since each miss is a Pillow render rather than a template fill.
+    60/minute, since each miss is a Pillow render plus a storage fetch.
     """
     db = get_supabase_client()  # service role: quiz tables are backend-only
 
@@ -971,23 +1030,47 @@ async def view_quiz_card_image(
             headers={"Cache-Control": "no-store", "X-Robots-Tag": "noindex"},
         )
 
-    owner_name = await _fetch_quiz_owner_name(db, quiz.get("owner_id"))
+    question_rows, owner_name = await asyncio.gather(
+        _fetch_quiz_card_questions(db, quiz["id"]),
+        _fetch_quiz_owner_name(db, quiz.get("owner_id")),
+    )
     score_correct = quiz.get("score_to_beat_correct")
     score_total = quiz.get("score_to_beat_total")
 
-    etag = card_etag(quiz["id"], owner_name, score_correct, score_total)
+    # The LAST question's photo (see the docstring: photo 1 stays a mystery).
+    last_question = max(question_rows, key=lambda r: r["position"], default=None)
+    storage_path = (last_question or {}).get("storage_path") or None
+    question_count = len(question_rows) or None
+    choice_count = len((last_question or {}).get("options") or []) or None
+
+    etag = card_etag(
+        quiz["id"], owner_name, score_correct, score_total, question_count, storage_path
+    )
     headers = {
         "ETag": etag,
         # Modest: revocation still wins within a minute everywhere except the
-        # unfurl CDNs, whose indefinite caching is the accepted disclosure the
-        # photo-free card design exists to survive (KTD11).
+        # unfurl CDNs, which cache indefinitely. With KTD11 reversed
+        # (2026-08-17) the photo on this card is accepted to persist there
+        # past revocation; the route itself still 404s immediately.
         "Cache-Control": "public, max-age=60",
         "X-Robots-Tag": "noindex",
     }
     if _etag_matches(request.headers.get("if-none-match"), etag):
         return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers=headers)
 
-    png = render_challenge_card(owner_name, score_correct, score_total)
+    # Fetched after the conditional so a revalidation never pays for storage.
+    # A transient miss serves the type-only fallback under the photo ETag for
+    # at most the 60s max-age -- accepted over a failure status.
+    photo = await _fetch_card_photo(storage_path) if storage_path else None
+
+    png = render_challenge_card(
+        owner_name,
+        score_correct,
+        score_total,
+        question_count=question_count,
+        choice_count=choice_count,
+        photo=photo,
+    )
     return Response(content=png, media_type="image/png", headers=headers)
 
 
