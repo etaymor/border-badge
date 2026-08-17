@@ -42,15 +42,18 @@ function toCachedPhoto(row: CachedPhotoRow): CachedPhoto {
 }
 
 const DB_NAME = 'photos.db';
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 
 /**
  * SQLite has a default limit of 999 bound parameters per query.
  * All batch operations use sizes well under this limit:
  * - cachePhotos: 50 rows × 9 params = 450 params
  * - cacheSuggestions: 50 rows × 3 params = 150 params
- * - removeCachedPhotos: 100 IDs = 100 params
+ * - removeCachedPhotos: 100 IDs = 100 params (× 3 tables, one query each)
  * - getCachedSuggestions: 100 IDs = 100 params
+ * - upsertTags (photoTagDb): 50 rows × 13 params = 650 params
+ * - upsertVerdicts (photoTagDb): 50 rows × 6 params = 300 params
+ * - getTagsForIds / getVerdictsForIds (photoTagDb): 100 IDs = 100 params
  */
 export const SQLITE_PARAM_LIMIT = 999;
 
@@ -185,11 +188,38 @@ async function initSchema(): Promise<void> {
       saved_at INTEGER NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS photo_ml_tags (
+      id TEXT PRIMARY KEY NOT NULL,
+      tagger_version INTEGER NOT NULL,
+      status TEXT NOT NULL,
+      is_screenshot INTEGER NOT NULL,
+      face_count INTEGER,
+      max_face_area REAL,
+      total_face_area REAL,
+      human_count INTEGER,
+      max_human_area REAL,
+      total_human_area REAL,
+      labels_json TEXT,
+      aesthetic_score REAL,
+      is_utility INTEGER,
+      computed_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS photo_quiz_verdicts (
+      id TEXT PRIMARY KEY NOT NULL,
+      eligible INTEGER NOT NULL,
+      reason TEXT,
+      landscape TEXT,
+      classifier_version TEXT NOT NULL,
+      classified_at INTEGER NOT NULL
+    );
+
     CREATE INDEX IF NOT EXISTS idx_cached_photos_creation_time ON cached_photos(creation_time);
     CREATE INDEX IF NOT EXISTS idx_cached_photos_country_code ON cached_photos(country_code);
     CREATE INDEX IF NOT EXISTS idx_cached_photos_geohash ON cached_photos(geohash);
     CREATE INDEX IF NOT EXISTS idx_cluster_splits_parent ON cluster_splits(parent_cluster_id);
     CREATE INDEX IF NOT EXISTS idx_saved_cluster_photos_cluster ON saved_cluster_photos(cluster_id);
+    CREATE INDEX IF NOT EXISTS idx_photo_ml_tags_version ON photo_ml_tags(tagger_version);
   `);
 
   // Migrate pre-existing databases (CREATE TABLE IF NOT EXISTS does not alter an
@@ -471,6 +501,11 @@ export async function removeCachedPhotos(ids: string[]): Promise<void> {
     const batch = validIds.slice(i, i + BATCH_SIZE);
     const placeholders = batch.map(() => '?').join(',');
     await database.runAsync(`DELETE FROM cached_photos WHERE id IN (${placeholders})`, batch);
+    // Derived per-photo rows follow the photo out of the cache: a deleted asset
+    // can never be re-tagged or re-classified, so leaving them would leak rows
+    // that nothing can ever join back to.
+    await database.runAsync(`DELETE FROM photo_ml_tags WHERE id IN (${placeholders})`, batch);
+    await database.runAsync(`DELETE FROM photo_quiz_verdicts WHERE id IN (${placeholders})`, batch);
   }
 }
 
@@ -496,10 +531,15 @@ export async function clearPhotoCache(): Promise<void> {
     await database.runAsync('DELETE FROM cached_trip_segments');
     await database.runAsync('DELETE FROM cluster_splits');
     await database.runAsync('DELETE FROM saved_cluster_photos');
+    await database.runAsync('DELETE FROM photo_ml_tags');
+    await database.runAsync('DELETE FROM photo_quiz_verdicts');
     await database.runAsync("DELETE FROM photo_cache_metadata WHERE key = 'last_import_time'");
     await database.runAsync(
       "DELETE FROM photo_cache_metadata WHERE key = 'last_background_sync_time'"
     );
+    // Tags were just wiped, so drop the pass throttle too - otherwise the first
+    // re-tagging pass after a full refresh waits out a stale 10-minute window.
+    await database.runAsync("DELETE FROM photo_cache_metadata WHERE key = 'last_tagging_pass_at'");
     // Clear last_candidate_* metadata keys to avoid stale selections.
     // Note: The LIKE pattern is a hardcoded string literal, not user input,
     // so there is no SQL injection risk here.

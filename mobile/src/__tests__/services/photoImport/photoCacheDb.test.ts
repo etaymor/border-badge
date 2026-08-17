@@ -359,6 +359,21 @@ describe('photoCacheDb', () => {
 
       expect(mockDb.runAsync).not.toHaveBeenCalled();
     });
+
+    it('drops derived ML tag and verdict rows for the same IDs', async () => {
+      const ids = ['photo-1', 'photo-2'];
+
+      await photoCacheDb.removeCachedPhotos(ids);
+
+      expect(mockDb.runAsync).toHaveBeenCalledWith(
+        'DELETE FROM photo_ml_tags WHERE id IN (?,?)',
+        ids
+      );
+      expect(mockDb.runAsync).toHaveBeenCalledWith(
+        'DELETE FROM photo_quiz_verdicts WHERE id IN (?,?)',
+        ids
+      );
+    });
   });
 
   describe('getCachedPhotoIds', () => {
@@ -615,6 +630,15 @@ describe('photoCacheDb', () => {
       expect(mockDb.execAsync).toHaveBeenCalledWith(
         expect.stringContaining('CREATE INDEX IF NOT EXISTS idx_cached_photos_geohash')
       );
+      expect(mockDb.execAsync).toHaveBeenCalledWith(
+        expect.stringContaining('CREATE TABLE IF NOT EXISTS photo_ml_tags')
+      );
+      expect(mockDb.execAsync).toHaveBeenCalledWith(
+        expect.stringContaining('CREATE TABLE IF NOT EXISTS photo_quiz_verdicts')
+      );
+      expect(mockDb.execAsync).toHaveBeenCalledWith(
+        expect.stringContaining('CREATE INDEX IF NOT EXISTS idx_photo_ml_tags_version')
+      );
     });
 
     it('stores schema version after initialization', async () => {
@@ -623,7 +647,7 @@ describe('photoCacheDb', () => {
       // Schema version should be stored
       expect(mockDb.runAsync).toHaveBeenCalledWith(
         'INSERT OR REPLACE INTO photo_cache_metadata (key, value) VALUES (?, ?)',
-        ['schema_version', '3']
+        ['schema_version', '4']
       );
     });
 
@@ -910,6 +934,21 @@ describe('photoCacheDb', () => {
 
       expect(mockDb.runAsync).toHaveBeenCalledWith('DELETE FROM cluster_splits');
       expect(mockDb.runAsync).toHaveBeenCalledWith('DELETE FROM saved_cluster_photos');
+    });
+
+    it('purges ML tags and quiz verdicts', async () => {
+      await photoCacheDb.clearPhotoCache();
+
+      expect(mockDb.runAsync).toHaveBeenCalledWith('DELETE FROM photo_ml_tags');
+      expect(mockDb.runAsync).toHaveBeenCalledWith('DELETE FROM photo_quiz_verdicts');
+    });
+
+    it('resets the tagging-pass throttle so a re-tag can start immediately', async () => {
+      await photoCacheDb.clearPhotoCache();
+
+      expect(mockDb.runAsync).toHaveBeenCalledWith(
+        "DELETE FROM photo_cache_metadata WHERE key = 'last_tagging_pass_at'"
+      );
     });
   });
 
