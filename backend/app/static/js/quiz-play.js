@@ -193,6 +193,15 @@
     return (err && err.detail && err.detail.detail && err.detail.detail.code) || null;
   }
 
+  // --- GA events -----------------------------------------------------------
+  // Same guard as share-map.js: gtag exists only when the page was served
+  // with a GA id (base.html loads it nonce'd) - never a hard dependency.
+  function trackEvent(name, params) {
+    if (typeof window.gtag === 'function') {
+      window.gtag('event', name, params);
+    }
+  }
+
   // --- Session -------------------------------------------------------------
   function startSession() {
     clearError();
@@ -291,6 +300,12 @@
     })
       .then(function (verdict) {
         if (verdict.correct) score += 1;
+        // Drop-off funnel: which question this guest just answered (1-based),
+        // so abandonment mid-run is visible per position.
+        trackEvent('quiz_answer', {
+          question_index: index + 1,
+          total: questions.length,
+        });
         fillProgress(index + 1);
         if (reducedMotion) {
           advance();
@@ -314,6 +329,9 @@
   function advance() {
     index += 1;
     if (index >= questions.length) {
+      // A genuinely finished run (a resumed already-completed session goes
+      // through startSession, not here) - the funnel's completion tick.
+      trackEvent('quiz_completed', { score: score, total: questions.length });
       // Reveal-first: complete immediately, no name required. The fresh
       // completion is by definition unnamed, so the module opens.
       complete(true);
@@ -443,8 +461,30 @@
     }, 2000);
   }
 
+  // Fire-and-forget reshare beacon: the funnel counts the tap server-side
+  // (POST /q/{slug}/reshared, 204, JSON body - so fetch with keepalive, not
+  // sendBeacon). keepalive lets the request survive the share sheet
+  // backgrounding the page; every failure is silently irrelevant, because
+  // sharing must never block or break on funnel accounting.
+  function reportReshare() {
+    if (!token) return;
+    try {
+      fetch(apiBase + '/reshared', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: token }),
+        keepalive: true,
+      }).catch(function () {
+        /* funnel-only: ignore */
+      });
+    } catch (err) {
+      /* funnel-only: ignore */
+    }
+  }
+
   function shareScore() {
     if (!lastResults) return;
+    reportReshare();
     var text = shareText();
     var url = window.location.origin + apiBase;
     if (navigator.share) {

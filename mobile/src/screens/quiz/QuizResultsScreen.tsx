@@ -233,7 +233,10 @@ export function QuizResultsScreen({ navigation, route }: Props) {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
     try {
       const shared = await shareMutation.mutateAsync();
-      await presentChallengeShare(shared.share_url, scoreToBeat);
+      await presentChallengeShare(shared.share_url, {
+        score: scoreToBeat,
+        photoCount: questions.length || null,
+      });
     } catch (error) {
       console.warn('[QuizResults] Share failed:', error instanceof Error ? error.message : error);
       // Surface the failure (e.g. a 409 QUIZ_OWNER_ANSWERS_INCOMPLETE after a

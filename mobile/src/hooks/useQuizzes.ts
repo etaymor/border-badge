@@ -191,7 +191,14 @@ export function useCompleteQuizPlay(quizId: string) {
       const response = await api.post(`/quiz/${quizId}/complete`, { session_id: sessionId });
       return response.data;
     },
-    onSuccess: () => {
+    onSuccess: (results) => {
+      // Funnel: the owner completed their own play-through (guest plays are
+      // web-only and counted server-side, so this path is owner-scoped).
+      Analytics.quizFirstRunCompleted({
+        quizId,
+        correct: results.correct,
+        total: results.total,
+      });
       // The quiz row changed (state + seeded pair): refresh the detail and
       // the management list's state label.
       queryClient.invalidateQueries({ queryKey: [...QUIZZES_QUERY_KEY, quizId] });

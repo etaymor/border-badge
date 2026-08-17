@@ -992,8 +992,10 @@ describe('QuizResultsScreen', () => {
     // iOS: the link travels in the url slot so destinations unfurl it.
     expect(content.url).toBe('https://borderbadge.app/q/abc123slug');
     expect(content.message).not.toContain('https://borderbadge.app/q/abc123slug');
-    // Challenge framing carries the score to beat.
-    expect(content.message).toMatch(/3 of 5/);
+    // Challenge framing carries the photo count and the score to beat.
+    expect(content.message).toBe(
+      'I made a challenge from 5 of my travel photos. Can you beat my 3/5?'
+    );
     shareSpy.mockRestore();
   });
 

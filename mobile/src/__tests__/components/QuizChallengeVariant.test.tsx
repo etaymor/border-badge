@@ -284,7 +284,9 @@ describe('QuizResultsScreen share wiring (Q10)', () => {
     const content = shareSpy.mock.calls[0][0] as { message?: string; url?: string };
     expect(content.url).toBe('https://borderbadge.app/q/abc123slug');
     expect(content.message).not.toContain('https://');
-    expect(content.message).toMatch(/3 of 5/);
+    expect(content.message).toBe(
+      'I made a challenge from 5 of my travel photos. Can you beat my 3/5?'
+    );
     shareSpy.mockRestore();
   });
 });

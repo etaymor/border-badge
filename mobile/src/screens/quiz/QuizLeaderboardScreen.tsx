@@ -203,7 +203,10 @@ export function QuizLeaderboardScreen({ navigation, route }: Props) {
     if (!shareUrl || !scoreToBeat) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
     try {
-      await presentChallengeShare(shareUrl, scoreToBeat);
+      await presentChallengeShare(shareUrl, {
+        score: scoreToBeat,
+        photoCount: quiz?.questions.length || null,
+      });
     } catch (error) {
       console.warn(
         '[QuizLeaderboard] Share failed:',

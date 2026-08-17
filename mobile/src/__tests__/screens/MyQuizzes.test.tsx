@@ -709,7 +709,11 @@ describe('QuizLeaderboardScreen', () => {
     const content = shareSpy.mock.calls[0][0] as { message: string; url?: string };
     // Q10: the link travels in its own slot, never buried in the message.
     expect(content.url).toBe('https://border.badge/q/abc123');
-    expect(content.message).toContain('3 of 5');
+    // The fixture detail has no questions loaded, so the photo count falls
+    // back to the score total instead of reading "0 of my travel photos".
+    expect(content.message).toBe(
+      'I made a challenge from 5 of my travel photos. Can you beat my 3/5?'
+    );
     // Re-sharing presents the minted link; it never mints another one.
     expect(mockApiPost).not.toHaveBeenCalledWith('/quiz/quiz-1/share');
     shareSpy.mockRestore();

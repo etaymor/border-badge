@@ -19,8 +19,9 @@ import { renderHook, act, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fetch as expoFetch } from 'expo/fetch';
 
-import { useCreateQuiz, useDeleteQuiz, useQuiz } from '@hooks/useQuizzes';
+import { useCompleteQuizPlay, useCreateQuiz, useDeleteQuiz, useQuiz } from '@hooks/useQuizzes';
 import { api } from '@services/api';
+import { Analytics } from '@services/analytics';
 import type { QuizCreationOutcome, QuizCreationProgress } from '@services/quiz/quizCreation';
 import type { CachedPhoto } from '@services/photoImport/types';
 import { createTestQueryClient } from '../utils/testUtils';
@@ -252,6 +253,38 @@ describe('useQuizzes', () => {
     it('does not fetch without a quiz id', () => {
       renderHook(() => useQuiz(undefined), { wrapper: createWrapper(queryClient) });
       expect(mockedApi.get).not.toHaveBeenCalled();
+    });
+  });
+
+  // ============ useCompleteQuizPlay - completion funnel ============
+
+  describe('useCompleteQuizPlay', () => {
+    it('fires quiz_first_run_completed with the owner score on completion', async () => {
+      const spy = jest.spyOn(Analytics, 'quizFirstRunCompleted');
+      mockedApi.post.mockResolvedValueOnce({
+        data: {
+          correct: 7,
+          total: 10,
+          memory_correct: 3,
+          memory_total: 6,
+          score_to_beat: { correct: 7, total: 10 },
+          state: 'playable',
+        },
+      });
+
+      const { result } = renderHook(() => useCompleteQuizPlay('quiz-1'), {
+        wrapper: createWrapper(queryClient),
+      });
+      await act(async () => {
+        await result.current.mutateAsync('session-1');
+      });
+
+      expect(mockedApi.post).toHaveBeenCalledWith('/quiz/quiz-1/complete', {
+        session_id: 'session-1',
+      });
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(spy).toHaveBeenCalledWith({ quizId: 'quiz-1', correct: 7, total: 10 });
+      spy.mockRestore();
     });
   });
 

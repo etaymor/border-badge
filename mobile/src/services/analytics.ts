@@ -494,6 +494,31 @@ export const Analytics = {
   quizRevoked: (props: { quizId: string }) => track('quiz_revoked', { quiz_id: props.quizId }),
 
   /**
+   * The owner finished a play-through of their own quiz. Guests play on the
+   * web (server-side funnel), so the in-app completion path is owner-only by
+   * construction. Fires once per completed run: the seeding run in the happy
+   * path, and again only when a pre-share swap forces the replacement photo
+   * to be answered.
+   */
+  quizFirstRunCompleted: (props: { quizId: string; correct: number; total: number }) =>
+    track('quiz_first_run_completed', {
+      quiz_id: props.quizId,
+      correct: props.correct,
+      total: props.total,
+    }),
+
+  /** The OS share sheet was opened for a challenge invitation. */
+  quizShareInitiated: () => track('quiz_share_initiated'),
+
+  /**
+   * The share sheet reported the share actually happened. iOS-only signal:
+   * Android resolves sharedAction as soon as the sheet opens, so completion
+   * is deliberately never fired there (matching reality beats inflating the
+   * funnel).
+   */
+  quizShareCompleted: () => track('quiz_share_completed'),
+
+  /**
    * How the free on-device prediction compared with the paid eligibility gate,
    * aggregated per creation. This is the evidence that decides whether the
    * shadow-mode drop rules can be tightened over-the-air: `likely_rejected`
