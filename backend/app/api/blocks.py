@@ -43,11 +43,15 @@ async def block_user(
     """
     Block a user.
 
-    This will:
-    1. Remove any follow relationship in both directions
-    2. Create a block record
+    All block semantics run inside the `block_user_full` SECURITY DEFINER RPC
+    (migration 0087): follow removal in both directions, inbox purges in both
+    directions, pending trip-tag and invite cleanup, and an idempotent block
+    insert. The endpoint must NOT issue JWT-scoped deletes itself - RLS
+    silently no-ops the other-direction rows (the caller cannot delete a
+    follow row it does not own), which is exactly the bug class the RPC
+    exists to close.
 
-    Security: Idempotent - returns 200 if already blocked.
+    Security: Idempotent - returns already_blocked if the block existed.
     """
     token = get_token_from_request(request)
     db = get_supabase_client(user_token=token)
@@ -58,19 +62,6 @@ async def block_user(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Cannot block yourself",
         )
-
-    # Check if already blocked
-    existing = await db.get(
-        "user_block",
-        {
-            "select": "id",
-            "blocker_id": f"eq.{user.id}",
-            "blocked_id": f"eq.{user_id}",
-        },
-    )
-
-    if existing:
-        return BlockResponse(status="already_blocked", blocked_id=str(user_id))
 
     # Check if target user exists
     target_user = await db.get(
@@ -87,33 +78,14 @@ async def block_user(
             detail="User not found",
         )
 
-    # Remove follows in both directions (if any exist)
-    # Use separate deletes to avoid string interpolation in 'or' filter (safer pattern)
-    await db.delete(
-        "user_follow",
-        {
-            "follower_id": f"eq.{user.id}",
-            "following_id": f"eq.{user_id}",
-        },
-    )
-    await db.delete(
-        "user_follow",
-        {
-            "follower_id": f"eq.{user_id}",
-            "following_id": f"eq.{user.id}",
-        },
-    )
+    # The RPC derives the blocker from auth.uid() (the JWT this client
+    # carries) and returns True when a new block row was created.
+    newly_blocked = await db.rpc("block_user_full", {"p_blocked_id": str(user_id)})
 
-    # Create block record
-    await db.post(
-        "user_block",
-        {
-            "blocker_id": str(user.id),
-            "blocked_id": str(user_id),
-        },
+    return BlockResponse(
+        status="blocked" if newly_blocked else "already_blocked",
+        blocked_id=str(user_id),
     )
-
-    return BlockResponse(status="blocked", blocked_id=str(user_id))
 
 
 @router.delete("/{user_id}")

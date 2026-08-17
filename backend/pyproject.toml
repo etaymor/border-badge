@@ -37,6 +37,9 @@ rcssmin = "^1.2.2"
 pytest-asyncio = "^0.24.0"
 ruff = "^0.8.0"
 pytest-cov = "^7.0.0"
+# Driver for the real-Postgres SQL test suite (tests/sql, marker: sql).
+# Tests importorskip it, so environments without it still run green.
+psycopg = {extras = ["binary"], version = "^3.2"}
 
 [build-system]
 requires = ["poetry-core"]

@@ -9,7 +9,6 @@ from app.core.security import AuthUser, get_current_user
 from app.main import app
 from tests.conftest import (
     OTHER_USER_ID,
-    TEST_USER_ID,
     mock_auth_dependency,
 )
 
@@ -30,16 +29,13 @@ def test_block_user_success(
     mock_user: AuthUser,
     auth_headers: dict[str, str],
 ) -> None:
-    """Test successfully blocking another user."""
-    # Mock responses: not already blocked, target user exists
-    mock_supabase_client.get.side_effect = [
-        [],  # Not already blocked
-        [{"id": "profile-id", "user_id": OTHER_USER_ID}],  # Target user exists
+    """Test successfully blocking another user via the block_user_full RPC."""
+    # Target user exists
+    mock_supabase_client.get.return_value = [
+        {"id": "profile-id", "user_id": OTHER_USER_ID}
     ]
-    mock_supabase_client.delete.return_value = []  # Follows removed
-    mock_supabase_client.post.return_value = [
-        {"id": "block-id", "blocker_id": TEST_USER_ID, "blocked_id": OTHER_USER_ID}
-    ]
+    # RPC returns True when a new block row was created
+    mock_supabase_client.rpc.return_value = True
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
@@ -51,6 +47,10 @@ def test_block_user_success(
         data = response.json()
         assert data["status"] == "blocked"
         assert data["blocked_id"] == OTHER_USER_ID
+        # Block semantics live in SQL: the endpoint delegates to the RPC
+        mock_supabase_client.rpc.assert_awaited_once_with(
+            "block_user_full", {"p_blocked_id": OTHER_USER_ID}
+        )
     finally:
         app.dependency_overrides.clear()
 
@@ -62,8 +62,12 @@ def test_block_user_idempotent(
     auth_headers: dict[str, str],
 ) -> None:
     """Test blocking a user you've already blocked returns already_blocked."""
-    # Mock response: already blocked
-    mock_supabase_client.get.return_value = [{"id": "existing-block-id"}]
+    # Target user exists
+    mock_supabase_client.get.return_value = [
+        {"id": "profile-id", "user_id": OTHER_USER_ID}
+    ]
+    # RPC returns False when the block row already existed
+    mock_supabase_client.rpc.return_value = False
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
@@ -105,11 +109,8 @@ def test_block_user_not_found_404(
     auth_headers: dict[str, str],
 ) -> None:
     """Test that blocking a nonexistent user returns 404."""
-    # Mock responses: not already blocked, user doesn't exist
-    mock_supabase_client.get.side_effect = [
-        [],  # Not already blocked
-        [],  # User doesn't exist
-    ]
+    # Target user doesn't exist
+    mock_supabase_client.get.return_value = []
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
@@ -119,6 +120,8 @@ def test_block_user_not_found_404(
             response = client.post(f"/blocks/{OTHER_USER_ID}", headers=auth_headers)
         assert response.status_code == 404
         assert "User not found" in response.json()["detail"]
+        # The RPC is never reached for a nonexistent target
+        mock_supabase_client.rpc.assert_not_awaited()
     finally:
         app.dependency_overrides.clear()
 
@@ -268,32 +271,28 @@ def test_get_blocked_users_orphaned_blocks(
 
 
 # ============================================================================
-# Block Removes Follows Tests
+# Block Semantics Live in SQL (block_user_full RPC)
 # ============================================================================
 
 
-def test_block_removes_follow_bidirectional(
+def test_block_delegates_cleanup_to_rpc(
     client: TestClient,
     mock_supabase_client: AsyncMock,
     mock_user: AuthUser,
     auth_headers: dict[str, str],
 ) -> None:
-    """Test that blocking a user removes follows in both directions."""
-    # Track delete calls to verify bidirectional removal
-    delete_calls = []
+    """Blocking runs entirely through block_user_full, not JWT-scoped writes.
 
-    async def track_delete(table: str, params: dict[str, Any]) -> list[Any]:
-        delete_calls.append({"table": table, "params": params})
-        return []
-
-    mock_supabase_client.delete = AsyncMock(side_effect=track_delete)
-    mock_supabase_client.get.side_effect = [
-        [],  # Not already blocked
-        [{"id": "profile-id", "user_id": OTHER_USER_ID}],  # Target user exists
+    The old implementation issued JWT-scoped deletes against user_follow and a
+    direct insert into user_block; RLS silently no-oped the other-direction
+    delete. The endpoint must now issue no table writes at all - follow
+    removal (both directions), inbox purges, and the idempotent block insert
+    all happen inside the SECURITY DEFINER RPC.
+    """
+    mock_supabase_client.get.return_value = [
+        {"id": "profile-id", "user_id": OTHER_USER_ID}
     ]
-    mock_supabase_client.post.return_value = [
-        {"id": "block-id", "blocker_id": TEST_USER_ID, "blocked_id": OTHER_USER_ID}
-    ]
+    mock_supabase_client.rpc.return_value = True
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
@@ -303,14 +302,12 @@ def test_block_removes_follow_bidirectional(
             response = client.post(f"/blocks/{OTHER_USER_ID}", headers=auth_headers)
         assert response.status_code == 201
 
-        # Verify delete was called twice for user_follow table (bidirectional)
-        assert len(delete_calls) == 2
-        assert delete_calls[0]["table"] == "user_follow"
-        assert delete_calls[1]["table"] == "user_follow"
-        # Each delete handles one direction
-        assert "follower_id" in delete_calls[0]["params"]
-        assert "following_id" in delete_calls[0]["params"]
-        assert "follower_id" in delete_calls[1]["params"]
-        assert "following_id" in delete_calls[1]["params"]
+        # No JWT-scoped table writes from the endpoint itself
+        mock_supabase_client.delete.assert_not_awaited()
+        mock_supabase_client.post.assert_not_awaited()
+        # Exactly one RPC call carries all block semantics
+        mock_supabase_client.rpc.assert_awaited_once_with(
+            "block_user_full", {"p_blocked_id": OTHER_USER_ID}
+        )
     finally:
         app.dependency_overrides.clear()

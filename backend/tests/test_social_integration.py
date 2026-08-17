@@ -111,13 +111,14 @@ def test_block_removes_from_feed(
     auth_headers: dict[str, str],
 ) -> None:
     """Test that blocking a user removes them from your activity feed."""
-    # Block the user
-    mock_supabase_client.get.side_effect = [
-        [],  # Not already blocked
-        [{"id": "profile-id", "user_id": OTHER_USER_ID}],  # Target user exists
+    # Block the user (semantics run inside the block_user_full RPC)
+    mock_supabase_client.get.return_value = [
+        {"id": "profile-id", "user_id": OTHER_USER_ID}  # Target user exists
     ]
-    mock_supabase_client.delete.return_value = []
-    mock_supabase_client.post.return_value = [{"id": "block-id"}]
+    mock_supabase_client.rpc.side_effect = [
+        True,  # block_user_full: new block created
+        [],  # get_activity_feed: no activities (blocked)
+    ]
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
@@ -131,7 +132,6 @@ def test_block_removes_from_feed(
 
         # Verify feed returns empty (blocked user's activities are excluded)
         # The get_activity_feed function excludes blocked users
-        mock_supabase_client.rpc.return_value = []  # No activities (blocked)
 
         with patch(
             "app.api.feed.get_supabase_client", return_value=mock_supabase_client
@@ -150,19 +150,18 @@ def test_block_removes_bidirectional_follows(
     mock_user: AuthUser,
     auth_headers: dict[str, str],
 ) -> None:
-    """Test that blocking removes follows in BOTH directions."""
-    delete_calls: list[dict[str, Any]] = []
+    """Test that blocking severs follows via the block_user_full RPC.
 
-    async def track_delete(table: str, params: dict[str, Any]) -> list[Any]:
-        delete_calls.append({"table": table, "params": params})
-        return []
-
-    mock_supabase_client.delete = AsyncMock(side_effect=track_delete)
-    mock_supabase_client.get.side_effect = [
-        [],  # Not already blocked
-        [{"id": "profile-id", "user_id": OTHER_USER_ID}],  # Target exists
+    Bidirectional follow removal (and inbox purges) now happen inside the
+    SECURITY DEFINER RPC (migration 0087) - the endpoint must issue no
+    JWT-scoped table writes, which RLS would silently no-op for the
+    other-direction rows. The SQL-level semantics are covered by
+    tests/sql/test_social_integrity.py.
+    """
+    mock_supabase_client.get.return_value = [
+        {"id": "profile-id", "user_id": OTHER_USER_ID}  # Target exists
     ]
-    mock_supabase_client.post.return_value = [{"id": "block-id"}]
+    mock_supabase_client.rpc.return_value = True
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
@@ -172,25 +171,13 @@ def test_block_removes_bidirectional_follows(
             response = client.post(f"/blocks/{OTHER_USER_ID}", headers=auth_headers)
         assert response.status_code == 201
 
-        # Verify there are 2 separate delete calls for bidirectional follow removal
-        # (code now uses separate deletes instead of OR clause for safety)
-        assert len(delete_calls) == 2
-        assert delete_calls[0]["table"] == "user_follow"
-        assert delete_calls[1]["table"] == "user_follow"
-
-        # Check that both directions are covered:
-        # Call 1: blocker follows blocked (current->target)
-        # Call 2: blocked follows blocker (target->current)
-        params_0 = delete_calls[0]["params"]
-        params_1 = delete_calls[1]["params"]
-
-        # First delete: current user as follower, target as following
-        assert params_0["follower_id"] == f"eq.{TEST_USER_ID}"
-        assert params_0["following_id"] == f"eq.{OTHER_USER_ID}"
-
-        # Second delete: target as follower, current user as following
-        assert params_1["follower_id"] == f"eq.{OTHER_USER_ID}"
-        assert params_1["following_id"] == f"eq.{TEST_USER_ID}"
+        # All block semantics are delegated to the RPC in one call
+        mock_supabase_client.rpc.assert_awaited_once_with(
+            "block_user_full", {"p_blocked_id": OTHER_USER_ID}
+        )
+        # No JWT-scoped writes from the endpoint itself
+        mock_supabase_client.delete.assert_not_awaited()
+        mock_supabase_client.post.assert_not_awaited()
     finally:
         app.dependency_overrides.clear()
 
