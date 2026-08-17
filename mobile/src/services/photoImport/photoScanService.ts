@@ -19,6 +19,7 @@ import { getCountryName } from '@utils/countries';
 import { iso1A2Code } from './countryCoder';
 import { HomeCountryNotSetError } from './errors';
 import { abortBackgroundSync } from './photoBackgroundSync';
+import { abortTaggingPass, maybeRunTaggingPass } from './photoTaggingService';
 import {
   cachePhotos,
   clearPhotoCache,
@@ -254,6 +255,8 @@ async function runStart(opts: PhotoScanStartOptions): Promise<PhotoScanStartResu
   try {
     // Stop any background sync to avoid interleaved cache writes.
     abortBackgroundSync();
+    // Tagging is opportunistic CPU work; the scan owns the device from here.
+    abortTaggingPass();
 
     // Persist the durable scan-in-progress flag BEFORE returning 'started'.
     // This closes a crash window where the in-memory lock was set but the
@@ -528,6 +531,9 @@ async function runScan(
     // P1: a completed trip scan makes the shared cache fresh for everyone
     // (e.g. the next quiz creation skips its scan). Fire-and-forget.
     void recordSyncSuccess('trip-scan', newPhotos.length);
+    // The initial big import lands here, so this is the trigger that gets a
+    // brand-new library its first tag coverage. Fire-and-forget.
+    void maybeRunTaggingPass();
   } catch (error) {
     if (isAbortLike(error)) {
       // Cancellation: store and metadata are reset by `cancelScan`. Nothing else to do.

@@ -303,5 +303,15 @@ export async function performBackgroundPhotoSync(
     return null;
   } finally {
     releaseRefreshLock(lock.syncId);
+    // The library is fresh and nothing else is writing to the cache: the ideal
+    // moment to tag. Fire-and-forget AFTER the lock is released, since the pass
+    // gates itself on no sync being in progress. Never awaited - the sync's
+    // caller must not wait on opportunistic work.
+    //
+    // Dynamic import breaks the cycle: photoTaggingService imports
+    // isBackgroundSyncInProgress from this module.
+    void import('./photoTaggingService')
+      .then((module) => module.maybeRunTaggingPass())
+      .catch(() => {});
   }
 }
