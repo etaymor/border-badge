@@ -22,9 +22,15 @@
  */
 
 import * as Haptics from 'expo-haptics';
+// expo-image, not react-native's Image: RN decodes at the asset's full
+// resolution and blurs on the JS/main thread, so each 2048px question held two
+// ~12MB bitmaps and a 10-photo game was being killed part-way through. Every
+// other image surface in the app (including PolaroidThumb next door) already
+// uses expo-image, which downsamples to the view and manages a bounded cache.
+import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Image, StatusBar, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, StatusBar, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, {
   FadeIn,
@@ -65,6 +71,17 @@ function isAlreadyAnsweredConflict(error: unknown): boolean {
 
 /** How long the gold acknowledgment holds before the next print deals in. */
 const ACK_HOLD_MS = 420;
+
+/**
+ * Fail-safe for the answer lock. While `pendingAnswerKey` is set the tapped
+ * option keeps its ring and EVERY option is disabled, and only reaching the
+ * next question clears it - so any path that sets the lock without advancing
+ * leaves the game frozen with the tapped option still lit and no way out but
+ * killing the app. The API client times out at 10s, so anything still holding
+ * the lock well past that is a bug on a path we have not enumerated: log it
+ * and fall back to the retryable error state, which can resume.
+ */
+const ANSWER_WATCHDOG_MS = 15_000;
 
 const DEAL_SPRING = { damping: 16, stiffness: 220, mass: 0.9 };
 
@@ -178,6 +195,21 @@ export function QuizPlayScreen({ navigation, route }: Props) {
     }
   }, [phase, quiz, questions, playState, completePlay]);
 
+  // Warm the NEXT photo while the player is still answering this one. Without
+  // this, every advance paid for a cold download + decode, which is why the
+  // wait after the year question was so much longer than the country->year
+  // step (that one mounts no new image at all). Exactly one ahead: warming the
+  // whole game would put every full-size bitmap in memory at once.
+  useEffect(() => {
+    if (!activeQuestionId) return;
+    const index = questions.findIndex((question) => question.id === activeQuestionId);
+    const nextUrl = questions[index + 1]?.image_url;
+    if (!nextUrl) return;
+    Image.prefetch([nextUrl]).catch(() => {
+      // A failed warm-up is invisible: the photo simply loads on mount.
+    });
+  }, [activeQuestionId, questions]);
+
   // Surface a quiz-load failure only once the fetch has settled: during a
   // retry's refetch, isError stays true while in flight, and flipping back to
   // 'error' then would make retry a no-op.
@@ -204,7 +236,12 @@ export function QuizPlayScreen({ navigation, route }: Props) {
   // graded the answer - carry it in memory and let the next successful save
   // persist the full answers map (state is rebuilt immutably each time).
   const applyAnswer = useStableCallback(async (stored: StoredQuizAnswer, holdAck: boolean) => {
-    if (!playState) return;
+    if (!playState) {
+      // Releasing the lock matters more than the lost answer: holding it here
+      // would disable every option for the rest of the session.
+      setPendingAnswerKey(null);
+      return;
+    }
     let nextState: QuizPlayState;
     try {
       nextState = await recordAnswer(playState, stored);
@@ -224,7 +261,12 @@ export function QuizPlayScreen({ navigation, route }: Props) {
   });
 
   const submitAnswer = useStableCallback((optionIndex: number, year: number | null) => {
-    if (!playState || !activeQuestion) return;
+    if (!playState || !activeQuestion) {
+      // The caller already lit the tapped option; never leave it lit and
+      // disabled with no request in flight to clear it.
+      setPendingAnswerKey(null);
+      return;
+    }
     const questionId = activeQuestion.id;
     answerMutation.mutate(
       {
@@ -297,6 +339,25 @@ export function QuizPlayScreen({ navigation, route }: Props) {
     submitAnswer(pendingCountryIndex, year);
   });
 
+  // The watchdog: nothing may hold the answer lock indefinitely. The warn names
+  // which branch stalled, so a recurrence is diagnosable from the device log
+  // instead of reproducible only by feel.
+  const recoverFromStalledAnswer = useStableCallback(() => {
+    console.warn(
+      `[QuizPlay] answer stalled, recovering: key=${pendingAnswerKey} phase=${phase} ` +
+        `mutation=${answerMutation.isPending ? 'pending' : 'idle'} ` +
+        `question=${activeQuestion?.id ?? 'none'} session=${playState ? 'yes' : 'no'}`
+    );
+    setPendingAnswerKey(null);
+    setPhase('error');
+  });
+
+  useEffect(() => {
+    if (pendingAnswerKey === null) return;
+    const timer = setTimeout(recoverFromStalledAnswer, ANSWER_WATCHDOG_MS);
+    return () => clearTimeout(timer);
+  }, [pendingAnswerKey, recoverFromStalledAnswer]);
+
   const handleRetry = useStableCallback(() => {
     if (!quizId) return;
     setPhase('loading');
@@ -332,8 +393,11 @@ export function QuizPlayScreen({ navigation, route }: Props) {
           <Image
             source={{ uri: activeQuestion.image_url }}
             style={StyleSheet.absoluteFill}
-            resizeMode="cover"
+            contentFit="cover"
             blurRadius={42}
+            // Same recyclingKey as the sharp copy: one decode serves both.
+            recyclingKey={activeQuestion.id}
+            cachePolicy="memory-disk"
           />
           <View style={styles.backdropDim} />
         </Animated.View>
@@ -355,11 +419,10 @@ export function QuizPlayScreen({ navigation, route }: Props) {
         <View style={[styles.centered, { paddingTop: insets.top }]} testID="quiz-play-error">
           <Text style={styles.errorTitle}>Something Went Wrong</Text>
           <Text style={styles.errorBody}>
-            We could not load your challenge right now. Your progress is saved - answered photos
-            stay answered.
+            We could not load your challenge. Answered photos stay answered.
           </Text>
           <Button title="Try Again" onPress={handleRetry} />
-          <Button title="Back" variant="ghost" onPress={handleBack} />
+          <Button title="Back" variant="ghost" onDark onPress={handleBack} />
         </View>
       )}
 
@@ -387,7 +450,9 @@ export function QuizPlayScreen({ navigation, route }: Props) {
               <Image
                 source={{ uri: activeQuestion.image_url }}
                 style={styles.photo}
-                resizeMode="contain"
+                contentFit="contain"
+                recyclingKey={activeQuestion.id}
+                cachePolicy="memory-disk"
                 testID="quiz-play-photo"
               />
             </Animated.View>
