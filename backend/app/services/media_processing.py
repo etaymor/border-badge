@@ -11,7 +11,7 @@ from app.core.thumbnails import (
     get_thumbnail_path,
     upload_thumbnail_to_storage,
 )
-from app.db.session import get_http_client, get_supabase_client
+from app.db.session import get_http_client, get_service_supabase_client
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +71,7 @@ async def process_media_thumbnail(media_id: str, file_path: str) -> None:
             return
 
         # 4. Update media_files record with thumbnail_path
-        db = get_supabase_client()  # Use service role (no user token)
+        db = get_service_supabase_client()  # Use service role (no user token)
         await db.patch(
             "media_files",
             {"thumbnail_path": thumbnail_path},

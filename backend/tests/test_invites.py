@@ -126,7 +126,12 @@ def test_send_invite_success(
     try:
         with (
             patch(
-                "app.api.invites.get_supabase_client", return_value=mock_supabase_client
+                "app.api.invites.get_supabase_client",
+                return_value=mock_supabase_client,
+            ),
+            patch(
+                "app.api.invites.get_service_supabase_client",
+                return_value=mock_supabase_client,
             ),
             patch("app.api.invites.send_invite_email", new_callable=AsyncMock),
         ):
@@ -157,8 +162,15 @@ def test_send_invite_existing_user_returns_400(
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
-        with patch(
-            "app.api.invites.get_supabase_client", return_value=mock_supabase_client
+        with (
+            patch(
+                "app.api.invites.get_supabase_client",
+                return_value=mock_supabase_client,
+            ),
+            patch(
+                "app.api.invites.get_service_supabase_client",
+                return_value=mock_supabase_client,
+            ),
         ):
             response = client.post(
                 "/invites",
@@ -186,8 +198,15 @@ def test_send_invite_already_pending(
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
-        with patch(
-            "app.api.invites.get_supabase_client", return_value=mock_supabase_client
+        with (
+            patch(
+                "app.api.invites.get_supabase_client",
+                return_value=mock_supabase_client,
+            ),
+            patch(
+                "app.api.invites.get_service_supabase_client",
+                return_value=mock_supabase_client,
+            ),
         ):
             response = client.post(
                 "/invites",
@@ -222,7 +241,12 @@ def test_send_invite_normalizes_email(
     try:
         with (
             patch(
-                "app.api.invites.get_supabase_client", return_value=mock_supabase_client
+                "app.api.invites.get_supabase_client",
+                return_value=mock_supabase_client,
+            ),
+            patch(
+                "app.api.invites.get_service_supabase_client",
+                return_value=mock_supabase_client,
             ),
             patch("app.api.invites.send_invite_email", new_callable=AsyncMock),
         ):
@@ -275,8 +299,15 @@ def test_get_pending_invites_success(
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
-        with patch(
-            "app.api.invites.get_supabase_client", return_value=mock_supabase_client
+        with (
+            patch(
+                "app.api.invites.get_supabase_client",
+                return_value=mock_supabase_client,
+            ),
+            patch(
+                "app.api.invites.get_service_supabase_client",
+                return_value=mock_supabase_client,
+            ),
         ):
             response = client.get("/invites/pending", headers=auth_headers)
         assert response.status_code == 200
@@ -299,8 +330,15 @@ def test_get_pending_invites_empty(
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
-        with patch(
-            "app.api.invites.get_supabase_client", return_value=mock_supabase_client
+        with (
+            patch(
+                "app.api.invites.get_supabase_client",
+                return_value=mock_supabase_client,
+            ),
+            patch(
+                "app.api.invites.get_service_supabase_client",
+                return_value=mock_supabase_client,
+            ),
         ):
             response = client.get("/invites/pending", headers=auth_headers)
         assert response.status_code == 200
@@ -328,8 +366,15 @@ def test_get_pending_invites_with_pagination(
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
-        with patch(
-            "app.api.invites.get_supabase_client", return_value=mock_supabase_client
+        with (
+            patch(
+                "app.api.invites.get_supabase_client",
+                return_value=mock_supabase_client,
+            ),
+            patch(
+                "app.api.invites.get_service_supabase_client",
+                return_value=mock_supabase_client,
+            ),
         ):
             response = client.get(
                 "/invites/pending?limit=10&offset=5", headers=auth_headers
@@ -362,8 +407,15 @@ def test_cancel_invite_success(
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
-        with patch(
-            "app.api.invites.get_supabase_client", return_value=mock_supabase_client
+        with (
+            patch(
+                "app.api.invites.get_supabase_client",
+                return_value=mock_supabase_client,
+            ),
+            patch(
+                "app.api.invites.get_service_supabase_client",
+                return_value=mock_supabase_client,
+            ),
         ):
             response = client.delete(
                 f"/invites/{SAMPLE_INVITE_ID}", headers=auth_headers
@@ -387,8 +439,15 @@ def test_cancel_invite_not_found(
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
-        with patch(
-            "app.api.invites.get_supabase_client", return_value=mock_supabase_client
+        with (
+            patch(
+                "app.api.invites.get_supabase_client",
+                return_value=mock_supabase_client,
+            ),
+            patch(
+                "app.api.invites.get_service_supabase_client",
+                return_value=mock_supabase_client,
+            ),
         ):
             response = client.delete(
                 f"/invites/{SAMPLE_INVITE_ID}", headers=auth_headers
@@ -491,7 +550,12 @@ def test_invite_flow_send_stores_inviter_id(
     try:
         with (
             patch(
-                "app.api.invites.get_supabase_client", return_value=mock_supabase_client
+                "app.api.invites.get_supabase_client",
+                return_value=mock_supabase_client,
+            ),
+            patch(
+                "app.api.invites.get_service_supabase_client",
+                return_value=mock_supabase_client,
             ),
             patch("app.api.invites.send_invite_email", new_callable=AsyncMock),
         ):
@@ -550,7 +614,12 @@ def test_invite_flow_trip_tag_stores_trip_id(
     try:
         with (
             patch(
-                "app.api.invites.get_supabase_client", return_value=mock_supabase_client
+                "app.api.invites.get_supabase_client",
+                return_value=mock_supabase_client,
+            ),
+            patch(
+                "app.api.invites.get_service_supabase_client",
+                return_value=mock_supabase_client,
             ),
             patch("app.api.invites.send_invite_email", new_callable=AsyncMock),
         ):
@@ -595,7 +664,12 @@ def test_send_invite_returns_shareable_link_without_email_delivery(
     try:
         with (
             patch(
-                "app.api.invites.get_supabase_client", return_value=mock_supabase_client
+                "app.api.invites.get_supabase_client",
+                return_value=mock_supabase_client,
+            ),
+            patch(
+                "app.api.invites.get_service_supabase_client",
+                return_value=mock_supabase_client,
             ),
             # Resend unconfigured: the edge function returns None. The link
             # must still come back in the response.
@@ -635,8 +709,15 @@ def test_send_invite_already_pending_returns_existing_link(
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
-        with patch(
-            "app.api.invites.get_supabase_client", return_value=mock_supabase_client
+        with (
+            patch(
+                "app.api.invites.get_supabase_client",
+                return_value=mock_supabase_client,
+            ),
+            patch(
+                "app.api.invites.get_service_supabase_client",
+                return_value=mock_supabase_client,
+            ),
         ):
             response = client.post(
                 "/invites",

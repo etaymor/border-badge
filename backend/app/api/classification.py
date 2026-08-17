@@ -24,7 +24,7 @@ from app.core.llm_utils import (
 )
 from app.core.security import OptionalUser
 from app.db.postgrest import in_list
-from app.db.session import get_supabase_client
+from app.db.session import get_service_supabase_client
 from app.main import get_request_context, limiter
 from app.schemas.classification import (
     TravelerClassificationRequest,
@@ -132,7 +132,7 @@ async def get_country_names_by_codes(codes: list[str]) -> dict[str, str]:
     """Fetch country names for a list of codes. Returns {code: name} mapping."""
     if not codes:
         return {}
-    db = get_supabase_client()
+    db = get_service_supabase_client()
     rows = await db.get(
         "country",
         {
@@ -182,7 +182,7 @@ async def get_rarest_country_code(
     if not search_codes:
         search_codes = [c.upper() for c in codes]
 
-    db = get_supabase_client()
+    db = get_service_supabase_client()
     rows = await db.get(
         "country",
         {
@@ -202,7 +202,7 @@ async def get_countries_with_regions(codes: list[str]) -> list[dict[str, Any]]:
     """Fetch countries with their region data for fallback classification."""
     if not codes:
         return []
-    db = get_supabase_client()
+    db = get_service_supabase_client()
     return await db.get(
         "country",
         {
@@ -511,7 +511,7 @@ async def classify_traveler(
     home_country_name = None
     if home_country_code:
         # Fetch home country from DB to validate it exists
-        db = get_supabase_client()
+        db = get_service_supabase_client()
         home_country_rows = await db.get(
             "country",
             {"code": f"eq.{home_country_code}", "select": "code,name", "limit": 1},

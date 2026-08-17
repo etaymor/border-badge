@@ -2,7 +2,11 @@
 
 import pytest
 
-from app.db.session import SupabaseClient
+from app.db.session import (
+    SupabaseClient,
+    get_service_supabase_client,
+    get_supabase_client,
+)
 
 
 class DummySettings:
@@ -38,6 +42,32 @@ def test_user_scoped_headers_use_anon_key_and_user_token(monkeypatch) -> None:
 
     assert client.headers["apikey"] == dummy.supabase_anon_key
     assert client.headers["Authorization"] == f"Bearer {user_token}"
+
+
+def test_get_supabase_client_without_token_raises(monkeypatch) -> None:
+    """KTD10: service-role access is explicit-only.
+
+    A tokenless get_supabase_client() used to silently fall back to the
+    service role key (an invisible RLS bypass). It must now raise;
+    get_service_supabase_client() is the explicit path.
+    """
+    dummy = DummySettings()
+    monkeypatch.setattr("app.db.session.get_settings", lambda: dummy)
+
+    with pytest.raises(ValueError, match="get_service_supabase_client"):
+        get_supabase_client()
+    with pytest.raises(ValueError, match="get_service_supabase_client"):
+        get_supabase_client(user_token=None)
+    with pytest.raises(ValueError, match="get_service_supabase_client"):
+        get_supabase_client(user_token="")
+
+    # The explicit service factory still works and keeps service headers.
+    service_client = get_service_supabase_client()
+    assert service_client.headers["apikey"] == dummy.supabase_service_role_key
+
+    # And the user-scoped path is unchanged.
+    user_client = get_supabase_client(user_token="user-jwt")
+    assert user_client.headers["Authorization"] == "Bearer user-jwt"
 
 
 class _DummyResponse:

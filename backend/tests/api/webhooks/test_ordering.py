@@ -26,7 +26,7 @@ def test_webhook_older_event_skipped(
     }
 
     with patch(
-        "app.api.webhooks.get_supabase_client",
+        "app.api.webhooks.get_service_supabase_client",
         return_value=mock_supabase_client,
     ):
         response = client.post(
@@ -56,7 +56,7 @@ def test_webhook_newer_event_updates(
     mock_supabase_client.rpc.return_value = {"updated": True}
 
     with patch(
-        "app.api.webhooks.get_supabase_client",
+        "app.api.webhooks.get_service_supabase_client",
         return_value=mock_supabase_client,
     ):
         response = client.post(
@@ -87,7 +87,7 @@ def test_webhook_same_timestamp_event_skipped(
     }
 
     with patch(
-        "app.api.webhooks.get_supabase_client",
+        "app.api.webhooks.get_service_supabase_client",
         return_value=mock_supabase_client,
     ):
         response = client.post(

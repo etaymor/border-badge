@@ -94,7 +94,9 @@ def _get_trip(
     client: TestClient, mock_supabase_client: AsyncMock, query: str = ""
 ) -> "TestClient.get":
     mock_supabase_client.get.side_effect = supabase_tables(trip=[TRIP_ROW])
-    with patch("app.api.public.get_supabase_client", return_value=mock_supabase_client):
+    with patch(
+        "app.api.public.get_service_supabase_client", return_value=mock_supabase_client
+    ):
         return client.get(f"/t/summer-vacation-abc123{query}")
 
 
@@ -165,7 +167,8 @@ def test_public_profile_with_ref_logs(
 
     with caplog.at_level(logging.INFO, logger="analytics"):
         with patch(
-            "app.api.public.get_supabase_client", return_value=mock_supabase_client
+            "app.api.public.get_service_supabase_client",
+            return_value=mock_supabase_client,
         ):
             response = client.get("/u/wanderer?ref=sofia_travels")
 

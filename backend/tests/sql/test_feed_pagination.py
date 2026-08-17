@@ -232,8 +232,9 @@ def test_trip_arm_admits_trip_updated_events(db, seeded_feed) -> None:
         cur.execute(
             """
             INSERT INTO social_activity_event
-              (actor_id, activity_type, trip_id, payload)
-            VALUES (%s, 'trip_updated', %s, '{"entry_count": 3}'::jsonb)
+              (actor_id, activity_type, trip_id, event_day, payload)
+            VALUES (%s, 'trip_updated', %s, (now() AT TIME ZONE 'utc')::date,
+                    '{"entry_count": 3}'::jsonb)
             RETURNING id
             """,
             (actor_id, trip_id),

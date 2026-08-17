@@ -12,7 +12,7 @@ import pytest
 from app.services.place_matcher import persistent_cache as pc
 from app.services.place_matcher.cache import PlacesCache
 
-PATCH_TARGET = "app.services.place_matcher.persistent_cache.get_supabase_client"
+PATCH_TARGET = "app.services.place_matcher.persistent_cache.get_service_supabase_client"
 
 
 @pytest.fixture(autouse=True)

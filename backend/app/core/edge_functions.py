@@ -5,6 +5,7 @@ import logging
 import httpx
 
 from app.core.config import get_settings
+from app.db.session import get_http_client
 
 logger = logging.getLogger(__name__)
 
@@ -33,17 +34,21 @@ async def call_edge_function(
     url = f"{settings.supabase_url}/functions/v1/{function_name}"
 
     try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            response = await client.post(
-                url,
-                json=payload,
-                headers={
-                    "Authorization": f"Bearer {settings.supabase_anon_key}",
-                    "Content-Type": "application/json",
-                },
-            )
-            response.raise_for_status()
-            return response.json()
+        # Shared pooled client (app.core.http_client via app.db.session):
+        # constructing an AsyncClient per request costs a fresh TCP/TLS
+        # handshake each call. The per-call timeout overrides the pool default.
+        client = get_http_client()
+        response = await client.post(
+            url,
+            json=payload,
+            timeout=timeout,
+            headers={
+                "Authorization": f"Bearer {settings.supabase_anon_key}",
+                "Content-Type": "application/json",
+            },
+        )
+        response.raise_for_status()
+        return response.json()
     except httpx.HTTPError as e:
         # Log error but don't raise - edge functions are best effort
         logger.warning(

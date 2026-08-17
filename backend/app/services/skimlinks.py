@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 import httpx
 
 from app.core.config import get_settings
-from app.db.session import get_supabase_client
+from app.db.session import get_service_supabase_client
 from app.schemas.affiliate import ResolutionPath, SkimlinksCacheEntry
 
 logger = logging.getLogger(__name__)
@@ -186,7 +186,7 @@ async def get_cached_url(original_url: str) -> str | None:
     Returns:
         Cached wrapped URL if found and not expired, None otherwise
     """
-    db = get_supabase_client()
+    db = get_service_supabase_client()
 
     now = datetime.now(UTC).isoformat()
 
@@ -223,7 +223,7 @@ async def cache_url(
     Returns:
         The created/updated cache entry
     """
-    db = get_supabase_client()
+    db = get_service_supabase_client()
 
     expires_at = datetime.now(UTC) + timedelta(hours=ttl_hours)
 
@@ -259,7 +259,7 @@ async def invalidate_cache(original_url: str) -> bool:
     Returns:
         True if an entry was deleted, False if not found
     """
-    db = get_supabase_client()
+    db = get_service_supabase_client()
 
     rows = await db.delete(
         "skimlinks_cache",
@@ -281,7 +281,7 @@ async def cleanup_expired_cache() -> int:
     Returns:
         Number of entries deleted
     """
-    db = get_supabase_client()
+    db = get_service_supabase_client()
 
     now = datetime.now(UTC).isoformat()
 

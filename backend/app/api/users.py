@@ -79,45 +79,31 @@ async def check_username_availability(
     # Use service client since user may not be authenticated yet
     db = get_service_supabase_client()
 
-    # Check if username exists (case-insensitive).
-    # Note: username is pre-validated by Query(min_length=3, max_length=30) and
-    # USERNAME_PATTERN (alphanumeric + underscore only) on line 54, so the ilike
-    # operator is safe from SQL injection.
-    rows = await db.get(
-        "user_profile",
-        {
-            "select": "id",
-            "username": f"ilike.{username}",
-        },
-    )
+    # Single round-trip: check the requested name AND all suggestion
+    # candidates in one RPC (migration 0090). The RPC returns the subset of
+    # candidates that is TAKEN, lowercased; availability and free
+    # suggestions are derived from the complement. Username is pre-validated
+    # (alphanumeric + underscore only), so candidates are injection-safe.
+    base = username.lower()
+    candidates = [
+        f"{base}_{i}" for i in range(1, 6) if len(f"{base}_{i}") <= USERNAME_MAX_LENGTH
+    ]
 
-    if not rows:
+    taken_rows = await db.rpc(
+        "check_username_candidates",
+        {"p_candidates": [base, *candidates]},
+    )
+    taken = {row["taken_username"] for row in taken_rows} if taken_rows else set()
+
+    if base not in taken:
         return UsernameCheckResponse(available=True)
 
-    # Username taken - generate suggestions
-    suggestions = []
-    base = username.lower()
-
-    # Try numbered suffixes
-    for i in range(1, 6):
-        candidate = f"{base}_{i}"
-        if len(candidate) <= USERNAME_MAX_LENGTH:
-            check = await db.get(
-                "user_profile",
-                {
-                    "select": "id",
-                    "username": f"ilike.{candidate}",
-                },
-            )
-            if not check:
-                suggestions.append(candidate)
-            if len(suggestions) >= 3:
-                break
+    suggestions = [c for c in candidates if c not in taken][:3]
 
     return UsernameCheckResponse(
         available=False,
         reason="Username is already taken",
-        suggestions=suggestions[:3],
+        suggestions=suggestions,
     )
 
 
@@ -277,22 +263,22 @@ async def lookup_user_by_email(
     token = get_token_from_request(request)
     db = get_supabase_client(user_token=token)
 
-    # Get country count
-    country_count_result = await db.rpc(
-        "get_user_country_counts",
-        {"user_ids": [profile["user_id"]]},
+    # Tail queries are independent - run them concurrently.
+    country_count_result, follow_check = await asyncio.gather(
+        db.rpc(
+            "get_user_country_counts",
+            {"user_ids": [profile["user_id"]]},
+        ),
+        db.get(
+            "user_follow",
+            {
+                "select": "id",
+                "follower_id": f"eq.{user.id}",
+                "following_id": f"eq.{profile['user_id']}",
+            },
+        ),
     )
     country_count = country_count_result[0]["count"] if country_count_result else 0
-
-    # Check if following
-    follow_check = await db.get(
-        "user_follow",
-        {
-            "select": "id",
-            "follower_id": f"eq.{user.id}",
-            "following_id": f"eq.{profile['user_id']}",
-        },
-    )
 
     return UserSummary(
         id=profile["user_id"],

@@ -12,6 +12,7 @@ from app.core.http_client import close_http_client, get_http_client
 __all__ = [
     "close_http_client",
     "get_http_client",
+    "get_service_supabase_client",
     "get_supabase_client",
     "SupabaseClient",
 ]
@@ -321,11 +322,26 @@ class SupabaseClient:
 
 def get_supabase_client(user_token: str | None = None) -> SupabaseClient:
     """
-    Get a Supabase client instance.
+    Get a user-scoped Supabase client (RLS enforced via the user's JWT).
+
+    A user token is REQUIRED. Calling without one used to silently fall back
+    to the service role key - a silent RLS bypass that produced real bugs
+    (e.g. block-delete no-ops). Service-role access is now explicit-only
+    (plan KTD10): use get_service_supabase_client() when you actually intend
+    to bypass RLS.
 
     Args:
-        user_token: Optional JWT for user-scoped queries with RLS.
+        user_token: JWT for user-scoped queries with RLS.
+
+    Raises:
+        ValueError: If no user token is provided.
     """
+    if not user_token:
+        raise ValueError(
+            "get_supabase_client() requires a user token. For explicit "
+            "service-role (RLS-bypassing) access, call "
+            "get_service_supabase_client() instead."
+        )
     return SupabaseClient(user_token=user_token)
 
 

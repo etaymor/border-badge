@@ -9,7 +9,7 @@ from uuid import UUID
 from fastapi import APIRouter, Header, HTTPException, Request
 
 from app.core.config import get_settings
-from app.db.session import get_supabase_client
+from app.db.session import get_service_supabase_client
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -128,7 +128,7 @@ async def revenuecat_webhook(
 
     # Update user profile with advisory lock for concurrency safety
     # None for user_token means use service role (bypasses RLS)
-    supabase = get_supabase_client(user_token=None)
+    supabase = get_service_supabase_client()
 
     # Use RPC with advisory lock for atomic update with ordering
     result = await supabase.rpc(

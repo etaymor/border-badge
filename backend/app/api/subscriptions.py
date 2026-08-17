@@ -9,7 +9,7 @@ from fastapi import APIRouter, HTTPException, Request
 from app.api.utils import get_token_from_request
 from app.core.config import get_settings
 from app.core.security import CurrentUser
-from app.db.session import get_supabase_client
+from app.db.session import get_service_supabase_client, get_supabase_client
 from app.main import limiter
 from app.schemas.subscription import (
     CanAddEntryResponse,
@@ -241,7 +241,7 @@ async def verify_subscription(
             status_code=501, detail="RevenueCat verification not configured"
         )
 
-    db = get_supabase_client(user_token=None)  # Service role for update
+    db = get_service_supabase_client()  # Service role for update
 
     # Get user's RevenueCat customer ID
     profile_result = await db.get(

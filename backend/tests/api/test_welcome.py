@@ -79,7 +79,7 @@ def authenticated_client(mock_user: AuthUser, mock_supabase_client) -> TestClien
     app.dependency_overrides[get_current_user] = mock_get_current_user
 
     with patch(
-        "app.api.welcome.get_supabase_client", return_value=mock_supabase_client
+        "app.api.welcome.get_service_supabase_client", return_value=mock_supabase_client
     ):
         client = TestClient(app)
         yield client
@@ -109,7 +109,7 @@ class TestTriggerWelcomeEmails:
 
         with (
             patch(
-                "app.api.welcome.get_supabase_client",
+                "app.api.welcome.get_service_supabase_client",
                 return_value=mock_supabase_client,
             ),
             patch(
@@ -141,7 +141,7 @@ class TestTriggerWelcomeEmails:
         app.dependency_overrides[get_current_user] = mock_get_current_user
 
         with patch(
-            "app.api.welcome.get_supabase_client",
+            "app.api.welcome.get_service_supabase_client",
             return_value=mock_supabase_client_with_scheduled,
         ):
             client = TestClient(app)
@@ -168,7 +168,7 @@ class TestTriggerWelcomeEmails:
 
         with (
             patch(
-                "app.api.welcome.get_supabase_client",
+                "app.api.welcome.get_service_supabase_client",
                 return_value=mock_supabase_client,
             ),
             patch(
@@ -202,7 +202,7 @@ class TestTriggerWelcomeEmails:
 
         with (
             patch(
-                "app.api.welcome.get_supabase_client",
+                "app.api.welcome.get_service_supabase_client",
                 return_value=mock_supabase_client,
             ),
             patch(
@@ -234,7 +234,7 @@ class TestTriggerWelcomeEmails:
 
         with (
             patch(
-                "app.api.welcome.get_supabase_client",
+                "app.api.welcome.get_service_supabase_client",
                 return_value=mock_supabase_client,
             ),
             patch(
@@ -266,7 +266,7 @@ class TestTriggerWelcomeEmails:
 
         with (
             patch(
-                "app.api.welcome.get_supabase_client",
+                "app.api.welcome.get_service_supabase_client",
                 return_value=mock_supabase_client,
             ),
             patch(
@@ -299,7 +299,7 @@ class TestTriggerWelcomeEmails:
 
         with (
             patch(
-                "app.api.welcome.get_supabase_client",
+                "app.api.welcome.get_service_supabase_client",
                 return_value=mock_supabase_client,
             ),
             patch(
@@ -330,7 +330,7 @@ class TestTriggerWelcomeEmails:
         app.dependency_overrides[get_current_user] = mock_get_current_user
 
         with patch(
-            "app.api.welcome.get_supabase_client",
+            "app.api.welcome.get_service_supabase_client",
             return_value=mock_supabase_client,
         ):
             client = TestClient(app)
@@ -356,7 +356,7 @@ class TestTriggerWelcomeEmails:
 
         with (
             patch(
-                "app.api.welcome.get_supabase_client",
+                "app.api.welcome.get_service_supabase_client",
                 return_value=mock_supabase_client,
             ),
             patch(
@@ -389,7 +389,7 @@ class TestTriggerWelcomeEmails:
 
         with (
             patch(
-                "app.api.welcome.get_supabase_client",
+                "app.api.welcome.get_service_supabase_client",
                 return_value=mock_supabase_client,
             ),
             patch(
@@ -441,7 +441,7 @@ class TestTriggerWelcomeEmails:
 
         with (
             patch(
-                "app.api.welcome.get_supabase_client",
+                "app.api.welcome.get_service_supabase_client",
                 return_value=mock_client,
             ),
             patch(
@@ -504,7 +504,7 @@ class TestTriggerWelcomeEmails:
 
         with (
             patch(
-                "app.api.welcome.get_supabase_client",
+                "app.api.welcome.get_service_supabase_client",
                 return_value=mock_client,
             ),
             patch(
@@ -545,7 +545,7 @@ class TestRateLimiting:
 
         with (
             patch(
-                "app.api.welcome.get_supabase_client",
+                "app.api.welcome.get_service_supabase_client",
                 return_value=mock_supabase_client,
             ),
             patch(

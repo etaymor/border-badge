@@ -56,7 +56,7 @@ from app.core.urls import (
     safe_external_url,
     safe_google_photo_url,
 )
-from app.db.session import SupabaseClient, get_supabase_client
+from app.db.session import SupabaseClient, get_service_supabase_client
 from app.main import limiter, templates
 from app.schemas.classification import MAX_COUNTRIES
 from app.schemas.lists import PublicListEntry, PublicListView
@@ -300,7 +300,7 @@ async def view_public_profile(
 ) -> HTMLResponse:
     """Render a public profile page by username."""
     settings = get_settings()
-    db = get_supabase_client()
+    db = get_service_supabase_client()
 
     # Fetch profile by username (case-insensitive)
     # Note: username is pre-validated by FastAPI Path() with pattern=r"^[a-zA-Z0-9_]+$"
@@ -444,7 +444,7 @@ async def invite_landing(
     verified = verify_invite_code(code) if code else None
     if verified:
         try:
-            db = get_supabase_client()
+            db = get_service_supabase_client()
             # The invite row is the consent record: a validly signed code
             # whose row was cancelled must not show the inviter.
             invites = await db.get(
@@ -510,7 +510,7 @@ async def view_public_list(
 ) -> HTMLResponse:
     """Render a public list page by slug."""
     settings = get_settings()
-    db = get_supabase_client()
+    db = get_service_supabase_client()
 
     # Fetch list by slug (all lists are public)
     lists = await db.get(
@@ -661,7 +661,7 @@ async def view_public_trip(
 ) -> HTMLResponse:
     """Render a public trip page by share slug."""
     settings = get_settings()
-    db = get_supabase_client()
+    db = get_service_supabase_client()
 
     # Fetch trip by share_slug
     trips = await db.get(
@@ -882,7 +882,7 @@ async def download_list_kml(
     slug: str = Path(..., min_length=1, max_length=100, pattern=r"^[a-z0-9-]+$"),
 ) -> Response:
     """Export a public list's places as KML for Google My Maps."""
-    db = get_supabase_client()
+    db = get_service_supabase_client()
 
     lists = await db.get(
         "list",
@@ -926,7 +926,7 @@ async def download_trip_kml(
     slug: str = Path(..., min_length=1, max_length=100, pattern=r"^[a-z0-9-]+$"),
 ) -> Response:
     """Export a public trip's places as KML for Google My Maps."""
-    db = get_supabase_client()
+    db = get_service_supabase_client()
 
     trips = await db.get(
         "trip",
@@ -1021,7 +1021,7 @@ async def unsubscribe_email(
     No confirmation needed - visiting the URL unsubscribes the user.
     """
     settings = get_settings()
-    db = get_supabase_client()  # Service role for profile lookup
+    db = get_service_supabase_client()  # Service role for profile lookup
 
     # Look up user by unsubscribe_token
     try:
@@ -1171,7 +1171,7 @@ def _sitemap_entry(
 async def sitemap_xml() -> PlainTextResponse:
     """Generate sitemap.xml for search engines."""
     settings = get_settings()
-    db = get_supabase_client()
+    db = get_service_supabase_client()
 
     base = settings.base_url
     urls = [_sitemap_entry(base, changefreq="weekly", priority="1.0")]

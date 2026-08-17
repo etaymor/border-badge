@@ -73,7 +73,9 @@ class TestCacheExtractionConditionalUpdate:
             patch_calls.append({"table": table, "data": data, "params": params})
             return [data]
 
-        with patch("app.services.extraction_cache.get_supabase_client") as mock_client:
+        with patch(
+            "app.services.extraction_cache.get_service_supabase_client"
+        ) as mock_client:
             client = MagicMock()
             client.patch = AsyncMock(side_effect=mock_patch)
             mock_client.return_value = client
@@ -101,7 +103,9 @@ class TestCacheExtractionConditionalUpdate:
             patch_calls.append({"table": table, "data": data, "params": params})
             return [data]
 
-        with patch("app.services.extraction_cache.get_supabase_client") as mock_client:
+        with patch(
+            "app.services.extraction_cache.get_service_supabase_client"
+        ) as mock_client:
             client = MagicMock()
             client.patch = AsyncMock(side_effect=mock_patch)
             mock_client.return_value = client
@@ -129,7 +133,9 @@ class TestCacheExtractionConditionalUpdate:
             patch_calls.append({"table": table, "data": data, "params": params})
             return [data]
 
-        with patch("app.services.extraction_cache.get_supabase_client") as mock_client:
+        with patch(
+            "app.services.extraction_cache.get_service_supabase_client"
+        ) as mock_client:
             client = MagicMock()
             client.patch = AsyncMock(side_effect=mock_patch)
             mock_client.return_value = client
@@ -157,7 +163,9 @@ class TestCacheExtractionConditionalUpdate:
             patch_calls.append({"table": table, "data": data, "params": params})
             return [data]
 
-        with patch("app.services.extraction_cache.get_supabase_client") as mock_client:
+        with patch(
+            "app.services.extraction_cache.get_service_supabase_client"
+        ) as mock_client:
             client = MagicMock()
             client.patch = AsyncMock(side_effect=mock_patch)
             mock_client.return_value = client
@@ -175,7 +183,9 @@ class TestCacheExtractionConditionalUpdate:
         canonical_url = "https://www.tiktok.com/@user/video/no-match"
         place = make_detected_place("Place")
 
-        with patch("app.services.extraction_cache.get_supabase_client") as mock_client:
+        with patch(
+            "app.services.extraction_cache.get_service_supabase_client"
+        ) as mock_client:
             client = MagicMock()
             # Empty result = no rows matched the WHERE filter
             client.patch = AsyncMock(return_value=[])
@@ -190,7 +200,9 @@ class TestCacheExtractionConditionalUpdate:
         canonical_url = "https://www.tiktok.com/@user/video/no-get"
         place = make_detected_place("Place")
 
-        with patch("app.services.extraction_cache.get_supabase_client") as mock_client:
+        with patch(
+            "app.services.extraction_cache.get_service_supabase_client"
+        ) as mock_client:
             client = MagicMock()
             client.patch = AsyncMock(return_value=[{"ok": True}])
             client.get = AsyncMock()
@@ -225,7 +237,9 @@ class TestCacheExtractionConcurrency:
             )
             return [data]
 
-        with patch("app.services.extraction_cache.get_supabase_client") as mock_client:
+        with patch(
+            "app.services.extraction_cache.get_service_supabase_client"
+        ) as mock_client:
             client = MagicMock()
             client.patch = AsyncMock(side_effect=mock_patch)
             mock_client.return_value = client

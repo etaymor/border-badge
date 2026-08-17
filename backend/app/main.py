@@ -81,7 +81,21 @@ def get_rate_limit_key(request: Request) -> str:
     return f"ip:{get_remote_address(request)}"
 
 
-# Rate limiter instance (shared across the application)
+# Rate limiter instance (shared across the application).
+#
+# MULTI-WORKER NOTE (storage_uri): slowapi defaults to in-memory storage,
+# which is per-process. Running multiple uvicorn/gunicorn workers gives each
+# worker its own counters, so the effective limit is roughly
+# (declared limit x worker count) and bursts can slip through on worker
+# rotation. For shared, accurate limits across workers/instances, point
+# slowapi at a shared backend, e.g.:
+#     limiter = Limiter(
+#         key_func=get_rate_limit_key,
+#         storage_uri="redis://localhost:6379/0",
+#     )
+# (memcached:// and mongodb:// URIs are also supported by the underlying
+# `limits` package.) This is an ops decision, not a code change: set it when
+# the deployment moves beyond a single worker.
 limiter = Limiter(key_func=get_rate_limit_key)
 
 # Import API router after limiter is defined so other modules can safely

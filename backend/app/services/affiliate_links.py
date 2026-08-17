@@ -15,7 +15,7 @@ from urllib.parse import urlencode
 from uuid import UUID
 
 from app.core.config import get_settings
-from app.db.session import get_supabase_client
+from app.db.session import get_service_supabase_client
 from app.schemas.affiliate import (
     OutboundClick,
     OutboundClickCreate,
@@ -141,7 +141,7 @@ async def get_link_by_id(link_id: str | UUID) -> OutboundLink | None:
     Returns:
         OutboundLink if found, None otherwise
     """
-    db = get_supabase_client()
+    db = get_service_supabase_client()
 
     rows = await db.get(
         "outbound_link",
@@ -176,7 +176,7 @@ async def get_link_by_entry_id(entry_id: str | UUID) -> OutboundLink | None:
     Returns:
         OutboundLink if found, None otherwise
     """
-    db = get_supabase_client()
+    db = get_service_supabase_client()
 
     rows = await db.get(
         "outbound_link",
@@ -211,7 +211,7 @@ async def create_link(data: OutboundLinkCreate) -> OutboundLink:
     Returns:
         Created OutboundLink
     """
-    db = get_supabase_client()
+    db = get_service_supabase_client()
 
     insert_data = {
         "entry_id": str(data.entry_id),
@@ -248,7 +248,7 @@ async def update_link(
     Returns:
         Updated OutboundLink if found, None otherwise
     """
-    db = get_supabase_client()
+    db = get_service_supabase_client()
 
     update_data = {}
     if data.destination_url is not None:
@@ -356,7 +356,7 @@ async def log_click(data: OutboundClickCreate) -> OutboundClick:
     Returns:
         Created OutboundClick record
     """
-    db = get_supabase_client()
+    db = get_service_supabase_client()
 
     insert_data = {
         "link_id": str(data.link_id),
@@ -571,7 +571,7 @@ async def create_partner_mapping(data: PartnerMappingCreate) -> PartnerMapping:
     Returns:
         Created PartnerMapping
     """
-    db = get_supabase_client()
+    db = get_service_supabase_client()
 
     insert_data = {
         "entry_id": str(data.entry_id) if data.entry_id else None,
@@ -605,7 +605,7 @@ async def get_partner_mapping(
     Returns:
         PartnerMapping if found, None otherwise
     """
-    db = get_supabase_client()
+    db = get_service_supabase_client()
 
     rows = await db.get(
         "partner_mapping",
@@ -631,7 +631,7 @@ async def get_partner_mapping_by_id(mapping_id: str | UUID) -> PartnerMapping | 
     Returns:
         PartnerMapping if found, None otherwise
     """
-    db = get_supabase_client()
+    db = get_service_supabase_client()
 
     rows = await db.get(
         "partner_mapping",
@@ -656,7 +656,7 @@ async def get_mappings_for_entry(entry_id: str | UUID) -> list[PartnerMapping]:
     Returns:
         List of PartnerMapping objects, ordered by confidence descending
     """
-    db = get_supabase_client()
+    db = get_service_supabase_client()
 
     rows = await db.get(
         "partner_mapping",
@@ -682,7 +682,7 @@ async def get_mapping_by_google_place_id(
     Returns:
         PartnerMapping if found, None otherwise
     """
-    db = get_supabase_client()
+    db = get_service_supabase_client()
 
     rows = await db.get(
         "partner_mapping",
@@ -710,7 +710,7 @@ async def upsert_partner_mapping(data: PartnerMappingCreate) -> PartnerMapping:
     Returns:
         Created or updated PartnerMapping
     """
-    db = get_supabase_client()
+    db = get_service_supabase_client()
 
     upsert_data = {
         "entry_id": str(data.entry_id) if data.entry_id else None,
@@ -748,7 +748,7 @@ async def update_partner_mapping(
     Returns:
         Updated PartnerMapping if found, None otherwise
     """
-    db = get_supabase_client()
+    db = get_service_supabase_client()
 
     update_data = {}
     if data.partner_property_id is not None:
@@ -787,7 +787,7 @@ async def delete_partner_mapping(mapping_id: str | UUID) -> bool:
     Returns:
         True if deleted, False if not found
     """
-    db = get_supabase_client()
+    db = get_service_supabase_client()
 
     rows = await db.delete(
         "partner_mapping",
@@ -813,7 +813,7 @@ async def delete_mappings_for_entry(entry_id: str | UUID) -> int:
     Returns:
         Number of mappings deleted
     """
-    db = get_supabase_client()
+    db = get_service_supabase_client()
 
     rows = await db.delete(
         "partner_mapping",

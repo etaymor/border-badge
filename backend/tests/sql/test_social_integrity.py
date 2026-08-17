@@ -87,7 +87,8 @@ def create_trip(cur, user_id: str, country_id: str, name: str = "Test Trip") -> 
 
 
 def create_entry(cur, trip_id: str, created_at_sql: str = "now()") -> str:
-    """Insert an entry; fires trg_entry_create_event (event + fan-out)."""
+    """Insert an entry; fires the statement-level coalescing trigger (0090),
+    which upserts one trip_updated event per trip per day."""
     entry_id = _uuid()
     cur.execute(
         "INSERT INTO entry (id, trip_id, type, title, created_at) "
@@ -656,44 +657,61 @@ class TestWishlistToVisitedEvents:
 
 class TestFollowBackfillBudget:
     def test_deleted_trip_events_do_not_eat_the_budget(self, db):
-        """55 older live entries + 20 newer entries in a soft-deleted trip:
-        a new follower gets exactly 50 rows, all of them visible."""
+        """55 older live legacy entry events + 20 newer ones in a soft-deleted
+        trip: a new follower gets exactly 50 rows, all of them visible.
+
+        Per-entry emission is retired by 0090, so the legacy entry_added
+        events this test exercises are inserted directly - they remain valid
+        retained data that the on-follow backfill must still filter correctly.
+        The coalescing trigger also emits one trip_updated event per trip
+        here; the soft-deleted trip's coalesced event must be filtered too.
+        """
         author = create_user(db)
         reader = create_user(db)
         country = create_country(db)
         live_trip = create_trip(db, author, country, name="Live")
         doomed_trip = create_trip(db, author, country, name="Doomed")
 
-        # Older, live events
-        for i in range(55):
-            create_entry(
-                db,
-                live_trip,
-                created_at_sql=f"now() - interval '1 hour' + ({i} * interval '1 second')",
+        def legacy_entry_event(trip_id: str, created_at_sql: str) -> None:
+            entry_id = create_entry(db, trip_id, created_at_sql=created_at_sql)
+            db.execute(
+                "INSERT INTO social_activity_event "
+                "  (actor_id, activity_type, entry_id, created_at) "
+                f"VALUES (%s, 'entry_added', %s, {created_at_sql})",
+                (author, entry_id),
             )
-        # Newer events that will become invisible
+
+        # Older, live legacy events
+        for i in range(55):
+            legacy_entry_event(
+                live_trip,
+                f"now() - interval '1 hour' + ({i} * interval '1 second')",
+            )
+        # Newer legacy events that will become invisible
         for i in range(20):
-            create_entry(
-                db,
+            legacy_entry_event(
                 doomed_trip,
-                created_at_sql=f"now() + ({i} * interval '1 second')",
+                f"now() + ({i} * interval '1 second')",
             )
         db.execute("UPDATE trip SET deleted_at = now() WHERE id = %s", (doomed_trip,))
 
         follow(db, reader, author)
 
+        # Budget fully spent, nothing invisible: no entry events from the
+        # deleted trip, and not the deleted trip's coalesced event either.
+        assert inbox_count(db, reader) == 50
         db.execute(
-            "SELECT COUNT(*), COUNT(*) FILTER (WHERE t.deleted_at IS NULL) "
+            "SELECT COUNT(*) "
             "FROM social_feed_inbox sfi "
             "JOIN social_activity_event sae ON sae.id = sfi.activity_id "
-            "JOIN entry e ON e.id = sae.entry_id "
-            "JOIN trip t ON t.id = e.trip_id "
-            "WHERE sfi.recipient_id = %s",
+            "LEFT JOIN entry e ON e.id = sae.entry_id "
+            "LEFT JOIN trip et ON et.id = e.trip_id "
+            "LEFT JOIN trip tt ON tt.id = sae.trip_id "
+            "WHERE sfi.recipient_id = %s "
+            "  AND (et.deleted_at IS NOT NULL OR tt.deleted_at IS NOT NULL)",
             (reader,),
         )
-        total, visible = db.fetchone()
-        assert total == 50
-        assert visible == 50
+        assert db.fetchone()[0] == 0
 
     def test_backfill_social_feed_is_idempotent_and_filters(self, db):
         """backfill_social_feed() creates no events for deleted entries or
@@ -721,15 +739,15 @@ class TestFollowBackfillBudget:
         second = inbox_count(db, reader, author)
 
         assert first == second  # idempotent
-        # Only the live entry has an event; deleted entry's event was removed
-        # by the soft-delete trigger and backfill must not recreate it.
+        # Per-entry emission is retired (0090): neither entry has an
+        # entry_added event, and backfill must not create any.
         assert (
             count(
                 db,
                 "SELECT 1 FROM social_activity_event WHERE entry_id = %s",
                 (live_entry,),
             )
-            == 1
+            == 0
         )
         assert (
             count(
@@ -738,6 +756,16 @@ class TestFollowBackfillBudget:
                 (deleted_entry,),
             )
             == 0
+        )
+        # The entries coalesced into exactly one trip_updated event instead.
+        assert (
+            count(
+                db,
+                "SELECT 1 FROM social_activity_event "
+                "WHERE trip_id = %s AND activity_type = 'trip_updated'",
+                (trip,),
+            )
+            == 1
         )
         # No event for the wishlist-only country
         assert (

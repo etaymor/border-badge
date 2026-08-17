@@ -48,7 +48,7 @@ class TestAdminAuth:
         self, mock_settings, service_role_headers
     ) -> None:
         """Test that valid service role key is accepted."""
-        with patch("app.api.admin.get_supabase_client") as mock_db:
+        with patch("app.api.admin.get_service_supabase_client") as mock_db:
             mock_db.return_value.get = AsyncMock(return_value=[])
 
             client = TestClient(app)
@@ -65,7 +65,7 @@ class TestListLinks:
         self, mock_settings, service_role_headers
     ) -> None:
         """Test that empty list is returned when no links exist."""
-        with patch("app.api.admin.get_supabase_client") as mock_db:
+        with patch("app.api.admin.get_service_supabase_client") as mock_db:
             mock_db.return_value.get = AsyncMock(return_value=[])
 
             client = TestClient(app)
@@ -96,7 +96,7 @@ class TestListLinks:
             "updated_at": now,
         }
 
-        with patch("app.api.admin.get_supabase_client") as mock_db:
+        with patch("app.api.admin.get_service_supabase_client") as mock_db:
             # First call for links, second for count, third for click counts
             mock_db.return_value.get = AsyncMock(
                 side_effect=[
@@ -117,7 +117,7 @@ class TestListLinks:
 
     def test_filters_by_status(self, mock_settings, service_role_headers) -> None:
         """Test that links can be filtered by status."""
-        with patch("app.api.admin.get_supabase_client") as mock_db:
+        with patch("app.api.admin.get_service_supabase_client") as mock_db:
             mock_db.return_value.get = AsyncMock(return_value=[])
 
             client = TestClient(app)
@@ -134,7 +134,7 @@ class TestListLinks:
 
     def test_respects_pagination(self, mock_settings, service_role_headers) -> None:
         """Test that pagination parameters are respected."""
-        with patch("app.api.admin.get_supabase_client") as mock_db:
+        with patch("app.api.admin.get_service_supabase_client") as mock_db:
             mock_db.return_value.get = AsyncMock(return_value=[])
 
             client = TestClient(app)
@@ -156,7 +156,7 @@ class TestGetLinkDetail:
         self, mock_settings, service_role_headers
     ) -> None:
         """Test that 404 is returned for nonexistent link."""
-        with patch("app.api.admin.get_supabase_client") as mock_db:
+        with patch("app.api.admin.get_service_supabase_client") as mock_db:
             mock_db.return_value.get = AsyncMock(return_value=[])
 
             client = TestClient(app)
@@ -194,7 +194,7 @@ class TestGetLinkDetail:
             "created_at": now,
         }
 
-        with patch("app.api.admin.get_supabase_client") as mock_db:
+        with patch("app.api.admin.get_service_supabase_client") as mock_db:
             mock_db.return_value.get = AsyncMock(
                 side_effect=[
                     [mock_link],  # link query
@@ -224,7 +224,7 @@ class TestUpdateLink:
         self, mock_settings, service_role_headers
     ) -> None:
         """Test that 404 is returned for nonexistent link."""
-        with patch("app.api.admin.get_supabase_client") as mock_db:
+        with patch("app.api.admin.get_service_supabase_client") as mock_db:
             mock_db.return_value.get = AsyncMock(return_value=[])
 
             client = TestClient(app)
@@ -254,7 +254,7 @@ class TestUpdateLink:
 
         updated_link = {**mock_link, "status": "paused"}
 
-        with patch("app.api.admin.get_supabase_client") as mock_db:
+        with patch("app.api.admin.get_service_supabase_client") as mock_db:
             mock_db.return_value.get = AsyncMock(
                 side_effect=[
                     [mock_link],  # verify exists
@@ -293,7 +293,7 @@ class TestUpdateLink:
         new_affiliate_url = "https://custom-affiliate.example.com"
         updated_link = {**mock_link, "affiliate_url": new_affiliate_url}
 
-        with patch("app.api.admin.get_supabase_client") as mock_db:
+        with patch("app.api.admin.get_service_supabase_client") as mock_db:
             mock_db.return_value.get = AsyncMock(
                 side_effect=[
                     [mock_link],  # verify exists
@@ -321,7 +321,7 @@ class TestStatsSummary:
         self, mock_settings, service_role_headers
     ) -> None:
         """Test that empty stats are returned when no clicks."""
-        with patch("app.api.admin.get_supabase_client") as mock_db:
+        with patch("app.api.admin.get_service_supabase_client") as mock_db:
             # RPC returns None or empty dict when no clicks
             mock_db.return_value.rpc = AsyncMock(return_value=None)
 
@@ -356,7 +356,7 @@ class TestStatsSummary:
             ],
         }
 
-        with patch("app.api.admin.get_supabase_client") as mock_db:
+        with patch("app.api.admin.get_service_supabase_client") as mock_db:
             mock_db.return_value.rpc = AsyncMock(return_value=mock_rpc_result)
 
             client = TestClient(app)

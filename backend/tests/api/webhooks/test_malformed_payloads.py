@@ -224,7 +224,7 @@ def test_webhook_invalid_expiration_type_string(
     }
 
     with patch(
-        "app.api.webhooks.get_supabase_client",
+        "app.api.webhooks.get_service_supabase_client",
         return_value=mock_supabase_client,
     ):
         response = client.post(

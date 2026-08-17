@@ -23,7 +23,7 @@ def test_check_username_available(
     mock_supabase_client: AsyncMock,
 ) -> None:
     """Test checking an available username."""
-    mock_supabase_client.get.return_value = []  # Username not taken
+    mock_supabase_client.rpc.return_value = []  # Nothing taken
 
     with patch(
         "app.api.users.get_service_supabase_client", return_value=mock_supabase_client
@@ -41,12 +41,10 @@ def test_check_username_taken_with_suggestions(
     mock_supabase_client: AsyncMock,
 ) -> None:
     """Test checking a taken username returns suggestions."""
-    # First call: username taken, then generate suggestions
-    mock_supabase_client.get.side_effect = [
-        [{"id": "existing-profile-id"}],  # Username taken
-        [],  # newuser_1 available
-        [],  # newuser_2 available
-        [],  # newuser_3 available
+    # The RPC returns the subset of candidates that is taken.
+    mock_supabase_client.rpc.return_value = [
+        {"taken_username": "newuser"},
+        {"taken_username": "newuser_2"},
     ]
 
     with patch(
@@ -58,7 +56,44 @@ def test_check_username_taken_with_suggestions(
     data = response.json()
     assert data["available"] is False
     assert data["reason"] == "Username is already taken"
-    assert len(data["suggestions"]) >= 1
+    # Free candidates in order, minus the taken one, capped at 3
+    assert data["suggestions"] == ["newuser_1", "newuser_3", "newuser_4"]
+
+
+def test_check_username_single_rpc_contract(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+) -> None:
+    """Base + all suggestion candidates are checked in ONE RPC round-trip.
+
+    The old implementation issued up to six serial ilike queries per request;
+    the contract now is exactly one check_username_candidates RPC call and no
+    table reads (plan U5).
+    """
+    mock_supabase_client.rpc.return_value = [{"taken_username": "newuser"}]
+
+    with patch(
+        "app.api.users.get_service_supabase_client", return_value=mock_supabase_client
+    ):
+        response = client.get("/users/check-username", params={"username": "NewUser"})
+
+    assert response.status_code == 200
+    assert mock_supabase_client.rpc.await_count == 1
+    assert mock_supabase_client.get.await_count == 0
+
+    rpc_name, rpc_params = mock_supabase_client.rpc.await_args.args
+    assert rpc_name == "check_username_candidates"
+    # Lowercased base plus every numbered candidate, in one payload
+    assert rpc_params == {
+        "p_candidates": [
+            "newuser",
+            "newuser_1",
+            "newuser_2",
+            "newuser_3",
+            "newuser_4",
+            "newuser_5",
+        ]
+    }
 
 
 def test_check_username_invalid_format(

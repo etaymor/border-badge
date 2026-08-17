@@ -179,6 +179,7 @@ async def get_pending_trip_tag_count(
 
 
 @router.post("/{trip_id}/approve", response_model=TripTagAction)
+@limiter.limit("30/minute")
 async def approve_trip_tag(
     request: Request,
     trip_id: UUID,
@@ -193,6 +194,7 @@ async def approve_trip_tag(
 
 
 @router.post("/{trip_id}/decline", response_model=TripTagAction)
+@limiter.limit("30/minute")
 async def decline_trip_tag(
     request: Request,
     trip_id: UUID,
@@ -258,7 +260,7 @@ async def _update_tag_status(
 async def _auto_follow_trip_owner(trip_id: UUID, follower_user_id: str) -> None:
     """Auto-follow the trip owner when a tag is approved."""
     try:
-        admin_db = get_supabase_client()
+        admin_db = get_service_supabase_client()
 
         # Get trip to find owner
         trips = await admin_db.get(

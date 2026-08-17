@@ -76,7 +76,7 @@ async def send_invite(
     # Check if user already exists with this email.
     # Use service role: auth.users table requires admin access for email lookups.
     # The RPC function 'check_email_exists' is SECURITY DEFINER and validates input.
-    service_db = get_supabase_client()
+    service_db = get_service_supabase_client()
     existing_user_result = await service_db.rpc(
         "check_email_exists",
         {"email_to_check": email_lower},

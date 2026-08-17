@@ -32,7 +32,7 @@ def test_webhook_event_type_maps_to_premium(
     base_event["event"]["type"] = event_type
 
     with patch(
-        "app.api.webhooks.get_supabase_client",
+        "app.api.webhooks.get_service_supabase_client",
         return_value=mock_supabase_client,
     ):
         response = client.post(
@@ -61,7 +61,7 @@ def test_webhook_expiration_sets_free(
     base_event["event"]["type"] = "EXPIRATION"
 
     with patch(
-        "app.api.webhooks.get_supabase_client",
+        "app.api.webhooks.get_service_supabase_client",
         return_value=mock_supabase_client,
     ):
         response = client.post(
@@ -87,7 +87,7 @@ def test_webhook_unknown_event_type_ignored(
     base_event["event"]["type"] = "UNKNOWN_EVENT_TYPE"
 
     with patch(
-        "app.api.webhooks.get_supabase_client",
+        "app.api.webhooks.get_service_supabase_client",
         return_value=mock_supabase_client,
     ):
         response = client.post(
@@ -116,7 +116,7 @@ def test_webhook_subscriber_analysis_ignored(
     base_event["event"]["type"] = "SUBSCRIBER_ANALYSIS"
 
     with patch(
-        "app.api.webhooks.get_supabase_client",
+        "app.api.webhooks.get_service_supabase_client",
         return_value=mock_supabase_client,
     ):
         response = client.post(

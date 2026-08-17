@@ -19,7 +19,7 @@ def test_webhook_very_large_timestamp(
     base_event["event"]["event_timestamp_ms"] = 32503680000000
 
     with patch(
-        "app.api.webhooks.get_supabase_client",
+        "app.api.webhooks.get_service_supabase_client",
         return_value=mock_supabase_client,
     ):
         response = client.post(
@@ -45,7 +45,7 @@ def test_webhook_special_characters_in_event_id(
     base_event["event"]["id"] = special_event_id
 
     with patch(
-        "app.api.webhooks.get_supabase_client",
+        "app.api.webhooks.get_service_supabase_client",
         return_value=mock_supabase_client,
     ):
         response = client.post(
@@ -72,7 +72,7 @@ def test_webhook_original_app_user_id_passed(
     base_event["event"]["original_app_user_id"] = "rc_customer_12345"
 
     with patch(
-        "app.api.webhooks.get_supabase_client",
+        "app.api.webhooks.get_service_supabase_client",
         return_value=mock_supabase_client,
     ):
         response = client.post(
@@ -100,7 +100,7 @@ def test_webhook_expiration_datetime_conversion(
     base_event["event"]["expiration_at_ms"] = 1735689600000
 
     with patch(
-        "app.api.webhooks.get_supabase_client",
+        "app.api.webhooks.get_service_supabase_client",
         return_value=mock_supabase_client,
     ):
         response = client.post(
@@ -130,7 +130,7 @@ def test_webhook_invalid_expiration_timestamp_overflow(
     base_event["event"]["expiration_at_ms"] = 9999999999999999999
 
     with patch(
-        "app.api.webhooks.get_supabase_client",
+        "app.api.webhooks.get_service_supabase_client",
         return_value=mock_supabase_client,
     ):
         response = client.post(
@@ -156,7 +156,7 @@ def test_webhook_service_role_client_used(
     mock_supabase_client.rpc.return_value = {"updated": True}
 
     with patch(
-        "app.api.webhooks.get_supabase_client",
+        "app.api.webhooks.get_service_supabase_client",
         return_value=mock_supabase_client,
     ) as mock_get_client:
         response = client.post(
@@ -166,8 +166,10 @@ def test_webhook_service_role_client_used(
         )
 
     assert response.status_code == 200
-    # Verify service role client was requested (user_token=None)
-    mock_get_client.assert_called_once_with(user_token=None)
+    # Verify the explicit service-role client factory was used (KTD10:
+    # tokenless get_supabase_client now raises instead of silently
+    # escalating to the service role).
+    mock_get_client.assert_called_once_with()
 
 
 def test_webhook_event_id_passed_to_rpc(
@@ -186,7 +188,7 @@ def test_webhook_event_id_passed_to_rpc(
     mock_supabase_client.rpc.return_value = {"updated": True}
 
     with patch(
-        "app.api.webhooks.get_supabase_client",
+        "app.api.webhooks.get_service_supabase_client",
         return_value=mock_supabase_client,
     ):
         response = client.post(

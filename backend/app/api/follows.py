@@ -255,25 +255,25 @@ async def get_following(
     if not follows:
         return []
 
-    # Get user profiles
+    # Profiles and country counts depend only on the ids - fetch concurrently.
     # Note: following_ids come from database query results, so they're already validated UUIDs
     following_ids = [f["following_id"] for f in follows]
-    profiles = await db.get(
-        "user_profile",
-        {
-            "select": "id,user_id,username,display_name,avatar_url",
-            "user_id": in_list(following_ids),
-        },
+    profiles, country_counts = await asyncio.gather(
+        db.get(
+            "user_profile",
+            {
+                "select": "id,user_id,username,display_name,avatar_url",
+                "user_id": in_list(following_ids),
+            },
+        ),
+        db.rpc(
+            "get_user_country_counts",
+            {"user_ids": following_ids},
+        ),
     )
 
     if not profiles:
         return []
-
-    # Get country counts
-    country_counts = await db.rpc(
-        "get_user_country_counts",
-        {"user_ids": following_ids},
-    )
     count_map = (
         {c["user_id"]: c["count"] for c in country_counts} if country_counts else {}
     )
@@ -326,25 +326,25 @@ async def get_followers(
     if not follows:
         return []
 
-    # Get user profiles
+    # Profiles and country counts depend only on the ids - fetch concurrently.
     # Note: follower_ids come from database query results, so they're already validated UUIDs
     follower_ids = [f["follower_id"] for f in follows]
-    profiles = await db.get(
-        "user_profile",
-        {
-            "select": "id,user_id,username,display_name,avatar_url",
-            "user_id": in_list(follower_ids),
-        },
+    profiles, country_counts = await asyncio.gather(
+        db.get(
+            "user_profile",
+            {
+                "select": "id,user_id,username,display_name,avatar_url",
+                "user_id": in_list(follower_ids),
+            },
+        ),
+        db.rpc(
+            "get_user_country_counts",
+            {"user_ids": follower_ids},
+        ),
     )
 
     if not profiles:
         return []
-
-    # Get country counts
-    country_counts = await db.rpc(
-        "get_user_country_counts",
-        {"user_ids": follower_ids},
-    )
     count_map = (
         {c["user_id"]: c["count"] for c in country_counts} if country_counts else {}
     )

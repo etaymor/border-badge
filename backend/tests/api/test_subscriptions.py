@@ -32,9 +32,15 @@ def test_get_subscription_status_free(
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
-        with patch(
-            "app.api.subscriptions.get_supabase_client",
-            return_value=mock_supabase_client,
+        with (
+            patch(
+                "app.api.subscriptions.get_supabase_client",
+                return_value=mock_supabase_client,
+            ),
+            patch(
+                "app.api.subscriptions.get_service_supabase_client",
+                return_value=mock_supabase_client,
+            ),
         ):
             response = client.get("/subscriptions/status", headers=auth_headers)
         assert response.status_code == 200
@@ -58,9 +64,15 @@ def test_get_subscription_status_premium(
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
-        with patch(
-            "app.api.subscriptions.get_supabase_client",
-            return_value=mock_supabase_client,
+        with (
+            patch(
+                "app.api.subscriptions.get_supabase_client",
+                return_value=mock_supabase_client,
+            ),
+            patch(
+                "app.api.subscriptions.get_service_supabase_client",
+                return_value=mock_supabase_client,
+            ),
         ):
             response = client.get("/subscriptions/status", headers=auth_headers)
         assert response.status_code == 200
@@ -84,9 +96,15 @@ def test_get_subscription_status_trial(
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
-        with patch(
-            "app.api.subscriptions.get_supabase_client",
-            return_value=mock_supabase_client,
+        with (
+            patch(
+                "app.api.subscriptions.get_supabase_client",
+                return_value=mock_supabase_client,
+            ),
+            patch(
+                "app.api.subscriptions.get_service_supabase_client",
+                return_value=mock_supabase_client,
+            ),
         ):
             response = client.get("/subscriptions/status", headers=auth_headers)
         assert response.status_code == 200
@@ -108,9 +126,15 @@ def test_get_subscription_status_not_found(
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
-        with patch(
-            "app.api.subscriptions.get_supabase_client",
-            return_value=mock_supabase_client,
+        with (
+            patch(
+                "app.api.subscriptions.get_supabase_client",
+                return_value=mock_supabase_client,
+            ),
+            patch(
+                "app.api.subscriptions.get_service_supabase_client",
+                return_value=mock_supabase_client,
+            ),
         ):
             response = client.get("/subscriptions/status", headers=auth_headers)
         assert response.status_code == 404
@@ -142,9 +166,15 @@ def test_get_usage_limits(
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
-        with patch(
-            "app.api.subscriptions.get_supabase_client",
-            return_value=mock_supabase_client,
+        with (
+            patch(
+                "app.api.subscriptions.get_supabase_client",
+                return_value=mock_supabase_client,
+            ),
+            patch(
+                "app.api.subscriptions.get_service_supabase_client",
+                return_value=mock_supabase_client,
+            ),
         ):
             response = client.get("/subscriptions/usage", headers=auth_headers)
         assert response.status_code == 200
@@ -174,9 +204,15 @@ def test_get_usage_limits_defaults_nulls_to_zero(
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
-        with patch(
-            "app.api.subscriptions.get_supabase_client",
-            return_value=mock_supabase_client,
+        with (
+            patch(
+                "app.api.subscriptions.get_supabase_client",
+                return_value=mock_supabase_client,
+            ),
+            patch(
+                "app.api.subscriptions.get_service_supabase_client",
+                return_value=mock_supabase_client,
+            ),
         ):
             response = client.get("/subscriptions/usage", headers=auth_headers)
         assert response.status_code == 200
@@ -198,9 +234,15 @@ def test_get_usage_limits_not_found(
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
-        with patch(
-            "app.api.subscriptions.get_supabase_client",
-            return_value=mock_supabase_client,
+        with (
+            patch(
+                "app.api.subscriptions.get_supabase_client",
+                return_value=mock_supabase_client,
+            ),
+            patch(
+                "app.api.subscriptions.get_service_supabase_client",
+                return_value=mock_supabase_client,
+            ),
         ):
             response = client.get("/subscriptions/usage", headers=auth_headers)
         assert response.status_code == 404
@@ -232,9 +274,15 @@ def test_increment_share_extension_usage(
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
-        with patch(
-            "app.api.subscriptions.get_supabase_client",
-            return_value=mock_supabase_client,
+        with (
+            patch(
+                "app.api.subscriptions.get_supabase_client",
+                return_value=mock_supabase_client,
+            ),
+            patch(
+                "app.api.subscriptions.get_service_supabase_client",
+                return_value=mock_supabase_client,
+            ),
         ):
             response = client.post(
                 "/subscriptions/usage/increment",
@@ -263,9 +311,15 @@ def test_increment_photo_import_usage(
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
-        with patch(
-            "app.api.subscriptions.get_supabase_client",
-            return_value=mock_supabase_client,
+        with (
+            patch(
+                "app.api.subscriptions.get_supabase_client",
+                return_value=mock_supabase_client,
+            ),
+            patch(
+                "app.api.subscriptions.get_service_supabase_client",
+                return_value=mock_supabase_client,
+            ),
         ):
             response = client.post(
                 "/subscriptions/usage/increment",
@@ -292,9 +346,15 @@ def test_increment_usage_invalid_feature(
     """Test incrementing with invalid feature."""
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
-        with patch(
-            "app.api.subscriptions.get_supabase_client",
-            return_value=mock_supabase_client,
+        with (
+            patch(
+                "app.api.subscriptions.get_supabase_client",
+                return_value=mock_supabase_client,
+            ),
+            patch(
+                "app.api.subscriptions.get_service_supabase_client",
+                return_value=mock_supabase_client,
+            ),
         ):
             response = client.post(
                 "/subscriptions/usage/increment",
@@ -317,9 +377,15 @@ def test_increment_usage_rpc_failure(
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
-        with patch(
-            "app.api.subscriptions.get_supabase_client",
-            return_value=mock_supabase_client,
+        with (
+            patch(
+                "app.api.subscriptions.get_supabase_client",
+                return_value=mock_supabase_client,
+            ),
+            patch(
+                "app.api.subscriptions.get_service_supabase_client",
+                return_value=mock_supabase_client,
+            ),
         ):
             response = client.post(
                 "/subscriptions/usage/increment",
@@ -342,9 +408,15 @@ def test_increment_usage_invalid_rpc_response(
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
-        with patch(
-            "app.api.subscriptions.get_supabase_client",
-            return_value=mock_supabase_client,
+        with (
+            patch(
+                "app.api.subscriptions.get_supabase_client",
+                return_value=mock_supabase_client,
+            ),
+            patch(
+                "app.api.subscriptions.get_service_supabase_client",
+                return_value=mock_supabase_client,
+            ),
         ):
             response = client.post(
                 "/subscriptions/usage/increment",
@@ -379,9 +451,15 @@ def test_can_add_entry_premium_user(
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
-        with patch(
-            "app.api.subscriptions.get_supabase_client",
-            return_value=mock_supabase_client,
+        with (
+            patch(
+                "app.api.subscriptions.get_supabase_client",
+                return_value=mock_supabase_client,
+            ),
+            patch(
+                "app.api.subscriptions.get_service_supabase_client",
+                return_value=mock_supabase_client,
+            ),
         ):
             response = client.get(
                 f"/subscriptions/can-add-entry/{TEST_TRIP_ID}",
@@ -406,9 +484,15 @@ def test_can_add_entry_trial_user(
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
-        with patch(
-            "app.api.subscriptions.get_supabase_client",
-            return_value=mock_supabase_client,
+        with (
+            patch(
+                "app.api.subscriptions.get_supabase_client",
+                return_value=mock_supabase_client,
+            ),
+            patch(
+                "app.api.subscriptions.get_service_supabase_client",
+                return_value=mock_supabase_client,
+            ),
         ):
             response = client.get(
                 f"/subscriptions/can-add-entry/{TEST_TRIP_ID}",
@@ -437,9 +521,15 @@ def test_can_add_entry_free_user_under_limit(
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
-        with patch(
-            "app.api.subscriptions.get_supabase_client",
-            return_value=mock_supabase_client,
+        with (
+            patch(
+                "app.api.subscriptions.get_supabase_client",
+                return_value=mock_supabase_client,
+            ),
+            patch(
+                "app.api.subscriptions.get_service_supabase_client",
+                return_value=mock_supabase_client,
+            ),
         ):
             response = client.get(
                 f"/subscriptions/can-add-entry/{TEST_TRIP_ID}",
@@ -471,9 +561,15 @@ def test_can_add_entry_free_user_at_limit(
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
-        with patch(
-            "app.api.subscriptions.get_supabase_client",
-            return_value=mock_supabase_client,
+        with (
+            patch(
+                "app.api.subscriptions.get_supabase_client",
+                return_value=mock_supabase_client,
+            ),
+            patch(
+                "app.api.subscriptions.get_service_supabase_client",
+                return_value=mock_supabase_client,
+            ),
         ):
             response = client.get(
                 f"/subscriptions/can-add-entry/{TEST_TRIP_ID}",
@@ -499,9 +595,15 @@ def test_can_add_entry_not_found(
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
-        with patch(
-            "app.api.subscriptions.get_supabase_client",
-            return_value=mock_supabase_client,
+        with (
+            patch(
+                "app.api.subscriptions.get_supabase_client",
+                return_value=mock_supabase_client,
+            ),
+            patch(
+                "app.api.subscriptions.get_service_supabase_client",
+                return_value=mock_supabase_client,
+            ),
         ):
             response = client.get(
                 f"/subscriptions/can-add-entry/{TEST_TRIP_ID}",
@@ -595,6 +697,10 @@ def test_verify_subscription_uses_timestamp_ordered_update(
         with (
             patch("app.api.subscriptions.settings") as mock_settings,
             patch("app.api.subscriptions.get_supabase_client") as mock_get_client,
+            patch(
+                "app.api.subscriptions.get_service_supabase_client",
+                return_value=mock_supabase_client,
+            ),
             patch("app.api.subscriptions.httpx.AsyncClient") as mock_httpx,
         ):
             mock_settings.revenuecat_api_key = "test-api-key"
@@ -669,6 +775,10 @@ def test_verify_subscription_respects_event_ordering(
         with (
             patch("app.api.subscriptions.settings") as mock_settings,
             patch("app.api.subscriptions.get_supabase_client") as mock_get_client,
+            patch(
+                "app.api.subscriptions.get_service_supabase_client",
+                return_value=mock_supabase_client,
+            ),
             patch("app.api.subscriptions.httpx.AsyncClient") as mock_httpx,
         ):
             mock_settings.revenuecat_api_key = "test-api-key"
@@ -731,6 +841,10 @@ def test_verify_subscription_trial_status(
         with (
             patch("app.api.subscriptions.settings") as mock_settings,
             patch("app.api.subscriptions.get_supabase_client") as mock_get_client,
+            patch(
+                "app.api.subscriptions.get_service_supabase_client",
+                return_value=mock_supabase_client,
+            ),
             patch("app.api.subscriptions.httpx.AsyncClient") as mock_httpx,
         ):
             mock_settings.revenuecat_api_key = "test-api-key"
@@ -791,6 +905,10 @@ def test_verify_subscription_expired(
         with (
             patch("app.api.subscriptions.settings") as mock_settings,
             patch("app.api.subscriptions.get_supabase_client") as mock_get_client,
+            patch(
+                "app.api.subscriptions.get_service_supabase_client",
+                return_value=mock_supabase_client,
+            ),
             patch("app.api.subscriptions.httpx.AsyncClient") as mock_httpx,
         ):
             mock_settings.revenuecat_api_key = "test-api-key"
@@ -839,9 +957,15 @@ def test_share_extension_period_reset_on_new_month(
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
-        with patch(
-            "app.api.subscriptions.get_supabase_client",
-            return_value=mock_supabase_client,
+        with (
+            patch(
+                "app.api.subscriptions.get_supabase_client",
+                return_value=mock_supabase_client,
+            ),
+            patch(
+                "app.api.subscriptions.get_service_supabase_client",
+                return_value=mock_supabase_client,
+            ),
         ):
             # Client calls RPC to increment (not client-side calculation)
             response = client.post(
