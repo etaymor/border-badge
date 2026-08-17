@@ -27,6 +27,7 @@ export interface UseCountryPickerResult {
 
   // Actions
   handleSelectCountry: (country: Country) => void;
+  selectCountryCode: (code: string) => void;
   clearSelection: () => void;
 }
 
@@ -68,6 +69,13 @@ export function useCountryPicker(options: UseCountryPickerOptions = {}): UseCoun
     Keyboard.dismiss();
   }, []);
 
+  // Select a country directly by ISO code (e.g. seeding from an existing trip)
+  const selectCountryCode = useCallback((code: string) => {
+    setSelectedCountryCode(code);
+    setCountrySearch('');
+    setShowDropdown(false);
+  }, []);
+
   // Clear selection
   const clearSelection = useCallback(() => {
     setSelectedCountryCode(null);
@@ -84,6 +92,7 @@ export function useCountryPicker(options: UseCountryPickerOptions = {}): UseCoun
     filteredCountries,
     isLoading,
     handleSelectCountry,
+    selectCountryCode,
     clearSelection,
   };
 }

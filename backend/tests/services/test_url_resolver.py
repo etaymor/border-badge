@@ -9,9 +9,12 @@ from app.services.url_resolver import (
     canonicalize_url,
     detect_provider,
     extract_instagram_shortcode,
+    extract_instagram_username,
     extract_tiktok_video_id,
     follow_redirect,
+    is_instagram_profile,
     is_supported_url,
+    is_tiktok_photo,
     normalize_url,
 )
 
@@ -55,13 +58,23 @@ class TestDetectProvider:
         url = "https://www.youtube.com/watch?v=123"
         assert detect_provider(url) is None
 
-    def test_returns_none_for_general_instagram(self):
-        # Profile pages aren't supported, only posts/reels
-        url = "https://www.instagram.com/username/"
-        assert detect_provider(url) is None
+    def test_detects_instagram_profile(self):
+        # Profile pages are now supported for Instagram
+        url = "https://www.instagram.com/commanderspalace/"
+        assert detect_provider(url) == SocialProvider.INSTAGRAM
+
+    def test_detects_instagram_profile_without_trailing_slash(self):
+        url = "https://instagram.com/cafe_central"
+        assert detect_provider(url) == SocialProvider.INSTAGRAM
+
+    def test_returns_none_for_instagram_reserved_paths(self):
+        # Reserved paths should not be detected as profiles
+        assert detect_provider("https://www.instagram.com/explore/") is None
+        assert detect_provider("https://www.instagram.com/direct/") is None
+        assert detect_provider("https://www.instagram.com/stories/") is None
 
     def test_returns_none_for_general_tiktok(self):
-        # Profile pages aren't supported
+        # TikTok profile pages aren't supported (only videos)
         url = "https://www.tiktok.com/@username"
         assert detect_provider(url) is None
 
@@ -136,6 +149,26 @@ class TestExtractTiktokVideoId:
     def test_returns_none_for_no_id(self):
         url = "https://www.tiktok.com/@username"
         assert extract_tiktok_video_id(url) is None
+
+
+class TestIsTiktokPhoto:
+    """Tests for is_tiktok_photo function."""
+
+    def test_detects_photo_url(self):
+        url = "https://www.tiktok.com/@username/photo/9876543210987654321"
+        assert is_tiktok_photo(url) is True
+
+    def test_rejects_video_url(self):
+        url = "https://www.tiktok.com/@username/video/1234567890123456789"
+        assert is_tiktok_photo(url) is False
+
+    def test_rejects_profile_url(self):
+        url = "https://www.tiktok.com/@username"
+        assert is_tiktok_photo(url) is False
+
+    def test_rejects_short_url(self):
+        url = "https://vm.tiktok.com/ZMJxxxxxxx/"
+        assert is_tiktok_photo(url) is False
 
 
 class TestExtractInstagramShortcode:
@@ -261,8 +294,89 @@ class TestCanonicalizeUrl:
         with patch("app.services.url_resolver.follow_redirect") as mock_redirect:
             mock_redirect.return_value = "https://www.youtube.com/watch?v=123"
 
-            canonical, provider = await canonicalize_url(
+            _canonical, provider = await canonicalize_url(
                 "https://www.youtube.com/watch?v=123"
             )
 
             assert provider is None
+
+    @pytest.mark.asyncio
+    async def test_canonicalizes_instagram_profile_url(self):
+        with patch("app.services.url_resolver.follow_redirect") as mock_redirect:
+            mock_redirect.return_value = "https://www.instagram.com/commanderspalace/"
+
+            canonical, provider = await canonicalize_url(
+                "https://www.instagram.com/commanderspalace/"
+            )
+
+            assert provider == SocialProvider.INSTAGRAM
+            assert "commanderspalace" in canonical
+
+
+class TestIsInstagramProfile:
+    """Tests for is_instagram_profile function."""
+
+    def test_detects_profile_url(self):
+        assert is_instagram_profile("https://instagram.com/commanderspalace")
+        assert is_instagram_profile("https://www.instagram.com/cafe_central/")
+        assert is_instagram_profile("https://instagram.com/joes.bar")
+
+    def test_detects_profile_with_www(self):
+        assert is_instagram_profile("https://www.instagram.com/username")
+
+    def test_detects_profile_with_trailing_slash(self):
+        assert is_instagram_profile("https://instagram.com/username/")
+
+    def test_rejects_post_urls(self):
+        assert not is_instagram_profile("https://instagram.com/p/ABC123/")
+        assert not is_instagram_profile("https://instagram.com/reel/XYZ789/")
+        assert not is_instagram_profile("https://instagram.com/reels/DEF456/")
+        assert not is_instagram_profile("https://instagram.com/tv/GHI012/")
+
+    def test_rejects_reserved_paths(self):
+        assert not is_instagram_profile("https://instagram.com/explore/")
+        assert not is_instagram_profile("https://instagram.com/direct/inbox/")
+        assert not is_instagram_profile("https://instagram.com/stories/username/")
+        assert not is_instagram_profile("https://instagram.com/accounts/login/")
+        assert not is_instagram_profile("https://instagram.com/about/")
+        assert not is_instagram_profile("https://instagram.com/help/")
+
+    def test_rejects_paths_with_subpaths(self):
+        # Profile URLs should not have additional path segments
+        assert not is_instagram_profile("https://instagram.com/username/followers/")
+        assert not is_instagram_profile("https://instagram.com/username/following/")
+
+    def test_rejects_non_instagram_urls(self):
+        assert not is_instagram_profile("https://tiktok.com/@username")
+        assert not is_instagram_profile("https://twitter.com/username")
+
+
+class TestExtractInstagramUsername:
+    """Tests for extract_instagram_username function."""
+
+    def test_extracts_username(self):
+        assert (
+            extract_instagram_username("https://instagram.com/commanderspalace")
+            == "commanderspalace"
+        )
+        assert (
+            extract_instagram_username("https://www.instagram.com/cafe_central/")
+            == "cafe_central"
+        )
+
+    def test_extracts_username_with_dots(self):
+        assert (
+            extract_instagram_username("https://instagram.com/joes.bar.nyc")
+            == "joes.bar.nyc"
+        )
+
+    def test_returns_none_for_post_urls(self):
+        assert extract_instagram_username("https://instagram.com/p/ABC123/") is None
+        assert extract_instagram_username("https://instagram.com/reel/XYZ789/") is None
+
+    def test_returns_none_for_reserved_paths(self):
+        assert extract_instagram_username("https://instagram.com/explore/") is None
+        assert extract_instagram_username("https://instagram.com/direct/") is None
+
+    def test_returns_none_for_non_instagram(self):
+        assert extract_instagram_username("https://tiktok.com/@username") is None

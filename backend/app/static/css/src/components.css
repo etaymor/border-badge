@@ -27,6 +27,7 @@
 .logo {
   display: flex;
   align-items: center;
+  position: relative;
 }
 
 .logo-image {
@@ -39,6 +40,19 @@
   transform: scale(1.05);
 }
 
+.logo-text {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
 /* Logo shadow on dark hero pages */
 body:has(.hero-section) .header .logo-image,
 body.has-hero .header .logo-image {
@@ -47,10 +61,9 @@ body.has-hero .header .logo-image {
 
 /* Header CTA Button */
 .header .cta-button {
-  background: rgba(255, 255, 255, 0.2);
-  backdrop-filter: blur(4px);
-  border: 1px solid rgba(255, 255, 255, 0.4);
-  color: var(--color-text-main);
+  background: var(--color-midnight-navy);
+  color: var(--color-cloud-white);
+  border: 1px solid var(--color-midnight-navy);
   padding: 8px 16px;
   font-size: 0.9rem;
 }
@@ -58,7 +71,7 @@ body.has-hero .header .logo-image {
 body:has(.hero-section) .header .cta-button,
 body.has-hero .header .cta-button {
   color: var(--color-cloud-white);
-  border-color: rgba(255, 255, 255, 0.4);
+  border-color: var(--color-midnight-navy);
 }
 
 .header .cta-button:hover {
@@ -122,6 +135,29 @@ body.has-hero .header .cta-button {
 .nav .cta-button {
   padding: 10px 20px;
   font-size: 0.9rem;
+}
+
+/* Header nav wraps the text links and the always-visible Download CTA. The
+   links collapse on mobile (responsive.css); the CTA never does. */
+.header-nav {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-lg);
+}
+
+/* Apple icon + label inside the header Download button. */
+.header .cta-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.header .cta-button .apple-icon {
+  width: 16px;
+  height: 16px;
+  /* Nudge the glyph to sit on the text baseline. */
+  margin-top: -2px;
+  flex-shrink: 0;
 }
 
 /* ==============================================
@@ -310,6 +346,26 @@ body.has-hero .header .cta-button {
   z-index: 0;
   animation: scaleIn 2s ease-out;
   transform-origin: center;
+}
+
+/* Fallback pattern when no hero image is available */
+.hero-bg-fallback {
+  background-color: var(--color-midnight-navy);
+  background-image: radial-gradient(
+      circle at 10% 20%,
+      rgba(255, 255, 255, 0.05) 0%,
+      transparent 20%
+    ),
+    radial-gradient(
+      circle at 90% 80%,
+      rgba(255, 255, 255, 0.05) 0%,
+      transparent 20%
+    );
+}
+
+/* Emoji icon sizing for meta items */
+.emoji-icon {
+  font-size: 1.2em;
 }
 
 .hero-overlay {

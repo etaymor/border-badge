@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException, Query, Request, status
 from app.api.trips_helpers import format_daterange, trip_from_row
 from app.api.utils import get_token_from_request
 from app.core.config import get_settings
+from app.core.media import build_media_url
 from app.core.notifications import send_trip_tag_notification
 from app.core.security import CurrentUser
 from app.db.postgrest import in_list
@@ -22,6 +23,7 @@ from app.schemas.trips import (
     TripTagUser,
     TripUpdate,
     TripWithTags,
+    UncategorizedTrip,
 )
 
 logger = logging.getLogger(__name__)
@@ -34,6 +36,9 @@ async def list_trips(
     request: Request,
     user: CurrentUser,
     country_code: str | None = Query(None, description="Filter trips by country code"),
+    include_system: bool = Query(
+        False, description="Include system trips like Saved Places"
+    ),
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ) -> list[TripWithTags]:
@@ -41,15 +46,24 @@ async def list_trips(
 
     Optionally filter by country_code to get trips for a specific country.
     Returns trips with their tags and owner info for display.
+    By default, system trips (Saved Places) are excluded.
     """
     token = get_token_from_request(request)
     db = get_supabase_client(user_token=token)
-    params: dict[str, str | int] = {
+
+    # First query: Get trips without entries (avoid N+1 for fallback cover images)
+    params: dict[str, str | int | bool] = {
         "select": "*, country:country_id(code), trip_tags(*)",
         "order": "created_at.desc",
         "limit": limit,
         "offset": offset,
+        "deleted_at": "is.null",
     }
+
+    # Filter out system trips by default
+    if not include_system:
+        params["is_system"] = "eq.false"
+
     if country_code:
         # Look up country UUID from code
         countries = await db.get("country", {"code": f"eq.{country_code}"})
@@ -61,6 +75,23 @@ async def list_trips(
 
     if not rows:
         return []
+
+    # Collect trip IDs that need fallback cover images
+    trips_needing_cover = [row["id"] for row in rows if not row.get("cover_image_url")]
+
+    # Second query: Fetch exactly one media file per trip using DISTINCT ON
+    fallback_covers: dict[str, str] = {}
+    if trips_needing_cover:
+        media_rows = await db.rpc(
+            "get_first_media_per_trip",
+            {"trip_ids": trips_needing_cover},
+        )
+
+        for media in media_rows or []:
+            media_trip_id = media.get("trip_id")
+            file_path = media.get("file_path")
+            if media_trip_id and file_path:
+                fallback_covers[media_trip_id] = build_media_url(file_path)
 
     # Collect all user IDs we need to fetch: owners + tagged users
     user_ids_to_fetch: set[str] = set()
@@ -111,13 +142,57 @@ async def list_trips(
                 user_profile = user_profiles.get(tag["tagged_user_id"])
                 tags.append(TripTag(**tag, user=user_profile))
 
-        trip = Trip(
-            **{k: v for k, v in row.items() if k not in ("country", "trip_tags")},
-            country_code=country_code_val,
-        )
+        # Determine cover image: use explicit cover, or fallback from second query
+        cover_image_url = row.get("cover_image_url")
+        if not cover_image_url:
+            cover_image_url = fallback_covers.get(row["id"])
+
+        trip_dict = {k: v for k, v in row.items() if k not in ("country", "trip_tags")}
+        trip_dict["cover_image_url"] = cover_image_url
+
+        trip = Trip(**trip_dict, country_code=country_code_val)
         result.append(TripWithTags(**trip.model_dump(), tags=tags, owner=owner))
 
     return result
+
+
+@router.get("/uncategorized", response_model=UncategorizedTrip)
+@limiter.limit("30/minute")
+async def get_uncategorized_trip(
+    request: Request,
+    user: CurrentUser,
+) -> UncategorizedTrip:
+    """Get or create the user's uncategorized/Saved Places trip.
+
+    This is a system trip with no country association, used as a holding area
+    for entries when the user doesn't have a trip for the detected country.
+    """
+    token = get_token_from_request(request)
+    db = get_supabase_client(user_token=token)
+
+    # Use RPC to atomically get or create the uncategorized trip
+    result = await db.rpc("get_or_create_uncategorized_trip")
+
+    if not result or len(result) == 0:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get or create uncategorized trip",
+        )
+
+    row = result[0]
+    return UncategorizedTrip(
+        id=row["id"],
+        user_id=row["user_id"],
+        country_id=row.get("country_id"),
+        country_code=None,  # System trips have no country
+        name=row["name"],
+        cover_image_url=row.get("cover_image_url"),
+        date_range=row.get("date_range"),
+        is_system=row.get("is_system", True),
+        created_at=row["created_at"],
+        deleted_at=row.get("deleted_at"),
+        entry_count=row.get("entry_count", 0),
+    )
 
 
 @router.post("", response_model=TripWithTags, status_code=status.HTTP_201_CREATED)
@@ -287,6 +362,34 @@ async def update_trip(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="No fields to update",
         )
+
+    # Resolve country_code -> country_id. Reject system trips and unknown codes.
+    if "country_code" in update_data:
+        new_country_code = update_data.pop("country_code")
+        if not new_country_code:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="country_code cannot be empty",
+            )
+        existing_trip = await db.get(
+            "trip", {"id": f"eq.{trip_id}", "select": "is_system"}
+        )
+        if not existing_trip:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Trip not found"
+            )
+        if existing_trip[0].get("is_system"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot change country of a system trip",
+            )
+        countries = await db.get("country", {"code": f"eq.{new_country_code}"})
+        if not countries:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Country not found: {new_country_code}",
+            )
+        update_data["country_id"] = str(countries[0]["id"])
 
     # Handle date range separately
     if "date_start" in update_data or "date_end" in update_data:

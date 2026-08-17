@@ -6,62 +6,26 @@ Border Badge is a travel tracking mobile application that lets users mark countr
 
 ## Tech Stack
 
-| Layer    | Technology                                    |
-| -------- | --------------------------------------------- |
-| Mobile   | React Native 0.81.5, Expo 54, TypeScript      |
-| State    | Zustand (auth), React Query (server state)    |
-| Backend  | FastAPI (Python 3.12+), Uvicorn               |
-| Database | Supabase (PostgreSQL with Row-Level Security) |
-| Storage  | Supabase Storage (media files)                |
+| Layer    | Technology                                       |
+| -------- | ------------------------------------------------ |
+| Mobile   | React Native 0.81.5, Expo 54, TypeScript         |
+| State    | Zustand (auth), React Query (server state)       |
+| Backend  | FastAPI (Python 3.12+), Uvicorn                  |
+| Database | Supabase (PostgreSQL with Row-Level Security)    |
+| Storage  | Supabase Storage (media files)                   |
 | Auth     | Supabase Email/Password + Social (Apple, Google) |
 
 ## Repository Structure
 
-```
-border-badge/
-├── mobile/                 # React Native (Expo) mobile app
-│   ├── src/
-│   │   ├── components/     # Reusable UI components
-│   │   │   ├── ui/         # Base components (Button, Input, Chip, etc.)
-│   │   │   ├── entries/    # Entry-specific components
-│   │   │   ├── media/      # Media display components
-│   │   │   └── places/     # Google Places components
-│   │   ├── screens/        # App screens organized by feature
-│   │   │   ├── auth/       # Authentication screens
-│   │   │   ├── onboarding/ # Onboarding flow (12 screens)
-│   │   │   ├── country/    # Country detail screens
-│   │   │   ├── entries/    # Entry management
-│   │   │   ├── lists/      # Shareable lists
-│   │   │   └── trips/      # Trip management
-│   │   ├── navigation/     # React Navigation setup
-│   │   ├── hooks/          # Custom React hooks (data fetching)
-│   │   ├── services/       # API client, Supabase, media upload
-│   │   ├── stores/         # Zustand stores (authStore, onboardingStore)
-│   │   ├── constants/      # Colors, typography, regions
-│   │   └── config/         # Environment configuration
-│   └── package.json
-├── backend/                # FastAPI Python backend
-│   ├── app/
-│   │   ├── api/            # API route modules
-│   │   ├── core/           # Config, security, validators
-│   │   ├── schemas/        # Pydantic models
-│   │   ├── db/             # Supabase client wrapper
-│   │   └── main.py         # FastAPI app entry point
-│   └── pyproject.toml      # Poetry dependencies
-├── supabase/               # Database migrations and seeds
-│   └── migrations/         # SQL migration files (17 migrations)
-├── docs/                   # Product documentation
-│   ├── travel-prd.md       # Product Requirements Document
-│   ├── travel-technical-design.md  # Technical design
-│   └── travel-mvp-blueprint.md     # Implementation blueprint
-├── instructions/           # Development task files
-│   └── tasks/              # Phase-specific task breakdowns
-└── STYLEGUIDE.md           # Design system (colors, typography)
-```
+- `mobile/` — React Native (Expo) app. Code under `mobile/src/{components,screens,hooks,services,stores,navigation}/`.
+- `backend/` — FastAPI backend. Code under `backend/app/{api,core,schemas,services,db}/`.
+- `supabase/migrations/` — SQL migration files.
+- `docs/` — Product and feature documentation (PRD, technical design, per-feature deep dives).
+- `mobile/plugins/share-extension/` — Swift source for the iOS Share Extension (NOT `mobile/ios/`, which is gitignored).
 
 ## Quick Commands
 
-### Mobile Development
+### Mobile
 
 ```bash
 cd mobile
@@ -72,7 +36,7 @@ npm run lint                   # Run ESLint
 npx prettier --check .         # Check formatting
 ```
 
-### Backend Development
+### Backend
 
 ```bash
 cd backend
@@ -83,60 +47,46 @@ poetry run ruff check .        # Lint code
 poetry run ruff format .       # Format code
 ```
 
-### Database
+### EAS Updates (Over-the-Air)
+
+Push JavaScript/asset changes to TestFlight users without a new build:
 
 ```bash
-cd supabase
-# Migrations are managed via Supabase dashboard or CLI
-# See supabase/migrations/ for schema
+cd mobile
+eas update --branch production --message "Description of changes"
 ```
+
+Users receive updates on next app restart (no active update prompts implemented).
+
+**You can use EAS Update for:** JS/TS code, assets (images, fonts), styles.
+
+**You need a new `eas build` for:** version bumps in `app.config.js`, native package add/remove, `plugins` array changes, native config (`ios.buildNumber`, etc.).
 
 ## Environment Setup
 
-### Mobile (`mobile/.env.local`)
+See `docs/environment-setup.md` for full env var lists. Local files: `mobile/.env.local`, `backend/.env`.
 
-```
-EXPO_PUBLIC_API_URL=http://<your-ip>:8000  # iOS simulator needs IP, not localhost
-EXPO_PUBLIC_SUPABASE_URL=<supabase-url>
-EXPO_PUBLIC_SUPABASE_ANON_KEY=<anon-key>
-EXPO_PUBLIC_APP_ENV=development
-EXPO_PUBLIC_GOOGLE_PLACES_API_KEY=<google-places-key>
-EXPO_PUBLIC_WEB_BASE_URL=http://<your-ip>:8000
-EXPO_PUBLIC_POSTHOG_API_KEY=<posthog-api-key>  # Optional: for production analytics
-EXPO_PUBLIC_POSTHOG_HOST=https://us.i.posthog.com  # Optional: defaults to US region
-```
-
-### Backend (`backend/.env`)
-
-```
-ENV=development
-DEBUG=true
-SUPABASE_URL=<supabase-url>
-SUPABASE_ANON_KEY=<anon-key>
-SUPABASE_SERVICE_ROLE_KEY=<service-role-key>
-SUPABASE_JWT_SECRET=<jwt-secret>
-GOOGLE_ANALYTICS_ID=<ga4-measurement-id>  # Optional: GA4 ID for public pages (e.g., G-XXXXXXXXXX)
-AFFILIATE_SIGNING_SECRET=<secret-key>  # Required in production: HMAC signing for affiliate redirect URLs
-SKIMLINKS_API_KEY=<skimlinks-api-key>  # Optional: for affiliate link wrapping via Skimlinks
-SKIMLINKS_PUBLISHER_ID=<publisher-id>  # Optional: your Skimlinks publisher ID
-```
-
-## Key Architecture Patterns
+## Architecture
 
 ### Mobile
 
 **State Management:**
 
-- `authStore` (Zustand) - Session, onboarding status, loading states
+- `authStore` (Zustand) - Session, onboarding status, `needsPostSignupFlow` flag
 - `onboardingStore` (Zustand + AsyncStorage) - Persisted onboarding progress
-- React Query - Server state for trips, entries, countries, media
+- `subscriptionStore` (Zustand) - Subscription status, usage tracking, App Group sync
+- React Query - Server state (trips, entries, countries, media). Trips/entries use `staleTime` 5min, `gcTime` 30min. Mutations use scoped invalidation targeting only affected query keys.
 
 **Data Fetching Hooks:**
 
-- `useTrips()`, `useTripsByCountry()`, `useTrip()` - Trip queries
-- `useEntries()`, `useEntry()` - Entry queries
+- `useTrips()`, `useTripsByCountry()`, `useTrip()`, `useUncategorizedTrip()` - Trip queries
+- `useEntries()`, `useEntry()`, `useInfiniteEntries()` - Entry queries (20/page)
+- `useMoveEntry()`, `useBulkMoveEntries()` - Move entries between trips
 - `useCountries()`, `useUserCountries()` - Country data
-- `useUploadMedia()` - Media upload with progress
+- `useUploadMedia()`, `usePhotoPermissions()` - Media
+- `usePhotoTrips()`, `useMultiClusterUpload()` - Photo import
+- `useSubscription()`, `usePremiumGate()` - Subscriptions
+- `usePostSignupNavigation()` - Post-signup flow
 
 **API Client (`mobile/src/services/api.ts`):**
 
@@ -147,84 +97,75 @@ SKIMLINKS_PUBLISHER_ID=<publisher-id>  # Optional: your Skimlinks publisher ID
 **Navigation:**
 
 - React Navigation with native-stack and bottom-tabs
-- Conditional rendering: OnboardingNavigator vs MainTabNavigator
-- Type-safe navigation params
+- Conditional rendering: OnboardingNavigator (unauthenticated OR `needsPostSignupFlow`) vs MainTabNavigator
+- `needsPostSignupFlow` flag keeps authenticated users in OnboardingNavigator until paywall completes
+- Type-safe navigation params; double-tap tab returns to home
 
 ### Backend
 
 **API Routes (`backend/app/api/`):**
-| Route | Purpose |
-|-------|---------|
-| `/countries` | Country reference data |
-| `/user_countries` | User's visited/wishlist countries |
-| `/trips` | Trip CRUD with tagging |
-| `/trips/{id}/entries` | Entry CRUD |
-| `/media/files` | Media upload URLs, status |
-| `/lists` | Shareable curated lists |
-| `/profile` | User profile |
-| `/public` | Public trip/list views |
 
-**Authentication:**
+| Route                    | Purpose                                                       |
+| ------------------------ | ------------------------------------------------------------- |
+| `/countries`             | Country reference data                                        |
+| `/user_countries`        | User's visited/wishlist countries                             |
+| `/trips`                 | Trip CRUD with tagging                                        |
+| `/trips/uncategorized`   | Get/create Saved Places system trip                           |
+| `/trips/{id}/entries`    | Entry CRUD                                                    |
+| `/entries/{id}/move`     | Move entry to different trip                                  |
+| `/entries/bulk-move`     | Bulk move entries to a trip                                   |
+| `/media/files`           | Media upload URLs (request → upload to storage → confirm)     |
+| `/ingest/social`         | Social media URL processing with LLM-first place extraction   |
+| `/ingest/save-to-trip`   | Save social ingest data to a trip                             |
+| `/photos/suggest-places` | Photo import place suggestions                                |
+| `/lists`                 | Shareable curated lists                                       |
+| `/profile`               | User profile                                                  |
+| `/public`                | Public trip/list views                                        |
+| `/subscriptions/status`  | Get user subscription status and usage                        |
+| `/subscriptions/verify`  | Verify subscription with RevenueCat                           |
+| `/webhooks/revenuecat`   | RevenueCat webhook endpoint                                   |
 
-- JWT tokens from Supabase Auth
-- `CurrentUser` dependency extracts user from token
-- RLS policies enforce data access at database level
+**Auth & DB:**
 
-**Database Client:**
-
-- Custom `SupabaseClient` wrapper using httpx REST API
-- User-scoped queries via JWT for RLS
-- Service role key for admin operations
+- JWT tokens from Supabase Auth; `CurrentUser` dependency extracts user from token
+- RLS policies enforce data access at database level (users see only their own data; trip viewers = owner OR approved trip_tags; public lists = `is_public = true`)
+- Custom `SupabaseClient` wrapper using httpx REST API; user-scoped queries via JWT for RLS; service role key for admin operations
 
 ## Database Schema (Key Tables)
 
 ```
 country          - Reference data (227 countries/territories)
 user_countries   - User's visited/wishlist status
-trip             - User trips (soft delete supported)
-trip_tags        - Consent workflow for tagged friends
+trip             - User trips (soft delete via deleted_at, is_system flag for system trips)
+trip_tags        - Consent workflow for tagged friends (must be approved before appearing)
 entry            - Trip entries (place/food/stay/experience)
-place            - Google Places enrichment
+place            - Google Places enrichment (trip_id denormalized for unique constraint)
 media_files      - Uploaded photos
 list             - Shareable curated lists
 list_entries     - List to entry junction
 user_profile     - Extended user data
 ```
 
-**RLS Policies:**
-
-- Users see only their own data
-- Trip viewers: owner OR approved trip_tags
-- Public lists: `is_public = true`
+System trips (e.g. "Saved Places") use the `is_system` flag and have nullable `country_id`. The uncategorized trip is lazily created per user via the `get_or_create_uncategorized_trip` RPC.
 
 ## Code Style
 
-### Mobile (TypeScript)
+**Mobile (TypeScript):** ESLint + Prettier (100 char, 2 space). Prefer `useMemo`/`useCallback`. Type-safe nav params. Single default export per component file.
 
-- ESLint + Prettier (100 char line width, 2 space indent)
-- Prefer `useMemo`/`useCallback` for performance
-- Type-safe navigation params
-- Component files export single default component
-
-### Backend (Python)
-
-- Ruff for linting and formatting (88 char line width)
-- Pydantic v2 for validation
-- Async/await throughout
-- Type hints required
+**Backend (Python):** Ruff (88 char). Pydantic v2. Async/await throughout. Type hints required.
 
 ## Common Tasks
 
-### Adding a New API Endpoint
+### Adding an API Endpoint
 
-1. Create/update schema in `backend/app/schemas/`
+1. Add/update schema in `backend/app/schemas/`
 2. Add route in `backend/app/api/<resource>.py`
 3. Register router in `backend/app/api/__init__.py` if new file
 4. Add corresponding hook in `mobile/src/hooks/`
 
-### Adding a New Screen
+### Adding a Screen
 
-1. Create screen in `mobile/src/screens/<feature>/`
+1. Create in `mobile/src/screens/<feature>/`
 2. Add to navigation in `mobile/src/navigation/RootNavigator.tsx`
 3. Update navigation types if needed
 
@@ -232,21 +173,14 @@ user_profile     - Extended user data
 
 1. Create migration in `supabase/migrations/`
 2. Apply via Supabase dashboard
-3. Update relevant Pydantic schemas
-4. Update TypeScript types if needed
+3. Update Pydantic schemas and TypeScript types
 
 ## Testing
 
-### Mobile
+- **Mobile:** Jest unit tests in `mobile/src/__tests__/`. Detox E2E configured but limited coverage.
+- **Backend:** pytest with async support. Tests alongside modules or in `tests/`.
 
-- Jest for unit tests
-- Detox for E2E tests (configured but limited coverage)
-- Test files in `mobile/src/__tests__/`
-
-### Backend
-
-- pytest with async support
-- Test files alongside modules or in `tests/`
+**When I report a bug, don't start by trying to fix it.** Start by writing a test that reproduces the bug. Then have subagents try to fix the bug and prove it with a passing test.
 
 ## Important Files
 
@@ -263,87 +197,57 @@ user_profile     - Extended user data
 | `STYLEGUIDE.md`                           | Design system reference       |
 | `docs/travel-prd.md`                      | Product requirements          |
 | `docs/travel-technical-design.md`         | Technical design              |
+| `docs/photo-import.md`                    | Photo import + vision pipeline |
+| `docs/authentication.md`                  | Auth screens, flow, hooks     |
+| `docs/environment-setup.md`               | Full env var reference        |
+| `docs/SUBSCRIPTION.md`                    | Subscription system setup     |
+| `docs/ONBOARDING_PAYWALL_FIX.md`          | Onboarding reorder design doc |
 | `docs/ios-share-extension.md`             | iOS Share Extension build doc |
+| `docs/place-extraction-algorithm.md`      | LLM extraction algorithm      |
 
-## Authentication System (IMPORTANT)
+## Share Extension Architecture (IMPORTANT)
 
-The app uses **email/password authentication** for all users. Magic links are NOT supported.
+The share capture flow has **TWO implementations** that must be kept in sync:
 
-### Authentication Screens
+| Platform              | Location                          | Language   |
+| --------------------- | --------------------------------- | ---------- |
+| React Native (in-app) | `mobile/src/screens/share/`       | TypeScript |
+| iOS Share Extension   | `mobile/plugins/share-extension/` | Swift      |
 
-| Screen | File | Purpose |
-|--------|------|---------|
-| **AccountCreationScreen** | `screens/onboarding/AccountCreationScreen.tsx` | **New user sign-up** during onboarding. Collects email + password (password appears after valid email). Uses `useSignUpWithPassword` hook. Also supports Apple/Google social sign-in. |
-| **AuthScreen** | `screens/auth/AuthScreen.tsx` | **Returning user sign-in**. Collects email + password (password appears after valid email). Uses `useSignInWithPassword` hook. Also supports Apple/Google social sign-in. |
+**CRITICAL:** Swift source is in `mobile/plugins/share-extension/`, NOT in `mobile/ios/ShareExtension/`. The `mobile/ios/` directory is gitignored and regenerated during builds — any changes there will be lost.
 
-### Authentication Flow
+**When modifying share capture behavior:**
 
-1. **New Users (Onboarding)**:
-   - Complete onboarding steps → `AccountCreationScreen`
-   - Enter email → password field appears when email is valid
-   - Submit → `useSignUpWithPassword` creates account with displayName from onboarding
+1. Update React Native code in `mobile/src/screens/share/`
+2. Update Swift code in `mobile/plugins/share-extension/`
+3. Ensure both implementations have the same behavior
+4. Run `npx expo prebuild --clean` to regenerate `mobile/ios/`
+5. Rebuild the main app so the updated extension bundle is embedded
 
-2. **Returning Users**:
-   - Launch app → `AuthScreen`
-   - Enter email → password field appears when email is valid
-   - Submit → `useSignInWithPassword` authenticates
+**Key parallel files:**
 
-### Auth Hooks (`mobile/src/hooks/useAuth.ts`)
+| React Native                   | Swift (in `mobile/plugins/share-extension/`)                              |
+| ------------------------------ | ------------------------------------------------------------------------- |
+| `useShareCapture.ts`           | `ViewModels/ShareCaptureViewModel.swift`                                  |
+| `TripSelector.tsx`             | `Views/TripSelectorView.swift` + `ViewModels/TripSelectorViewModel.swift` |
+| `useTrips.ts` (Trip interface) | `Models/Trip.swift`                                                       |
+| `api.ts`                       | `Services/APIClient.swift`                                                |
 
-| Hook | Purpose |
-|------|---------|
-| `useSignUpWithPassword` | Create new account (email, password, displayName) |
-| `useSignInWithPassword` | Sign in existing account (email, password) |
-| `useSignOut` | Sign out and clear session |
+## Authentication
 
-### Key Implementation Details
+Email/password auth via Supabase. **Magic links are NOT implemented — do not add them.** See `docs/authentication.md` for screens, flow, hooks, and post-signup flow ordering.
 
-- Password field only appears after entering a valid email (progressive disclosure)
-- Minimum password length: 6 characters (Supabase default)
-- Email validation uses RFC 5322 compliant regex
-- Social auth (Apple, Google) available as alternatives
-- **Magic links are NOT implemented** - do not add magic link functionality
+## Photo Import & Place Matching
 
-## Launch Simplification (IMPORTANT)
+See `docs/photo-import.md` for the mobile + backend pipeline, vision classification, place-matcher mixin layout, multi-cluster upload, and ranking weight tuning.
 
-The app has been simplified for initial launch. Several features are **temporarily hidden** but fully implemented and ready to re-enable.
+## LLM Place Extraction (Social Ingest)
 
-### Hidden Features
+See `docs/place-extraction-algorithm.md`. Set `LLM_PLACE_EXTRACTION_ENABLED=true` (and `OPENROUTER_API_KEY`) to opt in. The pipeline runs LLM and regex extraction in parallel and resolves Google Places only once for whichever method succeeds.
 
-| Feature | Status | Location | How to Re-enable |
-|---------|--------|----------|------------------|
-| **Tab Bar** | Hidden | `RootNavigator.tsx` | Replace `PassportNavigator` with `MainTabNavigator` |
-| **Dreams Tab** | Hidden | `MainTabNavigator.tsx` | Part of tab bar - will return when tabs enabled |
-| **Trips List Tab** | Hidden | `MainTabNavigator.tsx` | Part of tab bar - will return when tabs enabled |
-| **Friends Tab** | Hidden | `MainTabNavigator.tsx` | Part of tab bar - will return when tabs enabled |
-| **Paywall Screen** | Hidden | `OnboardingNavigator.tsx` | Uncomment PaywallScreen route and update ProgressSummaryScreen navigation |
-| **Welcome Screen** | Hidden | `AuthNavigator.tsx` | Uncomment WelcomeScreen route and remove initialRouteName |
+## Subscriptions
 
-### Current Launch Navigation
-
-```
-RootNavigator
-├── Auth → AuthNavigator (unauthenticated users)
-├── Onboarding → OnboardingNavigator (first-time users)
-└── Main → PassportNavigator (authenticated users)
-    ├── PassportHome (country grid)
-    ├── CountryDetail (country details, trips, entries)
-    └── ProfileSettings (user settings)
-```
-
-### Re-enabling the Full App
-
-To restore all features after launch, update `mobile/src/navigation/RootNavigator.tsx`:
-
-1. Uncomment the `MainTabNavigator` import
-2. Replace `PassportNavigator` with `MainTabNavigator` in the `Main` screen
-3. Search for `LAUNCH_SIMPLIFICATION` comments throughout the codebase
-
-### Code Markers
-
-All launch simplification changes are marked with:
-- `// LAUNCH_SIMPLIFICATION:` - Indicates temporarily disabled code
-- `// TODO:` - Describes what to do when re-enabling
+See `docs/SUBSCRIPTION.md`. Free-tier limits: 5 share-extension uses/month, 1 photo-import trip lifetime, 10 entries/trip. Use the `usePremiumGate` hook to gate features.
 
 ## Test User Seeding
 
@@ -457,15 +361,23 @@ Controls visibility and availability of all social functionality. **Defaults to 
 
 ## Notes for AI Assistants
 
-1. **iOS Simulator Networking:** Use machine's IP address, not `localhost`
-2. **RLS:** Always consider Row-Level Security when working with database
-3. **Soft Deletes:** Trips and entries use `deleted_at` timestamp
-4. **Media Upload:** Three-step flow (request URL → upload to storage → confirm status)
-5. **Consent Workflow:** Trip tags must be approved before appearing on tagged user's profile
-6. **Design System:** Reference `STYLEGUIDE.md` for colors and typography
-7. **Launch Simplification:** Tab bar and some features are hidden - see "Launch Simplification" section above
-8. **Test Users:** Use the seed script to create test data for social features - see "Test User Seeding" section
-9. **Feature Flags:** Social features are behind a feature flag - see "Feature Flags" section above
+1. **NO EMOJIS OR ICONS:** Never add emojis or icons to the UI without explicit permission. This includes emoji characters, icon libraries (Ionicons, etc.), or any visual symbols. All iconography must be custom-designed and approved by the user. Standard system icons (like arrow-forward on buttons) that already exist in the codebase are acceptable.
+2. **iOS Simulator Networking:** Use machine's IP address, not `localhost`.
+3. **Bug-fix workflow:** Write a failing test that reproduces the bug *before* attempting a fix.
+4. **Soft Deletes:** Trips and entries use `deleted_at` timestamp.
+5. **Magic Links:** Forbidden. See `docs/authentication.md`.
+6. **Version Management:** App uses `app.config.js` (dynamic config), so `autoIncrement` in `eas.json` is NOT supported. Manually update `version` in `app.config.js` before each App Store submission.
+7. **Place Matcher Mixin Architecture:** PlaceMatcher uses a mixin pattern (`SearchMixin`, `RankingMixin`, `ClusterProcessingMixin`). When modifying matching behavior, identify the correct mixin file rather than editing `matcher.py` directly. See `docs/photo-import.md`.
+8. **Onboarding Flow Order:** Account creation happens BEFORE the paywall. The `needsPostSignupFlow` flag in authStore keeps users in OnboardingNavigator after authentication until the paywall is complete. See `docs/ONBOARDING_PAYWALL_FIX.md`.
+9. **Navigation freezing:** `App.tsx` calls `enableFreeze()` and stacks set `freezeOnBlur`. Do NOT add `detachPreviousScreen` to `PassportNavigator` or `RootNavigator` — on these 2-deep stacks it collapses `react-native-screen-transitions`' `activeScreensLimit` from 2→1 and freezes the screen that must co-animate during the pop, killing the pop animation and flashing on return. A tripwire test (`mainStackDetach.test.tsx`) guards this; `OnboardingNavigator` keeps its detach (forward-mostly, no symptom).
+10. **React Compiler is enabled** (`experiments.reactCompiler`). Never write to a ref during render (`ref.current = fn` in the render body) — the compiler may memoize around it and hand back stale closures. Use `useStableCallback` (ref synced in an effect) for stable-identity callbacks; see `mobile/src/hooks/useStableCallback.ts`.
+11. **Production console stripping:** `babel.config.js` strips `console.*` (except `error`/`warn`) from production bundles only. Use `console.error`/`console.warn` for logs that must survive in production.
+12. **RLS:** Always consider Row-Level Security when working with database.
+13. **Media Upload:** Three-step flow (request URL → upload to storage → confirm status).
+14. **Consent Workflow:** Trip tags must be approved before appearing on tagged user's profile.
+15. **Design System:** Reference `STYLEGUIDE.md` for colors and typography.
+16. **Test Users:** Use the seed script to create test data for social features - see "Test User Seeding" section.
+17. **Feature Flags:** Social features are behind a feature flag - see "Feature Flags" section above.
 
 ## Pre-Commit Checklist (REQUIRED)
 
@@ -489,6 +401,13 @@ poetry run ruff format --check . # Must pass
 poetry run pytest              # Must pass all tests
 ```
 
+### iOS Share Extension (if modifying Swift code)
+
+```bash
+# Install SwiftLint if not already installed: brew install swiftlint
+swiftlint lint --strict mobile/plugins/share-extension/
+```
+
 ### CSS (if modifying public page styles)
 
 ```bash
@@ -497,9 +416,10 @@ node scripts/build-css.js      # Rebuild styles.css and styles.min.css from src/
 git diff app/static/css/       # Verify generated files are committed
 ```
 
-**Note:** The CSS source files are in `backend/app/static/css/src/`. After editing, run the build script to regenerate `styles.css` and `styles.min.css`. Always commit the generated files.
+CSS source files live in `backend/app/static/css/src/`. After editing, run the build script to regenerate `styles.css` and `styles.min.css`, and commit the generated files.
 
 **Common lint issues to avoid:**
+
 - Unused imports (remove them)
 - `require()` style imports in TypeScript (use ES6 `import` instead)
 - Missing type annotations

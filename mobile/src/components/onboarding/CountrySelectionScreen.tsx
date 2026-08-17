@@ -7,7 +7,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import * as Haptics from 'expo-haptics';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import {
   Animated,
   FlatList,
@@ -21,12 +22,13 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { GlassBackButton, Text } from '@components/ui';
+import { GlassBackButton, Text, StampCard } from '@components/ui';
 
 /* eslint-disable @typescript-eslint/no-require-imports */
 const atlasLogo = require('../../../assets/atlasi-logo.png');
 /* eslint-enable @typescript-eslint/no-require-imports */
 import { colors } from '@constants/colors';
+import { liquidGlass, GLASS_CONFIG } from '@constants/glass';
 import { fonts } from '@constants/typography';
 import { useCountries, type Country } from '@hooks/useCountries';
 import { useCountrySelectionAnimations } from '@hooks/useCountrySelectionAnimations';
@@ -38,7 +40,7 @@ export interface CountrySelectionConfig {
   // Appearance
   backgroundColor: string;
   title: string;
-  dropdownBorderColor: string;
+  subtitle?: string;
 
   // Celebration overlay
   celebrationType: 'home' | 'dream';
@@ -46,6 +48,8 @@ export interface CountrySelectionConfig {
   // Visual elements
   heroElement?: 'locationPin';
   showBackButton?: boolean;
+  /** Country codes for stamp-based quick selectors (e.g., ['US', 'DE', 'BR']) */
+  stampSuggestions?: string[];
 
   // Store integration
   onCountrySelect: (country: Country) => void;
@@ -68,10 +72,11 @@ export default function CountrySelectionScreen({ config }: CountrySelectionScree
   const {
     backgroundColor,
     title,
-    dropdownBorderColor,
+    subtitle,
     celebrationType,
     heroElement,
     showBackButton = false,
+    stampSuggestions,
     onCountrySelect,
     getCurrentSelection,
     onNavigateNext,
@@ -84,7 +89,9 @@ export default function CountrySelectionScreen({ config }: CountrySelectionScree
   const [showDropdown, setShowDropdown] = useState(false);
   const [selectedCountryData, setSelectedCountryData] = useState<Country | null>(null);
   const [showSelection, setShowSelection] = useState(false);
+  const [inputDisabled, setInputDisabled] = useState(false);
   const hasNavigatedRef = useRef(false);
+  const searchInputRef = useRef<TextInput>(null);
 
   const { data: countries, isLoading, error, refetch } = useCountries();
   const currentSelection = getCurrentSelection();
@@ -95,10 +102,13 @@ export default function CountrySelectionScreen({ config }: CountrySelectionScree
     celebrationHoldDuration: 600, // Faster transition to next step
   });
 
-  // Reset navigation ref on mount
-  useEffect(() => {
-    hasNavigatedRef.current = false;
-  }, []);
+  // Reset navigation ref and input state on screen focus
+  useFocusEffect(
+    useCallback(() => {
+      hasNavigatedRef.current = false;
+      setInputDisabled(false);
+    }, [])
+  );
 
   // Safe navigation wrapper
   const handleNavigateNext = () => {
@@ -123,26 +133,34 @@ export default function CountrySelectionScreen({ config }: CountrySelectionScree
   }, [countries, searchQuery]);
 
   const handleSelectCountry = (country: Country) => {
-    onCountrySelect(country);
+    // 1. Dismiss keyboard and disable input FIRST to prevent iOS focus restoration
+    Keyboard.dismiss();
+    searchInputRef.current?.blur();
+    setInputDisabled(true);
+
+    // 2. Clear search state
     setSearchQuery('');
     setShowDropdown(false);
-    Keyboard.dismiss();
 
-    // Trigger haptic feedback
+    // 3. Update store
+    onCountrySelect(country);
+
+    // 4. Trigger haptic feedback
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
-    // Show the selection overlay
+    // 5. Show celebration overlay
     setSelectedCountryData(country);
     setShowSelection(true);
-    hasNavigatedRef.current = false; // Reset for this selection attempt
+    hasNavigatedRef.current = false;
 
-    // Play celebration animation then navigate
+    // 6. Play celebration then navigate directly (no InteractionManager)
     playCelebration(() => {
       handleNavigateNext();
     });
   };
 
   const handleNext = () => {
+    Keyboard.dismiss();
     handleNavigateNext();
   };
 
@@ -152,6 +170,16 @@ export default function CountrySelectionScreen({ config }: CountrySelectionScree
 
   const handleLogin = () => {
     onNavigateLogin();
+  };
+
+  const handleStampPress = (countryCode: string) => {
+    if (!countries) return;
+
+    const country = countries.find((c) => c.code === countryCode);
+
+    if (country) {
+      handleSelectCountry(country);
+    }
   };
 
   const renderDropdownItem = ({ item, index }: { item: Country; index: number }) => {
@@ -172,7 +200,7 @@ export default function CountrySelectionScreen({ config }: CountrySelectionScree
         }}
       >
         <TouchableOpacity
-          style={[styles.dropdownItem, { borderBottomColor: dropdownBorderColor }]}
+          style={styles.dropdownItem}
           onPress={() => handleSelectCountry(item)}
           testID={`${testIdPrefix}-country-option-${item.code}`}
           activeOpacity={0.7}
@@ -221,6 +249,11 @@ export default function CountrySelectionScreen({ config }: CountrySelectionScree
           <Text variant="title" style={styles.title}>
             {title}
           </Text>
+          {subtitle && (
+            <Text variant="body" style={styles.subtitle}>
+              {subtitle}
+            </Text>
+          )}
         </Animated.View>
 
         {/* Search Input - Liquid Glass Style */}
@@ -243,8 +276,10 @@ export default function CountrySelectionScreen({ config }: CountrySelectionScree
                   style={styles.searchIcon}
                 />
                 <TextInput
+                  ref={searchInputRef}
                   style={styles.searchInput}
                   value={searchQuery}
+                  editable={!inputDisabled}
                   onChangeText={(text) => {
                     setSearchQuery(text);
                     setShowDropdown(text.length > 0);
@@ -276,20 +311,27 @@ export default function CountrySelectionScreen({ config }: CountrySelectionScree
             <Animated.View
               style={[
                 styles.dropdown,
+                liquidGlass.floatingCard,
                 {
                   opacity: refs.dropdownOpacity,
                   transform: [{ translateY: refs.dropdownTranslate }],
                 },
               ]}
             >
-              <FlatList
-                data={filteredCountries}
-                keyExtractor={(item) => item.code}
-                renderItem={renderDropdownItem}
-                keyboardShouldPersistTaps="handled"
-                style={styles.dropdownList}
-                showsVerticalScrollIndicator={false}
-              />
+              <BlurView
+                intensity={GLASS_CONFIG.intensity.medium}
+                tint={GLASS_CONFIG.tint}
+                style={styles.dropdownBlur}
+              >
+                <FlatList
+                  data={filteredCountries}
+                  keyExtractor={(item) => item.code}
+                  renderItem={renderDropdownItem}
+                  keyboardShouldPersistTaps="handled"
+                  style={styles.dropdownList}
+                  showsVerticalScrollIndicator={false}
+                />
+              </BlurView>
             </Animated.View>
           )}
         </Animated.View>
@@ -311,8 +353,43 @@ export default function CountrySelectionScreen({ config }: CountrySelectionScree
           </Animated.View>
         )}
 
-        {/* Spacer when no hero element */}
-        {!heroElement && <View style={styles.spacer} />}
+        {/* Stamp Suggestions (quick selectors) */}
+        {!heroElement && stampSuggestions && stampSuggestions.length > 0 && (
+          <View style={styles.suggestionsContainer}>
+            {/* First row - 2 stamps */}
+            <View style={styles.stampsRow}>
+              {stampSuggestions.slice(0, 2).map((code) => (
+                <View key={code} style={styles.stampWrapper}>
+                  <StampCard code={code} onPress={() => handleStampPress(code)} />
+                </View>
+              ))}
+            </View>
+            {/* Second row - 2 stamps */}
+            <View style={styles.stampsRow}>
+              {stampSuggestions.slice(2, 4).map((code) => (
+                <View key={code} style={styles.stampWrapper}>
+                  <StampCard code={code} onPress={() => handleStampPress(code)} />
+                </View>
+              ))}
+            </View>
+            {/* Third row - centered single stamp */}
+            {stampSuggestions.length > 4 && (
+              <View style={styles.stampsRowCentered}>
+                <View style={styles.stampWrapper}>
+                  <StampCard
+                    code={stampSuggestions[4]}
+                    onPress={() => handleStampPress(stampSuggestions[4])}
+                  />
+                </View>
+              </View>
+            )}
+          </View>
+        )}
+
+        {/* Spacer when no hero element AND no suggestions */}
+        {!heroElement && (!stampSuggestions || stampSuggestions.length === 0) && (
+          <View style={styles.spacer} />
+        )}
 
         {/* Loading indicator */}
         {isLoading && (
@@ -343,19 +420,21 @@ export default function CountrySelectionScreen({ config }: CountrySelectionScree
           </View>
         )}
 
-        {/* Footer with Next button */}
-        <Animated.View style={[styles.footer, { opacity: refs.buttonOpacity }]}>
-          <TouchableOpacity
-            style={[styles.nextButton, !currentSelection && styles.nextButtonDisabled]}
-            onPress={handleNext}
-            disabled={!currentSelection}
-          >
-            <Text variant="label" style={styles.nextButtonText}>
-              Next
-            </Text>
-            <Ionicons name="arrow-forward" size={20} color={colors.midnightNavy} />
-          </TouchableOpacity>
-        </Animated.View>
+        {/* Footer with Next button - only show when no stamp suggestions (stamps auto-navigate on selection) */}
+        {!stampSuggestions && (
+          <Animated.View style={[styles.footer, { opacity: refs.buttonOpacity }]}>
+            <TouchableOpacity
+              style={[styles.nextButton, !currentSelection && styles.nextButtonDisabled]}
+              onPress={handleNext}
+              disabled={!currentSelection}
+            >
+              <Text variant="label" style={styles.nextButtonText}>
+                Continue
+              </Text>
+              <Ionicons name="arrow-forward" size={20} color={colors.midnightNavy} />
+            </TouchableOpacity>
+          </Animated.View>
+        )}
       </View>
 
       {/* Selection Celebration Overlay - Using Modal for guaranteed overlay above all content */}
@@ -415,12 +494,17 @@ const styles = StyleSheet.create({
   title: {
     color: colors.midnightNavy,
   },
+  subtitle: {
+    color: colors.midnightNavy,
+    opacity: 0.7,
+    marginTop: 8,
+  },
   searchContainer: {
     position: 'relative',
     zIndex: 1, // Reduced from 10 to avoid overlapping animations
   },
   searchGlassWrapper: {
-    borderRadius: 24,
+    borderRadius: 20,
     overflow: 'hidden',
     marginBottom: 12,
     shadowColor: colors.midnightNavy,
@@ -430,7 +514,7 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   searchGlassContainer: {
-    borderRadius: 24,
+    borderRadius: 20,
     overflow: 'hidden',
     backgroundColor: 'rgba(255, 255, 255, 0.35)',
   },
@@ -439,7 +523,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 16,
     height: 48,
-    borderRadius: 24,
+    borderRadius: 20,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.6)',
     backgroundColor: 'transparent',
@@ -461,15 +545,10 @@ const styles = StyleSheet.create({
     top: 60,
     left: 0,
     right: 0,
-    backgroundColor: colors.warmCream,
-    borderRadius: 16,
     maxHeight: 320,
-    shadowColor: colors.shadow,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.2,
-    shadowRadius: 16,
-    elevation: 8,
-    overflow: 'hidden',
+  },
+  dropdownBlur: {
+    flex: 1,
   },
   dropdownList: {
     maxHeight: 320,
@@ -480,6 +559,7 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     paddingHorizontal: 20,
     borderBottomWidth: 1,
+    borderBottomColor: 'rgba(23, 42, 58, 0.1)',
   },
   flagEmoji: {
     fontSize: 28,
@@ -500,6 +580,23 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.2,
     shadowRadius: 16,
+  },
+  suggestionsContainer: {
+    flex: 1,
+    marginTop: 16,
+  },
+  stampsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  stampsRowCentered: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+  },
+  stampWrapper: {
+    width: '48%',
+    aspectRatio: 1,
   },
   spacer: {
     flex: 1,
@@ -548,7 +645,7 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     paddingVertical: 16,
     paddingHorizontal: 56,
-    borderRadius: 12,
+    borderRadius: 9999,
     gap: 8,
     minWidth: 260,
     shadowColor: colors.shadow,

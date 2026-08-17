@@ -1,6 +1,6 @@
 /**
  * Tests for CountryDetailScreen component.
- * Tests dynamic button text (Plan a Trip vs Add New Trip) and rendering.
+ * Tests button rendering, navigation, and share overlay functionality.
  */
 
 import { fireEvent, render, screen, waitFor } from '../utils/testUtils';
@@ -15,6 +15,21 @@ import type { PassportStackScreenProps } from '@navigation/types';
 import * as useCountriesModule from '@hooks/useCountries';
 import * as useTripsModule from '@hooks/useTrips';
 import * as useUserCountriesModule from '@hooks/useUserCountries';
+import * as useCountryPhotoInfoModule from '@hooks/useCountryPhotoInfo';
+
+// Access the mock ActionSheetIOS and Alert from global (set in jest.setup.js)
+declare global {
+  // eslint-disable-next-line no-var
+  var __mockActionSheetIOS: {
+    showActionSheetWithOptions: jest.Mock;
+  };
+  // eslint-disable-next-line no-var
+  var __mockAlert: {
+    alert: jest.Mock;
+  };
+}
+const mockShowActionSheetWithOptions = global.__mockActionSheetIOS.showActionSheetWithOptions;
+const mockAlert = global.__mockAlert.alert;
 
 // Create mock navigation
 const mockNavigate = jest.fn();
@@ -86,6 +101,14 @@ function mockHooksWithData({
     mutate: removeUserCountryMutate,
     isPending: false,
   } as unknown as ReturnType<typeof useUserCountriesModule.useRemoveUserCountry>);
+
+  // Mock useCountryPhotoInfo - default to no photos, no initial import
+  jest.spyOn(useCountryPhotoInfoModule, 'useCountryPhotoInfo').mockReturnValue({
+    hasPhotos: false,
+    tripCount: 0,
+    isLoading: false,
+    hasInitialImport: false,
+  });
 }
 
 describe('CountryDetailScreen', () => {
@@ -94,7 +117,7 @@ describe('CountryDetailScreen', () => {
   });
 
   describe('Button Text', () => {
-    it('shows "Plan a Trip" button when no trips exist for country', () => {
+    it('shows "Plan a Trip" button when not visited', () => {
       const country = createMockCountry({ code: 'JP', name: 'Japan', region: 'Asia' });
       mockHooksWithData({ country, trips: [] });
 
@@ -104,15 +127,96 @@ describe('CountryDetailScreen', () => {
       expect(screen.getByText('Plan a Trip')).toBeTruthy();
     });
 
-    it('shows "Add Another Trip" button when trips exist for country', () => {
+    it('shows "Add Trip" button when visited', () => {
       const country = createMockCountry({ code: 'JP', name: 'Japan', region: 'Asia' });
-      const trips = [createMockTrip({ id: 'trip-1', name: 'Tokyo Trip', country_code: 'JP' })];
-      mockHooksWithData({ country, trips });
+      mockHooksWithData({
+        country,
+        trips: [],
+        userCountries: [createMockUserCountry({ country_code: 'JP', status: 'visited' })],
+      });
 
       const route = createMockRoute({ countryId: 'JP', countryName: 'Japan', countryCode: 'JP' });
       render(<CountryDetailScreen navigation={mockNavigation} route={route} />);
 
-      expect(screen.getByText('Add Another Trip')).toBeTruthy();
+      expect(screen.getByText('Add Trip')).toBeTruthy();
+    });
+
+    it('shows "Find via Photos" button when visited and no initial import', () => {
+      const country = createMockCountry({ code: 'JP', name: 'Japan', region: 'Asia' });
+      mockHooksWithData({
+        country,
+        trips: [],
+        userCountries: [createMockUserCountry({ country_code: 'JP', status: 'visited' })],
+      });
+
+      const route = createMockRoute({ countryId: 'JP', countryName: 'Japan', countryCode: 'JP' });
+      render(<CountryDetailScreen navigation={mockNavigation} route={route} />);
+
+      expect(screen.getByText('Find via Photos')).toBeTruthy();
+    });
+
+    it('shows "1 Trip Found" when visited and has 1 trip candidate from photos', () => {
+      const country = createMockCountry({ code: 'JP', name: 'Japan', region: 'Asia' });
+      mockHooksWithData({
+        country,
+        trips: [],
+        userCountries: [createMockUserCountry({ country_code: 'JP', status: 'visited' })],
+      });
+      // Override the photo info mock
+      jest.spyOn(useCountryPhotoInfoModule, 'useCountryPhotoInfo').mockReturnValue({
+        hasPhotos: true,
+        tripCount: 1,
+        isLoading: false,
+        hasInitialImport: true,
+      });
+
+      const route = createMockRoute({ countryId: 'JP', countryName: 'Japan', countryCode: 'JP' });
+      render(<CountryDetailScreen navigation={mockNavigation} route={route} />);
+
+      expect(screen.getByText('1 Trip Found')).toBeTruthy();
+    });
+
+    it('shows "N Trips Found" when visited and has multiple trip candidates from photos', () => {
+      const country = createMockCountry({ code: 'JP', name: 'Japan', region: 'Asia' });
+      mockHooksWithData({
+        country,
+        trips: [],
+        userCountries: [createMockUserCountry({ country_code: 'JP', status: 'visited' })],
+      });
+      // Override the photo info mock
+      jest.spyOn(useCountryPhotoInfoModule, 'useCountryPhotoInfo').mockReturnValue({
+        hasPhotos: true,
+        tripCount: 3,
+        isLoading: false,
+        hasInitialImport: true,
+      });
+
+      const route = createMockRoute({ countryId: 'JP', countryName: 'Japan', countryCode: 'JP' });
+      render(<CountryDetailScreen navigation={mockNavigation} route={route} />);
+
+      expect(screen.getByText('3 Trips Found')).toBeTruthy();
+    });
+
+    it('hides photo button when visited but no photos after import', () => {
+      const country = createMockCountry({ code: 'JP', name: 'Japan', region: 'Asia' });
+      mockHooksWithData({
+        country,
+        trips: [],
+        userCountries: [createMockUserCountry({ country_code: 'JP', status: 'visited' })],
+      });
+      // Override the photo info mock - has import but no photos for this country
+      jest.spyOn(useCountryPhotoInfoModule, 'useCountryPhotoInfo').mockReturnValue({
+        hasPhotos: false,
+        tripCount: 0,
+        isLoading: false,
+        hasInitialImport: true,
+      });
+
+      const route = createMockRoute({ countryId: 'JP', countryName: 'Japan', countryCode: 'JP' });
+      render(<CountryDetailScreen navigation={mockNavigation} route={route} />);
+
+      expect(screen.queryByText('Find via Photos')).toBeNull();
+      expect(screen.queryByText(/Trip.*Found/)).toBeNull();
     });
   });
 
@@ -180,7 +284,7 @@ describe('CountryDetailScreen', () => {
   });
 
   describe('Navigation', () => {
-    it('navigates to TripForm with country info when button is pressed', () => {
+    it('navigates to TripForm with country info when Plan a Trip button is pressed', () => {
       const country = createMockCountry({ code: 'JP', name: 'Japan', region: 'Asia' });
       mockHooksWithData({ country, trips: [] });
 
@@ -189,12 +293,9 @@ describe('CountryDetailScreen', () => {
 
       fireEvent.press(screen.getByText('Plan a Trip'));
 
-      expect(mockNavigate).toHaveBeenCalledWith('Trips', {
-        screen: 'TripForm',
-        params: {
-          countryId: 'JP',
-          countryName: 'Japan',
-        },
+      expect(mockNavigate).toHaveBeenCalledWith('TripForm', {
+        countryId: 'JP',
+        countryName: 'Japan',
       });
     });
 
@@ -237,8 +338,8 @@ describe('CountryDetailScreen', () => {
       const route = createMockRoute({ countryId: 'JP', countryName: 'Japan', countryCode: 'JP' });
       render(<CountryDetailScreen navigation={mockNavigation} route={route} />);
 
-      // Press the "I've Been Here" button
-      const markVisitedButton = screen.getByText("I've Been Here");
+      // Press the "Mark as visited" button
+      const markVisitedButton = screen.getByLabelText('Mark as visited');
       fireEvent.press(markVisitedButton);
 
       // Verify the mutation was called
@@ -265,11 +366,11 @@ describe('CountryDetailScreen', () => {
       render(<CountryDetailScreen navigation={mockNavigation} route={route} />);
 
       // Action bar buttons should not be visible when country is visited
-      expect(screen.queryByText("I've Been Here")).toBeNull();
-      expect(screen.queryByText('Dream to Go')).toBeNull();
+      expect(screen.queryByLabelText('Mark as visited')).toBeNull();
+      expect(screen.queryByLabelText('Add to wishlist')).toBeNull();
 
-      // But the share button should be visible
-      expect(screen.getByLabelText('Share country card')).toBeTruthy();
+      // But the options menu button should be visible
+      expect(screen.getByLabelText('More options')).toBeTruthy();
     });
 
     it('includes onboarding countries in milestone detection', async () => {
@@ -309,7 +410,7 @@ describe('CountryDetailScreen', () => {
       render(<CountryDetailScreen navigation={mockNavigation} route={route} />);
 
       // Mark Japan as visited
-      const markVisitedButton = screen.getByText("I've Been Here");
+      const markVisitedButton = screen.getByLabelText('Mark as visited');
       fireEvent.press(markVisitedButton);
 
       // Mutation should be called with the correct context
@@ -362,7 +463,7 @@ describe('CountryDetailScreen', () => {
       render(<CountryDetailScreen navigation={mockNavigation} route={route} />);
 
       // Mark Japan as visited - should be country #4
-      const markVisitedButton = screen.getByText("I've Been Here");
+      const markVisitedButton = screen.getByLabelText('Mark as visited');
       fireEvent.press(markVisitedButton);
 
       expect(addUserCountryMutate).toHaveBeenCalled();
@@ -370,6 +471,173 @@ describe('CountryDetailScreen', () => {
       await waitFor(() => {
         expect(screen.getByTestId('share-card-overlay')).toBeTruthy();
       });
+    });
+  });
+
+  describe('Options Menu', () => {
+    it('shows options menu button only when country is visited', () => {
+      const country = createMockCountry({ code: 'JP', name: 'Japan', region: 'Asia' });
+      mockHooksWithData({
+        country,
+        trips: [],
+        userCountries: [], // Not visited
+      });
+
+      const route = createMockRoute({ countryId: 'JP', countryName: 'Japan', countryCode: 'JP' });
+      render(<CountryDetailScreen navigation={mockNavigation} route={route} />);
+
+      // Options menu should not be visible when country is not visited
+      expect(screen.queryByLabelText('More options')).toBeNull();
+    });
+
+    it('shows options menu button when country is visited', () => {
+      const country = createMockCountry({ code: 'JP', name: 'Japan', region: 'Asia' });
+      mockHooksWithData({
+        country,
+        trips: [],
+        userCountries: [createMockUserCountry({ country_code: 'JP', status: 'visited' })],
+      });
+
+      const route = createMockRoute({ countryId: 'JP', countryName: 'Japan', countryCode: 'JP' });
+      render(<CountryDetailScreen navigation={mockNavigation} route={route} />);
+
+      expect(screen.getByLabelText('More options')).toBeTruthy();
+    });
+
+    it('opens action sheet when options menu button is pressed', () => {
+      const country = createMockCountry({ code: 'JP', name: 'Japan', region: 'Asia' });
+      mockHooksWithData({
+        country,
+        trips: [],
+        userCountries: [createMockUserCountry({ country_code: 'JP', status: 'visited' })],
+      });
+
+      const route = createMockRoute({ countryId: 'JP', countryName: 'Japan', countryCode: 'JP' });
+      render(<CountryDetailScreen navigation={mockNavigation} route={route} />);
+
+      fireEvent.press(screen.getByLabelText('More options'));
+
+      expect(mockShowActionSheetWithOptions).toHaveBeenCalledWith(
+        {
+          options: ['Share', 'Unmark as Visited', 'Cancel'],
+          destructiveButtonIndex: 1,
+          cancelButtonIndex: 2,
+        },
+        expect.any(Function)
+      );
+    });
+
+    it('opens share overlay when Share option is selected', async () => {
+      const country = createMockCountry({
+        code: 'JP',
+        name: 'Japan',
+        region: 'Asia',
+        subregion: 'East Asia',
+      });
+      mockHooksWithData({
+        country,
+        trips: [],
+        userCountries: [createMockUserCountry({ country_code: 'JP', status: 'visited' })],
+      });
+
+      const route = createMockRoute({ countryId: 'JP', countryName: 'Japan', countryCode: 'JP' });
+      render(<CountryDetailScreen navigation={mockNavigation} route={route} />);
+
+      fireEvent.press(screen.getByLabelText('More options'));
+
+      // Simulate selecting "Share" (index 0)
+      const callback = mockShowActionSheetWithOptions.mock.calls[0][1];
+      callback(0);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('share-card-overlay')).toBeTruthy();
+      });
+    });
+
+    it('shows confirmation dialog when Unmark as Visited option is selected', () => {
+      const country = createMockCountry({ code: 'JP', name: 'Japan', region: 'Asia' });
+      const removeUserCountryMutate = jest.fn();
+      mockHooksWithData({
+        country,
+        trips: [],
+        userCountries: [createMockUserCountry({ country_code: 'JP', status: 'visited' })],
+        removeUserCountryMutate,
+      });
+
+      const route = createMockRoute({ countryId: 'JP', countryName: 'Japan', countryCode: 'JP' });
+      render(<CountryDetailScreen navigation={mockNavigation} route={route} />);
+
+      fireEvent.press(screen.getByLabelText('More options'));
+
+      // Simulate selecting "Unmark as Visited" (index 1)
+      const callback = mockShowActionSheetWithOptions.mock.calls[0][1];
+      callback(1);
+
+      // Verify confirmation dialog was shown
+      expect(mockAlert).toHaveBeenCalledWith(
+        'Unmark as Visited?',
+        'This will remove this country from your visited list.',
+        expect.arrayContaining([
+          expect.objectContaining({ text: 'Cancel', style: 'cancel' }),
+          expect.objectContaining({ text: 'Unmark', style: 'destructive' }),
+        ])
+      );
+
+      // Simulate confirming the dialog (pressing "Unmark")
+      const confirmCallback = mockAlert.mock.calls[0][2][1].onPress;
+      confirmCallback();
+
+      expect(removeUserCountryMutate).toHaveBeenCalledWith('JP');
+    });
+
+    it('does not remove country when confirmation dialog is cancelled', () => {
+      const country = createMockCountry({ code: 'JP', name: 'Japan', region: 'Asia' });
+      const removeUserCountryMutate = jest.fn();
+      mockHooksWithData({
+        country,
+        trips: [],
+        userCountries: [createMockUserCountry({ country_code: 'JP', status: 'visited' })],
+        removeUserCountryMutate,
+      });
+
+      const route = createMockRoute({ countryId: 'JP', countryName: 'Japan', countryCode: 'JP' });
+      render(<CountryDetailScreen navigation={mockNavigation} route={route} />);
+
+      fireEvent.press(screen.getByLabelText('More options'));
+
+      // Simulate selecting "Unmark as Visited" (index 1)
+      const callback = mockShowActionSheetWithOptions.mock.calls[0][1];
+      callback(1);
+
+      // Simulate cancelling the confirmation dialog
+      const cancelCallback = mockAlert.mock.calls[0][2][0].onPress;
+      if (cancelCallback) {
+        cancelCallback();
+      }
+
+      expect(removeUserCountryMutate).not.toHaveBeenCalled();
+    });
+
+    it('does nothing when Cancel option is selected in action sheet', () => {
+      const country = createMockCountry({ code: 'JP', name: 'Japan', region: 'Asia' });
+      const removeUserCountryMutate = jest.fn();
+      mockHooksWithData({
+        country,
+        trips: [],
+        userCountries: [createMockUserCountry({ country_code: 'JP', status: 'visited' })],
+        removeUserCountryMutate,
+      });
+
+      const route = createMockRoute({ countryId: 'JP', countryName: 'Japan', countryCode: 'JP' });
+      render(<CountryDetailScreen navigation={mockNavigation} route={route} />);
+
+      fireEvent.press(screen.getByLabelText('More options'));
+
+      // Simulate selecting "Cancel" (index 2)
+      const callback = mockShowActionSheetWithOptions.mock.calls[0][1];
+      callback(2);
+
+      expect(removeUserCountryMutate).not.toHaveBeenCalled();
     });
   });
 });

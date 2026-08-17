@@ -13,14 +13,12 @@ import * as WebBrowser from 'expo-web-browser';
 
 import { useGoogleSignIn, useGoogleAuthAvailable } from '@hooks/useGoogleAuth';
 import { supabase } from '@services/supabase';
-import { storeTokens, clearTokens, storeOnboardingComplete } from '@services/api';
+import { storeOnboardingComplete } from '@services/api';
 import { migrateGuestData } from '@services/guestMigration';
 import { useAuthStore } from '@stores/authStore';
 import { createTestQueryClient } from '../utils/testUtils';
 
 // Type the mocks
-const mockedStoreTokens = storeTokens as jest.MockedFunction<typeof storeTokens>;
-const mockedClearTokens = clearTokens as jest.MockedFunction<typeof clearTokens>;
 const mockedStoreOnboardingComplete = storeOnboardingComplete as jest.MockedFunction<
   typeof storeOnboardingComplete
 >;
@@ -29,6 +27,7 @@ const mockedMigrateGuestData = migrateGuestData as jest.MockedFunction<typeof mi
 // Mock supabase methods
 const mockSignInWithOAuth = jest.fn();
 const mockSetSession = jest.fn();
+const mockRpc = jest.fn();
 const mockSupabaseFrom = supabase.from as jest.Mock;
 
 // Mock guestMigration service
@@ -39,14 +38,26 @@ jest.mock('@services/guestMigration', () => ({
     migratedProfile: false,
     errors: [],
   }),
+  captureOnboardingSnapshot: jest.fn().mockReturnValue({
+    selectedCountries: [],
+    bucketListCountries: [],
+    dreamDestination: null,
+    homeCountry: null,
+    motivationTags: [],
+    personaTags: [],
+    trackingPreference: 'full_atlas',
+  }),
 }));
 
 // Mock API service functions
 jest.mock('@services/api', () => ({
   ...jest.requireActual('@services/api'),
-  storeTokens: jest.fn().mockResolvedValue(undefined),
-  clearTokens: jest.fn().mockResolvedValue(undefined),
+  api: {
+    post: jest.fn().mockResolvedValue({ data: { status: 'scheduled' } }),
+  },
   storeOnboardingComplete: jest.fn().mockResolvedValue(undefined),
+  clearTokens: jest.fn().mockResolvedValue(undefined),
+  storeTokens: jest.fn().mockResolvedValue(undefined),
 }));
 
 // Mock expo-web-browser
@@ -109,6 +120,9 @@ describe('useGoogleAuth', () => {
     Object.assign(supabase.auth, {
       signInWithOAuth: mockSignInWithOAuth,
       setSession: mockSetSession,
+    });
+    Object.assign(supabase, {
+      rpc: mockRpc,
     });
   });
 
@@ -183,7 +197,8 @@ describe('useGoogleAuth', () => {
 
         expect(WebBrowser.openAuthSessionAsync).toHaveBeenCalledWith(
           'https://accounts.google.com/oauth',
-          'atlasi://auth-callback'
+          'atlasi://auth-callback',
+          { preferEphemeralSession: true }
         );
       });
 
@@ -204,36 +219,8 @@ describe('useGoogleAuth', () => {
         });
       });
 
-      it('clears stale tokens before storing new ones', async () => {
-        const { result } = renderHook(() => useGoogleSignIn(), {
-          wrapper: createWrapper(queryClient),
-        });
-
-        await act(async () => {
-          result.current.mutate();
-        });
-
-        await waitFor(() => expect(result.current.isSuccess).toBe(true));
-
-        // Verify clearTokens was called before storeTokens
-        const clearCallOrder = mockedClearTokens.mock.invocationCallOrder[0];
-        const storeCallOrder = mockedStoreTokens.mock.invocationCallOrder[0];
-        expect(clearCallOrder).toBeLessThan(storeCallOrder);
-      });
-
-      it('stores new tokens on successful authentication', async () => {
-        const { result } = renderHook(() => useGoogleSignIn(), {
-          wrapper: createWrapper(queryClient),
-        });
-
-        await act(async () => {
-          result.current.mutate();
-        });
-
-        await waitFor(() => expect(result.current.isSuccess).toBe(true));
-
-        expect(mockedStoreTokens).toHaveBeenCalledWith('test-access-token', 'test-refresh-token');
-      });
+      // Note: Token storage is handled by onAuthStateChange listener in App.tsx,
+      // not by the auth hooks directly. The hooks rely on Supabase's session management.
 
       it('detects returning user and skips migration', async () => {
         // Mock user_countries to return data (returning user)
@@ -279,25 +266,11 @@ describe('useGoogleAuth', () => {
 
         await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-        expect(mockedMigrateGuestData).toHaveBeenCalledWith(mockSession);
+        expect(mockedMigrateGuestData).toHaveBeenCalledWith(mockSession, expect.any(Object));
       });
 
-      it('sets session last to trigger navigation', async () => {
-        const setSession = jest.fn();
-        useAuthStore.setState({ setSession });
-
-        const { result } = renderHook(() => useGoogleSignIn(), {
-          wrapper: createWrapper(queryClient),
-        });
-
-        await act(async () => {
-          result.current.mutate();
-        });
-
-        await waitFor(() => expect(result.current.isSuccess).toBe(true));
-
-        expect(setSession).toHaveBeenCalledWith(mockSession);
-      });
+      // Note: Session is set via Supabase's setSession which triggers
+      // onAuthStateChange in App.tsx. The hooks don't call Zustand's setSession directly.
 
       it('handles tokens in query params instead of fragment', async () => {
         (WebBrowser.openAuthSessionAsync as jest.Mock).mockResolvedValue({
@@ -331,6 +304,60 @@ describe('useGoogleAuth', () => {
           access_token: 'query-token',
           refresh_token: 'query-refresh',
         });
+      });
+
+      it('updates display name when provided from onboarding', async () => {
+        mockRpc.mockResolvedValue({ data: null, error: null });
+
+        const { result } = renderHook(() => useGoogleSignIn(), {
+          wrapper: createWrapper(queryClient),
+        });
+
+        await act(async () => {
+          result.current.mutate({ displayName: 'Onboarding Name' });
+        });
+
+        await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+        expect(mockRpc).toHaveBeenCalledWith('update_display_name', {
+          new_display_name: 'Onboarding Name',
+        });
+      });
+
+      it('does not update display name when not provided', async () => {
+        const { result } = renderHook(() => useGoogleSignIn(), {
+          wrapper: createWrapper(queryClient),
+        });
+
+        await act(async () => {
+          result.current.mutate(); // No displayName param
+        });
+
+        await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+        // Should not call update_display_name
+        expect(mockRpc).not.toHaveBeenCalled();
+      });
+
+      it('handles display name update failure gracefully', async () => {
+        // Supabase RPC returns { data, error } format, not rejected promise
+        mockRpc.mockResolvedValue({ data: null, error: { message: 'RPC failed' } });
+
+        const { result } = renderHook(() => useGoogleSignIn(), {
+          wrapper: createWrapper(queryClient),
+        });
+
+        await act(async () => {
+          result.current.mutate({ displayName: 'Onboarding Name' });
+        });
+
+        await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+        // Should still succeed, just log warning
+        expect(consoleWarnSpy).toHaveBeenCalledWith(
+          'Failed to update display name from Google Sign-In:',
+          'RPC failed'
+        );
       });
     });
 
@@ -510,7 +537,7 @@ describe('useGoogleAuth', () => {
         await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
         // Should still run migration as fallback
-        expect(mockedMigrateGuestData).toHaveBeenCalledWith(mockSession);
+        expect(mockedMigrateGuestData).toHaveBeenCalledWith(mockSession, expect.any(Object));
       });
 
       it('handles migration failure gracefully', async () => {

@@ -3,6 +3,7 @@ import { useVideoPlayer, VideoView } from 'expo-video';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { FlatListProps } from 'react-native';
 import {
+  Animated,
   FlatList,
   Image,
   StyleSheet,
@@ -16,6 +17,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Text } from '@components/ui';
 import { colors } from '@constants/colors';
 import { useResponsive } from '@hooks/useResponsive';
+import { useScreenEntrance } from '@hooks/useScreenEntrance';
 import type { OnboardingStackScreenProps } from '@navigation/types';
 import { Analytics } from '@services/analytics';
 
@@ -25,21 +27,24 @@ const atlasLogo = require('../../../assets/atlasi-logo.png');
 const SLIDES = [
   {
     id: '1',
-    video: require('../../../assets/country-images/wonders-world/gardens-babylon.mp4'),
-    text: 'Stamp your passport for every country you visit.',
-    showCTA: false,
+    video: require('../../../assets/onboarding-videos/onboarding1-share.mp4'),
+    headline: 'From scroll to story',
+    subtext:
+      "Share any post from TikTok or Instagram directly to Atlasi. We'll extract the location and save the inspiration to your map instantly.",
   },
   {
     id: '2',
-    video: require('../../../assets/country-images/wonders-world/lighthouse-alexandria.mp4'),
-    text: 'Save your favorite spots. Remember the magic.',
-    showCTA: false,
+    video: require('../../../assets/onboarding-videos/onboarding3-trips.mp4'),
+    headline: 'Your memories, mapped',
+    subtext:
+      'Atlasi intelligently scans your photo library to reconstruct your past adventures into a beautiful, chronological travelogue.',
   },
   {
     id: '3',
-    video: require('../../../assets/country-images/wonders-world/mausoleum-halicarnassus.mp4'),
-    text: 'Share lists. Swap recs. Inspire your friends.',
-    showCTA: true,
+    video: require('../../../assets/onboarding-videos/onboarding2-country-track.mp4'),
+    headline: 'Your global archive',
+    subtext:
+      "A signature gallery of where you've been and a curated bucket list for where the world takes you next.",
   },
 ];
 /* eslint-enable @typescript-eslint/no-require-imports */
@@ -47,19 +52,104 @@ const SLIDES = [
 interface Slide {
   id: string;
   video: number;
-  text: string;
-  showCTA: boolean;
+  headline: string;
+  subtext: string;
+}
+
+// Video dimensions (820x1280 aspect ratio)
+const VIDEO_WIDTH = 820;
+const VIDEO_HEIGHT = 1280;
+
+// Responsive layout configuration per screen size
+interface LayoutConfig {
+  framePadding: number;
+  textMarginTop: number;
+  textPaddingHorizontal: number;
+  paginationMarginTop: number;
+  reservedHeight: number;
+  borderRadius: number;
+  videoBorderRadius: number;
+}
+
+const LAYOUT_CONFIGS: Record<'small' | 'medium' | 'large', Omit<LayoutConfig, 'reservedHeight'>> = {
+  small: {
+    framePadding: 8,
+    textMarginTop: 12,
+    textPaddingHorizontal: 24,
+    paginationMarginTop: 8,
+    borderRadius: 20,
+    videoBorderRadius: 12,
+  },
+  medium: {
+    framePadding: 10,
+    textMarginTop: 16,
+    textPaddingHorizontal: 32,
+    paginationMarginTop: 12,
+    borderRadius: 20,
+    videoBorderRadius: 12,
+  },
+  large: {
+    framePadding: 10,
+    textMarginTop: 20,
+    textPaddingHorizontal: 40,
+    paginationMarginTop: 14,
+    borderRadius: 20,
+    videoBorderRadius: 12,
+  },
+};
+
+function getLayoutConfig(
+  screenSize: 'small' | 'medium' | 'large',
+  screenWidth: number,
+  screenHeight: number
+) {
+  const config = LAYOUT_CONFIGS[screenSize];
+
+  // Reserve space for: header (~52), headline+subtext (~120), pagination (~30), bottom button area (~100)
+  // Reserve space for header, text, pagination dots, and bottom button
+  const reservedHeight = screenSize === 'small' ? 340 : screenSize === 'medium' ? 320 : 300;
+
+  // Available height for the video frame
+  const availableHeight = screenHeight - reservedHeight;
+
+  // Derive frame dimensions from available height, scaled down to fit with text/dots/button
+  const frameHeight = availableHeight * 0.75;
+  let frameWidth = frameHeight * (VIDEO_WIDTH / VIDEO_HEIGHT);
+
+  // Clamp frame width so it doesn't exceed screen width minus minimum margins
+  const maxFrameWidth = screenWidth - 40;
+  if (frameWidth > maxFrameWidth) {
+    frameWidth = maxFrameWidth;
+  }
+
+  // Video fills the frame minus padding
+  const videoWidth = frameWidth - config.framePadding * 2;
+  const videoHeight = frameHeight - config.framePadding * 2;
+
+  return {
+    ...config,
+    reservedHeight,
+    videoWidth,
+    videoHeight,
+    frameWidth,
+    frameHeight,
+  };
 }
 
 type Props = OnboardingStackScreenProps<'OnboardingSlider'>;
 
 export function OnboardingSliderScreen({ navigation }: Props) {
-  const { screenWidth, screenHeight, isSmallScreen } = useResponsive();
+  const { screenWidth, screenHeight, screenSize } = useResponsive();
+  const { getAnimatedStyle, getButtonStyle } = useScreenEntrance({ elementCount: 2 });
 
-  // Responsive dimensions for layout
-  const postcardWidth = screenWidth - (isSmallScreen ? 100 : 80);
-  const postcardHeight = postcardWidth * (isSmallScreen ? 1.0 : 1.1);
-  const slideHeight = screenHeight - (isSmallScreen ? 180 : 220);
+  // Get responsive layout configuration
+  const layout = useMemo(
+    () => getLayoutConfig(screenSize, screenWidth, screenHeight),
+    [screenSize, screenWidth, screenHeight]
+  );
+
+  // Slide height: just enough for video frame + headline + subtext + dots + spacing
+  const slideHeight = layout.frameHeight + 160;
 
   const [activeIndex, setActiveIndex] = useState(0);
   const flatListRef = useRef<FlatList<Slide>>(null);
@@ -69,32 +159,59 @@ export function OnboardingSliderScreen({ navigation }: Props) {
     Analytics.viewOnboardingSlider();
   }, []);
 
-  // Create video players for each slide
-  const player0 = useVideoPlayer(SLIDES[0].video, (p) => {
-    p.loop = true;
-    p.muted = true;
-  });
-  const player1 = useVideoPlayer(SLIDES[1].video, (p) => {
-    p.loop = true;
-    p.muted = true;
-  });
-  const player2 = useVideoPlayer(SLIDES[2].video, (p) => {
-    p.loop = true;
-    p.muted = true;
-  });
-
+  // One player per slide — avoids replace() which causes stale-frame flashes.
+  // Only the active slide's player is playing; the others stay paused and buffered.
+  const playerConfig = useCallback(
+    (p: { loop: boolean; muted: boolean; audioMixingMode: string }) => {
+      p.loop = true;
+      p.muted = true;
+      p.audioMixingMode = 'mixWithOthers';
+    },
+    []
+  );
+  const player0 = useVideoPlayer(SLIDES[0].video, playerConfig);
+  const player1 = useVideoPlayer(SLIDES[1].video, playerConfig);
+  const player2 = useVideoPlayer(SLIDES[2].video, playerConfig);
   const players = useMemo(() => [player0, player1, player2], [player0, player1, player2]);
 
-  // Play only active slide's video
+  // Play only the active slide's player, pause the rest
   useEffect(() => {
-    players.forEach((player, index) => {
-      if (index === activeIndex) {
-        player.play();
-      } else {
-        player.pause();
+    players.forEach((p, i) => {
+      try {
+        if (i === activeIndex) {
+          p.play();
+        } else {
+          p.pause();
+        }
+      } catch {
+        // Native player may be released
       }
     });
   }, [activeIndex, players]);
+
+  // Pause all players when screen loses focus, resume active on focus
+  useEffect(() => {
+    const unsubscribeFocus = navigation.addListener('focus', () => {
+      try {
+        players[activeIndex]?.play();
+      } catch {
+        // Native player may be released
+      }
+    });
+    const unsubscribeBlur = navigation.addListener('blur', () => {
+      players.forEach((p) => {
+        try {
+          p.pause();
+        } catch {
+          // Native player may be released
+        }
+      });
+    });
+    return () => {
+      unsubscribeFocus();
+      unsubscribeBlur();
+    };
+  }, [navigation, players, activeIndex]);
 
   const onViewableItemsChanged = useCallback(
     ({ viewableItems }: { viewableItems: ViewToken<Slide>[] }) => {
@@ -110,7 +227,7 @@ export function OnboardingSliderScreen({ navigation }: Props) {
   }).current;
 
   const handleStartJourney = () => {
-    navigation.navigate('Motivation');
+    navigation.replace('Motivation');
   };
 
   const handleLogin = () => {
@@ -146,33 +263,48 @@ export function OnboardingSliderScreen({ navigation }: Props) {
       testID={`carousel-slide-${item.id}`}
     >
       <View style={styles.slideContent}>
-        {/* Postcard frame container */}
+        {/* Video frame - simplified, no shadow layer */}
         <View
           style={[
-            styles.postcardContainer,
-            { width: postcardWidth + 16, height: postcardHeight + 16 },
+            styles.videoFrame,
+            {
+              width: layout.frameWidth,
+              height: layout.frameHeight,
+              padding: layout.framePadding,
+              borderRadius: layout.borderRadius,
+            },
           ]}
         >
-          {/* Shadow layer behind for stacked effect */}
-          <View style={[styles.postcardShadow, { width: postcardWidth, height: postcardHeight }]} />
-          {/* Main postcard frame */}
-          <View style={[styles.postcardFrame, { width: postcardWidth, height: postcardHeight }]}>
+          <View style={[styles.video, { borderRadius: layout.videoBorderRadius }]}>
             <VideoView
               player={players[index]}
-              style={styles.video}
-              contentFit="cover"
+              style={StyleSheet.absoluteFill}
+              contentFit="contain"
               nativeControls={false}
             />
           </View>
         </View>
 
-        {/* Text below postcard - Text component handles responsive sizing */}
-        <Text variant="title" style={styles.slideText}>
-          {item.text}
-        </Text>
+        {/* Text below video */}
+        <View
+          style={[
+            styles.textContainer,
+            {
+              marginTop: layout.textMarginTop,
+              paddingHorizontal: layout.textPaddingHorizontal,
+            },
+          ]}
+        >
+          <Text variant="title" style={styles.headline}>
+            {item.headline}
+          </Text>
+          <Text variant="body" style={styles.subtext}>
+            {item.subtext}
+          </Text>
+        </View>
 
-        {/* Pagination dots - inside slide content */}
-        <View style={styles.pagination}>
+        {/* Pagination dots */}
+        <View style={[styles.pagination, { marginTop: layout.paginationMarginTop }]}>
           {SLIDES.map((_, dotIndex) => (
             <View
               key={dotIndex}
@@ -187,7 +319,7 @@ export function OnboardingSliderScreen({ navigation }: Props) {
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       {/* Header with logo and login */}
-      <View style={styles.header}>
+      <Animated.View style={[styles.header, getAnimatedStyle(0)]}>
         <Image source={atlasLogo} style={styles.logo} resizeMode="contain" />
         <TouchableOpacity
           onPress={handleLogin}
@@ -198,7 +330,7 @@ export function OnboardingSliderScreen({ navigation }: Props) {
             Login
           </Text>
         </TouchableOpacity>
-      </View>
+      </Animated.View>
 
       {/* Carousel */}
       <FlatList
@@ -222,18 +354,20 @@ export function OnboardingSliderScreen({ navigation }: Props) {
       {/* Bottom section: button only - fixed position */}
       <View style={styles.bottomSection}>
         {/* Next / Start my journey button */}
-        <TouchableOpacity
-          style={styles.ctaButton}
-          onPress={activeIndex === SLIDES.length - 1 ? handleStartJourney : goToNext}
-          testID="start-journey-button"
-        >
-          <Text variant="label" style={styles.ctaButtonText}>
-            {activeIndex === SLIDES.length - 1 ? 'Start my journey' : 'Next'}
-          </Text>
-          {activeIndex < SLIDES.length - 1 && (
-            <Ionicons name="arrow-forward" size={20} color={colors.midnightNavy} />
-          )}
-        </TouchableOpacity>
+        <Animated.View style={getButtonStyle(1)}>
+          <TouchableOpacity
+            style={styles.ctaButton}
+            onPress={activeIndex === SLIDES.length - 1 ? handleStartJourney : goToNext}
+            testID="start-journey-button"
+          >
+            <Text variant="label" style={styles.ctaButtonText}>
+              {activeIndex === SLIDES.length - 1 ? 'Start my journey' : 'Continue'}
+            </Text>
+            {activeIndex < SLIDES.length - 1 && (
+              <Ionicons name="arrow-forward" size={20} color={colors.midnightNavy} />
+            )}
+          </TouchableOpacity>
+        </Animated.View>
       </View>
     </SafeAreaView>
   );
@@ -266,7 +400,7 @@ const styles = StyleSheet.create({
     color: colors.midnightNavy,
   },
   carouselContent: {
-    alignItems: 'center',
+    alignItems: 'flex-start',
   },
   slide: {
     alignItems: 'center',
@@ -274,42 +408,38 @@ const styles = StyleSheet.create({
   },
   slideContent: {
     alignItems: 'center',
-    paddingTop: 8,
+    paddingTop: 16,
   },
-  postcardContainer: {
-    position: 'relative',
-  },
-  postcardShadow: {
-    position: 'absolute',
-    top: 8,
-    left: 8,
-    backgroundColor: colors.stormGray,
-    borderRadius: 16,
-    opacity: 0.3,
-  },
-  postcardFrame: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
+  videoFrame: {
     backgroundColor: colors.paperBeige,
-    borderRadius: 16,
-    padding: 12,
     shadowColor: colors.shadow,
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
+    shadowOpacity: 0.12,
     shadowRadius: 8,
     elevation: 4,
   },
   video: {
     flex: 1,
-    borderRadius: 8,
     overflow: 'hidden',
   },
-  slideText: {
+  textContainer: {
+    alignItems: 'center',
+  },
+  headline: {
     color: colors.midnightNavy,
     textAlign: 'center',
-    marginTop: 16,
-    paddingHorizontal: 32,
+    fontSize: 28,
+    fontWeight: '700',
+    letterSpacing: -0.56, // -2% tracking
+    marginBottom: 8,
+  },
+  subtext: {
+    color: colors.midnightNavy,
+    textAlign: 'center',
+    fontSize: 15,
+    fontWeight: '400',
+    opacity: 0.7,
+    lineHeight: 22,
   },
   bottomSection: {
     position: 'absolute',
@@ -325,7 +455,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    marginTop: 12,
     gap: 8,
   },
   dot: {
@@ -347,7 +476,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingVertical: 16,
     paddingHorizontal: 56,
-    borderRadius: 12,
+    borderRadius: 9999,
     gap: 8,
     minWidth: 260,
     shadowColor: colors.shadow,

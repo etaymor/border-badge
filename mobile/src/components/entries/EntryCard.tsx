@@ -1,34 +1,17 @@
 import { memo, useEffect, useMemo, useState } from 'react';
-import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image } from 'expo-image';
 
-import type { EntryType } from '@navigation/types';
 import type { EntryWithPlace } from '@hooks/useEntries';
+import { colors } from '@constants/colors';
+import { fonts } from '@constants/typography';
+import { getFlagEmoji } from '@utils/flags';
 import { logger } from '@utils/logger';
-// Entry type icons and colors
-const ENTRY_TYPE_CONFIG: Record<
-  EntryType,
-  { icon: keyof typeof Ionicons.glyphMap; color: string; label: string }
-> = {
-  place: { icon: 'location', color: '#007AFF', label: 'Place' },
-  food: { icon: 'restaurant', color: '#FF9500', label: 'Food' },
-  stay: { icon: 'bed', color: '#5856D6', label: 'Stay' },
-  experience: { icon: 'star', color: '#34C759', label: 'Experience' },
-};
 
 interface EntryCardProps {
   entry: EntryWithPlace;
   onPress?: () => void;
-}
-
-function formatDate(dateString: string | null): string {
-  if (!dateString) return '';
-  const date = new Date(dateString);
-  return date.toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  });
+  onLongPress?: () => void;
 }
 
 /**
@@ -61,8 +44,17 @@ function isValidGooglePhotoUrl(url: string | null): string | null {
   }
 }
 
-function EntryCardComponent({ entry, onPress }: EntryCardProps) {
-  const typeConfig = ENTRY_TYPE_CONFIG[entry.entry_type as EntryType] || ENTRY_TYPE_CONFIG.place;
+/**
+ * Extract country name from Google Places address.
+ * Most addresses end with country name after last comma.
+ */
+function extractCountryFromAddress(address: string | null): string | null {
+  if (!address) return null;
+  const parts = address.split(',').map((p) => p.trim());
+  return parts.length >= 2 ? parts[parts.length - 1] : null;
+}
+
+function EntryCardComponent({ entry, onPress, onLongPress }: EntryCardProps) {
   const hasUserMedia = entry.media_files && entry.media_files.length > 0;
   const mediaCount = entry.media_files?.length ?? 0;
   const [imageError, setImageError] = useState(false);
@@ -71,22 +63,13 @@ function EntryCardComponent({ entry, onPress }: EntryCardProps) {
     [entry.place?.google_photo_url]
   );
 
-  // Debug logging
-  useEffect(() => {
-    if (entry.place?.google_photo_url) {
-      logger.log('[EntryCard] Photo URL info', {
-        entryId: entry.id,
-        rawPhotoUrl: entry.place.google_photo_url?.substring(0, 100),
-        validatedUrl: placePhotoUrl?.substring(0, 100),
-        hasUserMedia,
-      });
-    }
-  }, [entry.id, entry.place?.google_photo_url, placePhotoUrl, hasUserMedia]);
+  // Social media thumbnail from metadata (Instagram/TikTok)
+  const socialThumbnailUrl = entry.metadata?.thumbnail_url ?? null;
 
-  // Use user-uploaded media first, fall back to Google Places photo
+  // Use user-uploaded media first, then social thumbnail, then Google Places photo
   const firstMediaUrl = hasUserMedia
     ? (entry.media_files?.[0]?.thumbnail_url ?? entry.media_files?.[0]?.url)
-    : placePhotoUrl;
+    : (socialThumbnailUrl ?? placePhotoUrl);
 
   const hasMedia = !!firstMediaUrl;
   const shouldShowImage = hasMedia && !imageError;
@@ -95,12 +78,14 @@ function EntryCardComponent({ entry, onPress }: EntryCardProps) {
     setImageError(false);
   }, [entry.id, firstMediaUrl]);
 
+  // Get country code - prefer direct country_code, fallback to extracting from address
+  const countryCode = entry.place?.country_code?.toUpperCase() ?? null;
+  const countryName = extractCountryFromAddress(entry.place?.address ?? null);
+
   // Build accessibility label
   const accessibilityParts = [
-    typeConfig.label,
     entry.title,
-    entry.place?.name && `at ${entry.place.name}`,
-    entry.entry_date && formatDate(entry.entry_date),
+    countryName && `in ${countryName}`,
     hasUserMedia && `${mediaCount} photo${mediaCount > 1 ? 's' : ''}`,
   ].filter(Boolean);
 
@@ -108,69 +93,60 @@ function EntryCardComponent({ entry, onPress }: EntryCardProps) {
     <Pressable
       style={styles.container}
       onPress={onPress}
+      onLongPress={onLongPress}
       accessibilityRole="button"
       accessibilityLabel={accessibilityParts.join(', ')}
       accessibilityHint="Double tap to view entry details"
     >
-      {/* Entry Type Badge */}
-      <View style={[styles.typeBadge, { backgroundColor: typeConfig.color + '15' }]}>
-        <Ionicons name={typeConfig.icon} size={16} color={typeConfig.color} />
-      </View>
-
-      {/* Main Content */}
-      <View style={styles.content}>
-        <Text style={styles.title} numberOfLines={1}>
-          {entry.title}
-        </Text>
-
-        {/* Place name if available */}
-        {entry.place?.name && (
-          <View style={styles.placeRow}>
-            <Ionicons name="location-outline" size={14} color="#666" />
-            <Text style={styles.placeName} numberOfLines={1}>
-              {entry.place.name}
-            </Text>
-          </View>
-        )}
-
-        {/* Date */}
-        {entry.entry_date && <Text style={styles.date}>{formatDate(entry.entry_date)}</Text>}
-      </View>
-
-      {/* Media Preview */}
-      {shouldShowImage ? (
+      {/* Thumbnail - only show if we have media */}
+      {shouldShowImage && firstMediaUrl ? (
         <View style={styles.mediaContainer}>
-          {firstMediaUrl ? (
-            <Image
-              source={{ uri: firstMediaUrl }}
-              style={styles.mediaThumbnail}
-              onError={(e) => {
-                logger.warn('[EntryCard] Image load error', {
-                  url: firstMediaUrl.substring(0, 100),
-                  error: e.nativeEvent?.error,
-                });
-                setImageError(true);
-              }}
-              onLoad={() => {
-                logger.log('[EntryCard] Image loaded successfully', {
-                  url: firstMediaUrl.substring(0, 100),
-                });
-              }}
-            />
-          ) : (
-            <View style={styles.mediaThumbnailPlaceholder}>
-              <Ionicons name="image" size={20} color="#ccc" />
-            </View>
-          )}
+          <Image
+            testID="entry-card-image"
+            source={{ uri: firstMediaUrl }}
+            style={styles.mediaThumbnail}
+            contentFit="cover"
+            recyclingKey={entry.id}
+            cachePolicy="memory-disk"
+            onError={(e) => {
+              logger.warn('[EntryCard] Image load error', {
+                url: firstMediaUrl.substring(0, 100),
+                error: e?.error,
+              });
+              setImageError(true);
+            }}
+            onLoad={() => {
+              logger.log('[EntryCard] Image loaded successfully', {
+                url: firstMediaUrl.substring(0, 100),
+              });
+            }}
+          />
           {mediaCount > 1 && (
             <View style={styles.mediaCount}>
               <Text style={styles.mediaCountText}>+{mediaCount - 1}</Text>
             </View>
           )}
         </View>
-      ) : (
-        <Ionicons name="chevron-forward" size={20} color="#ccc" />
-      )}
+      ) : null}
+
+      {/* Main Content */}
+      <View style={styles.content}>
+        <Text style={styles.title} numberOfLines={2}>
+          {entry.title}
+        </Text>
+
+        {/* Country with flag */}
+        {(countryCode || countryName) && (
+          <View style={styles.placeRow}>
+            {countryCode && <Text style={styles.countryFlag}>{getFlagEmoji(countryCode)}</Text>}
+            {countryName && (
+              <Text style={styles.countryText} numberOfLines={1}>
+                {countryName}
+              </Text>
+            )}
+          </View>
+        )}
+      </View>
     </Pressable>
   );
 }
@@ -181,79 +157,64 @@ const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#fff',
-    borderRadius: 12,
+    backgroundColor: colors.paperBeige,
+    borderRadius: 16,
     padding: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  typeBadge: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
-  },
-  content: {
-    flex: 1,
-    marginRight: 12,
-  },
-  title: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#1a1a1a',
-    marginBottom: 4,
-  },
-  placeRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 2,
-  },
-  placeName: {
-    fontSize: 13,
-    color: '#666',
-    marginLeft: 4,
-    flex: 1,
-  },
-  date: {
-    fontSize: 12,
-    color: '#999',
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 3,
   },
   mediaContainer: {
     position: 'relative',
+    marginRight: 12,
   },
   mediaThumbnail: {
-    width: 48,
-    height: 48,
-    borderRadius: 8,
-    backgroundColor: '#f0f0f0',
-  },
-  mediaThumbnailPlaceholder: {
-    width: 48,
-    height: 48,
-    borderRadius: 8,
-    backgroundColor: '#f0f0f0',
-    justifyContent: 'center',
-    alignItems: 'center',
+    width: 56,
+    height: 56,
+    borderRadius: 10,
+    backgroundColor: colors.backgroundMuted,
   },
   mediaCount: {
     position: 'absolute',
     bottom: -4,
     right: -4,
-    backgroundColor: '#007AFF',
-    borderRadius: 10,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    minWidth: 20,
+    backgroundColor: colors.mossGreen,
+    borderRadius: 8,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    minWidth: 18,
     alignItems: 'center',
   },
   mediaCountText: {
-    fontSize: 10,
-    fontWeight: '600',
-    color: '#fff',
+    fontFamily: fonts.openSans.semiBold,
+    fontSize: 9,
+    color: colors.white,
+  },
+  content: {
+    flex: 1,
+    justifyContent: 'center',
+  },
+  title: {
+    fontFamily: fonts.openSans.semiBold,
+    fontSize: 15,
+    color: colors.textPrimary,
+    lineHeight: 20,
+  },
+  placeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  countryFlag: {
+    fontSize: 13,
+    marginRight: 6,
+  },
+  countryText: {
+    fontFamily: fonts.openSans.regular,
+    fontSize: 13,
+    color: colors.stormGray,
+    flex: 1,
   },
 });

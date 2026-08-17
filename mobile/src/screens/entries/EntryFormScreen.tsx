@@ -19,6 +19,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
 
 // Enable LayoutAnimation on Android
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -36,22 +37,53 @@ import {
 } from '@hooks/useEntries';
 import { useTrip } from '@hooks/useTrips';
 import { CategorySelector } from '@components/entries';
+import { NearbyPhotoSuggestions } from '@components/entries/NearbyPhotoSuggestions';
+import { SmartLinkDisplay } from '@components/entries/SmartLinkDisplay';
 import { EntryMediaGallery } from '@components/media';
+import type { EntryMediaGalleryRef } from '@components/media';
 import { PlacesAutocomplete, SelectedPlace } from '@components/places';
 import { GlassBackButton, GlassInput, Button } from '@components/ui';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
+import { useNearbyPhotos } from '@hooks/useNearbyPhotos';
+import { usePremiumGate } from '@hooks/usePremiumGate';
+import { useEntries } from '@hooks/useEntries';
 import { MAX_PHOTOS_PER_ENTRY } from '@services/mediaUpload';
+import { fetchOpenGraphTitle } from '@utils/openGraph';
+import type { CachedPhoto } from '@services/photoImport/types';
+import * as MediaLibrary from 'expo-media-library';
+import { logger } from '@utils/logger';
 
 type Props = TripsStackScreenProps<'EntryForm'>;
 
 export function EntryFormScreen({ route, navigation }: Props) {
-  const { tripId, entryId, entryType: initialEntryType } = route.params;
+  const {
+    tripId,
+    entryId,
+    entryType: initialEntryType,
+    prefillPlace,
+    prefillPhotos,
+  } = route.params;
   const isEditing = !!entryId;
   const insets = useSafeAreaInsets();
 
+  // EntryForm is only registered in TripsNavigator, so when reached via
+  // Passport → Trips → TripDetail → EntryForm the recursive tab-bar hider in
+  // MainTabNavigator does not catch it (TripForm works because it is also
+  // registered one level shallower in PassportNavigator). Hide imperatively.
+  useFocusEffect(
+    useCallback(() => {
+      const tabNav = navigation.getParent()?.getParent();
+      tabNav?.setOptions({ tabBarStyle: { display: 'none' } });
+      return () => {
+        tabNav?.setOptions({ tabBarStyle: undefined });
+      };
+    }, [navigation])
+  );
+
   // Refs
   const scrollViewRef = useRef<ScrollView>(null);
+  const mediaGalleryRef = useRef<EntryMediaGalleryRef>(null);
 
   // Animations - start at final state if editing to avoid flash
   const formFadeAnim = useRef(new Animated.Value(isEditing ? 1 : 0)).current;
@@ -61,22 +93,66 @@ export function EntryFormScreen({ route, navigation }: Props) {
   const { data: existingEntry, isLoading: isLoadingEntry } = useEntry(entryId ?? '');
   // Fetch trip to get country code for scoping place search
   const { data: trip } = useTrip(tripId);
+  // Fetch entries to check count for free tier limit
+  const { data: tripEntries } = useEntries(tripId);
   const createEntry = useCreateEntry();
   const updateEntry = useUpdateEntry();
   const deleteEntry = useDeleteEntry();
+
+  // Premium gating for entry limits
+  const { showPaywallIfNeeded } = usePremiumGate();
 
   // Form state
   const [entryType, setEntryType] = useState<EntryType | null>(initialEntryType ?? null);
   const [hasSelectedType, setHasSelectedType] = useState(!!initialEntryType || isEditing);
   const [title, setTitle] = useState('');
   const [link, setLink] = useState('');
+  const [linkTitle, setLinkTitle] = useState<string | null>(null);
+  const linkDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [notes, setNotes] = useState('');
   const [selectedPlace, setSelectedPlace] = useState<SelectedPlace | null>(null);
   const [pendingMediaIds, setPendingMediaIds] = useState<string[]>([]);
   const [photoCount, setPhotoCount] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [scrollEnabled, setScrollEnabled] = useState(true);
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+
+  // Nearby photo suggestions
+  const {
+    photos: nearbyPhotos,
+    isLoading: nearbyPhotosLoading,
+    cacheExists,
+  } = useNearbyPhotos(selectedPlace);
+  const [addedNearbyPhotoIds, setAddedNearbyPhotoIds] = useState<Set<string>>(new Set());
+
+  // Reset added photo tracking whenever the selected place changes
+  useEffect(() => {
+    setAddedNearbyPhotoIds(new Set());
+  }, [selectedPlace]);
+
+  const handleAddNearbyPhoto = useCallback(async (photo: CachedPhoto) => {
+    let uri = photo.uri;
+    // ph:// and assets-library:// URIs can't be read by ExpoFile. Resolve to
+    // a file:// URI via MediaLibrary, downloading from iCloud if needed.
+    if (
+      uri.startsWith('ph://') ||
+      uri.startsWith('ph-upload://') ||
+      uri.startsWith('assets-library://')
+    ) {
+      try {
+        const info = await MediaLibrary.getAssetInfoAsync(photo.id, {
+          shouldDownloadFromNetwork: true,
+        });
+        uri = info.localUri ?? info.uri ?? uri;
+      } catch (err) {
+        logger.error('Failed to resolve nearby photo URI:', err);
+        return;
+      }
+    }
+    mediaGalleryRef.current?.addPhotos([uri]);
+    setAddedNearbyPhotoIds((prev) => new Set(prev).add(photo.id));
+  }, []);
 
   // Animate form appearance when type is selected
   useEffect(() => {
@@ -119,6 +195,11 @@ export function EntryFormScreen({ route, navigation }: Props) {
       setHasSelectedType(true);
       setNotes(existingEntry.notes ?? '');
       setLink(existingEntry.link ?? '');
+      if (existingEntry.link) {
+        fetchOpenGraphTitle(existingEntry.link).then((fetchedTitle) => {
+          if (fetchedTitle) setLinkTitle(fetchedTitle);
+        });
+      }
       if (existingEntry.place) {
         const placeToSet = {
           google_place_id:
@@ -143,18 +224,48 @@ export function EntryFormScreen({ route, navigation }: Props) {
     } else if (!isEditing) {
       // Reset form when creating new entry
       setTitle('');
-      setEntryType(initialEntryType ?? null);
-      setHasSelectedType(!!initialEntryType);
       setLink('');
+      setLinkTitle(null);
       setNotes('');
-      setSelectedPlace(null);
       setPendingMediaIds([]);
       setErrors({});
-      // Reset animations
-      formFadeAnim.setValue(initialEntryType ? 1 : 0);
-      formSlideAnim.setValue(initialEntryType ? 0 : 30);
+
+      // Handle prefill data from photo import
+      if (prefillPlace) {
+        setEntryType(prefillPlace.category);
+        setHasSelectedType(true);
+        setSelectedPlace({
+          google_place_id: prefillPlace.placeId,
+          name: prefillPlace.name,
+          address: prefillPlace.address,
+          latitude: null,
+          longitude: null,
+          google_photo_url: null,
+          website_url: null,
+          country_code: null,
+        });
+        // Set animations to final state for prefill
+        formFadeAnim.setValue(1);
+        formSlideAnim.setValue(0);
+      } else {
+        setEntryType(initialEntryType ?? null);
+        setHasSelectedType(!!initialEntryType);
+        setSelectedPlace(null);
+        // Reset animations
+        formFadeAnim.setValue(initialEntryType ? 1 : 0);
+        formSlideAnim.setValue(initialEntryType ? 0 : 30);
+      }
     }
-  }, [tripId, entryId, isEditing, existingEntry, initialEntryType, formFadeAnim, formSlideAnim]);
+  }, [
+    tripId,
+    entryId,
+    isEditing,
+    existingEntry,
+    initialEntryType,
+    prefillPlace,
+    formFadeAnim,
+    formSlideAnim,
+  ]);
 
   // URL validation with length limit
   const MAX_URL_LENGTH = 2048;
@@ -178,6 +289,34 @@ export function EntryFormScreen({ route, navigation }: Props) {
       return false;
     }
   }, []);
+
+  const handleLinkChange = useCallback(
+    (text: string) => {
+      setLink(text);
+      if (errors.link) setErrors((prev) => ({ ...prev, link: '' }));
+
+      if (linkDebounceRef.current) {
+        clearTimeout(linkDebounceRef.current);
+      }
+
+      // Don't clear title immediately while typing if we already have one?
+      // Actually, if user types, we should probably reset title until we fetch new one
+      // or at least when they finish typing.
+      // For now, let's keep previous title if it exists until we validate new URL?
+      // No, better to reset if they change the URL.
+      setLinkTitle(null);
+
+      if (!text.trim()) return;
+
+      linkDebounceRef.current = setTimeout(async () => {
+        if (isValidUrl(text)) {
+          const fetchedTitle = await fetchOpenGraphTitle(text);
+          if (fetchedTitle) setLinkTitle(fetchedTitle);
+        }
+      }, 1000);
+    },
+    [errors.link, isValidUrl]
+  );
 
   const validateForm = useCallback((): boolean => {
     const newErrors: Record<string, string> = {};
@@ -208,6 +347,14 @@ export function EntryFormScreen({ route, navigation }: Props) {
 
   const handleSubmit = useCallback(async () => {
     if (!validateForm() || !entryType) return;
+
+    // For new entries, check if user can add more (free tier limit)
+    if (!isEditing) {
+      const entryCount = tripEntries?.length ?? 0;
+      if (!showPaywallIfNeeded('entries', entryCount)) {
+        return; // Paywall was shown, don't proceed
+      }
+    }
 
     setIsSubmitting(true);
     try {
@@ -275,6 +422,8 @@ export function EntryFormScreen({ route, navigation }: Props) {
     createEntry,
     updateEntry,
     navigation,
+    tripEntries,
+    showPaywallIfNeeded,
   ]);
 
   // Handle type selection with animation
@@ -407,7 +556,12 @@ export function EntryFormScreen({ route, navigation }: Props) {
                     }}
                     placeholder="Search for a place..."
                     countryCode={trip?.country_code}
-                    onDropdownOpen={(isOpen) => setScrollEnabled(!isOpen)}
+                    onDropdownOpen={(isOpen) => {
+                      setScrollEnabled(!isOpen);
+                      setIsDropdownOpen(isOpen);
+                    }}
+                    onFocus={() => setIsDropdownOpen(true)}
+                    onBlur={() => setIsDropdownOpen(false)}
                   />
                   {errors.place && (
                     <Text style={styles.errorText} testID="error-location-required">
@@ -437,22 +591,42 @@ export function EntryFormScreen({ route, navigation }: Props) {
 
               {/* Link (optional) */}
               <View style={styles.section}>
-                <GlassInput
-                  label="LINK (OPTIONAL)"
-                  placeholder="Add website URL"
-                  value={link}
-                  onChangeText={(text) => {
-                    setLink(text);
-                    if (errors.link) setErrors((prev) => ({ ...prev, link: '' }));
-                  }}
-                  error={errors.link}
-                  keyboardType="url"
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  returnKeyType="next"
-                  testID="entry-link-input"
-                />
+                {linkTitle ? (
+                  <>
+                    <Text style={styles.sectionLabel}>LINK</Text>
+                    <SmartLinkDisplay
+                      url={link}
+                      title={linkTitle}
+                      onChange={() => setLinkTitle(null)}
+                    />
+                  </>
+                ) : (
+                  <GlassInput
+                    label="LINK (OPTIONAL)"
+                    placeholder="Add website URL"
+                    value={link}
+                    onChangeText={handleLinkChange}
+                    error={errors.link}
+                    keyboardType="url"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    returnKeyType="next"
+                    testID="entry-link-input"
+                  />
+                )}
               </View>
+
+              {/* Nearby Photo Suggestions */}
+              {showPlaceInput && selectedPlace?.latitude != null && (
+                <NearbyPhotoSuggestions
+                  photos={nearbyPhotos}
+                  isLoading={nearbyPhotosLoading}
+                  cacheExists={cacheExists}
+                  onPhotoSelect={handleAddNearbyPhoto}
+                  remainingSlots={MAX_PHOTOS_PER_ENTRY - photoCount}
+                  addedPhotoIds={addedNearbyPhotoIds}
+                />
+              )}
 
               {/* Photos Section */}
               <View style={styles.section}>
@@ -464,11 +638,13 @@ export function EntryFormScreen({ route, navigation }: Props) {
                 </View>
                 <View style={styles.photoGalleryContainer}>
                   <EntryMediaGallery
+                    ref={mediaGalleryRef}
                     entryId={isEditing ? entryId : undefined}
                     tripId={!isEditing ? tripId : undefined}
                     editable={true}
                     onPendingMediaChange={!isEditing ? setPendingMediaIds : undefined}
                     onMediaCountChange={setPhotoCount}
+                    initialPhotoUris={!isEditing ? prefillPhotos : undefined}
                   />
                 </View>
               </View>
@@ -485,29 +661,31 @@ export function EntryFormScreen({ route, navigation }: Props) {
                   testID="entry-notes-input"
                 />
               </View>
-
-              {/* Submit Button */}
-              <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 16) + 16 }]}>
-                <Button
-                  title={isEditing ? 'Save Changes' : 'Save Entry'}
-                  onPress={handleSubmit}
-                  loading={isSubmitting}
-                  disabled={isSubmitting}
-                  testID="entry-save-button"
-                />
-                {isEditing && (
-                  <Button
-                    title="Delete Entry"
-                    onPress={handleDelete}
-                    variant="destructive"
-                    style={styles.deleteButton}
-                    testID="entry-delete-button"
-                  />
-                )}
-              </View>
             </Animated.View>
           )}
         </ScrollView>
+
+        {/* Sticky footer - always visible at bottom */}
+        {hasSelectedType && !isDropdownOpen && (
+          <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 16) }]}>
+            <Button
+              title={isEditing ? 'Save Changes' : 'Save Entry'}
+              onPress={handleSubmit}
+              loading={isSubmitting}
+              disabled={isSubmitting}
+              testID="entry-save-button"
+            />
+            {isEditing && (
+              <Button
+                title="Delete Entry"
+                onPress={handleDelete}
+                variant="destructive"
+                style={styles.deleteButton}
+                testID="entry-delete-button"
+              />
+            )}
+          </View>
+        )}
       </KeyboardAvoidingView>
     </View>
   );
@@ -612,9 +790,11 @@ const styles = StyleSheet.create({
     fontFamily: fonts.openSans.regular,
   },
 
-  // Footer
+  // Footer - sticky at bottom
   footer: {
     paddingTop: 16,
+    paddingHorizontal: 20,
+    backgroundColor: colors.warmCream,
   },
   deleteButton: {
     marginTop: 12,

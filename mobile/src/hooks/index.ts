@@ -87,3 +87,38 @@ export {
   getSocialHomeRanking,
   getSocialPendingTagCount,
 } from './useSocialHome';
+
+export { useAnimatedPress, AnimatedPressPresets } from './useAnimatedPress';
+export type { UseAnimatedPressOptions, UseAnimatedPressResult } from './useAnimatedPress';
+
+export { useBreathingAnimation, BreathingPresets } from './useBreathingAnimation';
+export type {
+  UseBreathingAnimationOptions,
+  UseBreathingAnimationResult,
+} from './useBreathingAnimation';
+
+export { useStaggeredEntrance, StaggeredEntrancePresets } from './useStaggeredEntrance';
+export type {
+  UseStaggeredEntranceOptions,
+  UseStaggeredEntranceResult,
+} from './useStaggeredEntrance';
+
+export { useReducedMotion } from './useReducedMotion';
+
+export { useStableCallback } from './useStableCallback';
+
+export { useScreenEntrance } from './useScreenEntrance';
+export type { UseScreenEntranceOptions, UseScreenEntranceResult } from './useScreenEntrance';
+
+export { useSuggestPlaces } from './usePhotoImport';
+
+export { useClusterPhotoUpload } from './useClusterPhotoUpload';
+export type { ClusterUploadState, UploadPhotosResult } from './useClusterPhotoUpload';
+
+export { useCountryPhotoInfo } from './useCountryPhotoInfo';
+export type { CountryPhotoInfo } from './useCountryPhotoInfo';
+
+export { useAuthSession } from './useAuthSession';
+export { useShareExtensionHandler } from './useShareExtensionHandler';
+export { useNavigationPersistence } from './useNavigationPersistence';
+export { useAppStateTracking } from './useAppStateTracking';

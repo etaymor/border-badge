@@ -12,7 +12,7 @@ This styleguide defines the visual identity for the Border Badge application. Th
 | ------------- | --------- | ------------------------------------- |
 | Midnight Navy | `#172A3A` | Backgrounds, headers, dark containers |
 | Warm Cream    | `#FDF6ED` | Background paper feel, base layer     |
-| Sunset Gold   | `#F4C24E` | Highlight buttons, call to actions    |
+| Sunset Gold   | `#FFC636` | Highlight buttons, call to actions    |
 | Adobe Brick   | `#C1543E` | Accent, icons, “visited” mark         |
 | Lake Blue     | `#A0CDEB` | Sky/illustration tie-in, neutral tint |
 | Moss Green    | `#547A5F` | Secondary accents, tags               |
@@ -32,7 +32,7 @@ This styleguide defines the visual identity for the Border Badge application. Th
 
 - **Font Family**: Playfair Display
 - **Weight**: 600-700
-- **Letter Spacing**: -1%
+- **Letter Spacing**: -2%
 - **Style**: Elegant serif with soft curves
 - **Usage**: Screen titles, country names, headers
 
@@ -51,19 +51,59 @@ This styleguide defines the visual identity for the Border Badge application. Th
 
 ## Components
 
+### Cards
+
+- **Corner Radius**: 20px
+- **Background**: Paper Beige (`#F5ECE0`)
+- **Shadow**: Soft drop shadow (offset 0, 4px)
+
 ### CTA Buttons
 
 - **Shape**: Fully rounded
 - **Padding**: 14px vertical, 28px horizontal
-- **Corner Radius**: 12px
+- **Corner Radius**: Fully rounded (pill)
 - **Font**: Open Sans SemiBold (600), Title Case
 - **Background Color**: Sunset Gold
 - **Text Color**: Midnight Navy
 - **Hover/Pressed**: Slight darkening (`#e0aa2e`)
 
+## Animation System
+
+The app uses spring-based animations throughout to create a premium, tactile feel. All animations respect the user's "Reduce Motion" accessibility setting (WCAG 2.1 Level AA).
+
+### Spring Physics
+
+| Config  | Stiffness | Damping | Mass | Usage                       |
+| ------- | --------- | ------- | ---- | --------------------------- |
+| Default | 1000      | 500     | 1.5  | Standard screen transitions |
+| Gentle  | 800       | 600     | 3    | Subtle, organic animations  |
+| Bouncy  | 900       | 300     | 2    | Celebration moments         |
+
+### Animation Constants
+
+| Constant              | Value      | Usage                                |
+| --------------------- | ---------- | ------------------------------------ |
+| Press Scale           | 0.96       | Button/element press feedback        |
+| Previous Screen Scale | 0.95       | Background screen during transitions |
+| Stagger Delay         | 50ms       | Delay between list item animations   |
+| Breathing Scale       | 1.0 → 1.01 | Subtle idle animation for stamps     |
+
+### Micro-Interactions
+
+Press feedback uses spring animations with scale transforms. Interactive elements should scale down slightly on press (0.96) and spring back on release. The `useAnimatedPress` hook provides this behavior with configurable presets: default (0.96), subtle (0.98), strong (0.94), and tabBar (0.9).
+
+### Shared Element Transitions
+
+Country stamps, trip cards, and entry images use shared element transitions to create seamless morphing effects between screens. Elements are tagged with consistent identifiers (e.g., `country-US`) to enable the transition system to match source and destination elements.
+
+### Staggered Entrances
+
+List items animate in with a staggered delay, fading in and sliding up from below. The default configuration uses 50ms delay between items with a 20px slide distance. Presets include fast (30ms, 15px), dramatic (80ms, 30px), and subtle (40ms, 10px).
+
 ## Design Philosophy
 
 - **Atmosphere**: Analog warmth, tactile visual identity.
 - **Layout**: Clear visual rhythm, ample space for content to breathe.
-- **Interactivity**: Crisp and delightful.
+- **Interactivity**: Crisp and delightful with spring-based animations.
 - **Imagery**: Illustration and user photos should complement each other without crowding.
+- **Accessibility**: All animations respect user preferences for reduced motion.

@@ -2,11 +2,12 @@
  * React Query hooks for entries API.
  */
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Alert } from 'react-native';
 
 import { api } from '@services/api';
 import { Analytics } from '@services/analytics';
+import { logger } from '@utils/logger';
 
 // Entry type enum matching backend
 export type EntryType = 'place' | 'food' | 'stay' | 'experience';
@@ -29,6 +30,8 @@ export interface Place {
   longitude: number | null;
   address: string | null;
   google_photo_url: string | null;
+  /** ISO 2-letter country code from place detection (stored in extra_data) */
+  country_code: string | null;
 }
 
 // Place create input (for creating entries with places)
@@ -41,6 +44,43 @@ export interface PlaceInput {
   google_photo_url: string | null;
 }
 
+/**
+ * Context recorded when an entry is created from the photo-import flow.
+ *
+ * Persisted into `place.extra_data.photo_import` so we can run offline evals
+ * over historical data: which suggestion was system-ranked first, which the
+ * user actually chose, how many alternatives they cycled through, whether
+ * they overrode the system's top pick. Snake_case to match the JSONB shape
+ * read by analytics tooling.
+ */
+export interface PhotoImportContext {
+  cluster_id: string;
+  /** Google Place ID of the system's top-ranked suggestion at scan time. */
+  suggested_place_id: string | null;
+  /**
+   * 1-based rank of the place the user actually saved within the original
+   * ranked list, or 0 if the user saved a manual search result that was
+   * never in the suggestions array.
+   */
+  suggested_rank: number;
+  /** How many alternatives the system offered for this cluster. */
+  alternatives_count: number;
+  /** How many distinct alternatives the user actually viewed. */
+  alternatives_viewed: number;
+  /** True when the saved place is not the system's top-ranked suggestion. */
+  was_override: boolean;
+  /** True when this suggestion was served from the SQLite cache, not a fresh API call. */
+  was_from_cache: boolean;
+}
+
+// Entry metadata from social ingest
+export interface EntryMetadata {
+  source_type?: string;
+  provider?: string;
+  author_handle?: string;
+  thumbnail_url?: string;
+}
+
 // Entry interface - frontend format with entry_type and entry_date
 export interface Entry {
   id: string;
@@ -51,6 +91,7 @@ export interface Entry {
   link: string | null;
   entry_date: string | null; // ISO date string
   created_at: string;
+  metadata: EntryMetadata | null;
 }
 
 // Entry with place and media
@@ -69,6 +110,12 @@ export interface CreateEntryInput {
   entry_date?: string; // ISO date string
   place?: PlaceInput;
   pending_media_ids?: string[]; // Media uploaded before entry creation
+  /**
+   * Optional photo-import provenance. When present, gets merged into
+   * place.extra_data.photo_import on the backend so we can later evaluate
+   * suggestion quality against actual user choices.
+   */
+  photo_import?: PhotoImportContext;
 }
 
 // Input for updating an entry
@@ -87,6 +134,7 @@ const ENTRIES_QUERY_KEY = ['entries'];
 function transformEntry(entry: Record<string, unknown>): EntryWithPlace {
   const place = entry.place as Record<string, unknown> | null;
   const extraData = place?.extra_data as Record<string, unknown> | null;
+  const metadata = entry.metadata as EntryMetadata | null;
   return {
     id: entry.id as string,
     trip_id: entry.trip_id as string,
@@ -96,6 +144,7 @@ function transformEntry(entry: Record<string, unknown>): EntryWithPlace {
     link: (entry.link as string) ?? null,
     entry_date: (entry.date as string) ?? null,
     created_at: entry.created_at as string,
+    metadata: metadata,
     place: place
       ? {
           id: place.id as string,
@@ -106,11 +155,15 @@ function transformEntry(entry: Record<string, unknown>): EntryWithPlace {
           longitude: (place.lng as number) ?? null,
           address: (place.address as string) ?? null,
           google_photo_url: (extraData?.google_photo_url as string) ?? null,
+          country_code: (extraData?.country_code as string) ?? null,
         }
       : null,
     media_files: entry.media_files as MediaFile[] | undefined,
   };
 }
+
+// Stale time for entries - 5 minutes (entries change only via mutations)
+const ENTRIES_STALE_TIME = 1000 * 60 * 5;
 
 // Fetch all entries for a trip
 export function useEntries(tripId: string) {
@@ -122,6 +175,48 @@ export function useEntries(tripId: string) {
       return rawEntries.map(transformEntry);
     },
     enabled: !!tripId,
+    staleTime: ENTRIES_STALE_TIME,
+    gcTime: 1000 * 60 * 30, // 30 minutes
+  });
+}
+
+// Page size for infinite scroll pagination
+const ENTRIES_PAGE_SIZE = 20;
+
+// Page structure for infinite queries
+export interface EntriesPage {
+  entries: EntryWithPlace[];
+  nextOffset: number | null;
+}
+
+// Sort options for entries
+export type EntriesSortOrder = 'date_asc' | 'created_at_desc';
+
+// Fetch entries with infinite scroll pagination
+export function useInfiniteEntries(tripId: string, options?: { sort?: EntriesSortOrder }) {
+  return useInfiniteQuery({
+    queryKey: [...ENTRIES_QUERY_KEY, tripId, 'infinite', options?.sort],
+    queryFn: async ({ pageParam = 0 }): Promise<EntriesPage> => {
+      const params = new URLSearchParams({
+        limit: ENTRIES_PAGE_SIZE.toString(),
+        offset: pageParam.toString(),
+      });
+      if (options?.sort) {
+        params.append('sort', options.sort);
+      }
+      const response = await api.get(`/trips/${tripId}/entries?${params}`);
+      const rawEntries = response.data as Record<string, unknown>[];
+      const entries = rawEntries.map(transformEntry);
+      return {
+        entries,
+        nextOffset: entries.length === ENTRIES_PAGE_SIZE ? pageParam + ENTRIES_PAGE_SIZE : null,
+      };
+    },
+    initialPageParam: 0,
+    getNextPageParam: (lastPage) => lastPage.nextOffset,
+    enabled: !!tripId,
+    staleTime: ENTRIES_STALE_TIME,
+    gcTime: 1000 * 60 * 30, // 30 minutes
   });
 }
 
@@ -134,6 +229,8 @@ export function useEntry(entryId: string) {
       return transformEntry(response.data as Record<string, unknown>);
     },
     enabled: !!entryId,
+    staleTime: ENTRIES_STALE_TIME,
+    gcTime: 1000 * 60 * 30, // 30 minutes
   });
 }
 
@@ -143,13 +240,24 @@ export function useCreateEntry() {
 
   return useMutation({
     mutationFn: async (input: CreateEntryInput): Promise<EntryWithPlace> => {
-      console.log('[useCreateEntry] Input received', {
+      logger.log('[useCreateEntry] Input received', {
         trip_id: input.trip_id,
         entry_type: input.entry_type,
         title: input.title,
         hasPlace: !!input.place,
         place: input.place,
       });
+
+      // Build place.extra_data, merging google_photo_url and photo_import
+      // provenance. Backend stores this as opaque JSONB on the place row.
+      const extraData: Record<string, unknown> = {};
+      if (input.place?.google_photo_url) {
+        extraData.google_photo_url = input.place.google_photo_url;
+      }
+      if (input.photo_import) {
+        extraData.photo_import = input.photo_import;
+      }
+      const hasExtraData = Object.keys(extraData).length > 0;
 
       // Transform to backend format
       const backendInput = {
@@ -165,22 +273,20 @@ export function useCreateEntry() {
               lat: input.place.latitude,
               lng: input.place.longitude,
               address: input.place.address,
-              extra_data: input.place.google_photo_url
-                ? { google_photo_url: input.place.google_photo_url }
-                : undefined,
+              extra_data: hasExtraData ? extraData : undefined,
             }
           : undefined,
         pending_media_ids: input.pending_media_ids,
       };
 
-      console.log('[useCreateEntry] Sending to backend', {
+      logger.log('[useCreateEntry] Sending to backend', {
         trip_id: input.trip_id,
         backendInput,
       });
 
       const response = await api.post(`/trips/${input.trip_id}/entries`, backendInput);
 
-      console.log('[useCreateEntry] Response from backend', {
+      logger.log('[useCreateEntry] Response from backend', {
         data: response.data,
         place: (response.data as Record<string, unknown>)?.place,
       });

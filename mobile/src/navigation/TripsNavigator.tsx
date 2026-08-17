@@ -2,16 +2,21 @@ import { StyleSheet, View } from 'react-native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
 import { GlassBackButton } from '@components/ui';
+import { EntryListScreen, EntryFormScreen } from '@screens/entries';
+import { ListCreateScreen, ListEditScreen, TripListsScreen } from '@screens/lists';
+import { PhotoImportScreen } from '@screens/photos/PhotoImportScreen';
+import { PhotoTripsScreen } from '@screens/photos/PhotoTripsScreen';
 import { TripDetailScreen } from '@screens/trips/TripDetailScreen';
 import { TripFormScreen } from '@screens/trips/TripFormScreen';
 import { TripsListScreen } from '@screens/trips/TripsListScreen';
-import { EntryListScreen, EntryFormScreen } from '@screens/entries';
-import { ListCreateScreen, ListEditScreen, TripListsScreen } from '@screens/lists';
 import { PendingTripTagsScreen } from '@screens/notifications/PendingTripTagsScreen';
+import SavedPlacesScreen from '@screens/trips/SavedPlacesScreen';
 import { colors } from '@constants/colors';
 
 import type { TripsStackParamList } from './types';
 
+// Note: TripsNavigator uses native stack for native header support
+// Shared element transitions for trips will be handled differently in Phase 3
 const Stack = createNativeStackNavigator<TripsStackParamList>();
 
 // Placeholder for EntryDetail screen (deferred to later phase)
@@ -76,6 +81,21 @@ export function TripsNavigator() {
       <Stack.Screen
         name="PendingTripTags"
         component={PendingTripTagsScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="SavedPlaces"
+        component={SavedPlacesScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="PhotoTrips"
+        component={PhotoTripsScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="PhotoImport"
+        component={PhotoImportScreen}
         options={{ headerShown: false }}
       />
     </Stack.Navigator>

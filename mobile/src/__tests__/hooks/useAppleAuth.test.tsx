@@ -19,14 +19,12 @@ import { supabase } from '@services/supabase';
 // Note: Alert.alert is mocked in jest.setup.js at the internal path
 // but verifying Alert calls is complex due to React Native's module structure.
 // We test error logging with console.error which is the new functionality.
-import { storeTokens, clearTokens, storeOnboardingComplete } from '@services/api';
+import { storeOnboardingComplete } from '@services/api';
 import { migrateGuestData } from '@services/guestMigration';
 import { useAuthStore } from '@stores/authStore';
 import { createTestQueryClient } from '../utils/testUtils';
 
 // Type the mocks
-const mockedStoreTokens = storeTokens as jest.MockedFunction<typeof storeTokens>;
-const mockedClearTokens = clearTokens as jest.MockedFunction<typeof clearTokens>;
 const mockedStoreOnboardingComplete = storeOnboardingComplete as jest.MockedFunction<
   typeof storeOnboardingComplete
 >;
@@ -52,14 +50,26 @@ jest.mock('@services/guestMigration', () => ({
     migratedProfile: false,
     errors: [],
   }),
+  captureOnboardingSnapshot: jest.fn().mockReturnValue({
+    selectedCountries: [],
+    bucketListCountries: [],
+    dreamDestination: null,
+    homeCountry: null,
+    motivationTags: [],
+    personaTags: [],
+    trackingPreference: 'full_atlas',
+  }),
 }));
 
 // Mock API service functions
 jest.mock('@services/api', () => ({
   ...jest.requireActual('@services/api'),
-  storeTokens: jest.fn().mockResolvedValue(undefined),
-  clearTokens: jest.fn().mockResolvedValue(undefined),
+  api: {
+    post: jest.fn().mockResolvedValue({ data: { status: 'scheduled' } }),
+  },
   storeOnboardingComplete: jest.fn().mockResolvedValue(undefined),
+  clearTokens: jest.fn().mockResolvedValue(undefined),
+  storeTokens: jest.fn().mockResolvedValue(undefined),
 }));
 
 // Mock expo-apple-authentication
@@ -217,36 +227,8 @@ describe('useAppleAuth', () => {
         });
       });
 
-      it('clears stale tokens before storing new ones', async () => {
-        const { result } = renderHook(() => useAppleSignIn(), {
-          wrapper: createWrapper(queryClient),
-        });
-
-        await act(async () => {
-          result.current.mutate();
-        });
-
-        await waitFor(() => expect(result.current.isSuccess).toBe(true));
-
-        // Verify clearTokens was called before storeTokens
-        const clearCallOrder = mockedClearTokens.mock.invocationCallOrder[0];
-        const storeCallOrder = mockedStoreTokens.mock.invocationCallOrder[0];
-        expect(clearCallOrder).toBeLessThan(storeCallOrder);
-      });
-
-      it('stores new tokens on successful authentication', async () => {
-        const { result } = renderHook(() => useAppleSignIn(), {
-          wrapper: createWrapper(queryClient),
-        });
-
-        await act(async () => {
-          result.current.mutate();
-        });
-
-        await waitFor(() => expect(result.current.isSuccess).toBe(true));
-
-        expect(mockedStoreTokens).toHaveBeenCalledWith('test-access-token', 'test-refresh-token');
-      });
+      // Note: Token storage is handled by onAuthStateChange listener in App.tsx,
+      // not by the auth hooks directly. The hooks rely on Supabase's session management.
 
       it('detects returning user and skips migration', async () => {
         // Mock user_countries to return data (returning user)
@@ -292,25 +274,11 @@ describe('useAppleAuth', () => {
 
         await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-        expect(mockedMigrateGuestData).toHaveBeenCalledWith(mockSession);
+        expect(mockedMigrateGuestData).toHaveBeenCalledWith(mockSession, expect.any(Object));
       });
 
-      it('sets session last to trigger navigation', async () => {
-        const setSession = jest.fn();
-        useAuthStore.setState({ setSession });
-
-        const { result } = renderHook(() => useAppleSignIn(), {
-          wrapper: createWrapper(queryClient),
-        });
-
-        await act(async () => {
-          result.current.mutate();
-        });
-
-        await waitFor(() => expect(result.current.isSuccess).toBe(true));
-
-        expect(setSession).toHaveBeenCalledWith(mockSession);
-      });
+      // Note: Session is set via Supabase's signInWithIdToken which triggers
+      // onAuthStateChange in App.tsx. The hooks don't call setSession directly.
 
       it('updates display name when Apple provides it', async () => {
         const credentialWithName = createMockAppleCredential({
@@ -332,6 +300,70 @@ describe('useAppleAuth', () => {
         expect(mockRpc).toHaveBeenCalledWith('update_display_name', {
           new_display_name: 'John Doe',
         });
+      });
+
+      it('uses displayName from params over Apple-provided name', async () => {
+        // Apple provides a name, but we also pass one from onboarding
+        const credentialWithName = createMockAppleCredential({
+          fullName: { givenName: 'John', familyName: 'Doe' },
+        });
+        mockedSignInAsync.mockResolvedValue(credentialWithName as never);
+        mockRpc.mockResolvedValue({ data: null, error: null });
+
+        const { result } = renderHook(() => useAppleSignIn(), {
+          wrapper: createWrapper(queryClient),
+        });
+
+        await act(async () => {
+          // Pass displayName from onboarding - should take precedence
+          result.current.mutate({ displayName: 'Onboarding Name' });
+        });
+
+        await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+        // Should use the onboarding name, not Apple's name
+        expect(mockRpc).toHaveBeenCalledWith('update_display_name', {
+          new_display_name: 'Onboarding Name',
+        });
+      });
+
+      it('uses displayName from params when Apple does not provide name', async () => {
+        // Apple doesn't provide a name (subsequent sign-ins)
+        mockedSignInAsync.mockResolvedValue(mockAppleCredential as never);
+        mockRpc.mockResolvedValue({ data: null, error: null });
+
+        const { result } = renderHook(() => useAppleSignIn(), {
+          wrapper: createWrapper(queryClient),
+        });
+
+        await act(async () => {
+          result.current.mutate({ displayName: 'Onboarding Name' });
+        });
+
+        await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+        expect(mockRpc).toHaveBeenCalledWith('update_display_name', {
+          new_display_name: 'Onboarding Name',
+        });
+      });
+
+      it('does not update display name when neither params nor Apple provides one', async () => {
+        // Apple doesn't provide a name and no params passed
+        mockedSignInAsync.mockResolvedValue(mockAppleCredential as never);
+        mockRpc.mockResolvedValue({ data: null, error: null });
+
+        const { result } = renderHook(() => useAppleSignIn(), {
+          wrapper: createWrapper(queryClient),
+        });
+
+        await act(async () => {
+          result.current.mutate(); // No displayName param
+        });
+
+        await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+        // Should not call update_display_name
+        expect(mockRpc).not.toHaveBeenCalled();
       });
     });
 
@@ -499,7 +531,8 @@ describe('useAppleAuth', () => {
           data: { session: mockSession, user: mockSession.user },
           error: null,
         });
-        mockRpc.mockRejectedValue(new Error('RPC failed'));
+        // Supabase RPC returns { data, error } format, not rejected promise
+        mockRpc.mockResolvedValue({ data: null, error: { message: 'RPC failed' } });
         mockSupabaseFrom.mockReturnValue({
           select: jest.fn().mockReturnThis(),
           eq: jest.fn().mockReturnThis(),
@@ -546,7 +579,7 @@ describe('useAppleAuth', () => {
         await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
         // Should still run migration as fallback
-        expect(mockedMigrateGuestData).toHaveBeenCalledWith(mockSession);
+        expect(mockedMigrateGuestData).toHaveBeenCalledWith(mockSession, expect.any(Object));
       });
     });
   });

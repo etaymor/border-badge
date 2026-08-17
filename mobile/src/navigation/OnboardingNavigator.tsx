@@ -1,5 +1,6 @@
-import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { createBlankStackNavigator } from 'react-native-screen-transitions/blank-stack';
 
+import { useAuthStore } from '@stores/authStore';
 import { AccountCreationScreen } from '@screens/onboarding/AccountCreationScreen';
 import { AntarcticaPromptScreen } from '@screens/onboarding/AntarcticaPromptScreen';
 import { ContinentCountryGridScreen } from '@screens/onboarding/ContinentCountryGridScreen';
@@ -7,39 +8,140 @@ import { ContinentIntroScreen } from '@screens/onboarding/ContinentIntroScreen';
 import { DreamDestinationScreen } from '@screens/onboarding/DreamDestinationScreen';
 import { HomeCountryScreen } from '@screens/onboarding/HomeCountryScreen';
 import { MotivationScreen } from '@screens/onboarding/MotivationScreen';
+import { EmotionalHookScreen } from '@screens/onboarding/EmotionalHookScreen';
+import { FunctionalHookScreen } from '@screens/onboarding/FunctionalHookScreen';
 import { NameEntryScreen } from '@screens/onboarding/NameEntryScreen';
 import { OnboardingSliderScreen } from '@screens/onboarding/OnboardingSliderScreen';
-// LAUNCH_SIMPLIFICATION: Paywall hidden for initial launch
-// import { PaywallScreen } from '@screens/onboarding/PaywallScreen';
+import { PaywallScreen } from '@screens/onboarding/PaywallScreen';
 import { ProgressSummaryScreen } from '@screens/onboarding/ProgressSummaryScreen';
-import TrackingPreferenceScreen from '@screens/onboarding/TrackingPreferenceScreen';
+// LAUNCH_SIMPLIFICATION: Tracking preference hidden - all users get full_atlas (227 countries)
+// import TrackingPreferenceScreen from '@screens/onboarding/TrackingPreferenceScreen';
 import { WelcomeCarouselScreen } from '@screens/onboarding/WelcomeCarouselScreen';
+import {
+  SlideWithScalePreset,
+  ParallaxSlidePreset,
+  ZoomRevealPreset,
+  SlideWithLeadPreset,
+  ContinentZoomPreset,
+  DramaticRevealPreset,
+  CollectPreset,
+  OnboardingSlidePreset,
+} from './interpolators';
 
 import type { OnboardingStackParamList } from './types';
 
-const Stack = createNativeStackNavigator<OnboardingStackParamList>();
+const Stack = createBlankStackNavigator<OnboardingStackParamList>();
 
+/**
+ * OnboardingNavigator with unique per-screen transitions
+ *
+ * Each transition is designed to reinforce the emotional narrative:
+ * - WelcomeCarousel → OnboardingSlider: Parallax slide (beginning the journey)
+ * - OnboardingSlider → Motivation: Zoom reveal (step back and reflect)
+ * - Motivation → HomeCountry: Lead motion (pin leading to map)
+ * - HomeCountry → TrackingPreference: Default slide (continuation)
+ * - TrackingPreference → DreamDestination: Default slide (continuation)
+ * - DreamDestination → ContinentIntro: Continent zoom (explore the map)
+ * - ContinentIntro → ContinentCountryGrid: Default slide (into details)
+ * - ContinentCountryGrid cycles: Default slide (progress through regions)
+ * - AntarcticaPrompt → ProgressSummary: Dramatic reveal (celebration moment)
+ * - ProgressSummary → NameEntry: Collect animation (making it official)
+ * - NameEntry → AccountCreation: Default slide (sealing the deal)
+ * - AccountCreation → EmotionalHook → FunctionalHook → Paywall (post-signup flow)
+ */
 export function OnboardingNavigator() {
+  const needsPostSignupFlow = useAuthStore((s) => s.needsPostSignupFlow);
+
   return (
     <Stack.Navigator
       screenOptions={{
-        headerShown: false,
+        // Default transition for screens without specific overrides
+        ...OnboardingSlidePreset,
+        // Suspend off-screen onboarding screens from re-rendering. Requires
+        // enableFreeze() at app root (see App.tsx). With ~14 onboarding screens
+        // (including 6 country grids and several video screens), this prevents
+        // the cumulative lag the user notices by the end of the flow.
+        freezeOnBlur: true,
+        // Detach buried onboarding screens so react-freeze actually engages.
+        // freezeOnBlur alone never froze anything here: the blank-stack's
+        // active-screens window only shrinks past a screen that declares
+        // `detachPreviousScreen`, so without it every screen stayed active
+        // (activityState = 1) and kept running store updates + animations.
+        // Applying it on screenOptions covers every route — including each
+        // ContinentIntro instance pushed by the "No" chain — so screens below
+        // the top freeze. Detach does NOT unmount; back-navigation still
+        // restores the previous screen, so the intentional ContinentIntro "No"
+        // push chain and grid→intro back navigation keep working. No transition
+        // preset changes; this only affects lifecycle (freeze), not motion.
+        detachPreviousScreen: true,
       }}
+      initialRouteName={needsPostSignupFlow ? 'EmotionalHook' : 'WelcomeCarousel'}
     >
+      {/* First screen - no incoming transition needed */}
       <Stack.Screen name="WelcomeCarousel" component={WelcomeCarouselScreen} />
-      <Stack.Screen name="OnboardingSlider" component={OnboardingSliderScreen} />
-      <Stack.Screen name="Motivation" component={MotivationScreen} />
-      <Stack.Screen name="HomeCountry" component={HomeCountryScreen} />
-      <Stack.Screen name="TrackingPreference" component={TrackingPreferenceScreen} />
+
+      {/* WelcomeCarousel → OnboardingSlider: Parallax slide with depth */}
+      <Stack.Screen
+        name="OnboardingSlider"
+        component={OnboardingSliderScreen}
+        options={ParallaxSlidePreset}
+      />
+
+      {/* OnboardingSlider → Motivation: Zoom-out reveal */}
+      <Stack.Screen name="Motivation" component={MotivationScreen} options={ZoomRevealPreset} />
+
+      {/* Motivation → HomeCountry: Slide with pin leading motion */}
+      <Stack.Screen
+        name="HomeCountry"
+        component={HomeCountryScreen}
+        options={SlideWithLeadPreset}
+      />
+
+      {/* LAUNCH_SIMPLIFICATION: Tracking preference hidden - all users get full_atlas (227 countries) */}
+      {/* <Stack.Screen name="TrackingPreference" component={TrackingPreferenceScreen} /> */}
+
+      {/* DreamDestination: Default onboarding slide */}
       <Stack.Screen name="DreamDestination" component={DreamDestinationScreen} />
-      <Stack.Screen name="ContinentIntro" component={ContinentIntroScreen} />
+
+      {/* DreamDestination → ContinentIntro: Continent zoom effect */}
+      <Stack.Screen
+        name="ContinentIntro"
+        component={ContinentIntroScreen}
+        options={ContinentZoomPreset}
+      />
+
+      {/* ContinentCountryGrid: Default slide for cycling through regions */}
       <Stack.Screen name="ContinentCountryGrid" component={ContinentCountryGridScreen} />
+
+      {/* AntarcticaPrompt: Default slide */}
       <Stack.Screen name="AntarcticaPrompt" component={AntarcticaPromptScreen} />
-      <Stack.Screen name="ProgressSummary" component={ProgressSummaryScreen} />
-      {/* LAUNCH_SIMPLIFICATION: Paywall hidden for initial launch */}
-      {/* <Stack.Screen name="Paywall" component={PaywallScreen} /> */}
-      <Stack.Screen name="NameEntry" component={NameEntryScreen} />
-      <Stack.Screen name="AccountCreation" component={AccountCreationScreen} />
+
+      {/* AntarcticaPrompt → ProgressSummary: Dramatic reveal */}
+      <Stack.Screen
+        name="ProgressSummary"
+        component={ProgressSummaryScreen}
+        options={DramaticRevealPreset}
+      />
+
+      {/* ProgressSummary → NameEntry: Stamps collecting into passport */}
+      <Stack.Screen name="NameEntry" component={NameEntryScreen} options={CollectPreset} />
+
+      {/* NameEntry → AccountCreation: Create account before paywall so
+          RevenueCat purchases attach to the Supabase UUID */}
+      <Stack.Screen
+        name="AccountCreation"
+        component={AccountCreationScreen}
+        options={SlideWithScalePreset}
+      />
+
+      {/* AccountCreation → EmotionalHook: Value proposition (memories) */}
+      <Stack.Screen name="EmotionalHook" component={EmotionalHookScreen} />
+
+      {/* EmotionalHook → FunctionalHook: Value proposition (social saving) */}
+      <Stack.Screen name="FunctionalHook" component={FunctionalHookScreen} />
+
+      {/* FunctionalHook → Paywall: Show subscription options (user is now authenticated) */}
+      <Stack.Screen name="Paywall" component={PaywallScreen} />
     </Stack.Navigator>
   );
 }

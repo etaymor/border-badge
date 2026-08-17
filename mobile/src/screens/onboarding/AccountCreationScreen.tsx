@@ -11,6 +11,7 @@ import {
   Animated,
   Image,
   KeyboardAvoidingView,
+  Linking,
   Platform,
   ScrollView,
   StyleSheet,
@@ -23,12 +24,17 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Text } from '@components/ui';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
+import { env } from '@config/env';
 import { useAppleAuthAvailable, useAppleSignIn } from '@hooks/useAppleAuth';
 import { useSignUpWithPassword } from '@hooks/useAuth';
 import { useGoogleAuthAvailable, useGoogleSignIn } from '@hooks/useGoogleAuth';
+import { usePostSignupNavigation } from '@hooks/usePostSignupNavigation';
+import { useReducedMotion } from '@hooks/useReducedMotion';
+import { useScreenEntrance } from '@hooks/useScreenEntrance';
 import type { OnboardingStackScreenProps } from '@navigation/types';
 import { Analytics } from '@services/analytics';
-import { useOnboardingStore } from '@stores/onboardingStore';
+import { useAuthStore } from '@stores/authStore';
+import { useOnboardingStore, selectDisplayName, selectUsername } from '@stores/onboardingStore';
 import { validateEmail } from '@utils/emailValidation';
 
 /* eslint-disable @typescript-eslint/no-require-imports */
@@ -47,7 +53,9 @@ export function AccountCreationScreen({ navigation }: Props) {
   const [passwordError, setPasswordError] = useState('');
   const [showPassword, setShowPassword] = useState(false);
 
-  const { displayName, username } = useOnboardingStore();
+  const displayName = useOnboardingStore(selectDisplayName);
+  const username = useOnboardingStore(selectUsername);
+  const reduceMotion = useReducedMotion();
 
   // Track screen view
   useEffect(() => {
@@ -60,57 +68,41 @@ export function AccountCreationScreen({ navigation }: Props) {
   const isAppleAvailable = useAppleAuthAvailable();
   const isGoogleAvailable = useGoogleAuthAvailable();
 
+  // After successful signup (new user), navigate to the post-signup flow (hooks + paywall).
+  // needsPostSignupFlow is only set for new users, so returning users skip this.
+  const needsPostSignupFlow = useAuthStore((s) => s.needsPostSignupFlow);
+  const session = useAuthStore((s) => s.session);
+
+  // Consolidated navigation guard: prevents duplicate navigations and back-nav re-fires.
+  usePostSignupNavigation(navigation.navigate, {
+    session,
+    needsPostSignupFlow,
+    signUpSuccess: signUp.isSuccess,
+    appleSuccess: appleSignIn.isSuccess,
+    googleSuccess: googleSignIn.isSuccess,
+  });
+
   // Check if email is valid to show password field
   const isEmailValid = validateEmail(email).isValid;
 
-  // Animation values
-  const titleAnim = useRef(new Animated.Value(0)).current;
-  const accentAnim = useRef(new Animated.Value(0)).current;
-  const contentAnim = useRef(new Animated.Value(0)).current;
-  const buttonAnim = useRef(new Animated.Value(0)).current;
-  const passwordAnim = useRef(new Animated.Value(0)).current;
+  // Premium entrance animation
+  const { getAnimatedStyle, getButtonStyle } = useScreenEntrance({ elementCount: 4 });
 
-  // Run entrance animations
-  useEffect(() => {
-    // Reset animations
-    titleAnim.setValue(0);
-    accentAnim.setValue(0);
-    contentAnim.setValue(0);
-    buttonAnim.setValue(0);
-
-    Animated.stagger(100, [
-      Animated.timing(titleAnim, {
-        toValue: 1,
-        duration: 300,
-        useNativeDriver: true,
-      }),
-      Animated.timing(accentAnim, {
-        toValue: 1,
-        duration: 200,
-        useNativeDriver: true,
-      }),
-      Animated.timing(contentAnim, {
-        toValue: 1,
-        duration: 250,
-        useNativeDriver: true,
-      }),
-      Animated.spring(buttonAnim, {
-        toValue: 1,
-        friction: 8,
-        tension: 60,
-        useNativeDriver: true,
-      }),
-    ]).start();
-  }, [titleAnim, accentAnim, contentAnim, buttonAnim]);
+  // Password field conditional animation (separate from entrance)
+  const passwordAnim = useRef(new Animated.Value(reduceMotion ? 1 : 0)).current;
 
   // Animate password field when email becomes valid
   useEffect(() => {
+    if (reduceMotion) {
+      passwordAnim.setValue(isEmailValid ? 1 : 0);
+      return;
+    }
     Animated.timing(passwordAnim, {
       toValue: isEmailValid ? 1 : 0,
       duration: 200,
       useNativeDriver: true,
     }).start();
-  }, [isEmailValid, passwordAnim]);
+  }, [isEmailValid, passwordAnim, reduceMotion]);
 
   // Validate password
   const validatePassword = (pwd: string): { isValid: boolean; error?: string } => {
@@ -153,12 +145,12 @@ export function AccountCreationScreen({ navigation }: Props) {
 
   // Handle Apple Sign In
   const handleAppleSignIn = () => {
-    appleSignIn.mutate();
+    appleSignIn.mutate({ displayName: displayName ?? undefined });
   };
 
   // Handle Google Sign In
   const handleGoogleSignIn = () => {
-    googleSignIn.mutate();
+    googleSignIn.mutate({ displayName: displayName ?? undefined });
   };
 
   // Handle navigation to login for existing users
@@ -166,27 +158,6 @@ export function AccountCreationScreen({ navigation }: Props) {
     Analytics.skipToLogin('AccountCreation');
     navigation.navigate('Auth', { screen: 'Login' });
   };
-
-  // Animation interpolations
-  const titleTranslateY = titleAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [15, 0],
-  });
-
-  const accentTranslateY = accentAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [10, 0],
-  });
-
-  const contentTranslateY = contentAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [10, 0],
-  });
-
-  const buttonScale = buttonAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0.95, 1],
-  });
 
   const showSocialButtons = isAppleAvailable || isGoogleAvailable;
 
@@ -209,37 +180,19 @@ export function AccountCreationScreen({ navigation }: Props) {
         >
           <View style={styles.content}>
             {/* Title */}
-            <Animated.View
-              style={{
-                opacity: titleAnim,
-                transform: [{ translateY: titleTranslateY }],
-              }}
-            >
+            <Animated.View style={getAnimatedStyle(0)}>
               <Text variant="title" style={styles.title}>
                 Save your passport
               </Text>
             </Animated.View>
 
             {/* Accent subtitle */}
-            <Animated.Text
-              style={[
-                styles.accentSubtitle,
-                {
-                  opacity: accentAnim,
-                  transform: [{ translateY: accentTranslateY }],
-                },
-              ]}
-            >
-              Just one more step
-            </Animated.Text>
+            <Animated.View style={getAnimatedStyle(1)}>
+              <Text style={styles.accentSubtitle}>Just one more step</Text>
+            </Animated.View>
 
             {/* Email input - glass style */}
-            <Animated.View
-              style={{
-                opacity: contentAnim,
-                transform: [{ translateY: contentTranslateY }],
-              }}
-            >
+            <Animated.View style={getAnimatedStyle(2)}>
               <View style={styles.inputGlassWrapper}>
                 <BlurView intensity={60} tint="light" style={styles.inputGlassContainer}>
                   <View style={[styles.inputWrapper, emailError && styles.inputWrapperError]}>
@@ -285,77 +238,70 @@ export function AccountCreationScreen({ navigation }: Props) {
                 </Text>
               )}
 
-              {/* Password input - only shown when email is valid */}
-              {isEmailValid && (
-                <Animated.View
-                  style={{
-                    opacity: passwordAnim,
-                    transform: [
-                      {
-                        translateY: passwordAnim.interpolate({
-                          inputRange: [0, 1],
-                          outputRange: [-8, 0],
-                        }),
-                      },
-                    ],
-                  }}
-                >
-                  <View style={styles.inputGlassWrapper}>
-                    <BlurView intensity={60} tint="light" style={styles.inputGlassContainer}>
-                      <View
-                        style={[styles.inputWrapper, passwordError && styles.inputWrapperError]}
+              {/* Password input - always rendered for autofill, visually hidden when email invalid */}
+              <Animated.View
+                style={{
+                  opacity: passwordAnim,
+                  maxHeight: isEmailValid ? 200 : 0,
+                  overflow: 'hidden',
+                  transform: [
+                    {
+                      translateY: passwordAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [-8, 0],
+                      }),
+                    },
+                  ],
+                }}
+              >
+                <View style={styles.inputGlassWrapper}>
+                  <BlurView intensity={60} tint="light" style={styles.inputGlassContainer}>
+                    <View style={[styles.inputWrapper, passwordError && styles.inputWrapperError]}>
+                      <Ionicons
+                        name="lock-closed-outline"
+                        size={20}
+                        color={colors.stormGray}
+                        style={styles.inputIcon}
+                      />
+                      <TextInput
+                        style={styles.glassInput}
+                        value={password}
+                        onChangeText={(value) => {
+                          setPassword(value);
+                          if (passwordError) setPasswordError('');
+                        }}
+                        placeholder="Password"
+                        placeholderTextColor={colors.stormGray}
+                        secureTextEntry={!showPassword}
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                        autoComplete="password-new"
+                        textContentType="newPassword"
+                        testID="account-creation-password"
+                      />
+                      <TouchableOpacity
+                        onPress={() => setShowPassword(!showPassword)}
+                        style={styles.clearButton}
                       >
                         <Ionicons
-                          name="lock-closed-outline"
+                          name={showPassword ? 'eye-off-outline' : 'eye-outline'}
                           size={20}
                           color={colors.stormGray}
-                          style={styles.inputIcon}
                         />
-                        <TextInput
-                          style={styles.glassInput}
-                          value={password}
-                          onChangeText={(value) => {
-                            setPassword(value);
-                            if (passwordError) setPasswordError('');
-                          }}
-                          placeholder="Password"
-                          placeholderTextColor={colors.stormGray}
-                          secureTextEntry={!showPassword}
-                          autoCapitalize="none"
-                          autoCorrect={false}
-                          autoComplete="password-new"
-                          textContentType="newPassword"
-                          testID="account-creation-password"
-                        />
-                        <TouchableOpacity
-                          onPress={() => setShowPassword(!showPassword)}
-                          style={styles.clearButton}
-                        >
-                          <Ionicons
-                            name={showPassword ? 'eye-off-outline' : 'eye-outline'}
-                            size={20}
-                            color={colors.stormGray}
-                          />
-                        </TouchableOpacity>
-                      </View>
-                    </BlurView>
-                  </View>
-                  {passwordError && (
-                    <Text variant="caption" style={styles.errorText}>
-                      {passwordError}
-                    </Text>
-                  )}
-                </Animated.View>
-              )}
+                      </TouchableOpacity>
+                    </View>
+                  </BlurView>
+                </View>
+                {passwordError && (
+                  <Text variant="caption" style={styles.errorText}>
+                    {passwordError}
+                  </Text>
+                )}
+              </Animated.View>
             </Animated.View>
 
             {/* Create Account button */}
-            <Animated.View
-              style={{
-                opacity: buttonAnim,
-                transform: [{ scale: buttonScale }],
-              }}
-            >
+            <Animated.View style={getButtonStyle(3)}>
               <TouchableOpacity
                 style={[styles.button, signUp.isPending && styles.buttonDisabled]}
                 onPress={handleSignUp}
@@ -373,11 +319,7 @@ export function AccountCreationScreen({ navigation }: Props) {
 
             {/* Social Sign In buttons */}
             {showSocialButtons && (
-              <Animated.View
-                style={{
-                  opacity: buttonAnim,
-                }}
-              >
+              <Animated.View style={getButtonStyle(3)}>
                 {/* Divider */}
                 <View style={styles.divider}>
                   <View style={styles.dividerLine} />
@@ -424,7 +366,7 @@ export function AccountCreationScreen({ navigation }: Props) {
             )}
 
             {/* Login link */}
-            <Animated.View style={{ opacity: contentAnim }}>
+            <Animated.View style={getAnimatedStyle(2)}>
               <TouchableOpacity
                 onPress={handleAlreadyHaveAccount}
                 style={styles.loginLink}
@@ -433,6 +375,26 @@ export function AccountCreationScreen({ navigation }: Props) {
               >
                 <Text style={styles.loginLinkText}>Already have an account? Sign in</Text>
               </TouchableOpacity>
+            </Animated.View>
+
+            {/* Terms and Privacy */}
+            <Animated.View style={[styles.legalContainer, getAnimatedStyle(2)]}>
+              <Text style={styles.legalText}>By creating an account, you agree to our</Text>
+              <View style={styles.legalLinks}>
+                <TouchableOpacity
+                  onPress={() => Linking.openURL(`${env.webBaseUrl}/terms`)}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Text style={styles.legalLink}>Terms of Service</Text>
+                </TouchableOpacity>
+                <Text style={styles.legalSeparator}>&</Text>
+                <TouchableOpacity
+                  onPress={() => Linking.openURL(`${env.webBaseUrl}/privacy`)}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Text style={styles.legalLink}>Privacy Policy</Text>
+                </TouchableOpacity>
+              </View>
             </Animated.View>
           </View>
         </ScrollView>
@@ -531,9 +493,9 @@ const styles = StyleSheet.create({
   },
   button: {
     backgroundColor: colors.sunsetGold,
-    paddingVertical: 16,
-    paddingHorizontal: 32,
-    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 28,
+    borderRadius: 9999,
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: colors.shadow,
@@ -547,7 +509,7 @@ const styles = StyleSheet.create({
   },
   buttonText: {
     fontFamily: fonts.openSans.semiBold,
-    fontSize: 16,
+    fontSize: 15,
     color: colors.midnightNavy,
   },
   divider: {
@@ -571,14 +533,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: colors.adobeBrick,
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 28,
+    borderRadius: 9999,
     gap: 10,
     marginBottom: 12,
   },
   googleButtonText: {
-    fontFamily: fonts.openSans.regular,
+    fontFamily: fonts.openSans.semiBold,
     fontSize: 15,
     color: colors.white,
   },
@@ -587,13 +549,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: colors.midnightNavy,
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 28,
+    borderRadius: 9999,
     gap: 10,
   },
   appleButtonText: {
-    fontFamily: fonts.openSans.regular,
+    fontFamily: fonts.openSans.semiBold,
     fontSize: 15,
     color: colors.white,
   },
@@ -606,5 +568,32 @@ const styles = StyleSheet.create({
     fontFamily: fonts.openSans.semiBold,
     fontSize: 14,
     color: colors.mossGreen,
+  },
+  legalContainer: {
+    marginTop: 'auto',
+    paddingTop: 16,
+    alignItems: 'center',
+  },
+  legalText: {
+    fontFamily: fonts.openSans.regular,
+    fontSize: 11,
+    color: colors.stormGray,
+    textAlign: 'center',
+  },
+  legalLinks: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 2,
+  },
+  legalLink: {
+    fontFamily: fonts.openSans.regular,
+    fontSize: 11,
+    color: colors.stormGray,
+  },
+  legalSeparator: {
+    fontFamily: fonts.openSans.regular,
+    fontSize: 11,
+    color: colors.stormGray,
+    marginHorizontal: 4,
   },
 });

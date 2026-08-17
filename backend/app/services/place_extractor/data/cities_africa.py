@@ -5,8 +5,14 @@ All city names should be lowercase for case-insensitive matching.
 """
 
 CITIES_AFRICA: dict[str, tuple[float, float, str]] = {
-    # North Africa
+    # North Africa - Egypt
     "cairo": (30.0444, 31.2357, "EG"),
+    "luxor": (25.6872, 32.6396, "EG"),
+    "aswan": (24.0889, 32.8998, "EG"),
+    "alexandria": (31.2001, 29.9187, "EG"),
+    "hurghada": (27.2578, 33.8117, "EG"),
+    "sharm el sheikh": (27.9158, 34.3300, "EG"),
+    # North Africa - Other
     "marrakech": (31.6295, -7.9811, "MA"),
     "casablanca": (33.5731, -7.5898, "MA"),
     "tunis": (36.8065, 10.1815, "TN"),

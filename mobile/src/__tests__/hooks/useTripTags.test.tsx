@@ -29,6 +29,12 @@ jest.mock('@services/api', () => ({
   },
 }));
 
+// These hooks are social features; enable the flag so gated queries run
+jest.mock('@config/features', () => ({
+  features: { enableSocial: true, enableFriends: true },
+  isFeatureEnabled: () => true,
+}));
+
 // Test data
 const mockPendingTag: PendingTripTag = {
   id: 'tag-123',

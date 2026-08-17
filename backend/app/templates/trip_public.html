@@ -1,132 +1,57 @@
 {% extends "base.html" %}
+{% import "_share_page.html" as share_page_macros %}
 
-{% block title %}{{ trip.name }} - Atlasi{% endblock %}
-{% block description %}{{ trip.name }} in {{ trip.country_name }} - A trip shared on Atlasi{% endblock %}
+{% block title %}{{ share.title }} - Atlasi{% endblock %}
+{% block description %}{{ share.title }}{% if share.country_name %} in {{ share.country_name }}{% endif %} - A trip shared on Atlasi{% endblock %}
+
+{% block header_nav %}
+<nav class="header-nav share-nav">
+  <div class="nav-links">
+    {% if share.entries %}<a href="#places">Places</a>{% endif %}
+    {% if share_page_macros.map_visible(share=share, maps_key=google_maps_browser_api_key, map_id=google_maps_map_id) | trim %}<a href="#map">Map</a>{% endif %}
+  </div>
+  <a
+    href="{{ app_store_url | safe_external_url or '#download' }}"
+    class="cta-button header-cta"
+    data-track-location="header"
+  >
+    {% include "_apple_icon.svg" %}
+    <span>Download</span>
+  </a>
+</nav>
+{% endblock %}
 
 {% block content %}
-<!-- Hero Section -->
-<section class="hero-section">
-    {% if trip.cover_image_url %}
-    <img src="{{ trip.cover_image_url }}" alt="Cover image for {{ trip.name }} in {{ trip.country_name }}" class="hero-bg">
-    {% else %}
-    <div class="hero-bg" style="background-color: var(--color-midnight-navy); background-image: radial-gradient(circle at 10% 20%, rgba(255,255,255,0.05) 0%, transparent 20%), radial-gradient(circle at 90% 80%, rgba(255,255,255,0.05) 0%, transparent 20%);"></div>
-    {% endif %}
-    <div class="hero-overlay"></div>
-</section>
+<script type="application/ld+json" nonce="{{ request.state.csp_nonce }}">
+{{ structured_data | tojson }}
+</script>
 
-<!-- Trip Info Card (Liquid Glass) -->
-<div class="list-info-container">
-    <div class="list-info-card">
-        <h1 class="list-title">{{ trip.name }}</h1>
-        
-        <div class="list-meta">
-            {% if trip.country_name %}
-            <div class="meta-item">
-                <span style="font-size: 1.2em;">🌍</span> {{ trip.country_name }}
-            </div>
-            {% endif %}
-            
-            {% if trip.date_range %}
-            <div class="meta-item">
-                <span style="font-size: 1.2em;">📅</span> {{ trip.date_range }}
-            </div>
-            {% endif %}
-
-            <div class="meta-item">
-                <span style="font-size: 1.2em;">📍</span> {{ trip.entries|length }} Stops
-            </div>
-        </div>
-
-        <div class="creator-pill">
-             <div class="creator-avatar">A</div>
-             Shared from Atlasi
-        </div>
-    </div>
+<div class="share-page">
+  {{ share_page_macros.share_page(
+       share=share,
+       app_store_url=app_store_url,
+       maps_key=google_maps_browser_api_key,
+       map_id=google_maps_map_id,
+       nonce=request.state.csp_nonce,
+       script_url=url_for('static', path='js/share-map.js'),
+       reveal_script_url=url_for('static', path='js/share-reveal.js'),
+       map_download_url=map_download_url
+     ) }}
 </div>
-
-<!-- Entries Grid -->
-<section class="entries-container">
-    {% if trip.entries %}
-    <div class="entries-grid">
-        {% for entry in trip.entries %}
-        {% set primary_image = entry.media_urls[0] if entry.media_urls and entry.media_urls|length > 0 else entry.place_photo_url %}
-        {% set sanitized_image = primary_image | safe_external_url if primary_image else None %}
-
-        {# Wrap entry in link if redirect_url is available #}
-        {% if entry.redirect_url %}
-        <a href="{{ entry.redirect_url }}" target="_blank" rel="noopener noreferrer" class="entry-card-link">
-        {% endif %}
-
-        <article class="entry-card">
-            <div class="entry-image-wrapper">
-                {% if sanitized_image %}
-                <img src="{{ sanitized_image }}" alt="Photo of {{ entry.title }}{% if entry.place_name %} at {{ entry.place_name }}{% endif %}" class="entry-image" loading="lazy">
-                {% else %}
-                <div class="entry-image-placeholder">
-                    {% if entry.type == 'food' %}🍽️
-                    {% elif entry.type == 'stay' %}🏨
-                    {% elif entry.type == 'experience' %}⭐
-                    {% else %}📍{% endif %}
-                </div>
-                {% endif %}
-            </div>
-
-            <div class="entry-content">
-                <span class="entry-category">{{ entry.type }}</span>
-                <h3 class="entry-title">{{ entry.title }}</h3>
-
-                {% if entry.place_name %}
-                <div class="entry-location">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>
-                    {{ entry.place_name }}
-                </div>
-                {% endif %}
-
-                {% if entry.notes %}
-                <div class="entry-notes">
-                    "{{ entry.notes[:200] }}{% if entry.notes|length > 200 %}...{% endif %}"
-                </div>
-                {% endif %}
-            </div>
-        </article>
-
-        {% if entry.redirect_url %}
-        </a>
-        {% endif %}
-        {% endfor %}
-    </div>
-    {% else %}
-    <div class="empty-state">
-        <p>No entries logged for this trip yet.</p>
-    </div>
-    {% endif %}
-</section>
-
-<!-- CTA Section -->
-<section class="cta-section">
-    <div class="cta-content">
-        <span class="cta-hand-text">Log your journey</span>
-        <h2 class="cta-title">Want to track your own trips?</h2>
-        <p class="cta-description">Download Atlasi to keep a digital journal of your travels, adding photos, notes, and places.</p>
-        <a href="{{ app_store_url or '#download' }}" class="cta-button">
-            Get Atlasi
-        </a>
-    </div>
-</section>
 {% endblock %}
 
 {% block footer_cta %}{% endblock %}
 
 {% block footer_main %}
 <div class="footer-main">
-    <a href="/">
-        <img src="{{ url_for('static', path='images/atlasi-logo.png') }}" alt="Atlasi" class="footer-logo">
-    </a>
-    <nav class="footer-links">
-        <a href="{{ app_store_url | safe_external_url or '#download' }}" class="footer-link"
-           data-track-location="footer">Download App</a>
-        <a href="/privacy" class="footer-link">Privacy</a>
-        <a href="/terms" class="footer-link">Terms</a>
-    </nav>
+  <a href="/">
+    <img src="{{ url_for('static', path='images/atlasi-logo.png') }}" alt="Atlasi" class="footer-logo">
+  </a>
+  <nav class="footer-links">
+    <a href="{{ app_store_url | safe_external_url or '#download' }}" class="footer-link"
+       data-track-location="footer">Download App</a>
+    <a href="/privacy" class="footer-link">Privacy</a>
+    <a href="/terms" class="footer-link">Terms</a>
+  </nav>
 </div>
 {% endblock %}

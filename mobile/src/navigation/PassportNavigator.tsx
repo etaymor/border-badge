@@ -1,17 +1,32 @@
-import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { createBlankStackNavigator } from 'react-native-screen-transitions/blank-stack';
+import Transition from 'react-native-screen-transitions';
 import { View, StyleSheet } from 'react-native';
 
 import { ClipboardBannerOverlay } from '@components/share';
 import { CountryDetailScreen } from '@screens/country/CountryDetailScreen';
 import { PassportScreen } from '@screens/passport/PassportScreen';
+import { PhotoImportScreen } from '@screens/photos/PhotoImportScreen';
+import { PhotoTripsScreen } from '@screens/photos/PhotoTripsScreen';
 import { ProfileSettingsScreen } from '@screens/profile/ProfileSettingsScreen';
 import { ShareCaptureScreen } from '@screens/share/ShareCaptureScreen';
+import { ShareCaptureErrorBoundary } from '@screens/share/ShareCaptureErrorBoundary';
+import { TripFormScreen } from '@screens/trips/TripFormScreen';
 // LAUNCH_SIMPLIFICATION: Trips flow is nested here while tab bar is hidden.
 import { TripsNavigator } from './TripsNavigator';
+import { SlideWithScalePreset, SharedCountryPreset } from './interpolators';
 
-import type { PassportStackParamList } from './types';
+import type { PassportStackParamList, PassportStackScreenProps } from './types';
 
-const Stack = createNativeStackNavigator<PassportStackParamList>();
+const Stack = createBlankStackNavigator<PassportStackParamList>();
+
+function ShareCaptureWithBoundary(props: PassportStackScreenProps<'ShareCapture'>) {
+  const { url, source } = props.route.params;
+  return (
+    <ShareCaptureErrorBoundary url={url} source={source} onError={() => props.navigation.goBack()}>
+      <ShareCaptureScreen {...props} />
+    </ShareCaptureErrorBoundary>
+  );
+}
 
 /**
  * Inner navigator component that has access to the navigation context.
@@ -20,40 +35,58 @@ const Stack = createNativeStackNavigator<PassportStackParamList>();
 function PassportNavigatorContent() {
   return (
     <View style={styles.container}>
-      <Stack.Navigator>
-        <Stack.Screen
-          name="PassportHome"
-          component={PassportScreen}
-          options={{ headerShown: false }}
-        />
+      <Stack.Navigator
+        screenOptions={{
+          ...SlideWithScalePreset,
+          // Suspend off-screen screens' re-renders (requires enableFreeze() in App.tsx).
+          //
+          // Do NOT add `detachPreviousScreen` here. react-native-screen-transitions
+          // derives activeScreensLimit from the top route's descriptor; setting the
+          // flag collapses the limit from 2 to 1, which drives the screen directly
+          // beneath the top route to activityState 0 and freezes it. On this 2-deep
+          // hot path (PassportHome → CountryDetail) that screen is the one that must
+          // co-animate during the pop (scale 0.95→1 + translateX), so detaching kills
+          // the pop animation and flashes on return. There are no screens buried
+          // deeper than that here, so the flag has nothing to win.
+          freezeOnBlur: true,
+        }}
+      >
+        <Stack.Screen name="PassportHome" component={PassportScreen} />
         <Stack.Screen
           name="CountryDetail"
           component={CountryDetailScreen}
           options={{
-            headerShown: false,
+            ...SharedCountryPreset,
           }}
         />
-        <Stack.Screen
-          name="ProfileSettings"
-          component={ProfileSettingsScreen}
-          options={{
-            headerShown: false,
-          }}
-        />
-        <Stack.Screen
-          name="Trips"
-          component={TripsNavigator}
-          options={{
-            headerShown: false,
-          }}
-        />
+        <Stack.Screen name="ProfileSettings" component={ProfileSettingsScreen} />
+        <Stack.Screen name="TripForm" component={TripFormScreen} />
+        <Stack.Screen name="Trips" component={TripsNavigator} />
         <Stack.Screen
           name="ShareCapture"
-          component={ShareCaptureScreen}
+          component={ShareCaptureWithBoundary}
           options={{
-            headerShown: false,
-            presentation: 'modal',
-            animation: 'slide_from_bottom',
+            ...Transition.Presets.SlideFromBottom(),
+            gestureEnabled: true,
+            gestureDirection: 'vertical',
+          }}
+        />
+        <Stack.Screen
+          name="PhotoTrips"
+          component={PhotoTripsScreen}
+          options={{
+            ...Transition.Presets.SlideFromBottom(),
+            gestureEnabled: true,
+            gestureDirection: 'vertical',
+          }}
+        />
+        <Stack.Screen
+          name="PhotoImport"
+          component={PhotoImportScreen}
+          options={{
+            ...Transition.Presets.SlideFromBottom(),
+            gestureEnabled: true,
+            gestureDirection: 'vertical',
           }}
         />
       </Stack.Navigator>

@@ -1,5 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import { Image as ExpoImage } from 'expo-image';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
@@ -14,14 +15,26 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { OnboardingShareOverlay, type OnboardingShareContext } from '@components/share';
 import { GlassBackButton, Text } from '@components/ui';
-import { colors, withAlpha } from '@constants/colors';
-import { CONTINENT_TOTALS, getCountryRarity } from '@constants/countryRarity';
+import { colors } from '@constants/colors';
+import {
+  CONTINENT_TOTALS,
+  estimateTravelerPercentile,
+  getCountryRarity,
+} from '@constants/countryRarity';
 import { ALL_REGIONS } from '@constants/regions';
 import { fonts } from '@constants/typography';
 import { useCountries } from '@hooks/useCountries';
+import { useReducedMotion } from '@hooks/useReducedMotion';
+import { useScreenEntrance } from '@hooks/useScreenEntrance';
 import type { OnboardingStackScreenProps } from '@navigation/types';
 import { Analytics } from '@services/analytics';
-import { useOnboardingStore } from '@stores/onboardingStore';
+import {
+  useOnboardingStore,
+  selectSelectedCountries,
+  selectHomeCountry,
+  selectMotivationTags,
+  selectPersonaTags,
+} from '@stores/onboardingStore';
 import { getTravelStatus } from '@utils/travelTier';
 
 import { getStampImage } from '../../assets/stampImages';
@@ -31,6 +44,10 @@ const atlasLogo = require('../../../assets/atlasi-logo.png');
 /* eslint-enable @typescript-eslint/no-require-imports */
 
 type Props = OnboardingStackScreenProps<'ProgressSummary'>;
+
+// Only animate the first N stamps individually; the rest appear instantly.
+// This prevents 50+ simultaneous Spring animations + haptic pulses.
+const ANIMATED_STAMP_CAP = 10;
 
 // Stamp layout calculation - clean grid with slight rotation
 function calculateStampPositions(count: number, containerWidth: number) {
@@ -63,8 +80,15 @@ function calculateStampPositions(count: number, containerWidth: number) {
 
 export function ProgressSummaryScreen({ navigation }: Props) {
   const { width: screenWidth } = useWindowDimensions();
-  const { selectedCountries, homeCountry, motivationTags, personaTags } = useOnboardingStore();
+  const selectedCountries = useOnboardingStore(selectSelectedCountries);
+  const homeCountry = useOnboardingStore(selectHomeCountry);
+  const motivationTags = useOnboardingStore(selectMotivationTags);
+  const personaTags = useOnboardingStore(selectPersonaTags);
   const { data: allCountriesData } = useCountries();
+  const reduceMotion = useReducedMotion();
+
+  // Premium entrance animation
+  const { getAnimatedStyle, getButtonStyle } = useScreenEntrance({ elementCount: 4 });
 
   // Track screen view with countries count
   useEffect(() => {
@@ -74,8 +98,7 @@ export function ProgressSummaryScreen({ navigation }: Props) {
     Analytics.viewOnboardingProgress(countriesCount);
   }, [selectedCountries, homeCountry]);
 
-  // Animation refs
-  const contentOpacity = useRef(new Animated.Value(0)).current;
+  // Stamp animations ref (content-specific animation - staggered pop with haptics)
   const stampAnimations = useRef<Animated.Value[]>([]);
 
   // Share overlay state
@@ -90,6 +113,10 @@ export function ProgressSummaryScreen({ navigation }: Props) {
 
   const visitedCount = allVisitedCountries.length;
   const visibleStamps = allVisitedCountries;
+  const travelerPercentile = useMemo(
+    () => estimateTravelerPercentile(visitedCount),
+    [visitedCount]
+  );
 
   // Build share context from visited countries
   const shareContext: OnboardingShareContext | null = useMemo(() => {
@@ -173,26 +200,27 @@ export function ProgressSummaryScreen({ navigation }: Props) {
   useEffect(() => {
     stampAnimations.current = [];
     for (let i = 0; i < visibleStamps.length; i++) {
-      stampAnimations.current.push(new Animated.Value(0));
+      // Stamps beyond the cap start fully visible (no animation needed)
+      const initialValue = reduceMotion || i >= ANIMATED_STAMP_CAP ? 1 : 0;
+      stampAnimations.current.push(new Animated.Value(initialValue));
     }
-  }, [visibleStamps.length]);
+  }, [visibleStamps.length, reduceMotion]);
 
-  // Run animations with cleanup
+  // Run stamp animations with cleanup (content-specific - staggered pop with haptics)
   useEffect(() => {
+    if (reduceMotion) {
+      stampAnimations.current.forEach((anim) => anim.setValue(1));
+      return;
+    }
+
     const timeoutIds: ReturnType<typeof setTimeout>[] = [];
 
-    // Fade in content
-    Animated.timing(contentOpacity, {
-      toValue: 1,
-      duration: 400,
-      useNativeDriver: true,
-    }).start();
-
-    // Stagger stamp animations
     const stampDelay = 500;
     const staggerDelay = 80;
+    const animateCount = Math.min(visibleStamps.length, ANIMATED_STAMP_CAP);
 
-    visibleStamps.forEach((_, index) => {
+    // Only animate the first ANIMATED_STAMP_CAP stamps individually
+    for (let index = 0; index < animateCount; index++) {
       const timeoutId = setTimeout(
         () => {
           if (stampAnimations.current[index]) {
@@ -202,19 +230,41 @@ export function ProgressSummaryScreen({ navigation }: Props) {
               tension: 100,
               useNativeDriver: true,
             }).start();
-
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
           }
         },
         stampDelay + index * staggerDelay
       );
       timeoutIds.push(timeoutId);
-    });
+    }
+
+    // 3 celebratory haptic pulses instead of one per stamp
+    if (visibleStamps.length > 0) {
+      const h1 = setTimeout(() => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      }, stampDelay);
+      timeoutIds.push(h1);
+
+      const h2 = setTimeout(
+        () => {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+        },
+        stampDelay + Math.floor(animateCount / 2) * staggerDelay
+      );
+      timeoutIds.push(h2);
+
+      const h3 = setTimeout(
+        () => {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        },
+        stampDelay + animateCount * staggerDelay
+      );
+      timeoutIds.push(h3);
+    }
 
     return () => {
       timeoutIds.forEach(clearTimeout);
     };
-  }, [visibleStamps, contentOpacity]);
+  }, [visibleStamps, reduceMotion]);
 
   const handleContinue = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -225,35 +275,39 @@ export function ProgressSummaryScreen({ navigation }: Props) {
   return (
     <View style={styles.container}>
       <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
-        <Animated.View style={[styles.content, { opacity: contentOpacity }]}>
+        <View style={styles.content}>
           <ScrollView
             contentContainerStyle={styles.scrollContent}
             showsVerticalScrollIndicator={false}
             bounces={true}
           >
             {/* Header with back button and logo */}
-            <View style={styles.headerRow}>
+            <Animated.View style={[styles.headerRow, getAnimatedStyle(0)]}>
               <GlassBackButton onPress={() => navigation.goBack()} />
               <Image source={atlasLogo} style={styles.logo} resizeMode="contain" />
               <View style={styles.headerSpacer} />
-            </View>
+            </Animated.View>
 
             {/* Title */}
-            <View style={styles.header}>
+            <Animated.View style={[styles.header, getAnimatedStyle(1)]}>
               <Text style={styles.headerTitle}>Look at you go!</Text>
-              <Text style={styles.headerSubtitle}>{visitedCount} countries and counting.</Text>
-            </View>
+              <Text style={styles.headerSubtitle}>
+                {visitedCount} countries and counting. Top {travelerPercentile}% traveler.
+              </Text>
+            </Animated.View>
 
             {/* Share button - above stamps */}
             {shareContext && (
-              <TouchableOpacity
-                style={styles.shareButton}
-                onPress={handleShare}
-                activeOpacity={0.8}
-              >
-                <Ionicons name="share-outline" size={20} color={colors.sunsetGold} />
-                <Text style={styles.shareButtonText}>Share Your Atlas</Text>
-              </TouchableOpacity>
+              <Animated.View style={getAnimatedStyle(2)}>
+                <TouchableOpacity
+                  style={styles.shareButton}
+                  onPress={handleShare}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="share-outline" size={18} color={colors.midnightNavy} />
+                  <Text style={styles.shareButtonText}>Share Your Atlas</Text>
+                </TouchableOpacity>
+              </Animated.View>
             )}
 
             {/* Stamp Grid */}
@@ -290,7 +344,14 @@ export function ProgressSummaryScreen({ navigation }: Props) {
                           },
                         ]}
                       >
-                        <Image source={stampImage} style={styles.stampImage} resizeMode="contain" />
+                        <ExpoImage
+                          testID={`progress-stamp-${code}`}
+                          source={stampImage}
+                          style={styles.stampImage}
+                          contentFit="contain"
+                          recyclingKey={code}
+                          cachePolicy="memory-disk"
+                        />
                       </Animated.View>
                     );
                   })}
@@ -302,18 +363,20 @@ export function ProgressSummaryScreen({ navigation }: Props) {
               )}
             </View>
           </ScrollView>
-        </Animated.View>
+        </View>
 
-        {/* Footer Buttons - fixed position matching other onboarding screens */}
-        <View style={styles.bottomContainer}>
+        {/* Footer */}
+        <View style={styles.bottomContainer} pointerEvents="box-none">
           {/* Continue button */}
-          <TouchableOpacity
-            style={styles.continueButton}
-            onPress={handleContinue}
-            activeOpacity={0.9}
-          >
-            <Text style={styles.continueButtonText}>Save Progress</Text>
-          </TouchableOpacity>
+          <Animated.View style={[styles.buttonWrapper, getButtonStyle(3)]}>
+            <TouchableOpacity
+              style={styles.continueButton}
+              onPress={handleContinue}
+              activeOpacity={0.9}
+            >
+              <Text style={styles.continueButtonText}>Save Progress</Text>
+            </TouchableOpacity>
+          </Animated.View>
         </View>
       </SafeAreaView>
 
@@ -340,7 +403,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     flexGrow: 1,
-    paddingBottom: 120,
+    paddingBottom: 160, // Extra padding to account for gradient fade
   },
   // Header with logo
   headerRow: {
@@ -405,36 +468,34 @@ const styles = StyleSheet.create({
     color: colors.stormGray,
     textAlign: 'center',
   },
-  // Footer - matching CountrySelectionScreen
+  // Footer
   bottomContainer: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
+  },
+  buttonWrapper: {
+    backgroundColor: colors.warmCream,
     paddingHorizontal: 24,
-    paddingVertical: 24,
+    paddingTop: 8,
     paddingBottom: 40,
     alignItems: 'center',
-    gap: 12,
   },
   shareButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     alignSelf: 'center',
-    paddingVertical: 12,
+    paddingVertical: 10,
     paddingHorizontal: 20,
-    borderRadius: 20,
     gap: 8,
-    backgroundColor: withAlpha(colors.sunsetGold, 0.15),
-    borderWidth: 1.5,
-    borderColor: colors.sunsetGold,
     marginBottom: 16,
   },
   shareButtonText: {
     fontFamily: fonts.openSans.semiBold,
     fontSize: 14,
-    color: colors.sunsetGold,
+    color: colors.midnightNavy,
   },
   continueButton: {
     backgroundColor: colors.sunsetGold,
@@ -443,7 +504,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingVertical: 16,
     paddingHorizontal: 56,
-    borderRadius: 12,
+    borderRadius: 100,
     gap: 8,
     minWidth: 260,
     shadowColor: colors.shadow,

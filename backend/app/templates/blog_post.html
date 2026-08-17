@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+{% import "_blog_card.html" as cards %}
+
+{% block content %}
+<article class="blog-page blog-post">
+  <header class="post-header">
+    {# These items match the BreadcrumbList positions in the JSON-LD exactly;
+       visible and structured breadcrumbs that disagree is a common structured
+       data warning. #}
+    <nav class="blog-breadcrumb" aria-label="Breadcrumb">
+      <a href="/">Home</a>
+      <span aria-hidden="true">/</span>
+      <a href="/blog">Blog</a>
+      <span aria-hidden="true">/</span>
+      <a href="/blog/category/{{ post.category }}">{{ category_label }}</a>
+    </nav>
+
+    <h1>{{ post.title }}</h1>
+    <p class="post-meta">
+      <time datetime="{{ post.published.isoformat() }}">
+        {{ post.published.strftime('%B %-d, %Y') }}
+      </time>
+      <span aria-hidden="true">&middot;</span>
+      <span>{{ post.reading_minutes }} min read</span>
+      {% if post.updated != post.published %}
+      <span aria-hidden="true">&middot;</span>
+      <span>Updated {{ post.updated.strftime('%B %-d, %Y') }}</span>
+      {% endif %}
+    </p>
+
+    {% if post.meta.cover %}
+    <img class="post-cover"
+         src="{{ post.cover_url() }}"
+         alt="{{ post.meta.cover_alt }}"
+         loading="eager"
+         decoding="async" />
+    {% endif %}
+  </header>
+
+  {% if post.toc %}
+  <nav class="article-toc" aria-label="On this page">
+    <p class="article-toc-title">On this page</p>
+    <ul>
+      {% for item in post.toc %}
+      {% if item.level == 2 %}
+      <li><a href="#{{ item.anchor }}">{{ item.text }}</a></li>
+      {% endif %}
+      {% endfor %}
+    </ul>
+  </nav>
+  {% endif %}
+
+  {# `| safe` is correct here and should not be "fixed" to an escape.
+     `post.html` is already HTML, produced by our own renderer in
+     app/core/markdown.py -- not by a user. That renderer runs mistune with
+     escape=True, so raw HTML in a post's source is emitted as escaped text and
+     never becomes markup; every tag below was constructed by a renderer method
+     we control. render_markdown() additionally asserts its own output is free
+     of style/script/on* attributes before returning. Content is repo-controlled
+     and ships through code review, so markdown is not a privilege boundary:
+     anyone who can add a .md file can add a .py file. #}
+  <div class="article-body">
+    {{ post.html | safe }}
+  </div>
+
+  {% if post.faqs %}
+  <section class="post-faq" id="faq">
+    <h2>Frequently asked questions</h2>
+    <div class="faq-list">
+      {% for item in post.faqs %}
+      {# Same markup as the landing page accordion, so the existing styles in
+         pages/landing.css apply with nothing new to maintain. #}
+      <details class="faq-item">
+        <summary>{{ item.question }}<span class="faq-plus" aria-hidden="true">+</span></summary>
+        <p>{{ item.answer }}</p>
+      </details>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+
+  <section class="post-cta">
+    <p>Ready to start tracking your own trips?</p>
+    <a href="{{ app_store_url | safe_external_url or '#download' }}"
+       class="cta-button"
+       data-track-location="blog_post_cta">Get Atlasi</a>
+  </section>
+
+  {% if newer or older %}
+  <nav class="article-pager" aria-label="More posts">
+    {% if newer %}
+    <a class="article-pager-link" href="{{ newer.url_path }}">
+      <span class="article-pager-label">Newer</span>
+      <span class="article-pager-title">{{ newer.title }}</span>
+    </a>
+    {% endif %}
+    {% if older %}
+    <a class="article-pager-link article-pager-link--next" href="{{ older.url_path }}">
+      <span class="article-pager-label">Older</span>
+      <span class="article-pager-title">{{ older.title }}</span>
+    </a>
+    {% endif %}
+  </nav>
+  {% endif %}
+
+  {% if related %}
+  <section class="article-related">
+    <h2>Related reading</h2>
+    <div class="blog-grid">
+      {% for other in related %}
+      {{ cards.blog_card(other, heading_level='h3') }}
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+</article>
+{% endblock %}
+
+{% block scripts %}
+<script type="application/ld+json" nonce="{{ request.state.csp_nonce }}">
+{{ structured_data | tojson }}
+</script>
+{% endblock %}

@@ -24,6 +24,13 @@ import {
 import { createMockMediaFile, createMockLocalFile } from '../utils/mockFactories';
 import { createTestQueryClient } from '../utils/testUtils';
 
+// useUploadMedia resizes via resizeImageForUpload before uploading. These upload-
+// orchestration tests are not about resize (which has its own unit test), so mock
+// it to a pass-through so the native image-manipulator/getSize stack isn't exercised.
+jest.mock('@services/mediaUpload', () => ({
+  resizeImageForUpload: jest.fn((file) => Promise.resolve(file)),
+}));
+
 // Type the mocks
 const mockedApi = api as jest.Mocked<typeof api>;
 const mockedGetStoredToken = getStoredToken as jest.MockedFunction<typeof getStoredToken>;
@@ -32,6 +39,57 @@ const mockedSupabase = supabase as jest.Mocked<typeof supabase>;
 // Mock global fetch
 const mockFetch = jest.fn();
 global.fetch = mockFetch;
+
+// Mock XMLHttpRequest for upload progress tracking
+// Track instances and allow configuring behavior
+let mockXHRInstances: MockXMLHttpRequest[] = [];
+let mockXHRShouldFail = false;
+let mockXHRFailStatus = 500;
+
+class MockXMLHttpRequest {
+  static DONE = 4;
+  status = 200;
+  readyState = 4;
+  responseText = '';
+  upload = {
+    onprogress: null as ((event: ProgressEvent) => void) | null,
+  };
+  onload: (() => void) | null = null;
+  onerror: (() => void) | null = null;
+  onabort: (() => void) | null = null;
+
+  openUrl = '';
+  open = jest.fn((method: string, url: string) => {
+    this.openUrl = url;
+  });
+  setRequestHeader = jest.fn();
+  abort = jest.fn();
+  send = jest.fn().mockImplementation(() => {
+    // Simulate progress events
+    if (this.upload.onprogress) {
+      this.upload.onprogress({ lengthComputable: true, loaded: 0, total: 100 } as ProgressEvent);
+      this.upload.onprogress({ lengthComputable: true, loaded: 50, total: 100 } as ProgressEvent);
+      this.upload.onprogress({ lengthComputable: true, loaded: 90, total: 100 } as ProgressEvent);
+      this.upload.onprogress({ lengthComputable: true, loaded: 100, total: 100 } as ProgressEvent);
+    }
+    // Simulate completion (success or failure based on config)
+    setTimeout(() => {
+      if (mockXHRShouldFail) {
+        this.status = mockXHRFailStatus;
+        this.responseText = 'Storage error';
+        if (this.onload) this.onload();
+      } else {
+        if (this.onload) this.onload();
+      }
+    }, 0);
+  });
+
+  constructor() {
+    mockXHRInstances.push(this);
+  }
+}
+(global as unknown as { XMLHttpRequest: typeof MockXMLHttpRequest }).XMLHttpRequest =
+  MockXMLHttpRequest;
 
 // Create wrapper for hooks
 function createWrapper(queryClient: QueryClient) {
@@ -47,6 +105,9 @@ describe('useMedia Integration', () => {
     queryClient = createTestQueryClient();
     jest.clearAllMocks();
     mockFetch.mockClear();
+    mockXHRInstances = [];
+    mockXHRShouldFail = false;
+    mockXHRFailStatus = 500;
     mockedGetStoredToken.mockResolvedValue('test-token');
   });
 
@@ -212,7 +273,7 @@ describe('useMedia Integration', () => {
   // ============ Upload Flow Tests ============
 
   describe('Upload Flow', () => {
-    it('calls progress callback at 0%, 50%, 90%, 100%', async () => {
+    it('calls progress callback from 0% to 100%', async () => {
       const file = createMockLocalFile({ size: 1000 });
       const progressCalls: number[] = [];
       const onProgress = jest.fn((p) => progressCalls.push(p.percentage));
@@ -225,9 +286,6 @@ describe('useMedia Integration', () => {
           file_path: 'media/test.jpg',
         },
       });
-
-      // Mock storage upload
-      mockFetch.mockResolvedValueOnce({ ok: true });
 
       // Mock status update
       mockedApi.patch.mockResolvedValueOnce({
@@ -247,10 +305,11 @@ describe('useMedia Integration', () => {
         });
       });
 
-      expect(progressCalls).toContain(0);
-      expect(progressCalls).toContain(50);
-      expect(progressCalls).toContain(90);
-      expect(progressCalls).toContain(100);
+      // Progress starts at 0% and ends at 100%
+      expect(progressCalls[0]).toBe(0);
+      expect(progressCalls[progressCalls.length - 1]).toBe(100);
+      // Progress includes intermediate values (should be monotonically increasing)
+      expect(progressCalls.length).toBeGreaterThan(2);
     });
 
     it('requests upload URL before uploading', async () => {
@@ -263,7 +322,6 @@ describe('useMedia Integration', () => {
           file_path: 'media/test.jpg',
         },
       });
-      mockFetch.mockResolvedValueOnce({ ok: true });
       mockedApi.patch.mockResolvedValueOnce({
         data: createMockMediaFile({ id: 'media-123' }),
       });
@@ -299,7 +357,6 @@ describe('useMedia Integration', () => {
           file_path: 'media/test.jpg',
         },
       });
-      mockFetch.mockResolvedValueOnce({ ok: true });
       mockedApi.patch.mockResolvedValueOnce({
         data: createMockMediaFile({ id: 'media-123' }),
       });
@@ -312,7 +369,9 @@ describe('useMedia Integration', () => {
         await result.current.mutateAsync({ file, entryId: 'entry-123' });
       });
 
-      expect(mockFetch).toHaveBeenCalledWith(uploadUrl, expect.any(Object));
+      // Verify XMLHttpRequest was opened with the correct URL
+      expect(mockXHRInstances.length).toBeGreaterThan(0);
+      expect(mockXHRInstances[0].openUrl).toBe(uploadUrl);
     });
 
     it('updates status to uploaded on success', async () => {
@@ -325,7 +384,6 @@ describe('useMedia Integration', () => {
           file_path: 'media/test.jpg',
         },
       });
-      mockFetch.mockResolvedValueOnce({ ok: true });
       mockedApi.patch.mockResolvedValueOnce({
         data: createMockMediaFile({ id: 'media-123', status: 'uploaded' }),
       });
@@ -349,7 +407,6 @@ describe('useMedia Integration', () => {
       mockedApi.post.mockResolvedValueOnce({
         data: { media_id: 'media-123', upload_url: 'https://example.com', file_path: 'test.jpg' },
       });
-      mockFetch.mockResolvedValueOnce({ ok: true });
       mockedApi.patch.mockResolvedValueOnce({
         data: createMockMediaFile({ id: 'media-123' }),
       });
@@ -375,7 +432,6 @@ describe('useMedia Integration', () => {
       mockedApi.post.mockResolvedValueOnce({
         data: { media_id: 'media-123', upload_url: 'https://example.com', file_path: 'test.jpg' },
       });
-      mockFetch.mockResolvedValueOnce({ ok: true });
       mockedApi.patch.mockResolvedValueOnce({
         data: createMockMediaFile({ id: 'media-123' }),
       });
@@ -424,6 +480,10 @@ describe('useMedia Integration', () => {
     it('updates status to failed when storage upload fails', async () => {
       const file = createMockLocalFile();
 
+      // Configure XHR to fail
+      mockXHRShouldFail = true;
+      mockXHRFailStatus = 500;
+
       mockedApi.post.mockResolvedValueOnce({
         data: {
           media_id: 'media-123',
@@ -431,8 +491,6 @@ describe('useMedia Integration', () => {
           file_path: 'media/test.jpg',
         },
       });
-      // Storage upload fails
-      mockFetch.mockResolvedValueOnce({ ok: false, text: () => Promise.resolve('Storage error') });
       // Status update to failed
       mockedApi.patch.mockResolvedValueOnce({
         data: createMockMediaFile({ id: 'media-123', status: 'failed' }),
@@ -458,10 +516,13 @@ describe('useMedia Integration', () => {
     it('handles upload failure gracefully', async () => {
       const file = createMockLocalFile();
 
+      // Configure XHR to fail
+      mockXHRShouldFail = true;
+      mockXHRFailStatus = 500;
+
       mockedApi.post.mockResolvedValueOnce({
         data: { media_id: 'media-123', upload_url: 'https://example.com', file_path: 'test.jpg' },
       });
-      mockFetch.mockResolvedValueOnce({ ok: false, text: () => Promise.resolve('Error') });
       mockedApi.patch.mockResolvedValueOnce({
         data: createMockMediaFile({ id: 'media-123', status: 'failed' }),
       });

@@ -9,6 +9,8 @@ export const STALE_TIMES = {
   PROFILE: 1000 * 60 * 30, // 30 minutes
   /** User-editable data (trips, entries) - default staleTime */
   USER_DATA: 1000 * 60 * 5, // 5 minutes
+  /** System trips (uncategorized) - only entry_count changes via mutations */
+  SYSTEM_TRIP: 1000 * 60 * 10, // 10 minutes
 } as const;
 
 export const queryClient = new QueryClient({

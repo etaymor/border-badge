@@ -15,10 +15,15 @@ export const colors = {
   midnightNavyFocused: 'rgba(23, 42, 58, 0.12)', // Focused input backgrounds
   midnightNavyBorder: 'rgba(23, 42, 58, 0.2)', // Dividers
   warmCream: '#FDF6ED', // Background paper feel, base layer
-  sunsetGold: '#F4C24E', // Highlight buttons, call to actions
+  sunsetGold: '#FFC636', // Highlight buttons, call to actions (Brightened from #F4C24E)
   adobeBrick: '#C1543E', // Accent, icons, "visited" mark
   lakeBlue: '#A0CDEB', // Sky/illustration tie-in, neutral tint
   mossGreen: '#547A5F', // Secondary accents, tags
+
+  // Muted earth tones (entry types, Share Extension sync)
+  latteGold: '#D4A373', // 212, 163, 115 - Food
+  slateBlue: '#8D99AE', // 141, 153, 174 - Stay
+  oliveGreen: '#6B705C', // 107, 112, 92 - Experience
 
   // Secondary Brand Colors
   paperBeige: '#F5ECE0', // Card backgrounds
@@ -29,11 +34,11 @@ export const colors = {
   // Semantic colors - Mapped to Brand Palette where appropriate
   success: '#547A5F', // Moss Green
   successDark: '#2E7D32',
-  warning: '#F4C24E', // Sunset Gold
+  warning: '#FFC636', // Sunset Gold
   error: '#C1543E', // Adobe Brick
 
   // Wishlist colors
-  wishlistGold: '#F4C24E', // Sunset Gold
+  wishlistGold: '#FFC636', // Sunset Gold
   wishlistBrown: '#B8860B',
 
   // Text colors
@@ -54,11 +59,10 @@ export const colors = {
   border: '#E5E5EA',
   separator: '#C7C7CC',
 
-  // Entry type colors
-  entryPlace: '#007AFF',
-  entryFood: '#F4C24E', // Sunset Gold
-  entryStay: '#5856D6',
-  entryExperience: '#547A5F', // Moss Green
+  // Entry type colors (earth tones, match Share Extension BrandColors)
+  entryFood: '#D4A373', // latteGold
+  entryStay: '#8D99AE', // slateBlue
+  entryExperience: '#6B705C', // oliveGreen
 
   // Shadow colors
   shadow: '#172A3A', // Midnight Navy based shadow

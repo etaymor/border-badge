@@ -9,14 +9,10 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import {
   enqueueFailedShare,
-  getPendingShares,
-  getPendingShareCount,
   dequeueShare,
   getNextRetryableShare,
   markRetryAttempt,
-  flushQueue,
   clearExpiredShares,
-  clearAllShares,
   getShareById,
   updateShare,
   type QueuedShare,
@@ -130,96 +126,6 @@ describe('shareQueue', () => {
           createdAt: Date.now(),
         })
       ).resolves.not.toThrow();
-    });
-  });
-
-  describe('getPendingShares', () => {
-    it('returns empty array when queue is empty', async () => {
-      mockAsyncStorage.getItem.mockResolvedValueOnce(null);
-
-      const result = await getPendingShares();
-      expect(result).toEqual([]);
-    });
-
-    it('returns all non-expired shares', async () => {
-      const queue: QueuedShare[] = [
-        {
-          id: '1',
-          url: 'https://test1.com',
-          source: 'clipboard',
-          createdAt: Date.now() - 1000,
-          retryCount: 0,
-          lastRetryAt: null,
-        },
-        {
-          id: '2',
-          url: 'https://test2.com',
-          source: 'share_extension',
-          createdAt: Date.now() - 2000,
-          retryCount: 1,
-          lastRetryAt: Date.now() - 1000,
-        },
-      ];
-      mockAsyncStorage.getItem.mockResolvedValueOnce(JSON.stringify(queue));
-
-      const result = await getPendingShares();
-      expect(result).toHaveLength(2);
-    });
-
-    it('excludes expired shares (older than 7 days)', async () => {
-      const now = Date.now();
-      const eightDaysAgo = now - 8 * 24 * 60 * 60 * 1000;
-
-      const queue: QueuedShare[] = [
-        {
-          id: '1',
-          url: 'https://old.com',
-          source: 'clipboard',
-          createdAt: eightDaysAgo,
-          retryCount: 0,
-          lastRetryAt: null,
-        },
-        {
-          id: '2',
-          url: 'https://recent.com',
-          source: 'clipboard',
-          createdAt: now - 1000,
-          retryCount: 0,
-          lastRetryAt: null,
-        },
-      ];
-      mockAsyncStorage.getItem.mockResolvedValueOnce(JSON.stringify(queue));
-
-      const result = await getPendingShares();
-      expect(result).toHaveLength(1);
-      expect(result[0].id).toBe('2');
-    });
-  });
-
-  describe('getPendingShareCount', () => {
-    it('returns count of pending shares', async () => {
-      const queue: QueuedShare[] = [
-        {
-          id: '1',
-          url: 'https://test1.com',
-          source: 'clipboard',
-          createdAt: Date.now(),
-          retryCount: 0,
-          lastRetryAt: null,
-        },
-        {
-          id: '2',
-          url: 'https://test2.com',
-          source: 'clipboard',
-          createdAt: Date.now(),
-          retryCount: 0,
-          lastRetryAt: null,
-        },
-      ];
-      mockAsyncStorage.getItem.mockResolvedValueOnce(JSON.stringify(queue));
-
-      const count = await getPendingShareCount();
-      expect(count).toBe(2);
     });
   });
 
@@ -486,81 +392,6 @@ describe('shareQueue', () => {
       await clearExpiredShares();
 
       expect(mockAsyncStorage.setItem).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('clearAllShares', () => {
-    it('removes the entire queue from storage', async () => {
-      await clearAllShares();
-
-      expect(mockAsyncStorage.removeItem).toHaveBeenCalledWith('share_queue');
-    });
-  });
-
-  describe('flushQueue', () => {
-    it('returns zeros when no retry function provided', async () => {
-      mockAsyncStorage.getItem.mockResolvedValueOnce('[]');
-
-      const result = await flushQueue();
-      expect(result).toEqual({ succeeded: 0, failed: 0 });
-    });
-
-    it('processes retryable shares with provided function', async () => {
-      const queue: QueuedShare[] = [
-        {
-          id: '1',
-          url: 'https://test.com',
-          source: 'clipboard',
-          createdAt: Date.now(),
-          retryCount: 0,
-          lastRetryAt: null,
-        },
-      ];
-
-      // First call for clearExpiredShares
-      mockAsyncStorage.getItem.mockResolvedValueOnce(JSON.stringify(queue));
-      // Second call for getNextRetryableShare (first iteration)
-      mockAsyncStorage.getItem.mockResolvedValueOnce(JSON.stringify(queue));
-      // Third call for dequeueShare
-      mockAsyncStorage.getItem.mockResolvedValueOnce(JSON.stringify(queue));
-      // Fourth call for getNextRetryableShare (second iteration, returns empty)
-      mockAsyncStorage.getItem.mockResolvedValueOnce('[]');
-
-      const retryFn = jest.fn().mockResolvedValue(true);
-      const result = await flushQueue(retryFn);
-
-      expect(retryFn).toHaveBeenCalledTimes(1);
-      expect(result.succeeded).toBe(1);
-      expect(result.failed).toBe(0);
-    });
-
-    it('marks failed retries', async () => {
-      const queue: QueuedShare[] = [
-        {
-          id: '1',
-          url: 'https://test.com',
-          source: 'clipboard',
-          createdAt: Date.now(),
-          retryCount: 0,
-          lastRetryAt: null,
-        },
-      ];
-
-      // For clearExpiredShares
-      mockAsyncStorage.getItem.mockResolvedValueOnce(JSON.stringify(queue));
-      // For getNextRetryableShare (first)
-      mockAsyncStorage.getItem.mockResolvedValueOnce(JSON.stringify(queue));
-      // For markRetryAttempt
-      mockAsyncStorage.getItem.mockResolvedValueOnce(JSON.stringify(queue));
-      // For getNextRetryableShare (second, after marking - still not ready due to backoff)
-      mockAsyncStorage.getItem.mockResolvedValueOnce('[]');
-
-      const retryFn = jest.fn().mockResolvedValue(false);
-      const result = await flushQueue(retryFn);
-
-      expect(retryFn).toHaveBeenCalledTimes(1);
-      expect(result.succeeded).toBe(0);
-      expect(result.failed).toBe(1);
     });
   });
 

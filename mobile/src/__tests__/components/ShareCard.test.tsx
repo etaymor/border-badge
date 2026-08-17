@@ -72,7 +72,7 @@ describe('ShareCard', () => {
       render(<ShareCard context={context} />);
 
       // Number with # prefix in the new design
-      expect(screen.getByText('#27')).toBeTruthy();
+      expect(screen.getByText('27')).toBeTruthy();
     });
 
     it('renders watermark logo', () => {
@@ -163,7 +163,7 @@ describe('ShareCard', () => {
 
       render(<ShareCard context={context} />);
 
-      expect(screen.getByText('#1')).toBeTruthy();
+      expect(screen.getByText('1')).toBeTruthy();
     });
 
     it('renders high country numbers with # prefix', () => {
@@ -171,7 +171,7 @@ describe('ShareCard', () => {
 
       render(<ShareCard context={context} />);
 
-      expect(screen.getByText('#100')).toBeTruthy();
+      expect(screen.getByText('100')).toBeTruthy();
     });
   });
 
@@ -195,7 +195,7 @@ describe('ShareCard', () => {
       render(<ShareCard context={context} backgroundImage={backgroundImage} />);
 
       // In photo mode, number shows as #42 on badge
-      expect(screen.getByText('#42')).toBeTruthy();
+      expect(screen.getByText('42')).toBeTruthy();
     });
 
     it('limits milestones to 2 in photo mode', () => {

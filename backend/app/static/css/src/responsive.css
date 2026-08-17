@@ -7,39 +7,27 @@
    ============================================== */
 
 @media (max-width: 1024px) {
+  /* Landing hero stacks; the phone drops below the copy. */
   .landing-hero-content {
     grid-template-columns: 1fr;
-    text-align: center;
+    gap: var(--spacing-xl);
   }
 
-  .landing-hero-text {
-    max-width: 100%;
+  .landing-hero h1 {
+    font-size: 3rem;
   }
 
-  .hero-cta-group {
-    justify-content: center;
+  .hero-description {
+    max-width: none;
   }
 
-  .trust-signals {
-    justify-content: center;
-  }
-
-  .passport-demo {
-    max-width: 400px;
-    margin: 0 auto;
-  }
-
-  .features-grid-enhanced {
+  .features-grid {
     grid-template-columns: repeat(2, 1fr);
   }
 
   .how-steps {
     grid-template-columns: repeat(2, 1fr);
     gap: var(--spacing-xl);
-  }
-
-  .how-steps::before {
-    display: none;
   }
 
   .footer-grid {
@@ -52,25 +40,69 @@
    ============================================== */
 
 @media (max-width: 768px) {
-  /* List/Trip Pages */
-  .list-title {
-    font-size: 2rem;
+  /* Public share pages (/l/ and /t/) -- the editorial layout collapses to a
+     single column: the alternating spread has no room to alternate. */
+  .share-hero {
+    height: 60vh;
+    min-height: 380px;
   }
 
-  .list-info-card {
-    padding: var(--spacing-lg);
+  .share-hero-body {
+    padding: 0 24px 32px;
   }
 
-  .hero-section {
-    height: 40vh;
+  .share-title {
+    font-size: 2.75rem;
   }
 
-  .entries-grid {
+  .share-subtitle {
+    font-size: 1.0625rem;
+  }
+
+  .share-byline,
+  .share-filters,
+  .share-feed,
+  .share-map-section,
+  .share-cta {
+    padding-left: 24px;
+    padding-right: 24px;
+  }
+
+  .share-row,
+  .share-row.is-reversed {
+    grid-template-columns: 1fr;
+    gap: 24px;
+    padding: 32px 0;
+  }
+
+  /* Image above text on every row, whichever side it would take at width. */
+  .share-row.is-reversed .share-row-figure,
+  .share-row.is-reversed .share-row-body {
+    order: initial;
+  }
+
+  .share-row-title {
+    font-size: 1.75rem;
+  }
+
+  .share-map-list {
     grid-template-columns: 1fr;
   }
 
-  .list-info-container {
-    margin-top: -60px;
+  /* Full-width tap target for the download, and a card that fits a phone
+     without Google's bubble having to scroll it. */
+  .share-map-export-button {
+    display: block;
+    text-align: center;
+  }
+
+  .share-iw {
+    max-width: 220px;
+  }
+
+  .share-map-title,
+  .share-cta-title {
+    font-size: 1.75rem;
   }
 
   .hero-title {
@@ -87,144 +119,70 @@
     gap: var(--spacing-md);
   }
 
-  /* Landing Page */
+  /* Landing Page: the text links collapse on mobile, but the header's
+     Download CTA (a sibling of .nav-links inside .header-nav) stays. */
   .nav-links {
     display: none;
   }
 
+  .band {
+    padding: var(--spacing-2xl) var(--spacing-md);
+  }
+
+  .band h2,
+  .passport-band-head h2 {
+    font-size: 1.75rem;
+  }
+
   .landing-hero {
-    padding-top: 100px;
-    min-height: auto;
-    padding-bottom: var(--spacing-xl);
+    padding: var(--spacing-2xl) var(--spacing-md) var(--spacing-xl);
   }
 
   .landing-hero h1 {
-    font-size: 2rem;
+    font-size: 2.25rem;
   }
 
-  .landing-hero-description {
+  .hero-description {
     font-size: 1rem;
   }
 
-  .hero-cta-group {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .hero-cta-group .cta-button {
-    text-align: center;
-  }
-
-  .problem-section {
-    padding: var(--spacing-xl) var(--spacing-md);
-  }
-
-  .problem-content h2 {
-    font-size: 1.5rem;
-  }
-
-  .problem-grid {
-    grid-template-columns: 1fr;
-    gap: var(--spacing-md);
-  }
-
-  .problem-card {
-    padding: var(--spacing-md);
-  }
-
-  .features-section {
-    padding: var(--spacing-xl) var(--spacing-md);
-  }
-
-  .features-header h2 {
-    font-size: 1.5rem;
-  }
-
-  .features-grid-enhanced {
-    grid-template-columns: 1fr;
-    gap: var(--spacing-md);
-  }
-
-  .feature-card-enhanced {
-    padding: var(--spacing-md);
-  }
-
-  .how-section {
-    padding: var(--spacing-xl) var(--spacing-md);
-  }
-
-  .how-header h2 {
-    font-size: 1.5rem;
-  }
-
-  .how-steps {
-    grid-template-columns: 1fr;
-    gap: var(--spacing-lg);
-  }
-
-  .step-number {
-    width: 72px;
-    height: 72px;
-  }
-
-  .step-number svg {
-    width: 32px;
-    height: 32px;
-  }
-
-  .passport-frame {
-    transform: none;
-    padding: var(--spacing-md);
-  }
-
-  .passport-frame:hover {
-    transform: none;
-  }
-
-  .passport-grid {
-    grid-template-columns: repeat(5, 1fr);
-    gap: 4px;
-  }
-
-  .stamp:nth-child(n) {
-    transform: rotate(0deg);
-  }
-
-  .cta-section-enhanced {
-    padding: var(--spacing-xl) var(--spacing-md);
-  }
-
-  .cta-content-enhanced h2 {
-    font-size: 1.5rem;
-  }
-
-  .app-badges {
-    flex-direction: column;
-    align-items: center;
-  }
-
-  .app-badge {
-    width: 100%;
-    max-width: 250px;
+  .hero-cta-row .cta-button {
     justify-content: center;
   }
 
-  .faq-section {
-    padding: var(--spacing-xl) var(--spacing-md);
+  .phone-frame {
+    width: 260px;
   }
 
-  .faq-header h2 {
-    font-size: 1.5rem;
+  .dilemma-grid,
+  .features-grid {
+    grid-template-columns: 1fr;
   }
 
-  .faq-question {
-    padding: var(--spacing-md);
-    font-size: 1rem;
+  .tint-card {
+    padding: var(--spacing-lg);
   }
 
-  .faq-answer p {
-    padding: 0 var(--spacing-md) var(--spacing-md);
-    font-size: 0.9rem;
+  .how-steps {
+    grid-template-columns: repeat(2, 1fr);
+    gap: var(--spacing-lg);
+  }
+
+  .in-action-row {
+    gap: var(--spacing-lg);
+  }
+
+  /* Nothing to raise once the phones wrap into a column. */
+  .in-action-item--raised {
+    margin-top: 0;
+  }
+
+  .cta-band {
+    padding: var(--spacing-2xl) var(--spacing-md);
+  }
+
+  .cta-band h2 {
+    font-size: 2rem;
   }
 
   .footer-grid {
@@ -241,22 +199,17 @@
     gap: var(--spacing-md);
   }
 
-  .trust-signals {
-    flex-wrap: wrap;
-    gap: var(--spacing-md);
-    justify-content: center;
-  }
-
-  .trust-item {
-    font-size: 0.8rem;
-  }
-
   .section-label {
     font-size: 0.7rem;
   }
 
   .footer-simple-wrapper {
     padding: var(--spacing-md) 0;
+  }
+
+  body.has-hero .footer-simple-wrapper {
+    flex-direction: column;
+    text-align: center;
   }
 
   .footer-simple-nav {
@@ -274,19 +227,23 @@
 
 @media (max-width: 480px) {
   .landing-hero h1 {
-    font-size: 1.75rem;
+    font-size: 1.875rem;
   }
 
   .passport-grid {
     grid-template-columns: repeat(3, 1fr);
+    gap: var(--spacing-sm);
   }
 
-  .stamp::after {
-    display: none;
+  .how-steps {
+    grid-template-columns: 1fr;
   }
 
-  .hero-badge {
-    font-size: 0.75rem;
-    padding: 6px 12px;
+  .hero-eyebrow {
+    font-size: 0.6875rem;
+  }
+
+  .cta-band h2 {
+    font-size: 1.75rem;
   }
 }

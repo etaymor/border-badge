@@ -12,15 +12,15 @@ module.exports = {
   apps: {
     'ios.debug': {
       type: 'ios.app',
-      binaryPath: 'ios/build/Build/Products/Debug-iphonesimulator/borderbadge.app',
+      binaryPath: 'ios/build/Build/Products/Debug-iphonesimulator/Atlasi.app',
       build:
-        'xcodebuild -workspace ios/borderbadge.xcworkspace -scheme borderbadge -configuration Debug -sdk iphonesimulator -derivedDataPath ios/build',
+        'xcodebuild -workspace ios/Atlasi.xcworkspace -scheme Atlasi -configuration Debug -sdk iphonesimulator -derivedDataPath ios/build',
     },
     'ios.release': {
       type: 'ios.app',
-      binaryPath: 'ios/build/Build/Products/Release-iphonesimulator/borderbadge.app',
+      binaryPath: 'ios/build/Build/Products/Release-iphonesimulator/Atlasi.app',
       build:
-        'xcodebuild -workspace ios/borderbadge.xcworkspace -scheme borderbadge -configuration Release -sdk iphonesimulator -derivedDataPath ios/build',
+        'xcodebuild -workspace ios/Atlasi.xcworkspace -scheme Atlasi -configuration Release -sdk iphonesimulator -derivedDataPath ios/build',
     },
     'android.debug': {
       type: 'android.apk',

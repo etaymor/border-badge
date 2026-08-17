@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% import "_blog_card.html" as cards %}
+
+{# Served with status 404 and Cache-Control: no-store. #}
+{% block robots %}
+<meta name="robots" content="noindex" />
+{% endblock %}
+
+{% block content %}
+<section class="blog-page blog-not-found">
+  <header class="blog-hero">
+    <h1>We couldn't find that post</h1>
+    <p class="blog-hero-subtitle">
+      The link may be out of date, or the post may have moved.
+      <a href="/blog">Browse the blog</a> to find what you were after.
+    </p>
+  </header>
+
+  {% if recent_posts %}
+  <h2 class="blog-recent-heading">Recent posts</h2>
+  <div class="blog-grid">
+    {% for post in recent_posts %}
+    {{ cards.blog_card(post, heading_level='h3') }}
+    {% endfor %}
+  </div>
+  {% endif %}
+</section>
+{% endblock %}

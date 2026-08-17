@@ -3,17 +3,23 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    {# Blocks default to the route-supplied SEO context, so a template can
+       either override the block (as the older pages do) or simply pass
+       page_title/page_description via seo_context(). Both work; the block
+       wins where present. #}
     {% block meta %}
-    <title>{% block title %}Atlasi{% endblock %}</title>
+    <title>{% block title %}{{ page_title | default('Atlasi') }}{% endblock %}</title>
     <meta
       name="description"
-      content="{% block description %}Track your travels, share your adventures{% endblock %}"
+      content="{% block description %}{{ page_description | default('Track your travels, share your adventures') }}{% endblock %}"
     />
     {% endblock %}
 
+    {% block robots %}{% endblock %}
+
     <!-- Open Graph / Social -->
     {% block og_tags %}
-    <meta property="og:type" content="website" />
+    <meta property="og:type" content="{{ og_type | default('website') }}" />
     <meta
       property="og:title"
       content="{{ og_title | default('Atlasi') }}"
@@ -54,28 +60,44 @@
     <link rel="icon" type="image/png" href="{{ url_for('static', path='images/favicon.png') }}" />
     <link rel="apple-touch-icon" href="{{ url_for('static', path='images/favicon.png') }}" />
 
+    {% if apple_app_id %}
+    <meta name="apple-itunes-app" content="app-id={{ apple_app_id }}" />
+    {% endif %}
+
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Dawning+of+a+New+Day&family=Open+Sans:wght@400;600&family=Playfair+Display:wght@600;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Dawning+of+a+New+Day&family=Open+Sans:wght@400;600;700;800&family=Playfair+Display:wght@600;700;800&display=swap"
       rel="stylesheet"
     />
-    {% if is_production %}
-    <link
-      rel="stylesheet"
-      href="{{ url_for('static', path='css/styles.min.css') }}"
-    />
-    {% else %}
-    <link
-      rel="stylesheet"
-      href="{{ url_for('static', path='css/styles.css') }}"
-    />
-    {% endif %}
+    {% set stylesheet = 'css/styles.min.css' if is_production else 'css/styles.css' %}
+    <link rel="preload" as="style" href="{{ url_for('static', path=stylesheet) }}" />
+    <link rel="stylesheet" href="{{ url_for('static', path=stylesheet) }}" />
+
+    {# Nonce donor for the Google Maps JS API.
+
+       Maps installs its own chrome -- the InfoWindow bubble, its tail and
+       shadow, the control hover states -- through a <style> element it creates
+       at runtime, and it stamps a nonce on that element only when
+       `document.querySelector("style[nonce]")` matches. A nonced <link> or
+       <script> does not match; it has to be a <style>. Our style-src is
+       nonce-only with no 'unsafe-inline' on purpose, so with no donor those
+       stylesheets are refused and the map's popups render unstyled.
+
+       Two invariants, both covered by tests: it must live in <head> (Maps reads
+       the nonce at inject time, after share-map.js boots), and it must stay the
+       *only* style[nonce] on the page, because Maps takes the first match in
+       document order.
+
+       https://developers.google.com/maps/documentation/javascript/content-security-policy #}
+    <style nonce="{{ request.state.csp_nonce }}">/* Google Maps CSP nonce donor. */</style>
 
     <!-- Google Analytics 4 -->
     {% if google_analytics_id %}
-    <script async src="https://www.googletagmanager.com/gtag/js?id={{ google_analytics_id }}"></script>
-    <script>
+    {# The nonce is what keeps this loading on the share pages, whose CSP uses
+       'strict-dynamic' -- which disables host allowlisting outright. #}
+    <script async src="https://www.googletagmanager.com/gtag/js?id={{ google_analytics_id }}" nonce="{{ request.state.csp_nonce }}"></script>
+    <script nonce="{{ request.state.csp_nonce }}">
       window.dataLayer = window.dataLayer || [];
       function gtag(){dataLayer.push(arguments);}
       gtag('js', new Date());
@@ -88,18 +110,30 @@
       <div class="header-content">
         <a href="/" class="logo">
           <img src="{{ url_for('static', path='images/atlasi-logo.png') }}" alt="Atlasi" class="logo-image">
+          <span class="logo-text">Atlasi</span>
         </a>
-        {% block nav_links %}
-        <nav class="nav-links">
-          <a href="#features">Features</a>
-          <a href="#how-it-works">How It Works</a>
-          <a href="#faq">FAQ</a>
+        {% block header_nav %}
+        <nav class="header-nav">
+          {# Anchors are rooted (/#features, not #features) so they resolve from
+             any page. As bare fragments they silently dead-ended on every URL
+             except the landing page. The inner nav_links block is what four
+             templates were already trying to override -- it did not exist in
+             this file until now, so those overrides were inert. #}
+          {% block nav_links %}
+          <div class="nav-links">
+            <a href="/#features">Features</a>
+            <a href="/#how-it-works">How It Works</a>
+            <a href="/blog">Blog</a>
+          </div>
+          {% endblock %}
           <a
             href="{{ app_store_url | safe_external_url or '#download' }}"
-            class="cta-button"
+            class="cta-button header-cta"
             data-track-location="header"
-            >Download Free</a
           >
+            {% include "_apple_icon.svg" %}
+            <span>Download</span>
+          </a>
         </nav>
         {% endblock %}
       </div>
@@ -125,8 +159,10 @@
           </a>
           <nav class="footer-links">
             <a href="{{ app_store_url | safe_external_url or '#download' }}" class="footer-link">Download App</a>
+            <a href="/blog" class="footer-link">Blog</a>
             <a href="/privacy" class="footer-link">Privacy</a>
             <a href="/terms" class="footer-link">Terms</a>
+            <a href="/contact" class="footer-link">Contact</a>
           </nav>
         </div>
         {% endblock %}
@@ -142,7 +178,7 @@
 
     <!-- Analytics event listeners -->
     {% if google_analytics_id %}
-    <script>
+    <script nonce="{{ request.state.csp_nonce }}">
       document.addEventListener('DOMContentLoaded', function() {
         document.querySelectorAll('[data-track-location]').forEach(function(el) {
           el.addEventListener('click', function() {

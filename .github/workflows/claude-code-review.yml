@@ -40,12 +40,25 @@ jobs:
             REPO: ${{ github.repository }}
             PR NUMBER: ${{ github.event.pull_request.number }}
 
-            Please review this pull request and provide feedback on:
-            - Code quality and best practices
-            - Potential bugs or issues
-            - Performance considerations
-            - Security concerns
-            - Test coverage
+            You are a senior engineer doing a quick, high-signal review of this pull request.
+
+            Your goals:
+            - Find correctness bugs, logic errors, and missing edge cases.
+            - Find security issues (auth, access control, injections, unsafe deserialization, secret leakage, insecure randomness, etc.).
+            - Flag obvious performance problems that could matter in production (N+1 queries, unnecessary O(n^2) work, blocking calls in hot paths).
+
+            Constraints:
+            - Ignore code style, formatting, and naming unless it directly hides a bug or vulnerability.
+            - Do not request large refactors or architectural changes.
+            - Prefer a single structured review comment over many nitpicky line comments.
+
+            Output format:
+            - Summary: 1–3 bullet points.
+            - Issues: bullet list grouped by [Bug], [Security], or [Performance], each with:
+              - What the issue is.
+              - Why it matters.
+              - A concrete, minimal fix suggestion.
+            - If there are no meaningful issues, say: "No significant bugs, security issues, or performance problems found."
 
             Use the repository's CLAUDE.md for guidance on style and conventions. Be constructive and helpful in your feedback.
 

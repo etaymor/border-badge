@@ -2,11 +2,13 @@
 
 import logging
 
+import httpx
 from fastapi import APIRouter, HTTPException, Request, status
 
 from app.api.utils import get_token_from_request
+from app.core.config import get_settings
 from app.core.security import CurrentUser
-from app.db.session import get_supabase_client
+from app.db.session import get_http_client, get_supabase_client
 from app.main import limiter
 from app.schemas.profile import Profile, ProfileUpdate
 
@@ -77,3 +79,62 @@ async def update_profile(
         )
 
     return Profile(**rows[0])
+
+
+@router.delete("")
+@limiter.limit("5/hour")
+async def delete_account(
+    request: Request,
+    user: CurrentUser,
+) -> dict[str, str]:
+    """
+    Permanently delete the current user's account and all associated data.
+
+    This operation is irreversible and will:
+    - Delete the user's authentication record from Supabase Auth
+    - Cascade delete all database records via ON DELETE CASCADE constraints:
+      - user_profile, user_countries, trips, entries, places, lists, list_entries
+      - trip_tags, media_files (database records), outbound_links, social_ingest_jobs
+
+    Note: Media files in Supabase Storage buckets are NOT automatically deleted.
+    Supabase Storage cleanup requires a separate process (e.g., scheduled job or
+    storage lifecycle policy) to remove orphaned files.
+
+    Rate limited to 5 requests per hour for security.
+    """
+    settings = get_settings()
+
+    # Use Supabase Admin Auth API to delete the user
+    # This will cascade delete all user data via RLS policies
+    auth_admin_url = f"{settings.supabase_url}/auth/v1/admin/users/{user.id}"
+
+    try:
+        client = get_http_client()
+        response = await client.delete(
+            auth_admin_url,
+            headers={
+                "apikey": settings.supabase_service_role_key,
+                "Authorization": f"Bearer {settings.supabase_service_role_key}",
+            },
+        )
+        response.raise_for_status()
+
+        logger.info("Account deleted for user %s", user.id)
+        return {"message": "Account deleted successfully"}
+
+    except httpx.HTTPStatusError as e:
+        logger.error(
+            "Failed to delete account for user %s: %s",
+            user.id,
+            e.response.text[:500],
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to delete account. Please try again or contact support.",
+        ) from e
+    except httpx.RequestError as e:
+        logger.error("Network error deleting account for user %s: %s", user.id, str(e))
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Service temporarily unavailable. Please try again.",
+        ) from e

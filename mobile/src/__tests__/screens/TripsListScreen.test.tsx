@@ -19,6 +19,13 @@ import * as useCountriesModule from '@hooks/useCountries';
 import * as useUserCountriesModule from '@hooks/useUserCountries';
 import * as authStoreModule from '@stores/authStore';
 
+// Tab filtering (My Trips / Tagged) and the notification bell are social
+// features; enable the flag so they render in these tests.
+jest.mock('@config/features', () => ({
+  features: { enableSocial: true, enableFriends: true },
+  isFeatureEnabled: () => true,
+}));
+
 // Create mock navigation and route
 const mockNavigation =
   createMockNavigation() as unknown as TripsStackScreenProps<'TripsList'>['navigation'];

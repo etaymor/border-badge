@@ -25,6 +25,7 @@ import {
 } from '@constants/regions';
 import { TRACKING_PRESETS, type TrackingPreset } from '@constants/trackingPreferences';
 import { countActiveFilters, type ExploreFilters, type CountryStatus } from '../../types/filters';
+import { Button } from './Button';
 import { Chip } from './Chip';
 import { Text } from './Text';
 
@@ -345,13 +346,12 @@ export function ExploreFilterSheet({
 
             {/* Apply Button - Fixed at bottom */}
             <View style={styles.applyButtonContainer}>
-              <TouchableOpacity
-                style={styles.applyButton}
+              <Button
+                title="Apply Filters"
                 onPress={handleApply}
-                activeOpacity={0.8}
-              >
-                <Text style={styles.applyButtonText}>Apply Filters</Text>
-              </TouchableOpacity>
+                style={{ backgroundColor: colors.mossGreen }}
+                textStyle={{ color: colors.cloudWhite }}
+              />
             </View>
           </View>
         </BlurView>
@@ -441,6 +441,7 @@ const styles = StyleSheet.create({
   chipRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
+    gap: 10,
   },
   subregionGroup: {
     marginBottom: 16,
@@ -458,23 +459,5 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: 'rgba(23, 42, 58, 0.1)',
     backgroundColor: colors.warmCream,
-  },
-  applyButton: {
-    backgroundColor: colors.mossGreen,
-    paddingVertical: 16,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: colors.shadow,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  applyButtonText: {
-    fontFamily: fonts.openSans.semiBold,
-    fontSize: 16,
-    color: colors.cloudWhite,
-    letterSpacing: 0.5,
   },
 });

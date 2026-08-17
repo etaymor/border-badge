@@ -6,37 +6,31 @@
 export const TRACKING_PRESETS = {
   classic: {
     id: 'classic' as const,
-    name: 'Classic Traveler',
+    name: 'Essentials',
     count: 194,
     recognitionTypes: ['un_member', 'territory'] as const, // territory = Antarctica
-    description: 'The standard for most travelers.',
+    description: 'The core list',
     shortDescription: '193 UN Member States + Antarctica',
-    examples: 'United States, France, Japan, Brazil, Kenya',
-    bestFor: 'Traditional passport collectors who want the globally recognized count.',
   },
   un_complete: {
     id: 'un_complete' as const,
     name: 'UN Complete',
     count: 196,
     recognitionTypes: ['un_member', 'territory', 'observer'] as const,
-    description: 'Adds the two UN Observer States.',
-    shortDescription: '+ Vatican City, Palestine',
-    examples: 'Vatican City, Palestine',
-    bestFor: 'Travelers who want to include all UN-recognized entities.',
+    description: 'Essentials + 2 UN observer states.',
+    shortDescription: 'Adds Vatican City & Palestine',
   },
   explorer_plus: {
     id: 'explorer_plus' as const,
-    name: 'Explorer Plus',
+    name: 'Explorer',
     count: 199,
     recognitionTypes: ['un_member', 'territory', 'observer', 'disputed'] as const,
-    description: 'Adds disputed territories.',
-    shortDescription: '+ Taiwan, Kosovo, Northern Cyprus',
-    examples: 'Taiwan, Kosovo, Northern Cyprus',
-    bestFor: 'Travelers who recognize places with distinct cultures, governments, and experiences.',
+    description: 'UN + Observers + a few widely recognized disputed states.',
+    shortDescription: 'Adds Taiwan, Kosovo, Northern Cyprus',
   },
   full_atlas: {
     id: 'full_atlas' as const,
-    name: 'The Full Atlas',
+    name: 'Everything',
     count: 227,
     recognitionTypes: [
       'un_member',
@@ -47,11 +41,8 @@ export const TRACKING_PRESETS = {
       'special_region',
       'constituent_country',
     ] as const,
-    description: 'For those who want to track it all.',
-    shortDescription: '+ All territories & dependencies',
-    examples: 'Puerto Rico, Hong Kong, Scotland, Greenland',
-    bestFor:
-      'Completionists and travelers who appreciate that a trip to Scotland feels different from England.',
+    description: 'The complete list',
+    shortDescription: 'Adds all territories and dependencies',
   },
 } as const;
 

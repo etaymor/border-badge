@@ -11,7 +11,13 @@ import {
   StampRow,
 } from '@components/passport';
 import { ExploreFilterSheet, PassportSkeleton } from '@components/ui';
-import { ClipboardPasteModal, OnboardingShareOverlay, ShareCardOverlay } from '@components/share';
+import {
+  ClipboardPasteModal,
+  OnboardingShareOverlay,
+  ShareCardOverlay,
+  type OnboardingShareContext,
+} from '@components/share';
+import { ShareExtensionTutorialSheet } from '@components/share/ShareExtensionTutorialSheet';
 import { ClipboardEnableModal } from '@screens/profile/components/ClipboardEnableModal';
 import { useSettingsStore, selectClipboardDetectionEnabled } from '@stores/settingsStore';
 import { useResponsive } from '@hooks/useResponsive';
@@ -39,7 +45,8 @@ export function PassportScreen({ navigation }: Props) {
   const {
     isLoading,
     stats,
-    passportShareContext,
+    hasPassportShareContext,
+    getPassportShareContext,
     flatListData,
     searchQuery,
     setSearchQuery,
@@ -63,7 +70,6 @@ export function PassportScreen({ navigation }: Props) {
     fadeAnim,
     viewabilityConfig,
     getRowAnimationValues,
-    ensureRowVisible,
     handleViewableItemsChanged,
     computeLayoutData,
     getItemKey,
@@ -76,13 +82,19 @@ export function PassportScreen({ navigation }: Props) {
   const [shareCardVisible, setShareCardVisible] = useState(false);
   const [shareCardContext, setShareCardContext] = useState<MilestoneContext | null>(null);
   const [passportShareVisible, setPassportShareVisible] = useState(false);
+  // Resolved share context, built lazily only when the overlay is opened.
+  const [passportShareContext, setPassportShareContext] = useState<OnboardingShareContext | null>(
+    null
+  );
 
   // Paste modal state
   const [pasteModalVisible, setPasteModalVisible] = useState(false);
   const [enableModalVisible, setEnableModalVisible] = useState(false);
+  const [tutorialSheetVisible, setTutorialSheetVisible] = useState(false);
 
   // Settings store actions
   const setClipboardDetectionEnabled = useSettingsStore((s) => s.setClipboardDetectionEnabled);
+  const dismissShareExtensionTutorial = useSettingsStore((s) => s.dismissShareExtensionTutorial);
 
   // Handlers
   const handleCountryPress = useCallback(
@@ -137,8 +149,11 @@ export function PassportScreen({ navigation }: Props) {
 
   const handlePassportShare = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    // Build the (expensive) share context lazily, only now that the user is
+    // actually opening the share overlay.
+    setPassportShareContext(getPassportShareContext());
     setPassportShareVisible(true);
-  }, []);
+  }, [getPassportShareContext]);
 
   const handlePassportShareDismiss = useCallback(() => {
     setPassportShareVisible(false);
@@ -205,6 +220,15 @@ export function PassportScreen({ navigation }: Props) {
     setEnableModalVisible(false);
   }, []);
 
+  const handleShowTutorial = useCallback(() => {
+    setTutorialSheetVisible(true);
+  }, []);
+
+  const handleCloseTutorial = useCallback(() => {
+    setTutorialSheetVisible(false);
+    dismissShareExtensionTutorial();
+  }, [dismissShareExtensionTutorial]);
+
   const handleEnableClipboardDetection = useCallback(() => {
     setClipboardDetectionEnabled(true);
   }, [setClipboardDetectionEnabled]);
@@ -242,18 +266,16 @@ export function PassportScreen({ navigation }: Props) {
   const renderStampRow = useCallback(
     (stamps: CountryDisplayItem[], rowKey: string) => {
       const animValues = getRowAnimationValues(rowKey, stamps.length);
-      ensureRowVisible(rowKey, animValues);
       return (
         <StampRow stamps={stamps} animValues={animValues} onCountryPress={handleCountryPress} />
       );
     },
-    [getRowAnimationValues, ensureRowVisible, handleCountryPress]
+    [getRowAnimationValues, handleCountryPress]
   );
 
   const renderUnvisitedRow = useCallback(
     (countries: UnvisitedCountry[], rowKey: string) => {
       const animValues = getRowAnimationValues(rowKey, countries.length);
-      ensureRowVisible(rowKey, animValues);
       return (
         <CountryRow
           countries={countries}
@@ -264,13 +286,7 @@ export function PassportScreen({ navigation }: Props) {
         />
       );
     },
-    [
-      getRowAnimationValues,
-      ensureRowVisible,
-      handleUnvisitedCountryPress,
-      handleAddVisited,
-      handleToggleWishlist,
-    ]
+    [getRowAnimationValues, handleUnvisitedCountryPress, handleAddVisited, handleToggleWishlist]
   );
 
   const renderItem = useCallback(
@@ -280,7 +296,7 @@ export function PassportScreen({ navigation }: Props) {
           return (
             <PassportSectionHeader
               title={item.title}
-              showShareButton={item.key === 'header-visited' && !!passportShareContext}
+              showShareButton={item.key === 'header-visited' && hasPassportShareContext}
               onSharePress={handlePassportShare}
               variant={
                 item.key === 'header-visited'
@@ -301,7 +317,7 @@ export function PassportScreen({ navigation }: Props) {
           return null;
       }
     },
-    [renderStampRow, renderUnvisitedRow, passportShareContext, handlePassportShare]
+    [renderStampRow, renderUnvisitedRow, hasPassportShareContext, handlePassportShare]
   );
 
   // Show paste button when clipboard detection is disabled (iOS only)
@@ -359,10 +375,10 @@ export function PassportScreen({ navigation }: Props) {
           keyboardDismissMode="on-drag"
           keyboardShouldPersistTaps="handled"
           removeClippedSubviews={true}
-          maxToRenderPerBatch={20}
-          windowSize={11}
-          initialNumToRender={15}
-          updateCellsBatchingPeriod={30}
+          maxToRenderPerBatch={10}
+          windowSize={5}
+          initialNumToRender={10}
+          updateCellsBatchingPeriod={50}
           onViewableItemsChanged={handleViewableItemsChanged}
           viewabilityConfig={viewabilityConfig}
         />
@@ -396,6 +412,7 @@ export function PassportScreen({ navigation }: Props) {
         onDetect={handlePasteDetect}
         onInvalidContent={handlePasteInvalid}
         onEnableAutoDetect={handleEnableAutoDetect}
+        onShowTutorial={handleShowTutorial}
       />
 
       <ClipboardEnableModal
@@ -403,6 +420,8 @@ export function PassportScreen({ navigation }: Props) {
         onClose={handleEnableModalClose}
         onEnable={handleEnableClipboardDetection}
       />
+
+      <ShareExtensionTutorialSheet visible={tutorialSheetVisible} onClose={handleCloseTutorial} />
     </SafeAreaView>
   );
 }

@@ -1,11 +1,11 @@
 /**
- * Tests for useUserCountries hook migration behavior.
+ * Tests for useUserCountries hook behavior.
  *
  * Covers:
- * - Placeholder data is returned during migration before fetch
- * - Real data replaces placeholder after fetch completes
- * - Empty state is not shown when migrating with onboarding data
- * - Error states are preserved (not masked by placeholder data)
+ * - SQLite local data is returned before fetch completes
+ * - Real data replaces local data after fetch completes
+ * - Empty state is not shown when local SQLite data exists
+ * - Error states are preserved (not masked by local data)
  * - Loading state correctly reflects data availability
  */
 
@@ -16,12 +16,15 @@ import type { Session } from '@supabase/supabase-js';
 
 import { useUserCountries } from '@hooks/useUserCountries';
 import { api } from '@services/api';
+import * as countriesDb from '@services/countriesDb';
 import { useAuthStore } from '@stores/authStore';
-import { useOnboardingStore } from '@stores/onboardingStore';
 import { createTestQueryClient } from '../utils/testUtils';
 
 // Mock API
 const mockedApi = api as jest.Mocked<typeof api>;
+
+// Mock countriesDb
+const mockedCountriesDb = countriesDb as jest.Mocked<typeof countriesDb>;
 
 // Create wrapper for hooks
 function createWrapper(queryClient: QueryClient) {
@@ -67,6 +70,31 @@ const mockApiCountries = [
   },
 ];
 
+// Sample SQLite local data
+const mockLocalCountries: countriesDb.LocalUserCountry[] = [
+  {
+    id: 'local-visited-US',
+    country_code: 'US',
+    status: 'visited',
+    created_at: '2024-01-01T00:00:00Z',
+    added_during_onboarding: true,
+  },
+  {
+    id: 'local-visited-CA',
+    country_code: 'CA',
+    status: 'visited',
+    created_at: '2024-01-01T00:00:00Z',
+    added_during_onboarding: true,
+  },
+  {
+    id: 'local-wishlist-JP',
+    country_code: 'JP',
+    status: 'wishlist',
+    created_at: '2024-01-01T00:00:00Z',
+    added_during_onboarding: true,
+  },
+];
+
 describe('useUserCountries', () => {
   let queryClient: QueryClient;
 
@@ -80,25 +108,21 @@ describe('useUserCountries', () => {
       hasCompletedOnboarding: false,
       isMigrating: false,
     });
-    useOnboardingStore.setState({
-      selectedCountries: [],
-      bucketListCountries: [],
-    });
+
+    // Default: no local SQLite data
+    mockedCountriesDb.getLocalUserCountries.mockResolvedValue([]);
   });
 
-  describe('migration behavior', () => {
-    it('returns placeholder data during migration before fetch completes', async () => {
-      // Setup: User is migrating with onboarding data
+  describe('SQLite local data behavior', () => {
+    it('returns local SQLite data before fetch completes', async () => {
+      // Setup: User is authenticated with local SQLite data
       useAuthStore.setState({
         session: mockSession,
-        isMigrating: true,
+        isMigrating: false,
       });
-      useOnboardingStore.setState({
-        selectedCountries: ['US', 'CA'],
-        bucketListCountries: ['JP'],
-      });
+      mockedCountriesDb.getLocalUserCountries.mockResolvedValue(mockLocalCountries);
 
-      // API will respond slowly to simulate migration in progress
+      // API will respond slowly to simulate network delay
       let resolveApi: (value: { data: typeof mockApiCountries }) => void;
       const apiPromise = new Promise<{ data: typeof mockApiCountries }>((resolve) => {
         resolveApi = resolve;
@@ -109,19 +133,23 @@ describe('useUserCountries', () => {
         wrapper: createWrapper(queryClient),
       });
 
-      // During migration, should return placeholder data immediately
-      expect(result.current.data).toBeDefined();
+      // Wait for SQLite data to load
+      await waitFor(() => {
+        expect(result.current.data).toBeDefined();
+      });
+
+      // Should return local data immediately
       expect(result.current.data?.length).toBe(3); // 2 visited + 1 wishlist
       expect(result.current.isLoading).toBe(false);
 
-      // Verify placeholder data structure
+      // Verify local data structure
       const visitedCountries = result.current.data?.filter((c) => c.status === 'visited');
       const wishlistCountries = result.current.data?.filter((c) => c.status === 'wishlist');
       expect(visitedCountries?.map((c) => c.country_code)).toEqual(['US', 'CA']);
       expect(wishlistCountries?.map((c) => c.country_code)).toEqual(['JP']);
 
-      // Verify placeholder IDs are temporary
-      expect(result.current.data?.every((c) => c.id.startsWith('temp-'))).toBe(true);
+      // Verify local IDs match SQLite format
+      expect(result.current.data?.every((c) => c.id.startsWith('local-'))).toBe(true);
 
       // Now resolve API
       resolveApi!({ data: mockApiCountries });
@@ -132,16 +160,12 @@ describe('useUserCountries', () => {
     });
 
     it('returns real data after fetch completes', async () => {
-      // Setup: User is migrating with onboarding data
+      // Setup: User is authenticated with local SQLite data
       useAuthStore.setState({
         session: mockSession,
-        isMigrating: true,
+        isMigrating: false,
       });
-      useOnboardingStore.setState({
-        selectedCountries: ['US'],
-        bucketListCountries: [],
-      });
-
+      mockedCountriesDb.getLocalUserCountries.mockResolvedValue(mockLocalCountries);
       mockedApi.get.mockResolvedValue({ data: mockApiCountries });
 
       const { result } = renderHook(() => useUserCountries(), {
@@ -153,21 +177,18 @@ describe('useUserCountries', () => {
         expect(result.current.isFetched).toBe(true);
       });
 
-      // After fetch, should return real data (not placeholder)
+      // After fetch, should return real data (not local)
       expect(result.current.data).toEqual(mockApiCountries);
-      expect(result.current.data?.every((c) => !c.id.startsWith('temp-'))).toBe(true);
+      expect(result.current.data?.every((c) => !c.id.startsWith('local-'))).toBe(true);
     });
 
-    it('preserves error state instead of masking with placeholder data', async () => {
-      // Setup: User is migrating with onboarding data
+    it('preserves error state instead of masking with local data', async () => {
+      // Setup: User is authenticated with local SQLite data
       useAuthStore.setState({
         session: mockSession,
-        isMigrating: true,
+        isMigrating: false,
       });
-      useOnboardingStore.setState({
-        selectedCountries: ['US'],
-        bucketListCountries: [],
-      });
+      mockedCountriesDb.getLocalUserCountries.mockResolvedValue(mockLocalCountries);
 
       const error = new Error('Network error');
       mockedApi.get.mockRejectedValue(error);
@@ -181,21 +202,18 @@ describe('useUserCountries', () => {
         expect(result.current.isError).toBe(true);
       });
 
-      // Error should be preserved, not masked by placeholder
+      // Error should be preserved, not masked by local data
       expect(result.current.isError).toBe(true);
       expect(result.current.error).toBeDefined();
     });
 
-    it('does not show empty state when migrating with onboarding data', async () => {
-      // Setup: User is migrating with onboarding data
+    it('does not show empty state when local data exists', async () => {
+      // Setup: User is authenticated with local SQLite data
       useAuthStore.setState({
         session: mockSession,
-        isMigrating: true,
+        isMigrating: false,
       });
-      useOnboardingStore.setState({
-        selectedCountries: ['US', 'CA', 'MX'],
-        bucketListCountries: ['JP', 'KR'],
-      });
+      mockedCountriesDb.getLocalUserCountries.mockResolvedValue(mockLocalCountries);
 
       // API will take time (simulating network delay)
       let resolveApi: (value: { data: typeof mockApiCountries }) => void;
@@ -209,30 +227,31 @@ describe('useUserCountries', () => {
         wrapper: createWrapper(queryClient),
       });
 
-      // Should never show empty data during migration
-      expect(result.current.data).toBeDefined();
+      // Wait for SQLite data to load
+      await waitFor(() => {
+        expect(result.current.data).toBeDefined();
+      });
+
+      // Should never show empty data when local data exists
       expect(result.current.data?.length).toBeGreaterThan(0);
 
       // This is the key assertion: data should be available immediately
       // even though the query hasn't fetched yet
       expect(result.current.isFetched).toBe(false);
-      expect(result.current.data?.length).toBe(5); // 3 visited + 2 wishlist
+      expect(result.current.data?.length).toBe(3); // 2 visited + 1 wishlist
 
       // Cleanup: resolve the API call
       resolveApi!({ data: mockApiCountries });
       await waitFor(() => expect(result.current.isFetched).toBe(true));
     });
 
-    it('correctly sets loading state during migration', async () => {
-      // Setup: User is migrating with onboarding data
+    it('correctly sets loading state when local data exists', async () => {
+      // Setup: User is authenticated with local SQLite data
       useAuthStore.setState({
         session: mockSession,
-        isMigrating: true,
+        isMigrating: false,
       });
-      useOnboardingStore.setState({
-        selectedCountries: ['US'],
-        bucketListCountries: [],
-      });
+      mockedCountriesDb.getLocalUserCountries.mockResolvedValue(mockLocalCountries);
 
       let resolveApi: (value: { data: typeof mockApiCountries }) => void;
       mockedApi.get.mockReturnValue(
@@ -245,15 +264,64 @@ describe('useUserCountries', () => {
         wrapper: createWrapper(queryClient),
       });
 
-      // During migration with placeholder data, isLoading should be false
+      // Wait for SQLite data to load
+      await waitFor(() => {
+        expect(result.current.data).toBeDefined();
+      });
+
+      // With local data, isLoading should be false
       // to prevent loading spinners when we have data to show
+      // However, isFetching is true because real data is still loading in background
       expect(result.current.isLoading).toBe(false);
-      expect(result.current.isFetching).toBe(false);
+      expect(result.current.isFetching).toBe(true);
       expect(result.current.data).toBeDefined();
 
       // Cleanup
       resolveApi!({ data: mockApiCountries });
       await waitFor(() => expect(result.current.isFetched).toBe(true));
+    });
+  });
+
+  describe('migration behavior', () => {
+    it('uses local SQLite data and skips API while migrating', async () => {
+      useAuthStore.setState({
+        session: mockSession,
+        isMigrating: true,
+      });
+      mockedCountriesDb.getLocalUserCountries.mockResolvedValue(mockLocalCountries);
+      mockedApi.get.mockResolvedValue({ data: [] });
+
+      const { result } = renderHook(() => useUserCountries(), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      await waitFor(() => {
+        expect(result.current.data).toBeDefined();
+      });
+
+      expect(result.current.data?.length).toBe(3);
+      expect(result.current.isLoading).toBe(false);
+      expect(mockedApi.get).not.toHaveBeenCalled();
+    });
+
+    it('prefers local SQLite data over empty API responses to avoid flashes', async () => {
+      useAuthStore.setState({
+        session: mockSession,
+        isMigrating: false,
+      });
+      mockedCountriesDb.getLocalUserCountries.mockResolvedValue(mockLocalCountries);
+      mockedApi.get.mockResolvedValue({ data: [] });
+
+      const { result } = renderHook(() => useUserCountries(), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      await waitFor(() => {
+        expect(result.current.data?.length).toBe(3);
+      });
+
+      expect(result.current.isLoading).toBe(false);
+      expect(mockedApi.get).toHaveBeenCalledWith('/countries/user');
     });
   });
 
@@ -274,12 +342,12 @@ describe('useUserCountries', () => {
       expect(result.current.isFetched).toBe(false);
     });
 
-    it('fetches data normally when authenticated but not migrating', async () => {
+    it('fetches data normally when authenticated with no local data', async () => {
       useAuthStore.setState({
         session: mockSession,
         isMigrating: false,
       });
-
+      mockedCountriesDb.getLocalUserCountries.mockResolvedValue([]);
       mockedApi.get.mockResolvedValue({ data: mockApiCountries });
 
       const { result } = renderHook(() => useUserCountries(), {
@@ -294,12 +362,12 @@ describe('useUserCountries', () => {
       expect(mockedApi.get).toHaveBeenCalledWith('/countries/user');
     });
 
-    it('returns empty array when no countries exist (not migrating)', async () => {
+    it('returns empty array when no countries exist (no local data)', async () => {
       useAuthStore.setState({
         session: mockSession,
         isMigrating: false,
       });
-
+      mockedCountriesDb.getLocalUserCountries.mockResolvedValue([]);
       mockedApi.get.mockResolvedValue({ data: [] });
 
       const { result } = renderHook(() => useUserCountries(), {
@@ -315,22 +383,39 @@ describe('useUserCountries', () => {
     });
   });
 
-  describe('placeholder data structure', () => {
-    it('generates correct placeholder data structure during migration', () => {
+  describe('local data structure', () => {
+    it('converts local SQLite data to UserCountry format', async () => {
       useAuthStore.setState({
         session: mockSession,
-        isMigrating: true,
+        isMigrating: false,
       });
-      useOnboardingStore.setState({
-        selectedCountries: ['US'],
-        bucketListCountries: ['JP'],
-      });
+      mockedCountriesDb.getLocalUserCountries.mockResolvedValue([
+        {
+          id: 'local-visited-US',
+          country_code: 'US',
+          status: 'visited',
+          created_at: '2024-01-01T00:00:00Z',
+          added_during_onboarding: true,
+        },
+        {
+          id: 'local-wishlist-JP',
+          country_code: 'JP',
+          status: 'wishlist',
+          created_at: '2024-01-01T00:00:00Z',
+          added_during_onboarding: true,
+        },
+      ]);
 
-      // Don't resolve API to keep in placeholder state
+      // Don't resolve API to keep showing local data
       mockedApi.get.mockReturnValue(new Promise(() => {}));
 
       const { result } = renderHook(() => useUserCountries(), {
         wrapper: createWrapper(queryClient),
+      });
+
+      // Wait for SQLite data to load
+      await waitFor(() => {
+        expect(result.current.data).toBeDefined();
       });
 
       const visitedCountry = result.current.data?.find((c) => c.status === 'visited');
@@ -338,7 +423,7 @@ describe('useUserCountries', () => {
 
       // Verify structure matches UserCountry interface
       expect(visitedCountry).toMatchObject({
-        id: expect.stringMatching(/^temp-visited-/),
+        id: 'local-visited-US',
         user_id: 'test-user-123',
         country_code: 'US',
         status: 'visited',
@@ -347,7 +432,7 @@ describe('useUserCountries', () => {
       expect(visitedCountry?.created_at).toBeDefined();
 
       expect(wishlistCountry).toMatchObject({
-        id: expect.stringMatching(/^temp-wishlist-/),
+        id: 'local-wishlist-JP',
         user_id: 'test-user-123',
         country_code: 'JP',
         status: 'wishlist',
@@ -355,15 +440,12 @@ describe('useUserCountries', () => {
       });
     });
 
-    it('handles empty onboarding data during migration', () => {
+    it('handles empty local data gracefully', async () => {
       useAuthStore.setState({
         session: mockSession,
-        isMigrating: true,
+        isMigrating: false,
       });
-      useOnboardingStore.setState({
-        selectedCountries: [],
-        bucketListCountries: [],
-      });
+      mockedCountriesDb.getLocalUserCountries.mockResolvedValue([]);
 
       mockedApi.get.mockReturnValue(new Promise(() => {}));
 
@@ -371,8 +453,7 @@ describe('useUserCountries', () => {
         wrapper: createWrapper(queryClient),
       });
 
-      // No placeholder data when onboarding has no countries
-      // Query will show loading state normally
+      // No local data, so query shows loading state normally
       expect(result.current.data).toBeUndefined();
       expect(result.current.isLoading).toBe(true);
     });

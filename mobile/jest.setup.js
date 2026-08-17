@@ -9,12 +9,17 @@ jest.mock(
   'react-native-reanimated',
   () => {
     const mockReact = require('react');
+    // Helper to create animated component wrapper
+    const createAnimatedComponent = (Component) =>
+      mockReact.forwardRef((props, ref) => mockReact.createElement(Component, { ...props, ref }));
     return {
       default: {
         View: mockReact.forwardRef(({ children, style }, ref) =>
           mockReact.createElement('View', { ref, style }, children)
         ),
+        createAnimatedComponent,
       },
+      createAnimatedComponent,
       View: mockReact.forwardRef(({ children, style }, ref) =>
         mockReact.createElement('View', { ref, style }, children)
       ),
@@ -26,18 +31,178 @@ jest.mock(
       FadeOutUp: {
         duration: () => ({}),
       },
-      useSharedValue: jest.fn((initial) => ({ value: initial })),
+      // Real useSharedValue returns the SAME object across renders. Returning a
+      // fresh one each time would hide recycling bugs (a stale offset written by
+      // a previous render would appear to "reset" on its own), so mirror the real
+      // identity semantics by holding the object in a ref.
+      useSharedValue: jest.fn((initial) => {
+        const ref = mockReact.useRef(null);
+        if (ref.current === null) ref.current = { value: initial };
+        return ref.current;
+      }),
       useAnimatedStyle: jest.fn(() => ({})),
-      withTiming: jest.fn((value) => value),
-      withSpring: jest.fn((value) => value),
+      // Invoke the completion callback synchronously so components that chain work
+      // off the end of an animation (e.g. SwipeToSkipCard committing a skip) are
+      // testable without a real UI-thread animation driver.
+      withTiming: jest.fn((value, _config, callback) => {
+        callback?.(true);
+        return value;
+      }),
+      withSpring: jest.fn((value, _config, callback) => {
+        callback?.(true);
+        return value;
+      }),
+      runOnJS: jest.fn((fn) => fn),
+      cancelAnimation: jest.fn(),
+      useAnimatedReaction: jest.fn(),
+      interpolate: jest.fn((value, inputRange, outputRange) => {
+        // Linear interpolation supporting multiple keyframes
+        // Find the segment that contains our value
+        for (let i = 0; i < inputRange.length - 1; i++) {
+          const i0 = inputRange[i];
+          const i1 = inputRange[i + 1];
+          if (value >= i0 && value <= i1) {
+            const o0 = outputRange[i];
+            const o1 = outputRange[i + 1];
+            if (i1 === i0) return o0;
+            const ratio = (value - i0) / (i1 - i0);
+            return o0 + ratio * (o1 - o0);
+          }
+        }
+        // Value is outside range, clamp to nearest endpoint
+        if (value <= inputRange[0]) return outputRange[0];
+        return outputRange[outputRange.length - 1];
+      }),
       Easing: {
         linear: jest.fn(),
         ease: jest.fn(),
       },
+      useReducedMotion: jest.fn(() => false),
     };
   },
   { virtual: true }
 );
+
+// Mock react-native-gesture-handler.
+//
+// Gesture.Pan() returns a chainable stub that records each handler it is given
+// (as `_onUpdate`, `_onEnd`, ...). Tests drive a swipe by calling those directly,
+// which is the only way to exercise a gesture without a real touch system.
+// `Swipeable` is retained for TripListsScreen, which still uses the legacy API.
+jest.mock('react-native-gesture-handler', () => {
+  const mockReact = require('react');
+  const mockRN = require('react-native');
+
+  const createGestureStub = () => {
+    const gesture = {};
+    const chainable = [
+      'enabled',
+      'activeOffsetX',
+      'activeOffsetY',
+      'failOffsetX',
+      'failOffsetY',
+      'onBegin',
+      'onStart',
+      'onUpdate',
+      'onEnd',
+      'onFinalize',
+    ];
+    for (const method of chainable) {
+      gesture[method] = jest.fn((arg) => {
+        gesture[`_${method}`] = arg;
+        return gesture;
+      });
+    }
+    return gesture;
+  };
+
+  return {
+    Gesture: { Pan: jest.fn(createGestureStub) },
+    GestureDetector: ({ children }) => children,
+    GestureHandlerRootView: mockRN.View,
+    Swipeable: ({ children }) => mockReact.createElement(mockRN.View, null, children),
+    State: {},
+    Directions: {},
+  };
+});
+
+// Mock react-native-screen-transitions
+jest.mock('react-native-screen-transitions', () => {
+  const mockReact = require('react');
+  const mockRN = require('react-native');
+
+  const TransitionView = mockReact.forwardRef(
+    ({ children, style, sharedBoundTag: _sharedBoundTag, testID }, ref) =>
+      mockReact.createElement(mockRN.View, { ref, style, testID }, children)
+  );
+
+  const TransitionPressable = mockReact.forwardRef(
+    (
+      {
+        children,
+        style,
+        sharedBoundTag: _sharedBoundTag,
+        testID,
+        onPress,
+        onLongPress,
+        onPressIn,
+        onPressOut,
+        accessibilityRole,
+        accessibilityLabel,
+      },
+      ref
+    ) =>
+      mockReact.createElement(
+        mockRN.TouchableOpacity,
+        {
+          ref,
+          style,
+          testID,
+          onPress,
+          onLongPress,
+          onPressIn,
+          onPressOut,
+          accessibilityRole,
+          accessibilityLabel,
+        },
+        children
+      )
+  );
+
+  return {
+    __esModule: true,
+    default: {
+      View: TransitionView,
+      Pressable: TransitionPressable,
+      ScrollView: mockRN.ScrollView,
+      FlatList: mockRN.FlatList,
+      Presets: {
+        SlideFromBottom: () => ({}),
+        SlideFromTop: () => ({}),
+        ZoomIn: () => ({}),
+      },
+    },
+    Transition: {
+      View: TransitionView,
+      Pressable: TransitionPressable,
+    },
+  };
+});
+
+// Mock react-native-screen-transitions/blank-stack
+jest.mock('react-native-screen-transitions/blank-stack', () => {
+  const mockReact = require('react');
+  const mockRN = require('react-native');
+
+  return {
+    createBlankStackNavigator: () => ({
+      Navigator: ({ children, screenOptions: _screenOptions }) =>
+        mockReact.createElement(mockRN.View, null, children),
+      Screen: ({ component: Component, options: _options }) =>
+        mockReact.createElement(Component, {}),
+    }),
+  };
+});
 
 // Mock react-native-safe-area-context
 jest.mock('react-native-safe-area-context', () => {
@@ -138,6 +303,24 @@ jest.mock('@services/api', () => ({
   storeTokens: jest.fn(),
   clearTokens: jest.fn(),
   setSignOutCallback: jest.fn(),
+}));
+
+// Mock Alert - define the mock functions on global first so they can be accessed in tests
+global.__mockAlert = {
+  alert: jest.fn(),
+};
+jest.mock('react-native/Libraries/Alert/Alert', () => ({
+  __esModule: true,
+  default: global.__mockAlert,
+}));
+
+// Mock ActionSheetIOS - define the mock functions on global first so they can be accessed in tests
+global.__mockActionSheetIOS = {
+  showActionSheetWithOptions: jest.fn(),
+};
+jest.mock('react-native/Libraries/ActionSheetIOS/ActionSheetIOS', () => ({
+  __esModule: true,
+  default: global.__mockActionSheetIOS,
 }));
 
 // Mock Share
@@ -248,6 +431,142 @@ jest.mock(
   { virtual: true }
 );
 
+// Mock expo-video (used by ShareExtensionTutorialSheet and onboarding screens)
+jest.mock(
+  'expo-video',
+  () => ({
+    useVideoPlayer: jest.fn((source, callback) => {
+      const player = {
+        loop: false,
+        muted: false,
+        currentTime: 0,
+        play: jest.fn(),
+        pause: jest.fn(),
+        replace: jest.fn(),
+        addListener: jest.fn(() => ({ remove: jest.fn() })),
+      };
+      if (callback) callback(player);
+      return player;
+    }),
+    VideoView: 'VideoView',
+  }),
+  { virtual: true }
+);
+
+// Mock expo-blur (used by ShareExtensionCallout and ShareExtensionTutorialSheet)
+jest.mock(
+  'expo-blur',
+  () => {
+    const mockReact = require('react');
+    return {
+      BlurView: ({ children, style }) => mockReact.createElement('View', { style }, children),
+    };
+  },
+  { virtual: true }
+);
+
+// Mock expo-haptics
+jest.mock(
+  'expo-haptics',
+  () => ({
+    impactAsync: jest.fn().mockResolvedValue(undefined),
+    ImpactFeedbackStyle: {
+      Light: 'light',
+      Medium: 'medium',
+      Heavy: 'heavy',
+    },
+    notificationAsync: jest.fn().mockResolvedValue(undefined),
+    NotificationFeedbackType: {
+      Success: 'success',
+      Warning: 'warning',
+      Error: 'error',
+    },
+    selectionAsync: jest.fn().mockResolvedValue(undefined),
+  }),
+  { virtual: true }
+);
+
+// Mock react-native-purchases (RevenueCat)
+jest.mock('react-native-purchases-ui', () => ({
+  __esModule: true,
+  default: {
+    presentPaywall: jest.fn().mockResolvedValue({ paywallResult: 'NOT_PRESENTED' }),
+    presentPaywallIfNeeded: jest.fn().mockResolvedValue({ paywallResult: 'NOT_PRESENTED' }),
+  },
+  PAYWALL_RESULT: {
+    NOT_PRESENTED: 'NOT_PRESENTED',
+    ERROR: 'ERROR',
+    CANCELLED: 'CANCELLED',
+    PURCHASED: 'PURCHASED',
+    RESTORED: 'RESTORED',
+  },
+}));
+
+jest.mock('react-native-purchases', () => ({
+  configure: jest.fn(),
+  isConfigured: jest.fn().mockResolvedValue(true),
+  getCustomerInfo: jest.fn().mockResolvedValue({
+    entitlements: { active: {} },
+    activeSubscriptions: [],
+    allPurchasedProductIdentifiers: [],
+  }),
+  logIn: jest.fn().mockResolvedValue({
+    customerInfo: {
+      entitlements: { active: {} },
+      activeSubscriptions: [],
+      allPurchasedProductIdentifiers: [],
+    },
+    created: true,
+  }),
+  logOut: jest.fn().mockResolvedValue({
+    entitlements: { active: {} },
+    activeSubscriptions: [],
+    allPurchasedProductIdentifiers: [],
+  }),
+  getOfferings: jest.fn().mockResolvedValue({ current: null, all: {} }),
+  purchasePackage: jest.fn(),
+  restorePurchases: jest.fn().mockResolvedValue({
+    entitlements: { active: {} },
+    activeSubscriptions: [],
+    allPurchasedProductIdentifiers: [],
+  }),
+  addCustomerInfoUpdateListener: jest.fn(() => jest.fn()),
+  removeCustomerInfoUpdateListener: jest.fn(),
+  setLogLevel: jest.fn(),
+  LOG_LEVEL: {
+    VERBOSE: 'VERBOSE',
+    DEBUG: 'DEBUG',
+    INFO: 'INFO',
+    WARN: 'WARN',
+    ERROR: 'ERROR',
+  },
+  PURCHASES_ERROR_CODE: {
+    PURCHASE_CANCELLED_ERROR: 'PURCHASE_CANCELLED',
+    PRODUCT_NOT_AVAILABLE_FOR_PURCHASE_ERROR: 'PRODUCT_NOT_AVAILABLE',
+    NETWORK_ERROR: 'NETWORK_ERROR',
+  },
+}));
+
+// Mock react-native-fbsdk-next (Facebook SDK)
+jest.mock('react-native-fbsdk-next', () => ({
+  AppEventsLogger: {
+    logEvent: jest.fn(),
+    logPurchase: jest.fn(),
+    setUserID: jest.fn(),
+    clearUserID: jest.fn(),
+    clearUserData: jest.fn(),
+  },
+  Settings: {
+    setAdvertiserTrackingEnabled: jest.fn(),
+  },
+}));
+
+// Mock expo-tracking-transparency (ATT prompt)
+jest.mock('expo-tracking-transparency', () => ({
+  requestTrackingPermissionsAsync: jest.fn().mockResolvedValue({ status: 'undetermined' }),
+  getTrackingPermissionsAsync: jest.fn().mockResolvedValue({ status: 'undetermined' }),
+}));
+
 // Mock countriesDb service
 jest.mock('@services/countriesDb', () => ({
   getAllCountries: jest.fn().mockResolvedValue([]),
@@ -255,17 +574,30 @@ jest.mock('@services/countriesDb', () => ({
   searchCountries: jest.fn().mockResolvedValue([]),
   getCountryByCode: jest.fn().mockResolvedValue(null),
   getCountriesByCodes: jest.fn().mockResolvedValue([]),
+  // Local user country functions for onboarding → passport flow
+  saveLocalUserCountry: jest.fn().mockResolvedValue(undefined),
+  saveLocalUserCountries: jest.fn().mockResolvedValue(undefined),
+  removeLocalUserCountry: jest.fn().mockResolvedValue(undefined),
+  getLocalUserCountries: jest.fn().mockResolvedValue([]),
+  clearLocalUserCountries: jest.fn().mockResolvedValue(undefined),
+  hasLocalUserCountries: jest.fn().mockResolvedValue(false),
+  // Home country SQLite backup for migration reliability
+  saveHomeCountry: jest.fn().mockResolvedValue(undefined),
+  getHomeCountry: jest.fn().mockResolvedValue(null),
+  clearHomeCountry: jest.fn().mockResolvedValue(undefined),
 }));
 
-// Mock FlashList with a FlatList fallback
+// Mock FlashList with a FlatList fallback, keeping the real module's other
+// exports (useRecyclingState etc.) intact.
 jest.mock('@shopify/flash-list', () => {
   const React = require('react');
   const { FlatList } = require('react-native');
+  const actual = jest.requireActual('@shopify/flash-list');
   const FlashList = React.forwardRef((props, ref) =>
     React.createElement(FlatList, { ...props, ref })
   );
   FlashList.displayName = 'FlashListMock';
-  return { FlashList };
+  return { ...actual, FlashList };
 });
 
 // Ensure Alert.alert is always defined in the test environment

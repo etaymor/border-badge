@@ -14,7 +14,7 @@
  */
 
 import { clearTokens, storeOnboardingComplete, storeTokens } from '@services/api';
-import { migrateGuestData } from '@services/guestMigration';
+import { migrateGuestData, captureOnboardingSnapshot } from '@services/guestMigration';
 import { supabase } from '@services/supabase';
 import { useAuthStore } from '@stores/authStore';
 import { getSafeLogMessage } from '@utils/authErrors';
@@ -37,14 +37,25 @@ export function isAuthCallbackDeepLink(url: string | null): boolean {
 /**
  * Validate that the URL origin matches our expected auth callback prefix.
  * This prevents potential attacks from malicious apps crafting fake callback URLs.
+ * Uses proper URL parsing for security.
  *
  * @param url - The deep link URL to validate
  * @returns True if the URL has the expected origin
  */
 function validateCallbackOrigin(url: string): boolean {
-  // Extract base URL without fragment or query params
-  const baseUrl = url.split('#')[0].split('?')[0];
-  return baseUrl === EXPECTED_CALLBACK_PREFIX;
+  try {
+    const expectedUrl = new URL(EXPECTED_CALLBACK_PREFIX);
+    const actualUrl = new URL(url);
+
+    return (
+      actualUrl.protocol === expectedUrl.protocol &&
+      actualUrl.host === expectedUrl.host &&
+      actualUrl.pathname === expectedUrl.pathname
+    );
+  } catch {
+    // Invalid URL format
+    return false;
+  }
 }
 
 /**
@@ -130,17 +141,24 @@ export async function processAuthCallback(url: string): Promise<AuthCallbackResu
     if (onboarded) {
       authStore.setHasCompletedOnboarding(true);
       await storeOnboardingComplete();
+      authStore.setSession(session);
     } else {
-      // New user - attempt migration
+      // Capture onboarding state before session change triggers re-renders
+      const snapshot = captureOnboardingSnapshot();
+
+      // New user - set isMigrating before session to prevent empty state flash
+      authStore.setIsMigrating(true);
+      authStore.setSession(session);
+
+      // Attempt migration and always clear isMigrating when done
       try {
-        await migrateGuestData(session);
+        await migrateGuestData(session, snapshot);
       } catch {
-        console.warn('Migration failed for magic link user');
+        console.warn('Migration failed for auth callback user');
+      } finally {
+        authStore.setIsMigrating(false);
       }
     }
-
-    // Update auth store with session
-    authStore.setSession(session);
     return { success: true };
   } catch (error) {
     // Use sanitized logging to prevent token exposure in error messages

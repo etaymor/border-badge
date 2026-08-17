@@ -6,13 +6,19 @@ import { REGIONS } from '@constants/regions';
 import type { Country } from '@hooks/useCountries';
 import type { OnboardingStackScreenProps } from '@navigation/types';
 import { Analytics } from '@services/analytics';
-import { useOnboardingStore } from '@stores/onboardingStore';
+import {
+  useOnboardingStore,
+  selectDreamDestination,
+  selectBucketListCountries,
+} from '@stores/onboardingStore';
 
 type Props = OnboardingStackScreenProps<'DreamDestination'>;
 
 export function DreamDestinationScreen({ navigation }: Props) {
-  const { dreamDestination, setDreamDestination, toggleBucketListCountry, bucketListCountries } =
-    useOnboardingStore();
+  const dreamDestination = useOnboardingStore(selectDreamDestination);
+  const bucketListCountries = useOnboardingStore(selectBucketListCountries);
+  const setDreamDestination = useOnboardingStore((s) => s.setDreamDestination);
+  const toggleBucketListCountry = useOnboardingStore((s) => s.toggleBucketListCountry);
 
   // Track screen view
   useEffect(() => {
@@ -28,11 +34,12 @@ export function DreamDestinationScreen({ navigation }: Props) {
   };
 
   const config: CountrySelectionConfig = {
-    backgroundColor: colors.lakeBlue,
-    title: 'Pick your dream destination',
-    dropdownBorderColor: colors.lakeBlue,
+    backgroundColor: colors.warmCream, // Use warm cream for "Paper" signature look
+    title: 'Where do you want to go?',
+    subtitle: "What's one country on your bucket list?",
     celebrationType: 'dream',
     showBackButton: true,
+    stampSuggestions: ['JP', 'ZA', 'AR', 'FR', 'IT'],
     onCountrySelect: handleCountrySelect,
     getCurrentSelection: () => dreamDestination,
     onNavigateNext: () =>

@@ -7,10 +7,13 @@
 import { Ionicons } from '@expo/vector-icons';
 import { CommonActions } from '@react-navigation/native';
 import { BlurView } from 'expo-blur';
+import Constants from 'expo-constants';
+import * as Updates from 'expo-updates';
 import { useEffect, useRef, useState } from 'react';
 import {
   Animated,
   Image,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -153,6 +156,7 @@ export function AuthScreen({ navigation }: Props) {
     }
     setPasswordError('');
 
+    Keyboard.dismiss();
     const credentials = { email: emailResult.normalizedEmail!, password };
     signIn.mutate(credentials);
   };
@@ -300,68 +304,66 @@ export function AuthScreen({ navigation }: Props) {
                 </Text>
               )}
 
-              {/* Password input - only shown when email is valid */}
-              {isEmailValid && (
-                <Animated.View
-                  style={{
-                    opacity: passwordAnim,
-                    transform: [
-                      {
-                        translateY: passwordAnim.interpolate({
-                          inputRange: [0, 1],
-                          outputRange: [-8, 0],
-                        }),
-                      },
-                    ],
-                  }}
-                >
-                  <View style={styles.inputGlassWrapper}>
-                    <BlurView intensity={60} tint="light" style={styles.inputGlassContainer}>
-                      <View
-                        style={[styles.inputWrapper, passwordError && styles.inputWrapperError]}
+              {/* Password input - always rendered for autofill, visually hidden when email invalid */}
+              <Animated.View
+                style={{
+                  opacity: passwordAnim,
+                  maxHeight: isEmailValid ? 200 : 0,
+                  overflow: 'hidden',
+                  transform: [
+                    {
+                      translateY: passwordAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [-8, 0],
+                      }),
+                    },
+                  ],
+                }}
+              >
+                <View style={styles.inputGlassWrapper}>
+                  <BlurView intensity={60} tint="light" style={styles.inputGlassContainer}>
+                    <View style={[styles.inputWrapper, passwordError && styles.inputWrapperError]}>
+                      <Ionicons
+                        name="lock-closed-outline"
+                        size={20}
+                        color={colors.stormGray}
+                        style={styles.inputIcon}
+                      />
+                      <TextInput
+                        style={styles.glassInput}
+                        value={password}
+                        onChangeText={(value) => {
+                          setPassword(value);
+                          if (passwordError) setPasswordError('');
+                        }}
+                        placeholder="Password"
+                        placeholderTextColor={colors.stormGray}
+                        secureTextEntry={!showPassword}
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                        autoComplete="password"
+                        textContentType="password"
+                        testID="auth-password-input"
+                      />
+                      <TouchableOpacity
+                        onPress={() => setShowPassword(!showPassword)}
+                        style={styles.clearButton}
                       >
                         <Ionicons
-                          name="lock-closed-outline"
+                          name={showPassword ? 'eye-off-outline' : 'eye-outline'}
                           size={20}
                           color={colors.stormGray}
-                          style={styles.inputIcon}
                         />
-                        <TextInput
-                          style={styles.glassInput}
-                          value={password}
-                          onChangeText={(value) => {
-                            setPassword(value);
-                            if (passwordError) setPasswordError('');
-                          }}
-                          placeholder="Password"
-                          placeholderTextColor={colors.stormGray}
-                          secureTextEntry={!showPassword}
-                          autoCapitalize="none"
-                          autoCorrect={false}
-                          autoComplete="password"
-                          textContentType="password"
-                          testID="auth-password-input"
-                        />
-                        <TouchableOpacity
-                          onPress={() => setShowPassword(!showPassword)}
-                          style={styles.clearButton}
-                        >
-                          <Ionicons
-                            name={showPassword ? 'eye-off-outline' : 'eye-outline'}
-                            size={20}
-                            color={colors.stormGray}
-                          />
-                        </TouchableOpacity>
-                      </View>
-                    </BlurView>
-                  </View>
-                  {passwordError && (
-                    <Text variant="caption" style={styles.errorText}>
-                      {passwordError}
-                    </Text>
-                  )}
-                </Animated.View>
-              )}
+                      </TouchableOpacity>
+                    </View>
+                  </BlurView>
+                </View>
+                {passwordError && (
+                  <Text variant="caption" style={styles.errorText}>
+                    {passwordError}
+                  </Text>
+                )}
+              </Animated.View>
             </Animated.View>
 
             {/* Sign In button */}
@@ -455,6 +457,12 @@ export function AuthScreen({ navigation }: Props) {
                 <Text style={styles.startFreshText}>New here? Start fresh</Text>
               </TouchableOpacity>
             </Animated.View>
+
+            {/* Version info for debugging OTA updates */}
+            <Text style={styles.versionText}>
+              v{Constants.expoConfig?.version ?? '?'}
+              {Updates.updateId ? ` (${Updates.updateId.slice(0, 8)})` : ''}
+            </Text>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -555,7 +563,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.sunsetGold,
     paddingVertical: 16,
     paddingHorizontal: 32,
-    borderRadius: 12,
+    borderRadius: 9999,
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: colors.shadow,
@@ -595,7 +603,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.adobeBrick,
     paddingVertical: 12,
     paddingHorizontal: 24,
-    borderRadius: 12,
+    borderRadius: 9999,
     gap: 10,
     marginBottom: 12,
   },
@@ -611,7 +619,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.midnightNavy,
     paddingVertical: 12,
     paddingHorizontal: 24,
-    borderRadius: 12,
+    borderRadius: 9999,
     gap: 10,
   },
   appleButtonText: {
@@ -629,5 +637,12 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: colors.textSecondary,
     textDecorationLine: 'underline',
+  },
+  versionText: {
+    fontFamily: fonts.openSans.regular,
+    fontSize: 10,
+    color: 'rgba(0, 0, 0, 0.2)',
+    textAlign: 'center',
+    marginTop: 12,
   },
 });

@@ -141,6 +141,7 @@ List user's trips.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `country_code` | string | Filter by country |
+| `include_system` | boolean | Include system trips like Saved Places (default: false) |
 
 **Response:**
 ```json
@@ -235,6 +236,39 @@ Soft delete a trip.
 **Auth:** Required (owner only)
 
 **Response:** `204 No Content`
+
+#### `GET /trips/uncategorized`
+
+Get or create the user's "Saved Places" system trip. This is a holding area for entries shared via the iOS Share Extension when no specific trip is selected. Users can later organize these entries by moving them to appropriate trips.
+
+**Auth:** Required
+
+**Rate Limit:** 30/minute
+
+**Response:**
+```json
+{
+  "id": "uuid",
+  "user_id": "uuid",
+  "country_id": null,
+  "country_code": null,
+  "name": "Saved Places",
+  "cover_image_url": null,
+  "date_range": null,
+  "is_system": true,
+  "created_at": "2024-01-15T10:30:00Z",
+  "deleted_at": null,
+  "entry_count": 5
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | uuid | Trip ID |
+| `is_system` | boolean | Always `true` for system trips |
+| `entry_count` | integer | Number of entries in the Saved Places trip |
+
+---
 
 #### `POST /trips/{trip_id}/restore`
 
@@ -365,6 +399,106 @@ Soft delete an entry.
 **Auth:** Required
 
 **Response:** `204 No Content`
+
+#### `PATCH /entries/{entry_id}/move`
+
+Move an entry to a different trip. This is useful for organizing entries from the Saved Places (uncategorized) trip into specific country trips.
+
+**Auth:** Required
+
+**Rate Limit:** 30/minute
+
+**Request:**
+```json
+{
+  "trip_id": "uuid"
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `trip_id` | uuid | Yes | Target trip ID to move the entry to |
+
+**Response:** `200 OK`
+
+Returns the updated entry with place data:
+```json
+{
+  "id": "uuid",
+  "trip_id": "uuid",
+  "type": "place",
+  "title": "Senso-ji Temple",
+  "notes": "...",
+  "place": {
+    "id": "uuid",
+    "google_place_id": "ChIJ...",
+    "place_name": "Senso-ji",
+    "lat": 35.7148,
+    "lng": 139.7967
+  }
+}
+```
+
+**Error Responses:**
+
+| Status | Error | Description |
+|--------|-------|-------------|
+| 404 | `NotFound` | Entry not found or not authorized |
+| 409 | `Conflict` | This place already exists in the target trip |
+
+---
+
+#### `POST /entries/bulk-move`
+
+Move multiple entries to a target trip in a single atomic operation. All entries must belong to trips owned by the current user. If any entry would create a duplicate in the target trip, the entire operation is rolled back.
+
+**Auth:** Required
+
+**Rate Limit:** 10/minute
+
+**Request:**
+```json
+{
+  "entry_ids": ["uuid-1", "uuid-2", "uuid-3"],
+  "target_trip_id": "uuid"
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `entry_ids` | array | Yes | List of entry IDs to move (minimum 1) |
+| `target_trip_id` | uuid | Yes | Target trip ID to move entries to |
+
+**Response:** `200 OK`
+```json
+{
+  "moved_count": 3,
+  "entries": [
+    {
+      "id": "uuid-1",
+      "trip_id": "uuid",
+      "type": "place",
+      "title": "Entry 1",
+      "place": { ... }
+    },
+    ...
+  ]
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `moved_count` | integer | Number of entries successfully moved |
+| `entries` | array | List of moved entries with place data |
+
+**Error Responses:**
+
+| Status | Error | Description |
+|--------|-------|-------------|
+| 400 | `InvalidInput` | No entries specified |
+| 403 | `Forbidden` | Not authorized to move one or more entries |
+| 404 | `NotFound` | One or more entries not found |
+| 409 | `Conflict` | One or more places already exist in the target trip |
 
 ---
 
@@ -568,11 +702,660 @@ Update user profile.
 
 **Response:** `200 OK`
 
+#### `DELETE /profile`
+
+Permanently delete the current user's account and all associated data.
+
+**Auth:** Required
+
+**Rate Limit:** 5/hour
+
+This operation is irreversible and will:
+- Delete the user's authentication record from Supabase Auth
+- Cascade delete all database records via ON DELETE CASCADE constraints (user_profile, user_countries, trips, entries, places, lists, list_entries, trip_tags, media_files records, outbound_links, social_ingest_jobs)
+
+Note: Media files in Supabase Storage buckets are NOT automatically deleted and require a separate cleanup process.
+
+**Response:**
+```json
+{
+  "message": "Account deleted successfully"
+}
+```
+
+**Error Responses:**
+
+| Status | Error | Description |
+|--------|-------|-------------|
+| 429 | `RateLimitExceeded` | Rate limit exceeded (5/hour) |
+| 500 | `InternalError` | Failed to delete account |
+| 503 | `ServiceUnavailable` | Service temporarily unavailable |
+
+---
+
+### Welcome Emails
+
+#### `POST /welcome/emails`
+
+Schedule welcome email sequence for a new user. This endpoint should be called immediately after successful signup. It schedules a series of welcome emails using Resend's scheduled delivery feature.
+
+**Auth:** Required
+
+**Rate Limit:** 3 requests per hour
+
+**Request:**
+```json
+{
+  "display_name": "John"
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `display_name` | string | No | User's display name for email personalization (max 100 chars). Defaults to "there" if not provided. |
+
+**Response:**
+```json
+{
+  "status": "scheduled",
+  "email_count": 4
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `status` | string | Result status (see below) |
+| `email_count` | integer | Number of emails successfully scheduled |
+
+**Status Values:**
+
+| Status | Description |
+|--------|-------------|
+| `scheduled` | Emails successfully scheduled for delivery |
+| `already_scheduled` | Welcome emails were already scheduled for this user (idempotency protection) |
+| `skipped` | Email service not configured (development mode) |
+| `failed` | All emails failed to schedule |
+
+**Email Schedule:**
+
+The welcome sequence consists of 4 emails sent at the following intervals after signup:
+
+| Email | Delay | Subject |
+|-------|-------|---------|
+| Welcome | Immediate | "You're awesome" |
+| Day 2 | 24 hours | "The apps out there just didn't cut it" |
+| Day 4 | 72 hours | "The feature I use every single day" |
+| Day 7 | 144 hours | '"Can you send me your recommendations?"' |
+
+**Error Responses:**
+
+| Status | Error | Description |
+|--------|-------|-------------|
+| 422 | `UnprocessableEntity` | User email is missing |
+| 429 | `RateLimitExceeded` | Rate limit exceeded (3/hour) |
+
+---
+
+### Ad Events
+
+#### `POST /ad-events`
+
+Track an ad conversion event from the mobile client. The backend fans out the event to Facebook Conversions API and TikTok Events API concurrently. Failures on one platform do not affect the other.
+
+The mobile app fires events via the client-side Facebook SDK for real-time attribution and SKAdNetwork support, then sends the same event to this endpoint for server-side tracking on both Facebook CAPI and TikTok.
+
+**Auth:** Required
+
+**Rate Limit:** 20/minute
+
+**Request:**
+```json
+{
+  "event_name": "CompleteRegistration",
+  "event_id": "complete_registration_550e8400-e29b-41d4-a716-446655440000",
+  "properties": {
+    "method": "apple"
+  },
+  "timestamp": 1707955200
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `event_name` | string | Yes | One of: `CompleteRegistration`, `StartTrial`, `Subscribe`, `FirstTripCreated`, `FirstPhotoImport` |
+| `event_id` | string | Yes | Unique event ID shared with client-side Facebook SDK for deduplication |
+| `properties` | object | No | Additional event properties (default: `{}`) |
+| `timestamp` | integer | Yes | Client-side Unix epoch seconds when the event occurred |
+
+**Event Names:**
+
+| Event | Trigger | First-Only | Facebook CAPI Event | TikTok Event |
+|-------|---------|------------|--------------------|--------------|
+| `CompleteRegistration` | Account created | Yes | `CompleteRegistration` | `CompleteRegistration` |
+| `StartTrial` | Free trial started | Yes | `StartTrial` | `Subscribe` |
+| `Subscribe` | Subscription purchased | No | `Purchase` | `CompletePayment` |
+| `FirstTripCreated` | First trip created | Yes | `Lead` | `AddToCart` |
+| `FirstPhotoImport` | First photo import completed | Yes | `ViewContent` | `ViewContent` |
+
+**Properties by Event:**
+
+| Event | Property | Type | Description |
+|-------|----------|------|-------------|
+| `CompleteRegistration` | `method` | string | Auth method: `email`, `apple`, or `google` |
+| `StartTrial` | `plan` | string | Subscription plan identifier |
+| `StartTrial` | `is_trial` | boolean | Always `true` |
+| `Subscribe` | `plan` | string | Subscription plan identifier |
+| `Subscribe` | `price` | number | Purchase price (must be numeric; omitted if zero) |
+| `Subscribe` | `currency` | string | ISO 4217 currency code (e.g., `USD`) |
+| `FirstTripCreated` | `country_code` | string | ISO 3166-1 alpha-2 country code |
+| `FirstPhotoImport` | `cluster_count` | number | Number of photo clusters imported |
+
+**Response:**
+```json
+{
+  "status": "ok"
+}
+```
+
+**Error Responses:**
+
+| Status | Error | Description |
+|--------|-------|-------------|
+| 401 | `Unauthorized` | Missing or invalid token |
+| 422 | `UnprocessableEntity` | Invalid event name or properties |
+| 429 | `RateLimitExceeded` | Rate limit exceeded (20/minute) |
+
+---
+
+### Social Ingest
+
+#### `POST /ingest/social`
+
+Process a social media URL (TikTok or Instagram) and extract metadata including place information. This endpoint uses LLM-first extraction with regex fallback to identify places mentioned in the content.
+
+**Auth:** Required
+
+**Rate Limit:** 30/minute
+
+**Request:**
+```json
+{
+  "url": "https://www.instagram.com/p/ABC123/",
+  "caption": "Optional additional caption text",
+  "extraction_method": "auto",
+  "video_frames": ["base64-encoded-frame-1", "base64-encoded-frame-2"],
+  "skip_cache": false
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `url` | string | Yes | TikTok or Instagram URL (10-2048 characters) |
+| `caption` | string | No | Additional caption text (max 2000 characters) |
+| `extraction_method` | string | No | Extraction method: `auto` (default), `llm`, or `regex` |
+| `video_frames` | array | No | Base64-encoded JPEG/PNG frames sampled on-device (max 20 frames, ~1.5MB each) |
+| `skip_cache` | boolean | No | Skip cache lookup and force fresh extraction (default: false) |
+
+**Extraction Methods:**
+
+| Method | Description |
+|--------|-------------|
+| `auto` | LLM-first with regex fallback (default, recommended) |
+| `llm` | LLM extraction only (requires `LLM_PLACE_EXTRACTION_ENABLED=true`) |
+| `regex` | Regex extraction only (legacy behavior) |
+
+**Response:**
+```json
+{
+  "provider": "instagram",
+  "canonical_url": "https://www.instagram.com/p/ABC123/",
+  "thumbnail_url": "https://...",
+  "author_handle": "traveler_jane",
+  "title": "Amazing dinner at Cafe Lomi in Paris!",
+  "detected_places": [
+    {
+      "google_place_id": "ChIJ...",
+      "name": "Cafe Lomi",
+      "address": "3 Rue Marcadet, 75018 Paris, France",
+      "latitude": 48.8912,
+      "longitude": 2.3522,
+      "city": "Paris",
+      "country": "France",
+      "country_code": "FR",
+      "confidence": 0.85,
+      "primary_type": "cafe",
+      "types": ["cafe", "restaurant"],
+      "google_photo_url": "https://...",
+      "llm_entry_type": "food"
+    }
+  ],
+  "detected_place": {
+    "google_place_id": "ChIJ...",
+    "name": "Cafe Lomi",
+    "address": "3 Rue Marcadet, 75018 Paris, France",
+    "latitude": 48.8912,
+    "longitude": 2.3522,
+    "city": "Paris",
+    "country": "France",
+    "country_code": "FR",
+    "confidence": 0.85,
+    "primary_type": "cafe",
+    "types": ["cafe", "restaurant"],
+    "google_photo_url": "https://...",
+    "llm_entry_type": "food"
+  },
+  "detected_country": {
+    "country_code": "FR",
+    "country_name": "France",
+    "latitude": 48.8566,
+    "longitude": 2.3522
+  },
+  "extraction_method_used": "llm",
+  "extraction_source": "caption",
+  "extraction_latency_ms": 450,
+  "context_location": "Paris",
+  "suggested_trips": [
+    {
+      "id": "uuid",
+      "name": "Paris Trip 2026",
+      "country_code": "FR",
+      "is_system": false
+    },
+    {
+      "id": "uuid",
+      "name": "Saved Places",
+      "country_code": null,
+      "is_system": true
+    }
+  ],
+  "extraction_error": null
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `provider` | string | Social media provider: `tiktok` or `instagram` |
+| `canonical_url` | string | Canonicalized URL |
+| `thumbnail_url` | string | Post thumbnail URL (if available) |
+| `author_handle` | string | Author's username/handle |
+| `title` | string | Post title or caption |
+| `detected_places` | array | Array of all detected places (max 10) for multi-place extraction |
+| `detected_place` | object | First detected place (deprecated, use `detected_places` for multi-place support) |
+| `detected_place.llm_entry_type` | string | LLM-predicted entry type: `place`, `food`, `stay`, or `experience` |
+| `detected_country` | object | Country hint (even when place detection fails) |
+| `extraction_method_used` | string | Method that succeeded: `llm`, `regex`, `video`, or `none` |
+| `extraction_source` | string | Source of extraction: `caption`, `video_frames`, `carousel`, or `screenshot` |
+| `extraction_latency_ms` | integer | Extraction time in milliseconds |
+| `context_location` | string | Context location detected from content (e.g., "Thailand") used as search bias |
+| `suggested_trips` | array | Trips suggested for saving (matching country first, then "Saved Places") |
+| `extraction_error` | string | User-facing error message when extraction fails due to platform limitations |
+
+**Error Responses:**
+
+| Status | Error | Description |
+|--------|-------|-------------|
+| 400 | `InvalidInput` | URL is not from a supported provider |
+| 429 | `RateLimitExceeded` | Rate limit exceeded (30/minute) |
+
+---
+
+#### `POST /ingest/save-to-trip`
+
+Save social ingest data to a trip as an entry. Takes the metadata from `/ingest/social` and creates an entry in the specified trip.
+
+**Auth:** Required
+
+**Rate Limit:** 30/minute
+
+**Request:**
+```json
+{
+  "trip_id": "uuid",
+  "provider": "instagram",
+  "canonical_url": "https://www.instagram.com/p/ABC123/",
+  "thumbnail_url": "https://...",
+  "author_handle": "traveler_jane",
+  "title": "Amazing dinner at Cafe Lomi!",
+  "place": {
+    "google_place_id": "ChIJ...",
+    "name": "Cafe Lomi",
+    "address": "3 Rue Marcadet, 75018 Paris, France",
+    "latitude": 48.8912,
+    "longitude": 2.3522,
+    "city": "Paris",
+    "country": "France",
+    "country_code": "FR",
+    "confidence": 0.85
+  },
+  "entry_type": "food",
+  "notes": "Best coffee in Paris!"
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `trip_id` | uuid | Yes | Target trip ID |
+| `provider` | string | Yes | Social provider: `tiktok` or `instagram` |
+| `canonical_url` | string | Yes | Canonical URL (max 2048 chars) |
+| `thumbnail_url` | string | No | Thumbnail URL |
+| `author_handle` | string | No | Author handle (max 200 chars) |
+| `title` | string | No | Post title (max 2200 chars) |
+| `place` | object | No | Place data to save |
+| `entry_type` | string | No | Entry type: `place`, `food`, `stay`, `experience` (default: `place`) |
+| `notes` | string | No | User notes (max 2000 chars) |
+
+**Response:** `201 Created`
+
+Returns the created entry with place data (same format as `POST /trips/{trip_id}/entries`).
+
+**Error Responses:**
+
+| Status | Error | Description |
+|--------|-------|-------------|
+| 403 | `Forbidden` | Not authorized to add entries to this trip |
+| 404 | `NotFound` | Trip not found |
+| 409 | `Conflict` | This place has already been saved to this trip |
+| 429 | `RateLimitExceeded` | Rate limit exceeded (30/minute) |
+
+---
+
+#### `POST /ingest/save-places`
+
+Save multiple places from a social media post to a trip in a single batch operation. This endpoint is designed for multi-place extraction where a single post contains multiple places (e.g., a "Top 10 restaurants in Paris" video).
+
+**Auth:** Required
+
+**Rate Limit:** 30/minute
+
+**Request:**
+```json
+{
+  "trip_id": "uuid",
+  "places": [
+    {
+      "google_place_id": "ChIJ...",
+      "name": "Cafe Lomi",
+      "entry_type": "food",
+      "address": "3 Rue Marcadet, 75018 Paris, France",
+      "latitude": 48.8912,
+      "longitude": 2.3522,
+      "city": "Paris",
+      "country": "France",
+      "country_code": "FR",
+      "google_photo_url": "https://..."
+    },
+    {
+      "google_place_id": "ChIK...",
+      "name": "Le Comptoir",
+      "entry_type": "food",
+      "address": "9 Carrefour de l'Odéon, 75006 Paris, France",
+      "latitude": 48.8520,
+      "longitude": 2.3387,
+      "city": "Paris",
+      "country": "France",
+      "country_code": "FR"
+    }
+  ],
+  "provider": "instagram",
+  "canonical_url": "https://www.instagram.com/p/ABC123/",
+  "thumbnail_url": "https://...",
+  "author_handle": "traveler_jane",
+  "title": "Top 10 restaurants in Paris!",
+  "notes": "From my Paris food tour"
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `trip_id` | uuid | Yes | Target trip ID |
+| `places` | array | Yes | Array of places to save (1-20 places) |
+| `places[].google_place_id` | string | Yes | Google Place ID (1-512 chars) |
+| `places[].name` | string | Yes | Place name (1-256 chars) |
+| `places[].entry_type` | string | No | Entry type: `place`, `food`, `stay`, `experience` (default: `place`) |
+| `places[].address` | string | No | Place address (max 512 chars) |
+| `places[].latitude` | float | No | Latitude (-90 to 90) |
+| `places[].longitude` | float | No | Longitude (-180 to 180) |
+| `places[].city` | string | No | City name (max 200 chars) |
+| `places[].country` | string | No | Country name (max 200 chars) |
+| `places[].country_code` | string | No | ISO 3166-1 alpha-2 country code |
+| `places[].google_photo_url` | string | No | Google Places photo URL (max 2048 chars) |
+| `provider` | string | Yes | Social provider: `tiktok` or `instagram` |
+| `canonical_url` | string | Yes | Canonical URL (max 2048 chars) |
+| `thumbnail_url` | string | No | Thumbnail URL |
+| `author_handle` | string | No | Author handle (max 256 chars) |
+| `title` | string | No | Post title (max 2200 chars) |
+| `notes` | string | No | Notes applied to all entries (max 5000 chars) |
+
+**Response:** `201 Created`
+```json
+{
+  "saved_count": 2,
+  "skipped_count": 1,
+  "saved_entry_ids": ["uuid-1", "uuid-2"],
+  "skipped_place_names": ["Already Saved Place"],
+  "results": [
+    {
+      "place_name": "Cafe Lomi",
+      "status": "saved",
+      "entry_id": "uuid-1"
+    },
+    {
+      "place_name": "Le Comptoir",
+      "status": "saved",
+      "entry_id": "uuid-2"
+    },
+    {
+      "place_name": "Already Saved Place",
+      "status": "duplicate",
+      "error_message": "Place already exists in this trip"
+    }
+  ]
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `saved_count` | integer | Number of places successfully saved |
+| `skipped_count` | integer | Number of places skipped (duplicates or errors) |
+| `saved_entry_ids` | array | UUIDs of created entries |
+| `skipped_place_names` | array | Names of places that were skipped |
+| `results` | array | Per-place status for detailed error handling |
+| `results[].place_name` | string | Name of the place |
+| `results[].status` | string | Status: `saved`, `duplicate`, or `error` |
+| `results[].entry_id` | uuid | Entry ID if saved successfully |
+| `results[].error_message` | string | Error message if skipped |
+
+**Error Responses:**
+
+| Status | Error | Description |
+|--------|-------|-------------|
+| 403 | `Forbidden` | Not authorized to add entries to this trip |
+| 404 | `NotFound` | Trip not found |
+| 429 | `RateLimitExceeded` | Rate limit exceeded (30/minute) |
+
+---
+
+### Photos
+
+#### `POST /photos/suggest-places`
+
+Get place suggestions for photo GPS clusters using Google Places Nearby Search. This endpoint is used by the mobile app's photo import feature to automatically suggest trip entries based on where photos were taken.
+
+**Auth:** Required
+
+**Rate Limit:** 30/minute
+
+**Request:**
+```json
+{
+  "clusters": [
+    {
+      "id": "cluster-1",
+      "centroid": {
+        "latitude": 35.71478,
+        "longitude": 139.79672
+      },
+      "photos": [
+        {
+          "asset_id": "photo-123",
+          "latitude": 35.71480,
+          "longitude": 139.79670,
+          "timestamp": "2024-03-16T10:30:00Z"
+        }
+      ],
+      "start_time": "2024-03-16T10:30:00Z",
+      "end_time": "2024-03-16T11:00:00Z"
+    }
+  ]
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `clusters` | array | Yes | List of photo clusters (1-100 clusters) |
+| `clusters[].id` | string | Yes | Unique cluster identifier (1-64 chars) |
+| `clusters[].centroid` | object | Yes | Center point of the cluster |
+| `clusters[].centroid.latitude` | float | Yes | Latitude (-90 to 90) |
+| `clusters[].centroid.longitude` | float | Yes | Longitude (-180 to 180) |
+| `clusters[].photos` | array | Yes | Photos in the cluster (1-100 per cluster) |
+| `clusters[].photos[].asset_id` | string | Yes | Device photo asset ID (1-256 chars) |
+| `clusters[].photos[].latitude` | float | Yes | Photo latitude |
+| `clusters[].photos[].longitude` | float | Yes | Photo longitude |
+| `clusters[].photos[].timestamp` | datetime | No | When the photo was taken |
+| `clusters[].start_time` | datetime | No | Earliest photo timestamp in cluster |
+| `clusters[].end_time` | datetime | No | Latest photo timestamp in cluster |
+
+**Limits:**
+- Maximum 100 clusters per request
+- Maximum 100 photos per cluster
+- Maximum 500 total photos per request
+
+**Response:**
+```json
+{
+  "suggestions": [
+    {
+      "cluster_id": "cluster-1",
+      "photo_ids": ["photo-123"],
+      "places": [
+        {
+          "place_id": "ChIJ8T1GpMGOGGARDYGSgpooDWw",
+          "name": "Senso-ji Temple",
+          "address": "2 Chome-3-1 Asakusa, Taito City, Tokyo, Japan",
+          "location": {
+            "latitude": 35.71478,
+            "longitude": 139.79672
+          },
+          "category": "place",
+          "distance_m": 15.2,
+          "types": ["tourist_attraction", "place_of_worship"]
+        }
+      ]
+    }
+  ],
+  "failed_cluster_count": 0
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `suggestions` | array | Place suggestions for each cluster |
+| `suggestions[].cluster_id` | string | Matching cluster ID from request |
+| `suggestions[].photo_ids` | array | Photo asset IDs in this cluster |
+| `suggestions[].places` | array | Suggested places ranked by distance |
+| `suggestions[].places[].place_id` | string | Google Place ID |
+| `suggestions[].places[].name` | string | Place name |
+| `suggestions[].places[].address` | string | Formatted address |
+| `suggestions[].places[].location` | object | Place coordinates |
+| `suggestions[].places[].category` | string | Entry type: `place`, `food`, `stay`, or `experience` |
+| `suggestions[].places[].distance_m` | float | Distance from cluster centroid in meters |
+| `suggestions[].places[].types` | array | Google Places type categories |
+| `failed_cluster_count` | integer | Number of clusters that failed to process |
+
+**Error Responses:**
+
+| Status | Error | Description |
+|--------|-------|-------------|
+| 429 | `RateLimitExceeded` | Rate limit exceeded (30/minute) or Google Places rate limit |
+| 503 | `ServiceUnavailable` | Google Places API quota exceeded or service not configured |
+| 504 | `GatewayTimeout` | Google Places API timed out |
+
+---
+
+### Places
+
+#### `POST /places/autocomplete`
+
+Search for places using Google Places Autocomplete. This endpoint is used by the iOS Share Extension for location search and keeps the Google Places API key server-side.
+
+**Auth:** Required
+
+**Rate Limit:** 30/minute
+
+**Request:**
+```json
+{
+  "query": "Senso-ji Temple",
+  "country_code": "JP"
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `query` | string | Yes | Search query (2-200 characters) |
+| `country_code` | string | No | ISO 3166-1 alpha-2 country code to bias results (e.g., "JP", "US") |
+
+**Response:**
+```json
+[
+  {
+    "place_id": "ChIJ8T1GpMGOGGARDYGSgpooDWw",
+    "main_text": "Senso-ji",
+    "secondary_text": "2 Chome-3-1 Asakusa, Taito City, Tokyo, Japan",
+    "types": []
+  }
+]
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `place_id` | string | Google Place ID for use with place details lookup |
+| `main_text` | string | Primary place name |
+| `secondary_text` | string | Address or location context |
+| `types` | array | Place type categories (populated from details lookup) |
+
+**Error Responses:**
+
+| Status | Error | Description |
+|--------|-------|-------------|
+| 422 | `UnprocessableEntity` | Query too short or invalid country code |
+| 503 | `ServiceUnavailable` | Google Places API not configured or temporarily unavailable |
+
+#### `GET /places/{place_id}`
+
+Get place metadata by ID.
+
+**Auth:** Required
+
+**Response:**
+```json
+{
+  "id": "uuid",
+  "entry_id": "uuid",
+  "google_place_id": "ChIJ...",
+  "place_name": "Senso-ji",
+  "lat": 35.7148,
+  "lng": 139.7967,
+  "address": "2 Chome-3-1 Asakusa, Taito City, Tokyo, Japan",
+  "extra_data": {}
+}
+```
+
 ---
 
 ### Public Endpoints
 
-These endpoints do not require authentication.
+These endpoints do not require authentication. The human-facing HTML share pages are served at `/l/{slug}` (lists) and `/t/{slug}` (trips) — an editorial layout with a byline, category filters, and an interactive map (see `docs/app-overview.md`). Public entries expose `latitude`/`longitude` so those pages can plot map pins.
 
 #### `GET /public/lists/{slug}`
 
@@ -589,6 +1372,8 @@ Get a public list by slug.
       "title": "Ichiran Shibuya",
       "notes": "...",
       "place_name": "Ichiran",
+      "latitude": 35.6595,
+      "longitude": 139.7005,
       "media_urls": ["https://..."]
     }
   ]
@@ -647,7 +1432,11 @@ Rate limits are applied per endpoint:
 
 | Endpoint | Limit |
 |----------|-------|
+| `DELETE /profile` | 5/hour |
+| `POST /welcome/emails` | 3/hour |
 | `GET /profile` | 30/minute |
+| `POST /ad-events` | 20/minute |
+| `POST /places/autocomplete` | 30/minute |
 | `POST /media/files/upload-url` | 60/minute |
 | Other endpoints | 120/minute |
 

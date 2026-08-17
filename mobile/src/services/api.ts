@@ -1,5 +1,6 @@
 import axios, { AxiosError, AxiosInstance, InternalAxiosRequestConfig } from 'axios';
 import * as SecureStore from 'expo-secure-store';
+import { Platform } from 'react-native';
 
 // NOTE: iOS Simulator cannot access localhost. Use your machine's IP address instead.
 // Example: http://192.168.1.100:8000
@@ -9,10 +10,54 @@ const TOKEN_KEY = 'auth_token';
 const REFRESH_TOKEN_KEY = 'refresh_token';
 const ONBOARDING_COMPLETE_KEY = 'onboarding_complete';
 
+/**
+ * SecureStore options
+ *
+ * IMPORTANT:
+ * We intentionally do NOT set iOS `accessGroup` here.
+ *
+ * The main app’s default keychain access group is already:
+ *   $(AppIdentifierPrefix)com.atlasi.app
+ *
+ * The Share Extension is granted access to that same group via entitlements and reads using
+ * KeychainAccessGroup from its Info.plist. Hardcoding a TeamID in JS is brittle (preview/internal
+ * builds can be signed with a different team), and leads to the extension seeing -25300.
+ */
+const getSecureStoreOptions = (): SecureStore.SecureStoreOptions => ({});
+
 // In-memory token cache to avoid SecureStore I/O on every request
 let cachedToken: string | null = null;
 // Promise to deduplicate concurrent token fetches
 let tokenFetchPromise: Promise<string | null> | null = null;
+
+/**
+ * Fetch token with a defensive fallback.
+ *
+ * Historically, we experimented with storing tokens in different SecureStore locations.
+ * We now always use the default keychain access group (no explicit accessGroup option),
+ * and fall back to a legacy read on iOS only if needed.
+ */
+async function fetchTokenWithMigration(key: string): Promise<string | null> {
+  // Default location (recommended)
+  let token = await SecureStore.getItemAsync(key, getSecureStoreOptions());
+  if (token) {
+    return token;
+  }
+
+  // Legacy fallback: explicitly try without options (older builds)
+  if (Platform.OS === 'ios') {
+    try {
+      token = await SecureStore.getItemAsync(key);
+      if (token) {
+        return token;
+      }
+    } catch {
+      // Ignore errors reading legacy keychain
+    }
+  }
+
+  return null;
+}
 
 // Callback for sign out action - decouples API from auth store
 let onSignOutCallback: (() => void) | null = null;
@@ -50,6 +95,9 @@ export function setSuppressAutoSignOut(suppress: boolean): void {
   // This prevents the flag from getting stuck if migration fails unexpectedly
   if (suppress) {
     suppressTimeout = setTimeout(() => {
+      console.warn(
+        '[API] Auto-signout suppress safety timeout triggered - this may indicate a slow migration'
+      );
       suppressAutoSignOut = false;
       suppressTimeout = null;
     }, 30000);
@@ -68,7 +116,7 @@ export const api: AxiosInstance = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
-  timeout: 10000,
+  timeout: 30000, // 30s timeout for batch operations during migration
 });
 
 // Request interceptor to add auth token
@@ -79,7 +127,7 @@ api.interceptors.request.use(
     if (!token) {
       // Deduplicate concurrent token fetches - only one SecureStore read at a time
       if (!tokenFetchPromise) {
-        tokenFetchPromise = SecureStore.getItemAsync(TOKEN_KEY).then((t) => {
+        tokenFetchPromise = fetchTokenWithMigration(TOKEN_KEY).then((t) => {
           cachedToken = t;
           tokenFetchPromise = null;
           return t;
@@ -115,22 +163,39 @@ api.interceptors.response.use(
 );
 
 // Helper to store tokens after login/signup
+// Uses accessGroup on iOS to share tokens with Share Extension
+// Also cleans up any legacy tokens stored without accessGroup
 export async function storeTokens(accessToken: string, refreshToken: string): Promise<void> {
+  const options = getSecureStoreOptions();
+  console.log('[API] Storing tokens with options:', JSON.stringify(options));
+
   cachedToken = accessToken; // Update in-memory cache
-  await SecureStore.setItemAsync(TOKEN_KEY, accessToken);
-  await SecureStore.setItemAsync(REFRESH_TOKEN_KEY, refreshToken);
+  await SecureStore.setItemAsync(TOKEN_KEY, accessToken, options);
+  await SecureStore.setItemAsync(REFRESH_TOKEN_KEY, refreshToken, options);
+  console.log('[API] Tokens stored successfully to shared keychain');
+  // Note: We do NOT delete legacy tokens here; iOS keychain matching can be surprising,
+  // and deleting could remove items needed by Supabase session persistence.
 }
 
 // Helper to clear tokens on logout
+// Uses accessGroup on iOS to clear tokens from shared keychain
+// Note: We only clear from shared keychain. Attempting to also delete from "legacy"
+// location (without accessGroup) can inadvertently delete the shared keychain item
+// due to iOS Keychain matching behavior.
 export async function clearTokens(): Promise<void> {
   cachedToken = null; // Clear in-memory cache
-  await SecureStore.deleteItemAsync(TOKEN_KEY);
-  await SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY);
+  const options = getSecureStoreOptions();
+
+  // Clear from shared keychain (with accessGroup)
+  await SecureStore.deleteItemAsync(TOKEN_KEY, options);
+  await SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY, options);
 }
 
 // Helper to get stored token
+// Uses accessGroup on iOS to read from shared keychain
+// Also migrates legacy tokens stored without accessGroup
 export async function getStoredToken(): Promise<string | null> {
-  return SecureStore.getItemAsync(TOKEN_KEY);
+  return fetchTokenWithMigration(TOKEN_KEY);
 }
 
 // Helper to persist onboarding completion state

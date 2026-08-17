@@ -1,16 +1,23 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { LinearGradient } from 'expo-linear-gradient';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
   Dimensions,
   FlatList,
+  Keyboard,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+
+import CountryCardTooltipOverlay, {
+  type CardMeasurements,
+} from '@components/onboarding/CountryCardTooltipOverlay';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 // Calculate row height based on card aspect ratio (3:4) and layout
@@ -23,13 +30,19 @@ const CARD_HEIGHT = CARD_WIDTH * (4 / 3);
 const ROW_HEIGHT = CARD_HEIGHT + 12; // 12px marginBottom
 
 import { CountryCard, GlassBackButton } from '@components/ui';
-import { colors, withAlpha } from '@constants/colors';
+import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
-import { ALL_REGIONS, REGIONS, type Region } from '@constants/regions';
+import { REGIONS, type Region } from '@constants/regions';
 import { useCountriesByRegion } from '@hooks/useCountries';
+import { useStaggeredEntrance } from '@hooks/useStaggeredEntrance';
 import type { OnboardingStackScreenProps } from '@navigation/types';
 import { Analytics } from '@services/analytics';
-import { useOnboardingStore } from '@stores/onboardingStore';
+import {
+  useOnboardingStore,
+  selectCountryGridTooltipShown,
+  selectSelectedCountries,
+  selectBucketListCountries,
+} from '@stores/onboardingStore';
 
 type Props = OnboardingStackScreenProps<'ContinentCountryGrid'>;
 
@@ -39,23 +52,250 @@ interface CountryPair {
   right?: { code: string; name: string };
 }
 
+// Props for the memoized row component
+interface CountryCardRowProps {
+  item: CountryPair;
+  index: number;
+  selectedCountriesSet: Set<string>;
+  bucketListCountriesSet: Set<string>;
+  onToggleVisited: (code: string) => void;
+  onToggleWishlist: (code: string) => void;
+  getAnimatedStyle: (index: number) => Animated.WithAnimatedObject<object>;
+  firstCardRef?: React.RefObject<View | null>;
+}
+
+// Custom comparator for React.memo - only re-render when this row's membership actually changes
+function areCountryCardRowPropsEqual(
+  prevProps: CountryCardRowProps,
+  nextProps: CountryCardRowProps
+): boolean {
+  // Check stable callback/ref equality first (cheap comparisons)
+  if (
+    prevProps.onToggleVisited !== nextProps.onToggleVisited ||
+    prevProps.onToggleWishlist !== nextProps.onToggleWishlist ||
+    prevProps.getAnimatedStyle !== nextProps.getAnimatedStyle ||
+    prevProps.firstCardRef !== nextProps.firstCardRef ||
+    prevProps.index !== nextProps.index
+  ) {
+    return false;
+  }
+
+  // Check if left country code changed
+  const prevLeftCode = prevProps.item.left.code;
+  const nextLeftCode = nextProps.item.left.code;
+  if (prevLeftCode !== nextLeftCode) {
+    return false;
+  }
+
+  // Check if right country code changed (or existence changed)
+  const prevRightCode = prevProps.item.right?.code;
+  const nextRightCode = nextProps.item.right?.code;
+  if (prevRightCode !== nextRightCode) {
+    return false;
+  }
+
+  // Check if left country membership status changed
+  const prevLeftVisited = prevProps.selectedCountriesSet.has(prevLeftCode);
+  const nextLeftVisited = nextProps.selectedCountriesSet.has(nextLeftCode);
+  if (prevLeftVisited !== nextLeftVisited) {
+    return false;
+  }
+
+  const prevLeftWishlisted = prevProps.bucketListCountriesSet.has(prevLeftCode);
+  const nextLeftWishlisted = nextProps.bucketListCountriesSet.has(nextLeftCode);
+  if (prevLeftWishlisted !== nextLeftWishlisted) {
+    return false;
+  }
+
+  // Check if right country membership status changed (if right exists)
+  if (prevRightCode && nextRightCode) {
+    const prevRightVisited = prevProps.selectedCountriesSet.has(prevRightCode);
+    const nextRightVisited = nextProps.selectedCountriesSet.has(nextRightCode);
+    if (prevRightVisited !== nextRightVisited) {
+      return false;
+    }
+
+    const prevRightWishlisted = prevProps.bucketListCountriesSet.has(prevRightCode);
+    const nextRightWishlisted = nextProps.bucketListCountriesSet.has(nextRightCode);
+    if (prevRightWishlisted !== nextRightWishlisted) {
+      return false;
+    }
+  }
+
+  // All relevant props are equal - skip re-render
+  return true;
+}
+
+// Memoized row component with custom comparator to prevent re-renders when other rows change
+const CountryCardRow = React.memo(function CountryCardRow({
+  item,
+  index,
+  selectedCountriesSet,
+  bucketListCountriesSet,
+  onToggleVisited,
+  onToggleWishlist,
+  getAnimatedStyle,
+  firstCardRef,
+}: CountryCardRowProps) {
+  const leftCardIndex = index * 2;
+  const rightCardIndex = index * 2 + 1;
+  const isFirstCard = index === 0;
+
+  // Memoize callbacks for each card to maintain stable references
+  const leftVisitedHandler = useCallback(
+    () => onToggleVisited(item.left.code),
+    [onToggleVisited, item.left.code]
+  );
+  const leftWishlistHandler = useCallback(
+    () => onToggleWishlist(item.left.code),
+    [onToggleWishlist, item.left.code]
+  );
+  // Note: We intentionally depend on item.right?.code (primitive) instead of item.right (object)
+  // to prevent callback recreation when the object reference changes but the code remains the same.
+  /* eslint-disable react-hooks/exhaustive-deps */
+  const rightVisitedHandler = useCallback(
+    () => item.right && onToggleVisited(item.right.code),
+    [onToggleVisited, item.right?.code]
+  );
+  const rightWishlistHandler = useCallback(
+    () => item.right && onToggleWishlist(item.right.code),
+    [onToggleWishlist, item.right?.code]
+  );
+  /* eslint-enable react-hooks/exhaustive-deps */
+
+  const leftIsVisited = selectedCountriesSet.has(item.left.code);
+  const leftIsWishlisted = bucketListCountriesSet.has(item.left.code);
+  const rightIsVisited = item.right ? selectedCountriesSet.has(item.right.code) : false;
+  const rightIsWishlisted = item.right ? bucketListCountriesSet.has(item.right.code) : false;
+
+  return (
+    <View style={styles.countryRow}>
+      <Animated.View style={[styles.countryCardWrapper, getAnimatedStyle(leftCardIndex)]}>
+        {isFirstCard ? (
+          <View ref={firstCardRef} collapsable={false}>
+            <CountryCard
+              code={item.left.code}
+              name={item.left.name}
+              isVisited={leftIsVisited}
+              isWishlisted={leftIsWishlisted}
+              onPress={leftVisitedHandler}
+              onAddVisited={leftVisitedHandler}
+              onToggleWishlist={leftWishlistHandler}
+            />
+          </View>
+        ) : (
+          <CountryCard
+            code={item.left.code}
+            name={item.left.name}
+            isVisited={leftIsVisited}
+            isWishlisted={leftIsWishlisted}
+            onPress={leftVisitedHandler}
+            onAddVisited={leftVisitedHandler}
+            onToggleWishlist={leftWishlistHandler}
+          />
+        )}
+      </Animated.View>
+      {item.right ? (
+        <Animated.View style={[styles.countryCardWrapper, getAnimatedStyle(rightCardIndex)]}>
+          <CountryCard
+            code={item.right.code}
+            name={item.right.name}
+            isVisited={rightIsVisited}
+            isWishlisted={rightIsWishlisted}
+            onPress={rightVisitedHandler}
+            onAddVisited={rightVisitedHandler}
+            onToggleWishlist={rightWishlistHandler}
+          />
+        </Animated.View>
+      ) : (
+        <View style={styles.countryCardWrapper} />
+      )}
+    </View>
+  );
+}, areCountryCardRowPropsEqual);
+
 export function ContinentCountryGridScreen({ navigation, route }: Props) {
   const { region } = route.params;
   // Use region-specific hook for better performance (queries SQLite directly)
   const { data: regionCountries, isLoading } = useCountriesByRegion(region);
-  const {
-    selectedCountries,
-    toggleCountry,
-    bucketListCountries,
-    toggleBucketListCountry,
-    visitedContinents,
-  } = useOnboardingStore();
+  const selectedCountries = useOnboardingStore(selectSelectedCountries);
+  const bucketListCountries = useOnboardingStore(selectBucketListCountries);
+  const toggleCountry = useOnboardingStore((s) => s.toggleCountry);
+  const toggleBucketListCountry = useOnboardingStore((s) => s.toggleBucketListCountry);
+
+  // Tooltip state
+  const countryGridTooltipShown = useOnboardingStore(selectCountryGridTooltipShown);
+  const setCountryGridTooltipShown = useOnboardingStore((s) => s.setCountryGridTooltipShown);
+  const [showTooltip, setShowTooltip] = useState(false);
+  const [cardMeasurements, setCardMeasurements] = useState<CardMeasurements | null>(null);
+  const firstCardRef = useRef<View>(null);
+
+  // Search state
+  const [searchVisible, setSearchVisible] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const searchInputRef = useRef<TextInput>(null);
+
+  // Track screen focus to prevent tooltip from showing after navigation
+  const isFocusedRef = useRef(true);
+
+  // Dismiss keyboard, close search, and hide tooltip when navigating away
+  useEffect(() => {
+    const unsubscribeFocus = navigation.addListener('focus', () => {
+      isFocusedRef.current = true;
+      Keyboard.dismiss();
+    });
+    const unsubscribeBlur = navigation.addListener('blur', () => {
+      isFocusedRef.current = false;
+      Keyboard.dismiss();
+      setSearchVisible(false);
+      setSearchQuery('');
+      // Hide tooltip when screen loses focus to prevent it from appearing
+      // over other screens (Modal renders at root level)
+      setShowTooltip(false);
+    });
+    return () => {
+      unsubscribeFocus();
+      unsubscribeBlur();
+    };
+  }, [navigation]);
 
   // Animation values
   const headerOpacity = useRef(new Animated.Value(0)).current;
-  const gridOpacity = useRef(new Animated.Value(0)).current;
   const footerOpacity = useRef(new Animated.Value(0)).current;
   const badgeScale = useRef(new Animated.Value(1)).current;
+
+  // Cap staggered animations to above-the-fold items; cards beyond the cap
+  // render at full opacity instantly (getAnimatedStyle returns opacity:1 for out-of-range indices)
+  const STAGGER_ANIMATION_CAP = 8;
+  const animatedItemCount = Math.min(regionCountries.length, STAGGER_ANIMATION_CAP);
+
+  // Staggered entrance animation for country cards (40ms delay for smooth wave)
+  const { getAnimatedStyle, startAnimation, resetAnimation, isFirstComplete } =
+    useStaggeredEntrance({
+      itemCount: animatedItemCount,
+      staggerDelay: 40,
+      autoStart: false, // We'll start manually when region changes
+    });
+
+  // Show tooltip after first card animates in (first time any grid is shown during onboarding)
+  useEffect(() => {
+    // Only show tooltip when screen is focused to prevent showing over other screens
+    // after navigation (e.g., when onboarding store resets and countryGridTooltipShown becomes false)
+    if (isFirstComplete && !countryGridTooltipShown && isFocusedRef.current) {
+      // Measure immediately - no delay needed since first card is already visible
+      firstCardRef.current?.measureInWindow((x, y, width, height) => {
+        if (width > 0 && height > 0) {
+          setCardMeasurements({ x, y, width, height });
+          setShowTooltip(true);
+        }
+      });
+    }
+  }, [isFirstComplete, countryGridTooltipShown, region]);
+
+  const handleTooltipComplete = useCallback(() => {
+    setShowTooltip(false);
+    setCountryGridTooltipShown(true);
+  }, [setCountryGridTooltipShown]);
 
   // Track screen view (fires when region changes)
   useEffect(() => {
@@ -64,9 +304,13 @@ export function ContinentCountryGridScreen({ navigation, route }: Props) {
 
   // Staggered entrance animations
   useEffect(() => {
+    // Reset search when region changes
+    setSearchVisible(false);
+    setSearchQuery('');
+
     headerOpacity.setValue(0);
-    gridOpacity.setValue(0);
     footerOpacity.setValue(0);
+    resetAnimation(); // Reset staggered cards
 
     Animated.sequence([
       Animated.timing(headerOpacity, {
@@ -74,24 +318,41 @@ export function ContinentCountryGridScreen({ navigation, route }: Props) {
         duration: 300,
         useNativeDriver: true,
       }),
-      Animated.timing(gridOpacity, {
-        toValue: 1,
-        duration: 300,
-        useNativeDriver: true,
-      }),
-      Animated.timing(footerOpacity, {
-        toValue: 1,
-        duration: 200,
-        useNativeDriver: true,
-      }),
-    ]).start();
-  }, [region, headerOpacity, gridOpacity, footerOpacity]);
+      // Start staggered card animation after header
+      Animated.delay(100),
+    ]).start(() => {
+      startAnimation(); // Begin card-by-card stagger
+    });
+
+    // Fade in footer after a delay
+    Animated.timing(footerOpacity, {
+      toValue: 1,
+      duration: 200,
+      delay: 500,
+      useNativeDriver: true,
+    }).start();
+  }, [region, headerOpacity, footerOpacity, startAnimation, resetAnimation]);
 
   // Bounce badge when selection count changes
   const prevSelectedCount = useRef(0);
   const selectedInRegion = useMemo(() => {
     return regionCountries.filter((c) => selectedCountries.includes(c.code)).length;
   }, [regionCountries, selectedCountries]);
+
+  const bucketListInRegion = useMemo(() => {
+    return regionCountries.filter((c) => bucketListCountries.includes(c.code)).length;
+  }, [regionCountries, bucketListCountries]);
+
+  // Convert arrays to Sets for O(1) lookup performance during scroll
+  const selectedCountriesSet = useMemo(() => new Set(selectedCountries), [selectedCountries]);
+  const bucketListCountriesSet = useMemo(() => new Set(bucketListCountries), [bucketListCountries]);
+
+  // Filter countries based on search query
+  const filteredCountries = useMemo(() => {
+    if (!searchQuery.trim()) return regionCountries;
+    const query = searchQuery.toLowerCase().trim();
+    return regionCountries.filter((c) => c.name.toLowerCase().includes(query));
+  }, [regionCountries, searchQuery]);
 
   useEffect(() => {
     if (selectedInRegion !== prevSelectedCount.current && selectedInRegion > 0) {
@@ -112,20 +373,31 @@ export function ContinentCountryGridScreen({ navigation, route }: Props) {
     prevSelectedCount.current = selectedInRegion;
   }, [selectedInRegion, badgeScale]);
 
-  // Pair countries for 2-column layout
+  // Pair countries for 2-column layout (use filtered countries)
   const countryPairs: CountryPair[] = useMemo(() => {
     const pairs: CountryPair[] = [];
-    for (let i = 0; i < regionCountries.length; i += 2) {
+    for (let i = 0; i < filteredCountries.length; i += 2) {
       pairs.push({
-        left: regionCountries[i],
-        right: regionCountries[i + 1],
+        left: filteredCountries[i],
+        right: filteredCountries[i + 1],
       });
     }
     return pairs;
-  }, [regionCountries]);
+  }, [filteredCountries]);
 
   const handleSaveAndContinue = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+    // Play region completion haptic if user selected countries
+    if (selectedInRegion > 0) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    }
+
+    // Navigate immediately for snappy UX
+    navigateToNext();
+  };
+
+  const navigateToNext = () => {
     // Find current region index and move to next
     const currentIndex = REGIONS.indexOf(region as Region);
     const nextIndex = currentIndex + 1;
@@ -141,21 +413,53 @@ export function ContinentCountryGridScreen({ navigation, route }: Props) {
     }
   };
 
+  // Throttle haptics to prevent rapid-fire when toggling many countries quickly
+  const lastHapticRef = useRef(0);
+  const throttledHaptic = useCallback(() => {
+    const now = Date.now();
+    if (now - lastHapticRef.current > 100) {
+      lastHapticRef.current = now;
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+  }, []);
+
   const handleToggleVisited = useCallback(
     (code: string) => {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      Keyboard.dismiss();
+      throttledHaptic();
       toggleCountry(code);
     },
-    [toggleCountry]
+    [toggleCountry, throttledHaptic]
   );
 
   const handleToggleWishlist = useCallback(
     (code: string) => {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      Keyboard.dismiss();
+      throttledHaptic();
       toggleBucketListCountry(code);
     },
-    [toggleBucketListCountry]
+    [toggleBucketListCountry, throttledHaptic]
   );
+
+  const handleSearchToggle = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (searchVisible) {
+      Keyboard.dismiss();
+      setSearchQuery('');
+      setSearchVisible(false);
+    } else {
+      setSearchVisible(true);
+      // Focus the input after state update
+      setTimeout(() => {
+        searchInputRef.current?.focus();
+      }, 100);
+    }
+  }, [searchVisible]);
+
+  const handleClearSearch = useCallback(() => {
+    setSearchQuery('');
+    searchInputRef.current?.focus();
+  }, []);
 
   // FlatList optimization for instant scroll calculations
   const getItemLayout = useCallback(
@@ -167,37 +471,28 @@ export function ContinentCountryGridScreen({ navigation, route }: Props) {
     []
   );
 
+  // Render function that delegates to memoized CountryCardRow component
+  // This function itself is stable - the memoization happens inside CountryCardRow
   const renderCountryRow = useCallback(
-    ({ item }: { item: CountryPair }) => (
-      <View style={styles.countryRow}>
-        <View style={styles.countryCardWrapper}>
-          <CountryCard
-            code={item.left.code}
-            name={item.left.name}
-            isVisited={selectedCountries.includes(item.left.code)}
-            isWishlisted={bucketListCountries.includes(item.left.code)}
-            onPress={() => handleToggleVisited(item.left.code)}
-            onAddVisited={() => handleToggleVisited(item.left.code)}
-            onToggleWishlist={() => handleToggleWishlist(item.left.code)}
-          />
-        </View>
-        {item.right && (
-          <View style={styles.countryCardWrapper}>
-            <CountryCard
-              code={item.right.code}
-              name={item.right.name}
-              isVisited={selectedCountries.includes(item.right.code)}
-              isWishlisted={bucketListCountries.includes(item.right.code)}
-              onPress={() => handleToggleVisited(item.right!.code)}
-              onAddVisited={() => handleToggleVisited(item.right!.code)}
-              onToggleWishlist={() => handleToggleWishlist(item.right!.code)}
-            />
-          </View>
-        )}
-        {!item.right && <View style={styles.countryCardWrapper} />}
-      </View>
+    ({ item, index }: { item: CountryPair; index: number }) => (
+      <CountryCardRow
+        item={item}
+        index={index}
+        selectedCountriesSet={selectedCountriesSet}
+        bucketListCountriesSet={bucketListCountriesSet}
+        onToggleVisited={handleToggleVisited}
+        onToggleWishlist={handleToggleWishlist}
+        getAnimatedStyle={getAnimatedStyle}
+        firstCardRef={index === 0 ? firstCardRef : undefined}
+      />
     ),
-    [selectedCountries, bucketListCountries, handleToggleVisited, handleToggleWishlist]
+    [
+      selectedCountriesSet,
+      bucketListCountriesSet,
+      handleToggleVisited,
+      handleToggleWishlist,
+      getAnimatedStyle,
+    ]
   );
 
   if (isLoading) {
@@ -216,7 +511,20 @@ export function ContinentCountryGridScreen({ navigation, route }: Props) {
       <Animated.View style={[styles.header, { opacity: headerOpacity }]}>
         <View style={styles.headerRow}>
           <GlassBackButton onPress={() => navigation.goBack()} />
-          <Text style={styles.regionTitle}>{region}</Text>
+          <View style={styles.titleRow}>
+            <Text style={styles.regionTitle}>{region}</Text>
+            {!searchVisible && (
+              <TouchableOpacity
+                onPress={handleSearchToggle}
+                style={styles.searchIconButton}
+                activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityLabel="Search countries"
+              >
+                <Ionicons name="search" size={22} color={colors.midnightNavy} />
+              </TouchableOpacity>
+            )}
+          </View>
           <View style={styles.badgePlaceholder}>
             {selectedInRegion > 0 && (
               <Animated.View style={[styles.floatingBadge, { transform: [{ scale: badgeScale }] }]}>
@@ -226,12 +534,55 @@ export function ContinentCountryGridScreen({ navigation, route }: Props) {
           </View>
         </View>
         <Text style={styles.progressText}>
-          {selectedInRegion}/{regionCountries.length} countries selected
+          {selectedInRegion}/{regionCountries.length} countries visited
+          {bucketListInRegion > 0 && `, ${bucketListInRegion} bucket list`}
         </Text>
+
+        {/* Search input */}
+        {searchVisible && (
+          <View style={styles.searchContainer}>
+            <View style={styles.searchInputWrapper}>
+              <Ionicons
+                name="search"
+                size={18}
+                color={colors.stormGray}
+                style={styles.searchIcon}
+              />
+              <TextInput
+                ref={searchInputRef}
+                style={styles.searchInput}
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+                placeholder={`Search ${region}...`}
+                placeholderTextColor={colors.stormGray}
+                autoCapitalize="none"
+                autoCorrect={false}
+                returnKeyType="search"
+              />
+              <TouchableOpacity
+                onPress={searchQuery.length > 0 ? handleClearSearch : handleSearchToggle}
+                style={styles.clearButton}
+                accessibilityRole="button"
+                accessibilityLabel={searchQuery.length > 0 ? 'Clear search' : 'Close search'}
+              >
+                <Ionicons
+                  name={searchQuery.length > 0 ? 'close-circle' : 'close'}
+                  size={18}
+                  color={colors.stormGray}
+                />
+              </TouchableOpacity>
+            </View>
+            {searchQuery.length > 0 && (
+              <Text style={styles.searchResultsText}>
+                {filteredCountries.length} of {regionCountries.length} countries
+              </Text>
+            )}
+          </View>
+        )}
       </Animated.View>
 
       {/* Country grid */}
-      <Animated.View style={[styles.gridContainer, { opacity: gridOpacity }]}>
+      <View style={styles.gridContainer}>
         <FlatList
           data={countryPairs}
           renderItem={renderCountryRow}
@@ -240,14 +591,21 @@ export function ContinentCountryGridScreen({ navigation, route }: Props) {
           contentContainerStyle={styles.gridContent}
           showsVerticalScrollIndicator={false}
           removeClippedSubviews={true}
-          maxToRenderPerBatch={12}
-          windowSize={10}
+          maxToRenderPerBatch={8}
+          initialNumToRender={6}
+          windowSize={7}
+          updateCellsBatchingPeriod={50}
           testID="country-grid"
         />
-      </Animated.View>
+      </View>
 
       {/* Footer */}
       <Animated.View style={[styles.footer, { opacity: footerOpacity }]}>
+        <LinearGradient
+          colors={['rgba(253, 246, 237, 0)', colors.warmCream]}
+          locations={[0, 0.4]}
+          style={StyleSheet.absoluteFill}
+        />
         <TouchableOpacity
           style={styles.continueButton}
           onPress={handleSaveAndContinue}
@@ -256,21 +614,14 @@ export function ContinentCountryGridScreen({ navigation, route }: Props) {
           <Text style={styles.continueButtonText}>Save & Continue</Text>
           <Ionicons name="arrow-forward" size={20} color={colors.midnightNavy} />
         </TouchableOpacity>
-
-        {/* Progress indicator - 6 dots for all regions including Antarctica */}
-        <View style={styles.progressContainer}>
-          {ALL_REGIONS.map((r, index) => (
-            <View
-              key={index}
-              style={[
-                styles.progressDot,
-                visitedContinents.includes(r) && styles.progressDotCompleted,
-                r === region && styles.progressDotActive,
-              ]}
-            />
-          ))}
-        </View>
       </Animated.View>
+
+      {/* Tooltip overlay for first-time users */}
+      <CountryCardTooltipOverlay
+        visible={showTooltip}
+        cardMeasurements={cardMeasurements}
+        onComplete={handleTooltipComplete}
+      />
     </SafeAreaView>
   );
 }
@@ -302,6 +653,14 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  searchIconButton: {
+    padding: 4,
+  },
   badgePlaceholder: {
     width: 44,
     height: 44,
@@ -319,6 +678,37 @@ const styles = StyleSheet.create({
     color: colors.stormGray,
     textAlign: 'center',
     marginTop: 4,
+  },
+  searchContainer: {
+    marginTop: 12,
+  },
+  searchInputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.midnightNavyLight,
+    borderRadius: 20,
+    paddingHorizontal: 12,
+    minHeight: 44,
+  },
+  searchIcon: {
+    marginRight: 8,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 16,
+    fontFamily: fonts.openSans.regular,
+    color: colors.midnightNavy,
+    paddingVertical: 10,
+  },
+  clearButton: {
+    padding: 4,
+  },
+  searchResultsText: {
+    fontSize: 12,
+    fontFamily: fonts.openSans.regular,
+    color: colors.stormGray,
+    textAlign: 'center',
+    marginTop: 8,
   },
   floatingBadge: {
     backgroundColor: colors.mossGreen,
@@ -358,12 +748,9 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: colors.warmCream,
     paddingHorizontal: 24,
     paddingTop: 16,
     paddingBottom: 40,
-    borderTopWidth: 1,
-    borderTopColor: colors.paperBeige,
   },
   continueButton: {
     flexDirection: 'row',
@@ -371,31 +758,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: colors.sunsetGold,
     paddingVertical: 16,
-    borderRadius: 12,
+    borderRadius: 9999,
     gap: 8,
   },
   continueButtonText: {
     fontSize: 18,
     fontFamily: fonts.openSans.semiBold,
     color: colors.midnightNavy,
-  },
-  progressContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 8,
-    marginTop: 16,
-  },
-  progressDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: withAlpha(colors.midnightNavy, 0.19),
-  },
-  progressDotActive: {
-    backgroundColor: colors.midnightNavy,
-    width: 24,
-  },
-  progressDotCompleted: {
-    backgroundColor: colors.mossGreen,
   },
 });

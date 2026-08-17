@@ -52,6 +52,7 @@ web-build/
 # IDE
 .idea/
 .vscode/
+pyrightconfig.json
 *.swp
 *.swo
 *~
@@ -76,3 +77,12 @@ coverage/
 
 # Playwright MCP
 .playwright-mcp/
+
+# Claude Code local config
+.claude/
+
+# Claude Code todos (local task tracking)
+todos/
+
+# Supabase CLI temp/cache
+supabase/.temp/

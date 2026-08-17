@@ -1,0 +1,109 @@
+"""PostHog analytics client for backend event tracking.
+
+Provides a singleton PostHog client that batches events in a background thread.
+Events are fire-and-forget -- capture() returns immediately.
+
+Usage:
+    from app.core.posthog import capture_event
+
+    capture_event(
+        "llm_extraction_completed",
+        distinct_id=user_id,
+        properties={"places_resolved": 3, "method": "llm"},
+    )
+
+The client is automatically shut down during application shutdown via the
+lifespan handler in main.py.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import logging
+from typing import TYPE_CHECKING, Any
+
+from app.core.config import get_settings
+
+if TYPE_CHECKING:
+    from posthog import Posthog
+
+logger = logging.getLogger(__name__)
+
+_posthog_client: Posthog | None = None
+
+
+def _get_posthog_client() -> Posthog | None:
+    """Get or create the shared PostHog client.
+
+    Returns None if PostHog is not configured (no API key).
+    """
+    global _posthog_client
+    settings = get_settings()
+
+    if not settings.posthog_configured:
+        return None
+
+    if _posthog_client is None:
+        from posthog import Posthog
+
+        _posthog_client = Posthog(
+            project_api_key=settings.posthog_api_key,
+            host=settings.posthog_host,
+            debug=settings.debug,
+            on_error=lambda e: logger.warning("posthog_error: %s", e),
+        )
+
+    return _posthog_client
+
+
+def hash_user_id(user_id: str) -> str:
+    """Hash a user ID for use as a PostHog distinct_id.
+
+    Uses SHA-256 with a secret salt to prevent rainbow table attacks.
+    Returns the full hex digest for collision resistance.
+    """
+    settings = get_settings()
+    salted = f"{settings.posthog_user_salt}{user_id}"
+    return hashlib.sha256(salted.encode()).hexdigest()
+
+
+def capture_event(
+    event: str,
+    *,
+    distinct_id: str | None = None,
+    properties: dict[str, Any] | None = None,
+) -> None:
+    """Capture an analytics event to PostHog (fire-and-forget).
+
+    Args:
+        event: Event name (e.g., "llm_extraction_completed")
+        distinct_id: User ID or fallback identifier.
+            If None, uses "backend_system".
+        properties: Optional event properties dict.
+    """
+    client = _get_posthog_client()
+    if client is None:
+        return
+
+    try:
+        client.capture(
+            distinct_id=distinct_id or "backend_system",
+            event=event,
+            properties=properties or {},
+        )
+    except Exception as e:
+        logger.debug("posthog_capture_failed: %s", e)
+
+
+def shutdown_posthog() -> None:
+    """Flush pending events and shut down the PostHog client.
+
+    Called during application shutdown via lifespan handler.
+    """
+    global _posthog_client
+    if _posthog_client is not None:
+        try:
+            _posthog_client.shutdown()
+        except Exception as e:
+            logger.warning("posthog_shutdown_error: %s", e)
+        _posthog_client = None

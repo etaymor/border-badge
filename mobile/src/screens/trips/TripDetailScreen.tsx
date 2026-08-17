@@ -6,14 +6,14 @@
 
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
+import { Image as ExpoImage } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   FlatList,
   Image,
-  Platform,
   Pressable,
   StatusBar,
   StyleSheet,
@@ -22,51 +22,106 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+/* eslint-disable @typescript-eslint/no-require-imports */
+const backpackIllustration = require('../../../assets/illustations/backpack-illustration-compressed.png');
+const journalIllustration = require('../../../assets/illustations/journal-illustration-compressed.png');
+/* eslint-enable @typescript-eslint/no-require-imports */
+
 import { EntryGridCard } from '@components/entries';
+import { ShareExtensionCallout } from '@components/share/ShareExtensionCallout';
+import { ShareExtensionTutorialSheet } from '@components/share/ShareExtensionTutorialSheet';
+import { SharedTripImage } from '@components/transitions/SharedTripImage';
 import { TripPartners } from '@components/trips';
 import { ConfirmDialog, GlassBackButton, Snackbar } from '@components/ui';
 import { useAuthStore } from '@stores/authStore';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
-import { useCountryByCode } from '@hooks/useCountries';
-import { EntryWithPlace, useEntries } from '@hooks/useEntries';
+import { useCountryPhotoInfo } from '@hooks/useCountryPhotoInfo';
+import { EntryWithPlace, useInfiniteEntries } from '@hooks/useEntries';
 import { useTripLists } from '@hooks/useLists';
+import { useStableCallback } from '@hooks/useStableCallback';
 import { useDeleteTrip, useRestoreTrip, useTrip } from '@hooks/useTrips';
+import { useUserCountries } from '@hooks/useUserCountries';
 import type { TripsStackScreenProps } from '@navigation/types';
+import { useSettingsStore } from '@stores/settingsStore';
 
 type Props = TripsStackScreenProps<'TripDetail'>;
 
-function EmptyState({ onAddEntry }: { onAddEntry: () => void }) {
+function EmptyState({ onAddEntry, isVisited }: { onAddEntry: () => void; isVisited: boolean }) {
   return (
     <View style={styles.emptyContainer}>
-      <Text style={styles.emptyIcon}>📷</Text>
-      <Text style={styles.emptyTitle}>Unwritten Memories</Text>
+      <Image
+        source={isVisited ? backpackIllustration : journalIllustration}
+        style={styles.emptyIllustration}
+        resizeMode="contain"
+      />
+      <Text style={styles.emptyTitle}>{isVisited ? 'Unwritten Memories' : 'Planning Mode'}</Text>
       <Text style={styles.emptySubtitle}>
-        This chapter is waiting to be written. Document your first memory.
+        {isVisited
+          ? 'This chapter is waiting to be written. Document your first memory.'
+          : 'Add the places you want to visit and experiences you want to have.'}
       </Text>
       <Pressable style={styles.emptyButton} onPress={onAddEntry} testID="empty-add-entry-button">
         <Ionicons name="add" size={20} color={colors.midnightNavy} />
-        <Text style={styles.emptyButtonText}>Add Entry</Text>
+        <Text style={styles.emptyButtonText}>{isVisited ? 'Add Entry' : 'Add Place'}</Text>
       </Pressable>
     </View>
   );
 }
 
 export function TripDetailScreen({ route, navigation }: Props) {
-  const { tripId } = route.params;
+  const { tripId, prefillPlace, prefillPhotos } = route.params;
   const insets = useSafeAreaInsets();
   const currentUserId = useAuthStore((state) => state.session?.user.id);
+  const hasNavigatedToPrefill = useRef(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showUndoSnackbar, setShowUndoSnackbar] = useState(false);
   const [deletedTripId, setDeletedTripId] = useState<string | null>(null);
   const [coverImageError, setCoverImageError] = useState(false);
+  const [showTutorialSheet, setShowTutorialSheet] = useState(false);
 
   const { data: trip, isLoading: tripLoading, error: tripError } = useTrip(tripId);
-  const { data: entries, isLoading: entriesLoading } = useEntries(tripId);
+  const {
+    data: entriesData,
+    isLoading: entriesLoading,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useInfiniteEntries(tripId);
   const { data: lists } = useTripLists(tripId);
-  const { data: country } = useCountryByCode(trip?.country_id ?? '');
+
+  // Flatten paginated entries for FlatList (memoized to prevent rebuilding on every render)
+  const entries = useMemo(
+    () => entriesData?.pages.flatMap((page) => page.entries) ?? [],
+    [entriesData]
+  );
+  const { data: userCountries } = useUserCountries();
   const deleteTrip = useDeleteTrip();
   const restoreTrip = useRestoreTrip();
+  const dismissShareExtensionTutorial = useSettingsStore((s) => s.dismissShareExtensionTutorial);
+
+  // Check if user has visited this country
+  const isVisited =
+    userCountries?.some(
+      (uc) => uc.country_code === trip?.country_code && uc.status === 'visited'
+    ) ?? false;
+
+  // Photo import state - show button only if no import has happened yet OR this country has photos
+  const { hasPhotos, hasInitialImport } = useCountryPhotoInfo(trip?.country_code);
+  const showPhotoImportButton = !hasInitialImport || hasPhotos;
+
+  // Auto-navigate to EntryForm when coming from photo import with prefill data
+  useEffect(() => {
+    if (prefillPlace && prefillPhotos?.length && !hasNavigatedToPrefill.current) {
+      hasNavigatedToPrefill.current = true;
+      navigation.navigate('EntryForm', {
+        tripId,
+        entryType: prefillPlace.category,
+        prefillPlace,
+        prefillPhotos,
+      });
+    }
+  }, [prefillPlace, prefillPhotos, tripId, navigation]);
 
   const hasCoverPhoto = !!trip?.cover_image_url && !coverImageError;
   const hasPartners =
@@ -89,11 +144,39 @@ export function TripDetailScreen({ route, navigation }: Props) {
     }
   }, [tripId, trip?.name, navigation, lists]);
 
+  const handleImportPhotos = useCallback(() => {
+    // PhotoImport is now in TripsNavigator, so navigate directly
+    navigation.navigate('PhotoImport', {
+      countryCode: trip?.country_code,
+      tripId,
+      autoStart: true,
+      skipToSuggestions: hasPhotos && hasInitialImport,
+    });
+  }, [navigation, trip?.country_code, tripId, hasPhotos, hasInitialImport]);
+
   const handleEntryPress = useCallback(
     (entryId: string) => {
       navigation.navigate('EntryForm', { tripId, entryId });
     },
     [navigation, tripId]
+  );
+
+  // Identity-stable wrapper that always dispatches to the latest handler, so the
+  // per-id callbacks below can be created once and cached.
+  const stableEntryPress = useStableCallback(handleEntryPress);
+
+  // Per-id, stable onPress callbacks so EntryGridCard's React.memo holds across
+  // parent re-renders instead of being defeated by a fresh inline closure.
+  const entryPressCallbacksRef = useRef<Map<string, () => void>>(new Map());
+  const getEntryPressHandler = useCallback(
+    (entryId: string) => {
+      const existing = entryPressCallbacksRef.current.get(entryId);
+      if (existing) return existing;
+      const handler = () => stableEntryPress(entryId);
+      entryPressCallbacksRef.current.set(entryId, handler);
+      return handler;
+    },
+    [stableEntryPress]
   );
 
   const handleConfirmDelete = useCallback(async () => {
@@ -131,9 +214,9 @@ export function TripDetailScreen({ route, navigation }: Props) {
 
   const renderEntry = useCallback(
     ({ item }: { item: EntryWithPlace }) => (
-      <EntryGridCard entry={item} onPress={() => handleEntryPress(item.id)} />
+      <EntryGridCard entry={item} onPress={getEntryPressHandler(item.id)} />
     ),
-    [handleEntryPress]
+    [getEntryPressHandler]
   );
 
   const renderHeader = useCallback(
@@ -147,6 +230,36 @@ export function TripDetailScreen({ route, navigation }: Props) {
     ),
     []
   );
+
+  const handleOpenTutorial = useCallback(() => {
+    setShowTutorialSheet(true);
+  }, []);
+
+  const handleCloseTutorial = useCallback(() => {
+    setShowTutorialSheet(false);
+    dismissShareExtensionTutorial();
+  }, [dismissShareExtensionTutorial]);
+
+  const renderFooter = useCallback(
+    () => (
+      <View>
+        {isFetchingNextPage && (
+          <View style={styles.paginationLoader}>
+            <ActivityIndicator size="small" color={colors.sunsetGold} />
+          </View>
+        )}
+        <ShareExtensionCallout onLearnMore={handleOpenTutorial} />
+      </View>
+    ),
+    [handleOpenTutorial, isFetchingNextPage]
+  );
+
+  // Handle reaching end of list for infinite scroll
+  const handleEndReached = useCallback(() => {
+    if (hasNextPage && !isFetchingNextPage) {
+      fetchNextPage();
+    }
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   if (tripLoading) {
     return (
@@ -177,15 +290,22 @@ export function TripDetailScreen({ route, navigation }: Props) {
       {hasCoverPhoto ? (
         // WITH COVER PHOTO - Hero Section
         <View style={styles.heroContainer}>
-          <Image
-            source={{ uri: trip.cover_image_url! }}
-            style={styles.coverImage}
-            onError={() => setCoverImageError(true)}
-          />
+          <SharedTripImage tripId={tripId} style={styles.sharedImageContainer}>
+            <ExpoImage
+              testID="trip-detail-cover-image"
+              source={{ uri: trip.cover_image_url! }}
+              style={styles.coverImage}
+              contentFit="cover"
+              recyclingKey={tripId}
+              cachePolicy="memory-disk"
+              onError={() => setCoverImageError(true)}
+            />
+          </SharedTripImage>
 
           {/* Gradient overlay */}
           <LinearGradient
-            colors={['transparent', 'rgba(0,0,0,0.4)', 'rgba(0,0,0,0.8)']}
+            colors={['transparent', 'rgba(0,0,0,0.2)', 'rgba(0,0,0,0.6)', 'rgba(0,0,0,0.9)']}
+            locations={[0, 0.3, 0.6, 1]}
             style={styles.gradient}
           />
 
@@ -209,6 +329,17 @@ export function TripDetailScreen({ route, navigation }: Props) {
           <View style={[styles.headerRow, { top: insets.top + 8 }]}>
             <GlassBackButton onPress={() => navigation.goBack()} variant="dark" />
             <View style={styles.headerRightIcons}>
+              {showPhotoImportButton && (
+                <Pressable
+                  style={styles.glassButtonWrapper}
+                  onPress={handleImportPhotos}
+                  hitSlop={8}
+                >
+                  <BlurView intensity={20} tint="dark" style={styles.glassButton}>
+                    <Ionicons name="images-outline" size={20} color="#fff" />
+                  </BlurView>
+                </Pressable>
+              )}
               <Pressable style={styles.glassButtonWrapper} onPress={handleEditTrip} hitSlop={8}>
                 <BlurView intensity={20} tint="dark" style={styles.glassButton}>
                   <Ionicons name="pencil" size={20} color="#fff" />
@@ -229,6 +360,11 @@ export function TripDetailScreen({ route, navigation }: Props) {
           <View style={styles.noCoverHeaderRow}>
             <GlassBackButton onPress={() => navigation.goBack()} />
             <View style={styles.headerRightIcons}>
+              {showPhotoImportButton && (
+                <Pressable onPress={handleImportPhotos} hitSlop={8} style={styles.actionButton}>
+                  <Ionicons name="images-outline" size={22} color={colors.midnightNavy} />
+                </Pressable>
+              )}
               <Pressable onPress={handleEditTrip} hitSlop={8} style={styles.actionButton}>
                 <Ionicons name="pencil" size={22} color={colors.midnightNavy} />
               </Pressable>
@@ -253,22 +389,6 @@ export function TripDetailScreen({ route, navigation }: Props) {
         </View>
       )}
 
-      {/* Country badge (Luggage Tag Style) */}
-      {country && (
-        <View style={styles.countryBadgeContainer}>
-          <View style={styles.luggageTag}>
-            <View style={styles.luggageTagHole} />
-            <Ionicons
-              name="location-sharp"
-              size={14}
-              color={colors.adobeBrick}
-              style={{ marginRight: 6 }}
-            />
-            <Text style={styles.countryName}>{country.name.toUpperCase()}</Text>
-          </View>
-        </View>
-      )}
-
       {/* Entries grid */}
       {entriesLoading ? (
         <View style={styles.entriesLoading}>
@@ -282,18 +402,21 @@ export function TripDetailScreen({ route, navigation }: Props) {
           numColumns={2}
           columnWrapperStyle={styles.gridRow}
           contentContainerStyle={styles.entriesListContent}
-          ListHeaderComponent={entries && entries.length > 0 ? renderHeader : null}
-          ListEmptyComponent={<EmptyState onAddEntry={handleAddEntry} />}
+          ListHeaderComponent={entries.length > 0 ? renderHeader : null}
+          ListFooterComponent={renderFooter}
+          ListEmptyComponent={<EmptyState onAddEntry={handleAddEntry} isVisited={isVisited} />}
           showsVerticalScrollIndicator={false}
-          removeClippedSubviews={Platform.OS === 'android'}
+          removeClippedSubviews={true}
           maxToRenderPerBatch={10}
           windowSize={5}
           initialNumToRender={6}
+          onEndReached={handleEndReached}
+          onEndReachedThreshold={0.5}
         />
       )}
 
       {/* Floating Add Entry Button - only show when there are entries */}
-      {entries && entries.length > 0 && (
+      {entries.length > 0 && (
         <Pressable
           style={styles.fab}
           onPress={handleAddEntry}
@@ -301,8 +424,7 @@ export function TripDetailScreen({ route, navigation }: Props) {
           accessibilityLabel="Add new entry"
           accessibilityRole="button"
         >
-          <Ionicons name="add" size={24} color={colors.midnightNavy} />
-          <Text style={styles.fabText}>Add Entry</Text>
+          <Ionicons name="add" size={32} color={colors.midnightNavy} />
         </Pressable>
       )}
 
@@ -329,6 +451,9 @@ export function TripDetailScreen({ route, navigation }: Props) {
         duration={5000}
         testID="trip-deleted-snackbar"
       />
+
+      {/* Share Extension Tutorial Sheet */}
+      <ShareExtensionTutorialSheet visible={showTutorialSheet} onClose={handleCloseTutorial} />
     </View>
   );
 }
@@ -377,6 +502,10 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     elevation: 8,
   },
+  sharedImageContainer: {
+    width: '100%',
+    height: 320,
+  },
   coverImage: {
     width: '100%',
     height: 320,
@@ -387,7 +516,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    height: 180,
+    height: 240, // Taller gradient
   },
   heroContent: {
     position: 'absolute',
@@ -465,48 +594,6 @@ const styles = StyleSheet.create({
     paddingBottom: 8,
   },
 
-  // Country badge (Luggage Tag)
-  countryBadgeContainer: {
-    backgroundColor: colors.warmCream,
-    paddingHorizontal: 24,
-    paddingBottom: 20,
-    marginTop: -20, // Overlap slightly if needed, or just standard spacing
-    zIndex: 10,
-  },
-  luggageTag: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    alignSelf: 'flex-start',
-    backgroundColor: colors.paperBeige,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.08)',
-    shadowColor: colors.shadow,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
-    transform: [{ rotate: '-1deg' }], // Whimsical tilt
-  },
-  luggageTagHole: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: colors.warmCream,
-    borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.1)',
-    marginRight: 10,
-  },
-  countryName: {
-    fontFamily: fonts.oswald.medium,
-    fontSize: 13,
-    color: colors.midnightNavy,
-    letterSpacing: 1,
-    textTransform: 'uppercase',
-  },
-
   // Journal Header
   gridHeader: {
     marginBottom: 16,
@@ -536,10 +623,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  paginationLoader: {
+    paddingVertical: 16,
+    alignItems: 'center',
+  },
   entriesListContent: {
     padding: 16,
     paddingBottom: 130, // Space for FAB + Tab Bar
-    flexGrow: 1,
     gap: 16,
   },
   gridRow: {
@@ -554,8 +644,9 @@ const styles = StyleSheet.create({
     paddingVertical: 60,
     paddingHorizontal: 32,
   },
-  emptyIcon: {
-    fontSize: 48,
+  emptyIllustration: {
+    width: 120,
+    height: 120,
     marginBottom: 16,
   },
   emptyTitle: {
@@ -597,24 +688,21 @@ const styles = StyleSheet.create({
   // FAB
   fab: {
     position: 'absolute',
-    bottom: 120,
     right: 20,
-    flexDirection: 'row',
+    bottom: 120,
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: colors.sunsetGold,
-    paddingHorizontal: 20,
-    paddingVertical: 14,
-    borderRadius: 12,
-    gap: 8,
     shadowColor: colors.shadow,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
-    shadowRadius: 8,
+    shadowRadius: 10,
     elevation: 8,
   },
   fabText: {
-    color: colors.midnightNavy,
-    fontSize: 16,
-    fontFamily: fonts.openSans.semiBold,
+    display: 'none',
   },
 });

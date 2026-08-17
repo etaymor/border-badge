@@ -1,12 +1,13 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { useEffect } from 'react';
-import { Image, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { Animated, Image, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Text } from '@components/ui';
 import { colors } from '@constants/colors';
 import { useResponsive } from '@hooks/useResponsive';
+import { useScreenEntrance } from '@hooks/useScreenEntrance';
 import type { OnboardingStackScreenProps } from '@navigation/types';
 import { Analytics } from '@services/analytics';
 
@@ -18,9 +19,12 @@ type Props = OnboardingStackScreenProps<'WelcomeCarousel'>;
 
 export function WelcomeCarouselScreen({ navigation }: Props) {
   const { isSmallScreen } = useResponsive();
+  const { getAnimatedStyle, getButtonStyle } = useScreenEntrance({ elementCount: 3 });
+
   const player = useVideoPlayer(welcomeVideo, (player) => {
     player.loop = true;
     player.muted = true;
+    player.audioMixingMode = 'mixWithOthers';
     player.play();
   });
 
@@ -29,8 +33,32 @@ export function WelcomeCarouselScreen({ navigation }: Props) {
     Analytics.viewOnboardingWelcome();
   }, []);
 
+  // Release video source on blur to free the native decoder, restore on focus.
+  // Mirrors ContinentIntroScreen so at most one video decoder is active at a time.
+  useEffect(() => {
+    const unsubscribeFocus = navigation.addListener('focus', () => {
+      try {
+        player.replace(welcomeVideo);
+        player.play();
+      } catch {
+        // Native player may be released
+      }
+    });
+    const unsubscribeBlur = navigation.addListener('blur', () => {
+      try {
+        player.replace(null);
+      } catch {
+        // Native player may be released
+      }
+    });
+    return () => {
+      unsubscribeFocus();
+      unsubscribeBlur();
+    };
+  }, [navigation, player]);
+
   const handleNext = () => {
-    navigation.navigate('OnboardingSlider');
+    navigation.replace('OnboardingSlider');
   };
 
   const handleLogin = () => {
@@ -70,28 +98,34 @@ export function WelcomeCarouselScreen({ navigation }: Props) {
 
       {/* Text overlay - below header */}
       <View style={[styles.textOverlay, isSmallScreen && styles.textOverlaySmall]}>
-        <Text variant="title" style={styles.title}>
-          The world is waiting
-        </Text>
-        <Text variant="body" style={styles.body}>
-          Track where you&apos;ve been. Dream about where you&apos;re going.
-        </Text>
+        <Animated.View style={getAnimatedStyle(0)}>
+          <Text variant="title" style={styles.title}>
+            The world is waiting
+          </Text>
+        </Animated.View>
+        <Animated.View style={getAnimatedStyle(1)}>
+          <Text variant="body" style={styles.body}>
+            Track where you&apos;ve been. Dream about where you&apos;re going.
+          </Text>
+        </Animated.View>
       </View>
 
       {/* Next button - footer */}
       <View style={styles.footer}>
-        <TouchableOpacity
-          style={styles.nextButton}
-          onPress={handleNext}
-          testID="start-journey-button"
-          accessibilityRole="button"
-          accessibilityLabel="Next, continue to onboarding"
-        >
-          <Text variant="label" style={styles.nextButtonText}>
-            Next
-          </Text>
-          <Ionicons name="arrow-forward" size={20} color={colors.midnightNavy} />
-        </TouchableOpacity>
+        <Animated.View style={getButtonStyle(2)}>
+          <TouchableOpacity
+            style={styles.nextButton}
+            onPress={handleNext}
+            testID="start-journey-button"
+            accessibilityRole="button"
+            accessibilityLabel="Continue to onboarding"
+          >
+            <Text variant="label" style={styles.nextButtonText}>
+              Continue
+            </Text>
+            <Ionicons name="arrow-forward" size={20} color={colors.midnightNavy} />
+          </TouchableOpacity>
+        </Animated.View>
       </View>
     </View>
   );
@@ -171,7 +205,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingVertical: 16,
     paddingHorizontal: 56,
-    borderRadius: 12,
+    borderRadius: 9999,
     gap: 8,
     minWidth: 260,
     shadowColor: colors.shadow,

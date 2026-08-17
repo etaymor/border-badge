@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
 import * as Haptics from 'expo-haptics';
+import { Image as ExpoImage } from 'expo-image';
 import { useEffect, useRef } from 'react';
 import {
   Animated,
@@ -12,10 +13,11 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { GlassBackButton, Text } from '@components/ui';
-import { colors, withAlpha } from '@constants/colors';
+import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
+import { useReducedMotion } from '@hooks/useReducedMotion';
 import { useResponsive } from '@hooks/useResponsive';
-import { ALL_REGIONS } from '@constants/regions';
+import { useScreenEntrance } from '@hooks/useScreenEntrance';
 import type { OnboardingStackScreenProps } from '@navigation/types';
 import { Analytics } from '@services/analytics';
 import { useOnboardingStore } from '@stores/onboardingStore';
@@ -31,59 +33,36 @@ const ANTARCTICA_CODE = 'AQ';
 const ANTARCTICA_BACKGROUND = '#FDFBF1';
 
 export function AntarcticaPromptScreen({ navigation }: Props) {
-  const { addVisitedContinent, toggleCountry, visitedContinents } = useOnboardingStore();
+  const addVisitedContinent = useOnboardingStore((s) => s.addVisitedContinent);
+  const toggleCountry = useOnboardingStore((s) => s.toggleCountry);
   const { isSmallScreen, isLargeScreen } = useResponsive();
+  const reduceMotion = useReducedMotion();
 
-  // Animation values
-  const contentOpacity = useRef(new Animated.Value(0)).current;
-  const titleTranslate = useRef(new Animated.Value(-20)).current;
-  const imageScale = useRef(new Animated.Value(0.95)).current;
-  const buttonsTranslate = useRef(new Animated.Value(30)).current;
-  const dotsOpacity = useRef(new Animated.Value(0)).current;
+  // Premium entrance animation
+  const { getAnimatedStyle, getButtonStyle } = useScreenEntrance({ elementCount: 3 });
+
+  // Image scale animation (content-specific, keeps the premium zoom-in)
+  const imageScale = useRef(new Animated.Value(reduceMotion ? 1 : 0.95)).current;
 
   // Track screen view
   useEffect(() => {
     Analytics.viewOnboardingAntarctica();
   }, []);
 
-  // Staggered entrance animations
+  // Image scale animation
   useEffect(() => {
-    Animated.sequence([
-      // Everything fades in together
-      Animated.parallel([
-        Animated.timing(contentOpacity, {
-          toValue: 1,
-          duration: 400,
-          useNativeDriver: true,
-        }),
-        Animated.spring(imageScale, {
-          toValue: 1,
-          friction: 8,
-          tension: 80,
-          useNativeDriver: true,
-        }),
-        Animated.spring(titleTranslate, {
-          toValue: 0,
-          friction: 8,
-          tension: 60,
-          useNativeDriver: true,
-        }),
-      ]),
-      // Buttons slide up
-      Animated.spring(buttonsTranslate, {
-        toValue: 0,
-        friction: 7,
-        tension: 60,
-        useNativeDriver: true,
-      }),
-      // Progress dots pop in
-      Animated.timing(dotsOpacity, {
-        toValue: 1,
-        duration: 200,
-        useNativeDriver: true,
-      }),
-    ]).start();
-  }, [contentOpacity, titleTranslate, imageScale, buttonsTranslate, dotsOpacity]);
+    if (reduceMotion) {
+      imageScale.setValue(1);
+      return;
+    }
+
+    Animated.spring(imageScale, {
+      toValue: 1,
+      friction: 8,
+      tension: 80,
+      useNativeDriver: true,
+    }).start();
+  }, [imageScale, reduceMotion]);
 
   const handleYes = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -108,15 +87,7 @@ export function AntarcticaPromptScreen({ navigation }: Props) {
     <View style={styles.container}>
       <SafeAreaView style={styles.safeArea}>
         {/* Header with title */}
-        <Animated.View
-          style={[
-            styles.header,
-            {
-              opacity: contentOpacity,
-              transform: [{ translateY: titleTranslate }],
-            },
-          ]}
-        >
+        <Animated.View style={[styles.header, getAnimatedStyle(0)]}>
           <View style={styles.navBar}>
             <GlassBackButton onPress={() => navigation.goBack()} />
             <Image source={atlasLogo} style={styles.logo} resizeMode="contain" />
@@ -135,24 +106,19 @@ export function AntarcticaPromptScreen({ navigation }: Props) {
             styles.imageContainer,
             isSmallScreen && styles.imageContainerSmall,
             isLargeScreen && styles.imageContainerLarge,
-            {
-              opacity: contentOpacity,
-              transform: [{ scale: imageScale }],
-            },
+            getAnimatedStyle(1),
+            { transform: [{ scale: imageScale }] },
           ]}
         >
-          <Image source={antarcticaImage} style={styles.image} resizeMode="contain" />
+          <ExpoImage
+            testID="antarctica-image"
+            source={antarcticaImage}
+            style={styles.image}
+            contentFit="contain"
+          />
 
           {/* Buttons overlaid on image */}
-          <Animated.View
-            style={[
-              styles.buttonContainer,
-              {
-                opacity: contentOpacity,
-                transform: [{ translateY: buttonsTranslate }],
-              },
-            ]}
-          >
+          <Animated.View style={[styles.buttonContainer, getButtonStyle(2)]}>
             <TouchableOpacity style={styles.yesButton} onPress={handleYes} activeOpacity={0.9}>
               <Text style={styles.yesButtonText}>Yes</Text>
             </TouchableOpacity>
@@ -160,22 +126,6 @@ export function AntarcticaPromptScreen({ navigation }: Props) {
               <Text style={styles.noButtonText}>No</Text>
             </TouchableOpacity>
           </Animated.View>
-        </Animated.View>
-
-        {/* Progress indicator at bottom */}
-        <Animated.View style={[styles.progressContainer, { opacity: dotsOpacity }]}>
-          {ALL_REGIONS.map((region, index) => (
-            <View
-              key={region}
-              style={[
-                styles.progressDot,
-                // Previous regions are completed if visited
-                index < 5 && visitedContinents.includes(region) && styles.progressDotCompleted,
-                // Antarctica (index 5) is always active on this screen
-                index === 5 && styles.progressDotActive,
-              ]}
-            />
-          ))}
         </Animated.View>
       </SafeAreaView>
     </View>
@@ -249,7 +199,7 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.sunsetGold,
     paddingVertical: 16,
-    borderRadius: 12,
+    borderRadius: 9999,
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: colors.midnightNavy,
@@ -267,7 +217,7 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: 'rgba(255, 255, 255, 0.85)',
     paddingVertical: 16,
-    borderRadius: 12,
+    borderRadius: 9999,
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: colors.midnightNavy,
@@ -280,24 +230,5 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontFamily: fonts.openSans.semiBold,
     color: colors.midnightNavy,
-  },
-  progressContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 8,
-    paddingBottom: 16,
-  },
-  progressDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: withAlpha(colors.midnightNavy, 0.19),
-  },
-  progressDotActive: {
-    backgroundColor: colors.midnightNavy,
-    width: 24,
-  },
-  progressDotCompleted: {
-    backgroundColor: colors.mossGreen,
   },
 });

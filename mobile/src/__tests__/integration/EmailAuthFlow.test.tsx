@@ -36,6 +36,15 @@ jest.mock('@services/guestMigration', () => ({
     migratedProfile: false,
     errors: [],
   }),
+  captureOnboardingSnapshot: jest.fn().mockReturnValue({
+    selectedCountries: [],
+    bucketListCountries: [],
+    dreamDestination: null,
+    homeCountry: null,
+    motivationTags: [],
+    personaTags: [],
+    trackingPreference: 'full_atlas',
+  }),
 }));
 
 // Mock API service functions
@@ -240,7 +249,7 @@ describe('EmailAuthFlow Integration', () => {
 
       await processAuthCallback(url);
 
-      expect(mockedMigrateGuestData).toHaveBeenCalledWith(mockSession);
+      expect(mockedMigrateGuestData).toHaveBeenCalledWith(mockSession, expect.any(Object));
     });
 
     it('returns error when tokens cannot be extracted', async () => {
@@ -381,7 +390,7 @@ describe('EmailAuthFlow Integration', () => {
       // Auth should still succeed even if migration fails
       expect(result.success).toBe(true);
       expect(setSession).toHaveBeenCalledWith(mockSession);
-      expect(consoleWarnSpy).toHaveBeenCalledWith('Migration failed for magic link user');
+      expect(consoleWarnSpy).toHaveBeenCalledWith('Migration failed for auth callback user');
     });
   });
 });

@@ -6,28 +6,15 @@ import httpx
 from fastapi import HTTPException, status
 
 from app.core.config import get_settings
+from app.core.http_client import close_http_client, get_http_client
 
-# Module-level shared HTTP client for connection pooling
-_shared_client: httpx.AsyncClient | None = None
-
-
-def get_http_client() -> httpx.AsyncClient:
-    """Get or create the shared HTTP client with connection pooling."""
-    global _shared_client
-    if _shared_client is None:
-        _shared_client = httpx.AsyncClient(
-            timeout=30.0,
-            limits=httpx.Limits(max_keepalive_connections=20, max_connections=100),
-        )
-    return _shared_client
-
-
-async def close_http_client() -> None:
-    """Close the shared HTTP client. Call this on application shutdown."""
-    global _shared_client
-    if _shared_client:
-        await _shared_client.aclose()
-        _shared_client = None
+# Re-export for backward compatibility with main.py import
+__all__ = [
+    "close_http_client",
+    "get_http_client",
+    "get_supabase_client",
+    "SupabaseClient",
+]
 
 
 class SupabaseClient:

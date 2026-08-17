@@ -6,10 +6,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from fastapi.testclient import TestClient
 
 from app.api.classification import (
-    CODE_FENCE_PATTERN,
     generate_fallback_traveler_type,
     validate_llm_response,
 )
+from app.core.llm_utils import CODE_FENCE_PATTERN
 from app.core.security import AuthUser, get_current_user
 from app.main import app
 

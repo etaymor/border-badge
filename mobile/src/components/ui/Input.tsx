@@ -77,7 +77,7 @@ const styles = StyleSheet.create({
     minHeight: 48, // Slightly taller
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: 12, // Match button radius
+    borderRadius: 20, // Match card radius
     paddingHorizontal: 16,
     paddingVertical: 12,
     fontSize: 16,

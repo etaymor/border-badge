@@ -1,20 +1,33 @@
 import React, { useCallback, useMemo, useRef, useState } from 'react';
-import { Animated, Dimensions, StatusBar, StyleSheet, TouchableOpacity, View } from 'react-native';
+import {
+  ActionSheetIOS,
+  Alert,
+  Animated,
+  Dimensions,
+  Platform,
+  StatusBar,
+  StyleSheet,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BlurView } from 'expo-blur';
 
-import { Button, GlassBackButton, TripCard } from '@components/ui';
+import { Button, GlassBackButton, GlassButton, TripCard } from '@components/ui';
 import {
   CountryHero,
-  CountryActionBar,
   CountryStats,
   CountryEmptyState,
   TripsSectionHeader,
 } from '@components/country';
+import { SatisfactionModal } from '@components/review';
 import { ShareCardOverlay } from '@components/share/ShareCardOverlay';
 import { useCountries, useCountryByCode } from '@hooks/useCountries';
+import { useCountryPhotoInfo } from '@hooks/useCountryPhotoInfo';
+import { useReviewRequest } from '@hooks/useReviewRequest';
+import { useStableCallback } from '@hooks/useStableCallback';
 import { useTripsByCountry, Trip } from '@hooks/useTrips';
 import { useUserCountries, useAddUserCountry, useRemoveUserCountry } from '@hooks/useUserCountries';
 import type { PassportStackScreenProps } from '@navigation/types';
@@ -42,6 +55,16 @@ export function CountryDetailScreen({ navigation, route }: Props) {
   const [showShareOverlay, setShowShareOverlay] = useState(false);
   const [shareContext, setShareContext] = useState<MilestoneContext | null>(null);
 
+  // Review request state
+  const [showReviewModal, setShowReviewModal] = useState(false);
+  const {
+    checkEligibility,
+    startReviewFlow,
+    handlePositiveResponse,
+    handleNegativeResponse,
+    handleDismiss,
+  } = useReviewRequest();
+
   // Data Hooks
   const code = countryCode || countryId;
   const { data: country } = useCountryByCode(code);
@@ -50,6 +73,9 @@ export function CountryDetailScreen({ navigation, route }: Props) {
   const { data: userCountries } = useUserCountries();
   const addUserCountry = useAddUserCountry();
   const removeUserCountry = useRemoveUserCountry();
+
+  // Photo import state
+  const { hasPhotos, tripCount, hasInitialImport } = useCountryPhotoInfo(code);
 
   const flagEmoji = getFlagEmoji(code);
   const countryImage = getCountryImage(code);
@@ -86,23 +112,55 @@ export function CountryDetailScreen({ navigation, route }: Props) {
 
   // Handlers
   const handleAddTrip = useCallback(() => {
-    navigation.navigate('Trips', {
-      screen: 'TripForm',
-      params: {
-        countryId,
-        countryName: displayName,
-      },
+    navigation.navigate('TripForm', {
+      countryId,
+      countryName: displayName,
     });
   }, [countryId, displayName, navigation]);
 
+  const handleImportPhotos = useCallback(() => {
+    navigation.navigate('PhotoImport', {
+      countryCode: code,
+      autoStart: true,
+      skipToSuggestions: hasPhotos && hasInitialImport,
+    });
+  }, [code, hasPhotos, hasInitialImport, navigation]);
+
+  // Show photo button only when:
+  // 1. Country is visited AND
+  // 2. Either no import has happened yet OR this country has photos
+  const showPhotoButton = useMemo(() => {
+    if (!isVisited) return false;
+    if (!hasInitialImport) return true; // First time - show to enable initial scan
+    return hasPhotos; // After import, only show if photos exist for this country
+  }, [isVisited, hasInitialImport, hasPhotos]);
+
   const handleTripPress = useCallback(
-    (trip: Trip) => {
+    (tripId: string) => {
       navigation.navigate('Trips', {
         screen: 'TripDetail',
-        params: { tripId: trip.id },
+        params: { tripId },
       });
     },
     [navigation]
+  );
+
+  // Identity-stable wrapper that always dispatches to the latest handler, so the
+  // per-id callbacks below can be created once and cached.
+  const stableTripPress = useStableCallback(handleTripPress);
+
+  // Per-id, stable onPress callbacks so TripCard's React.memo holds across
+  // parent re-renders (this screen re-renders on scroll via Animated.Value).
+  const tripPressCallbacksRef = useRef<Map<string, () => void>>(new Map());
+  const getTripPressHandler = useCallback(
+    (tripId: string) => {
+      const existing = tripPressCallbacksRef.current.get(tripId);
+      if (existing) return existing;
+      const handler = () => stableTripPress(tripId);
+      tripPressCallbacksRef.current.set(tripId, handler);
+      return handler;
+    },
+    [stableTripPress]
   );
 
   const handleMarkVisited = useCallback(() => {
@@ -195,7 +253,72 @@ export function CountryDetailScreen({ navigation, route }: Props) {
 
   const handleCloseShare = useCallback(() => {
     setShowShareOverlay(false);
-  }, []);
+
+    // Check if we should show review prompt after sharing milestone
+    if (checkEligibility('country_visited')) {
+      if (startReviewFlow('country_visited')) {
+        setShowReviewModal(true);
+      }
+    }
+  }, [checkEligibility, startReviewFlow]);
+
+  const handleReviewPositive = useCallback(async () => {
+    setShowReviewModal(false);
+    await handlePositiveResponse('country_visited');
+  }, [handlePositiveResponse]);
+
+  const handleReviewNegative = useCallback(() => {
+    setShowReviewModal(false);
+    handleNegativeResponse('country_visited');
+  }, [handleNegativeResponse]);
+
+  const handleReviewDismiss = useCallback(() => {
+    setShowReviewModal(false);
+    handleDismiss('country_visited');
+  }, [handleDismiss]);
+
+  const handleRemoveVisited = useCallback(() => {
+    Alert.alert('Unmark as Visited?', 'This will remove this country from your visited list.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Unmark',
+        style: 'destructive',
+        onPress: () => {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+          removeUserCountry.mutate(code);
+        },
+      },
+    ]);
+  }, [code, removeUserCountry]);
+
+  const showOptionsMenu = useCallback(() => {
+    const options = ['Share', 'Unmark as Visited', 'Cancel'];
+    const destructiveButtonIndex = 1;
+    const cancelButtonIndex = 2;
+
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options,
+          destructiveButtonIndex,
+          cancelButtonIndex,
+        },
+        (buttonIndex) => {
+          if (buttonIndex === 0) {
+            handleOpenShare();
+          } else if (buttonIndex === 1) {
+            handleRemoveVisited();
+          }
+        }
+      );
+    } else {
+      Alert.alert('Options', undefined, [
+        { text: 'Share', onPress: handleOpenShare },
+        { text: 'Unmark as Visited', style: 'destructive', onPress: handleRemoveVisited },
+        { text: 'Cancel', style: 'cancel' },
+      ]);
+    }
+  }, [handleOpenShare, handleRemoveVisited]);
 
   // Animations
   const imageScale = scrollY.interpolate({
@@ -222,34 +345,69 @@ export function CountryDetailScreen({ navigation, route }: Props) {
     extrapolate: 'clamp',
   });
 
+  // Hero Controls Parallax (matches image movement)
+  const controlsTranslateY = imageTranslateY;
+
   const renderTripItem = useCallback(
     ({ item }: { item: Trip }) => (
       <View style={styles.tripCardWrapper}>
         <TripCard
           trip={item}
           flagEmoji={flagEmoji}
-          onPress={() => handleTripPress(item)}
+          onPress={getTripPressHandler(item.id)}
           testID={`trip-card-${item.id}`}
         />
       </View>
     ),
-    [flagEmoji, handleTripPress]
+    [flagEmoji, getTripPressHandler]
   );
 
   const ListHeader = useMemo(
     () => (
       <View style={styles.contentContainer}>
         {/* Spacer for the fixed hero section */}
-        <View style={{ height: HERO_HEIGHT - 40 }} />
+        <View style={{ height: HERO_HEIGHT - 40 }}>
+          {/* Hero Controls (Overlay Buttons) */}
+          {!isVisited && (
+            <Animated.View
+              style={[styles.heroControls, { transform: [{ translateY: controlsTranslateY }] }]}
+            >
+              {/* Visited Button */}
+              <TouchableOpacity
+                onPress={handleMarkVisited}
+                activeOpacity={0.8}
+                accessibilityLabel="Mark as visited"
+              >
+                <BlurView intensity={30} tint="light" style={styles.heroActionButton}>
+                  <Ionicons name="add" size={24} color={colors.successDark} />
+                </BlurView>
+              </TouchableOpacity>
+
+              {/* Dream Button */}
+              <TouchableOpacity
+                onPress={handleToggleDream}
+                activeOpacity={0.8}
+                accessibilityLabel={isDream ? 'In wishlist' : 'Add to wishlist'}
+              >
+                <BlurView
+                  intensity={30}
+                  tint="light"
+                  style={[styles.heroActionButton, isDream && styles.heroActionButtonDreamActive]}
+                >
+                  <View style={styles.airplaneIconRotated}>
+                    <Ionicons
+                      name={isDream ? 'airplane' : 'airplane-outline'}
+                      size={22}
+                      color={isDream ? colors.wishlistBrown : colors.textTertiary}
+                    />
+                  </View>
+                </BlurView>
+              </TouchableOpacity>
+            </Animated.View>
+          )}
+        </View>
 
         <View style={styles.sheetContainer}>
-          <CountryActionBar
-            isVisited={isVisited}
-            isDream={isDream}
-            onMarkVisited={handleMarkVisited}
-            onToggleDream={handleToggleDream}
-          />
-
           <CountryStats
             region={region}
             subregion={subregion}
@@ -259,12 +417,31 @@ export function CountryDetailScreen({ navigation, route }: Props) {
           />
 
           {/* CTA Section */}
-          <View style={styles.ctaSection}>
+          <View style={[styles.ctaSection, showPhotoButton && styles.ctaSectionRow]}>
             <Button
-              title={hasTrips ? 'Add Another Trip' : isVisited ? 'Log a Trip' : 'Plan a Trip'}
+              title={isVisited ? 'Add Trip' : 'Plan a Trip'}
               onPress={handleAddTrip}
               variant="primary"
+              style={
+                showPhotoButton
+                  ? { ...styles.ctaButton, ...styles.ctaButtonFlex }
+                  : styles.ctaButton
+              }
             />
+            {showPhotoButton && (
+              <GlassButton
+                title={
+                  hasPhotos
+                    ? tripCount === 1
+                      ? '1 Trip Found'
+                      : `${tripCount} Trips Found`
+                    : 'Find via Photos'
+                }
+                onPress={handleImportPhotos}
+                icon={hasPhotos ? 'images' : 'camera-outline'}
+                style={{ ...styles.ctaButton, ...styles.ctaButtonFlex }}
+              />
+            )}
           </View>
 
           <TripsSectionHeader tripCount={trips?.length ?? 0} />
@@ -287,6 +464,10 @@ export function CountryDetailScreen({ navigation, route }: Props) {
       hasTrips,
       trips?.length,
       handleAddTrip,
+      handleImportPhotos,
+      showPhotoButton,
+      hasPhotos,
+      tripCount,
       loadingTrips,
       flagEmoji,
       displayName,
@@ -298,6 +479,7 @@ export function CountryDetailScreen({ navigation, route }: Props) {
       <StatusBar barStyle="light-content" />
 
       <CountryHero
+        countryCode={code}
         displayName={displayName}
         subregion={subregion}
         flagEmoji={flagEmoji}
@@ -330,17 +512,17 @@ export function CountryDetailScreen({ navigation, route }: Props) {
       <View style={[styles.fixedHeader, { paddingTop: insets.top }]}>
         <GlassBackButton onPress={() => navigation.goBack()} />
 
-        {/* Right: Share Button */}
+        {/* Right: Options Menu Button */}
         {isVisited && (
           <TouchableOpacity
-            onPress={handleOpenShare}
+            onPress={showOptionsMenu}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             activeOpacity={0.8}
-            style={styles.headerShareButton}
-            accessibilityLabel="Share country card"
+            style={styles.headerMenuButton}
+            accessibilityLabel="More options"
           >
-            <BlurView intensity={30} tint="light" style={styles.headerShareGlass}>
-              <Ionicons name="share-outline" size={22} color={colors.midnightNavy} />
+            <BlurView intensity={30} tint="light" style={styles.headerMenuGlass}>
+              <Ionicons name="ellipsis-horizontal" size={22} color={colors.midnightNavy} />
             </BlurView>
           </TouchableOpacity>
         )}
@@ -350,6 +532,13 @@ export function CountryDetailScreen({ navigation, route }: Props) {
         visible={showShareOverlay}
         context={shareContext}
         onDismiss={handleCloseShare}
+      />
+
+      <SatisfactionModal
+        visible={showReviewModal}
+        onPositive={handleReviewPositive}
+        onNegative={handleReviewNegative}
+        onDismiss={handleReviewDismiss}
       />
     </View>
   );
@@ -372,11 +561,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     height: 60,
   },
-  headerShareButton: {
+  headerMenuButton: {
     borderRadius: 22,
     overflow: 'hidden',
   },
-  headerShareGlass: {
+  headerMenuGlass: {
     width: 44,
     height: 44,
     borderRadius: 22,
@@ -395,22 +584,64 @@ const styles = StyleSheet.create({
   },
   sheetContainer: {
     backgroundColor: colors.warmCream,
-    borderTopLeftRadius: 32,
-    borderTopRightRadius: 32,
-    paddingTop: 24,
-    paddingHorizontal: 20,
-    marginTop: -30,
+    borderTopLeftRadius: 36,
+    borderTopRightRadius: 36,
+    paddingTop: 28,
+    paddingHorizontal: 24,
+    marginTop: -40,
     shadowColor: colors.shadow,
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    elevation: 5,
+    shadowOffset: { width: 0, height: -8 },
+    shadowOpacity: 0.15,
+    shadowRadius: 16,
+    elevation: 8,
   },
   ctaSection: {
-    marginBottom: 16,
+    flexDirection: 'column',
+    gap: 16,
+    marginBottom: 32,
+  },
+  ctaSectionRow: {
+    flexDirection: 'row',
+  },
+  ctaButton: {
+    width: '100%',
+  },
+  ctaButtonFlex: {
+    flex: 1,
+    width: undefined,
   },
   tripCardWrapper: {
-    marginBottom: 16,
+    marginBottom: 24,
     paddingHorizontal: 4,
+  },
+  heroControls: {
+    position: 'absolute',
+    bottom: 24,
+    right: 20,
+    flexDirection: 'row',
+    gap: 12,
+    zIndex: 20,
+  },
+  heroActionButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    overflow: 'hidden',
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.25)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.6)',
+  },
+  heroActionButtonActive: {
+    backgroundColor: colors.successDark,
+    borderColor: colors.successDark,
+  },
+  heroActionButtonDreamActive: {
+    backgroundColor: colors.wishlistGold,
+    borderColor: colors.wishlistGold,
+  },
+  airplaneIconRotated: {
+    transform: [{ rotate: '-35deg' }],
   },
 });

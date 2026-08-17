@@ -1,6 +1,6 @@
 import React from 'react';
 import { StyleSheet, View } from 'react-native';
-import { colors } from '@constants/colors';
+import { colors, withAlpha } from '@constants/colors';
 import { StatBox } from './StatBox';
 
 interface PassportStatsGridProps {
@@ -23,16 +23,16 @@ export function PassportStatsGrid({
       <StatBox
         value={stampedCount}
         label="STAMPED"
-        backgroundColor={colors.adobeBrick}
-        textColor={colors.cloudWhite}
-        labelColor="rgba(255,255,255,0.8)"
+        backgroundColor={withAlpha(colors.adobeBrick, 0.25)}
+        textColor={colors.midnightNavy}
+        labelColor={colors.midnightNavy}
         index={0}
         show={!isLoading}
       />
       <StatBox
         value={dreamsCount}
         label="DREAMS"
-        backgroundColor={colors.lakeBlue}
+        backgroundColor={withAlpha(colors.lakeBlue, 0.3)}
         textColor={colors.midnightNavy}
         labelColor={colors.midnightNavy}
         index={1}
@@ -41,7 +41,7 @@ export function PassportStatsGrid({
       <StatBox
         value={regionsCount}
         label="REGIONS"
-        backgroundColor={colors.sunsetGold}
+        backgroundColor={withAlpha(colors.sunsetGold, 0.3)}
         textColor={colors.midnightNavy}
         labelColor={colors.midnightNavy}
         index={2}
@@ -50,7 +50,7 @@ export function PassportStatsGrid({
       <StatBox
         value={`${worldPercentage}%`}
         label="WORLD"
-        backgroundColor={colors.dustyCoral}
+        backgroundColor={withAlpha(colors.dustyCoral, 0.25)}
         textColor={colors.midnightNavy}
         labelColor={colors.midnightNavy}
         index={3}

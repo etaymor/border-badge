@@ -6,8 +6,10 @@ import os
 from fastapi import APIRouter
 
 from app.api import (
+    ad_events,
     admin,
     blocks,
+    blog,
     classification,
     countries,
     entries,
@@ -19,14 +21,18 @@ from app.api import (
     media,
     notifications,
     outbound,
+    photos,
     places,
     profile,
     public,
     social,
     stats,
+    subscriptions,
     trip_tags,
     trips,
     users,
+    webhooks,
+    welcome,
 )
 from app.core.config import get_settings
 
@@ -40,11 +46,14 @@ _is_pytest_context = bool(os.environ.get("PYTEST_CURRENT_TEST"))
 # Public routes first so unauthenticated landing/list/trip pages resolve before
 # authenticated API routers.
 router.include_router(public.router, tags=["public"])
+# Blog sits with the other public HTML pages. Every path is under a literal
+# /blog segment, so it cannot collide with an authenticated router regardless of
+# order, but grouping it here keeps the "public pages first" invariant legible.
+router.include_router(blog.router, tags=["blog"])
 router.include_router(outbound.router, tags=["outbound"])
 router.include_router(countries.router, prefix="/countries", tags=["countries"])
 router.include_router(profile.router, prefix="/profile", tags=["profile"])
 router.include_router(trips.router, prefix="/trips", tags=["trips"])
-router.include_router(trip_tags.router, prefix="/trip-tags", tags=["trip_tags"])
 router.include_router(entries.router, tags=["entries"])
 router.include_router(places.router, prefix="/places", tags=["places"])
 router.include_router(media.router, prefix="/media/files", tags=["media"])
@@ -54,6 +63,13 @@ router.include_router(
 )
 router.include_router(ingest.router, tags=["ingest"])
 router.include_router(admin.router, tags=["admin"])
+router.include_router(welcome.router, tags=["welcome"])
+router.include_router(photos.router, tags=["photos"])
+router.include_router(
+    subscriptions.router, prefix="/subscriptions", tags=["subscriptions"]
+)
+router.include_router(webhooks.router, prefix="/webhooks", tags=["webhooks"])
+router.include_router(ad_events.router, tags=["ad-events"])
 
 # In development we automatically enable social routes even if the flag is disabled
 # to prevent confusing 404s during local testing.
@@ -72,6 +88,7 @@ if (
 
 # Social routes are registered when the flag (or dev fallback) enables them.
 if _social_routes_enabled:
+    router.include_router(trip_tags.router, prefix="/trip-tags", tags=["trip_tags"])
     router.include_router(stats.router, prefix="/stats", tags=["stats"])
     router.include_router(users.router, prefix="/users", tags=["users"])
     router.include_router(follows.router, prefix="/follows", tags=["follows"])

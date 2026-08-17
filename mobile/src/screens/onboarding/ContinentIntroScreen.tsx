@@ -1,18 +1,20 @@
 import * as Haptics from 'expo-haptics';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { useEffect, useRef } from 'react';
-import { Animated, Image, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { Animated, Image, Keyboard, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { GlassBackButton, Text } from '@components/ui';
+import { useReducedMotion } from '@hooks/useReducedMotion';
 import { useResponsive } from '@hooks/useResponsive';
+import { useScreenEntrance } from '@hooks/useScreenEntrance';
 
 /* eslint-disable @typescript-eslint/no-require-imports */
 const atlasLogo = require('../../../assets/atlasi-logo.png');
 /* eslint-enable @typescript-eslint/no-require-imports */
-import { colors, withAlpha } from '@constants/colors';
+import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
-import { ALL_REGIONS, REGIONS } from '@constants/regions';
+import { REGIONS } from '@constants/regions';
 import type { OnboardingStackScreenProps } from '@navigation/types';
 import { Analytics } from '@services/analytics';
 import { useOnboardingStore } from '@stores/onboardingStore';
@@ -33,8 +35,9 @@ const DEFAULT_BACKGROUND = colors.warmCream;
 
 export function ContinentIntroScreen({ navigation, route }: Props) {
   const { region, regionIndex } = route.params;
-  const { addVisitedContinent, visitedContinents } = useOnboardingStore();
+  const addVisitedContinent = useOnboardingStore((s) => s.addVisitedContinent);
   const { isSmallScreen, isLargeScreen } = useResponsive();
+  const reduceMotion = useReducedMotion();
 
   const canGoBack = navigation.canGoBack();
   const continentVideo = getContinentVideo(region);
@@ -42,16 +45,19 @@ export function ContinentIntroScreen({ navigation, route }: Props) {
   const hasVideoSource = Boolean(playerSource);
   const backgroundColor = CONTINENT_BACKGROUNDS[region] || DEFAULT_BACKGROUND;
 
-  // Animation values
-  const contentOpacity = useRef(new Animated.Value(0)).current;
-  const titleTranslate = useRef(new Animated.Value(-20)).current;
-  const videoScale = useRef(new Animated.Value(0.95)).current;
-  const buttonsTranslate = useRef(new Animated.Value(30)).current;
-  const dotsOpacity = useRef(new Animated.Value(0)).current;
+  // Premium entrance animation with reset capability
+  const { getAnimatedStyle, getButtonStyle, resetAnimation, startAnimation } = useScreenEntrance({
+    elementCount: 3,
+    autoStart: false,
+  });
+
+  // Video scale animation (content-specific, keeps the premium video zoom-in)
+  const videoScale = useRef(new Animated.Value(reduceMotion ? 1 : 0.95)).current;
 
   const player = useVideoPlayer(playerSource, (playerInstance) => {
     playerInstance.loop = true;
     playerInstance.muted = true;
+    playerInstance.audioMixingMode = 'mixWithOthers';
   });
 
   useEffect(() => {
@@ -67,51 +73,54 @@ export function ContinentIntroScreen({ navigation, route }: Props) {
     Analytics.viewOnboardingContinent(region);
   }, [region]);
 
-  // Staggered entrance animations
+  // Release video source on blur to free native memory, restore on focus
   useEffect(() => {
-    // Reset animations when region changes
-    contentOpacity.setValue(0);
-    titleTranslate.setValue(-20);
-    videoScale.setValue(0.95);
-    buttonsTranslate.setValue(30);
-    dotsOpacity.setValue(0);
+    const unsubscribeFocus = navigation.addListener('focus', () => {
+      Keyboard.dismiss();
+      if (hasVideoSource) {
+        try {
+          player.replace(playerSource);
+          player.play();
+        } catch {
+          // Native player may be released
+        }
+      }
+    });
+    const unsubscribeBlur = navigation.addListener('blur', () => {
+      try {
+        player.replace(null);
+      } catch {
+        // Native player may be released
+      }
+    });
+    return () => {
+      unsubscribeFocus();
+      unsubscribeBlur();
+    };
+  }, [navigation, player, hasVideoSource, playerSource]);
 
-    Animated.sequence([
-      // Everything fades in together
-      Animated.parallel([
-        Animated.timing(contentOpacity, {
-          toValue: 1,
-          duration: 400,
-          useNativeDriver: true,
-        }),
-        Animated.spring(videoScale, {
-          toValue: 1,
-          friction: 8,
-          tension: 80,
-          useNativeDriver: true,
-        }),
-        Animated.spring(titleTranslate, {
-          toValue: 0,
-          friction: 8,
-          tension: 60,
-          useNativeDriver: true,
-        }),
-      ]),
-      // Buttons slide up
-      Animated.spring(buttonsTranslate, {
-        toValue: 0,
-        friction: 7,
-        tension: 60,
-        useNativeDriver: true,
-      }),
-      // Progress dots pop in
-      Animated.timing(dotsOpacity, {
-        toValue: 1,
-        duration: 200,
-        useNativeDriver: true,
-      }),
-    ]).start();
-  }, [region, contentOpacity, titleTranslate, videoScale, buttonsTranslate, dotsOpacity]);
+  // Reset and restart animations when region changes
+  useEffect(() => {
+    if (reduceMotion) {
+      videoScale.setValue(1);
+      return;
+    }
+
+    // Reset video scale
+    videoScale.setValue(0.95);
+
+    // Reset and start screen entrance
+    resetAnimation();
+    startAnimation();
+
+    // Animate video scale
+    Animated.spring(videoScale, {
+      toValue: 1,
+      friction: 8,
+      tension: 80,
+      useNativeDriver: true,
+    }).start();
+  }, [region, resetAnimation, startAnimation, videoScale, reduceMotion]);
 
   const handleYes = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -124,7 +133,8 @@ export function ContinentIntroScreen({ navigation, route }: Props) {
     // Move to next continent or Antarctica prompt
     const nextIndex = regionIndex + 1;
     if (nextIndex < REGIONS.length) {
-      // Use push instead of navigate to add to stack history for back navigation
+      // Push so user can go back if they accidentally tapped "No"
+      // Video memory is managed via player.replace(null) on blur
       navigation.push('ContinentIntro', {
         region: REGIONS[nextIndex],
         regionIndex: nextIndex,
@@ -144,15 +154,7 @@ export function ContinentIntroScreen({ navigation, route }: Props) {
     <View style={[styles.container, { backgroundColor }]}>
       <SafeAreaView style={styles.safeArea}>
         {/* Header with title */}
-        <Animated.View
-          style={[
-            styles.header,
-            {
-              opacity: contentOpacity,
-              transform: [{ translateY: titleTranslate }],
-            },
-          ]}
-        >
+        <Animated.View style={[styles.header, getAnimatedStyle(0)]}>
           <View style={styles.navBar}>
             <View style={styles.backButtonContainer}>
               {canGoBack ? (
@@ -177,10 +179,8 @@ export function ContinentIntroScreen({ navigation, route }: Props) {
             styles.videoContainer,
             isSmallScreen && styles.videoContainerSmall,
             isLargeScreen && styles.videoContainerLarge,
-            {
-              opacity: contentOpacity,
-              transform: [{ scale: videoScale }],
-            },
+            getAnimatedStyle(1),
+            { transform: [{ scale: videoScale }] },
           ]}
         >
           {hasVideoSource ? (
@@ -195,15 +195,7 @@ export function ContinentIntroScreen({ navigation, route }: Props) {
           )}
 
           {/* Buttons overlaid on video */}
-          <Animated.View
-            style={[
-              styles.buttonContainer,
-              {
-                opacity: contentOpacity,
-                transform: [{ translateY: buttonsTranslate }],
-              },
-            ]}
-          >
+          <Animated.View style={[styles.buttonContainer, getButtonStyle(2)]}>
             <TouchableOpacity style={styles.yesButton} onPress={handleYes} activeOpacity={0.9}>
               <Text style={styles.yesButtonText}>Yes</Text>
             </TouchableOpacity>
@@ -211,20 +203,6 @@ export function ContinentIntroScreen({ navigation, route }: Props) {
               <Text style={styles.noButtonText}>No</Text>
             </TouchableOpacity>
           </Animated.View>
-        </Animated.View>
-
-        {/* Progress indicator at bottom */}
-        <Animated.View style={[styles.progressContainer, { opacity: dotsOpacity }]}>
-          {ALL_REGIONS.map((r, index) => (
-            <View
-              key={index}
-              style={[
-                styles.progressDot,
-                visitedContinents.includes(r) && styles.progressDotCompleted,
-                index === regionIndex && styles.progressDotActive,
-              ]}
-            />
-          ))}
         </Animated.View>
       </SafeAreaView>
     </View>
@@ -312,7 +290,7 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.sunsetGold,
     paddingVertical: 16,
-    borderRadius: 12,
+    borderRadius: 9999,
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: colors.midnightNavy,
@@ -330,7 +308,7 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: 'rgba(255, 255, 255, 0.85)',
     paddingVertical: 16,
-    borderRadius: 12,
+    borderRadius: 9999,
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: colors.midnightNavy,
@@ -343,24 +321,5 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontFamily: fonts.openSans.semiBold,
     color: colors.midnightNavy,
-  },
-  progressContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 8,
-    paddingBottom: 16,
-  },
-  progressDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: withAlpha(colors.midnightNavy, 0.19),
-  },
-  progressDotActive: {
-    backgroundColor: colors.midnightNavy,
-    width: 24,
-  },
-  progressDotCompleted: {
-    backgroundColor: colors.mossGreen,
   },
 });

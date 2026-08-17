@@ -231,19 +231,8 @@ def test_delete_list_success(
     auth_headers: dict[str, str],
 ) -> None:
     """Test owner can soft-delete a list."""
-    # Soft delete uses patch, not delete
-    mock_supabase_client.patch.return_value = [
-        {
-            "id": str(TEST_LIST_ID),
-            "trip_id": str(TEST_TRIP_ID),
-            "owner_id": TEST_USER_ID,
-            "name": "Test List",
-            "slug": "test-list",
-            "created_at": "2024-01-01T00:00:00+00:00",
-            "updated_at": "2024-01-01T00:00:00+00:00",
-            "deleted_at": "2024-01-01T00:00:00+00:00",
-        }
-    ]
+    # Soft delete uses RPC function (returns True on success)
+    mock_supabase_client.rpc.return_value = True
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:

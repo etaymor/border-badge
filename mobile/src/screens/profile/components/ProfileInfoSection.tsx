@@ -11,33 +11,47 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
+import type { PhotoPermissionStatus } from '@hooks/usePhotoPermissions';
 
 interface ProfileInfoSectionProps {
   formattedEmail: string;
   homeCountryDisplay: { flag: string; name: string } | null;
   memberSince: string;
-  trackingPreferenceDisplay: { name: string; count: number };
+  // LAUNCH_SIMPLIFICATION: Tracking preference hidden - all users get full_atlas
+  // trackingPreferenceDisplay: { name: string; count: number };
   visitedCount: number;
   clipboardDetectionEnabled: boolean;
   isSmallScreen?: boolean;
-  onOpenTrackingModal: () => void;
+  // LAUNCH_SIMPLIFICATION: Tracking modal hidden
+  // onOpenTrackingModal: () => void;
   onOpenExportModal: () => void;
   onToggleClipboardDetection: (enabled: boolean) => void;
   onOpenClipboardPermissionModal?: () => void;
+  // Photo library permission
+  photoPermissionStatus: PhotoPermissionStatus;
+  onRequestPhotoPermission: () => void;
+  onOpenPhotoEnableModal: () => void;
+  onOpenPhotoInfoModal: () => void;
 }
 
 export function ProfileInfoSection({
   formattedEmail,
   homeCountryDisplay,
   memberSince,
-  trackingPreferenceDisplay,
+  // LAUNCH_SIMPLIFICATION: Tracking preference hidden
+  // trackingPreferenceDisplay,
   visitedCount,
   clipboardDetectionEnabled,
   isSmallScreen,
-  onOpenTrackingModal,
+  // LAUNCH_SIMPLIFICATION: Tracking modal hidden
+  // onOpenTrackingModal,
   onOpenExportModal,
   onToggleClipboardDetection,
   onOpenClipboardPermissionModal,
+  photoPermissionStatus,
+  onRequestPhotoPermission,
+  onOpenPhotoEnableModal,
+  onOpenPhotoInfoModal,
 }: ProfileInfoSectionProps) {
   return (
     <View style={styles.container}>
@@ -89,6 +103,8 @@ export function ProfileInfoSection({
           PREFERENCES & DATA
         </Text>
         <View style={styles.card}>
+          {/* LAUNCH_SIMPLIFICATION: Country tracking preference hidden - all users get full_atlas */}
+          {/* TODO: Uncomment when re-enabling tracking preference selection
           <Pressable
             onPress={onOpenTrackingModal}
             style={({ pressed }) => [styles.cardPressable, pressed && styles.cardPressableActive]}
@@ -114,6 +130,7 @@ export function ProfileInfoSection({
           </Pressable>
 
           <View style={styles.divider} />
+          */}
 
           {visitedCount > 0 && (
             <>
@@ -194,6 +211,65 @@ export function ProfileInfoSection({
               </TouchableOpacity>
             )}
           </View>
+
+          <View style={styles.divider} />
+
+          {/* Photo Library Permission */}
+          <View style={styles.cardRow}>
+            <View style={styles.toggleLabelContainer}>
+              <Text style={[styles.rowLabel, isSmallScreen && styles.rowLabelSmall]}>
+                Photo Library
+              </Text>
+              <Text
+                style={[styles.toggleDescription, isSmallScreen && styles.toggleDescriptionSmall]}
+              >
+                Import trips from your photos
+              </Text>
+              {(photoPermissionStatus === 'granted' || photoPermissionStatus === 'limited') &&
+                Platform.OS === 'ios' && (
+                  <TouchableOpacity
+                    onPress={onOpenPhotoInfoModal}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    accessibilityRole="button"
+                    accessibilityLabel="Learn about photo permissions"
+                    accessibilityHint="Opens a modal explaining how photo access is used"
+                  >
+                    <Text
+                      style={[styles.learnMoreLink, isSmallScreen && styles.learnMoreLinkSmall]}
+                    >
+                      {photoPermissionStatus === 'limited'
+                        ? 'Using selected photos only'
+                        : 'Learn about permissions'}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+            </View>
+            {photoPermissionStatus === 'granted' || photoPermissionStatus === 'limited' ? (
+              <View style={styles.permissionGrantedIndicator}>
+                <Ionicons name="checkmark-circle" size={24} color={colors.mossGreen} />
+              </View>
+            ) : photoPermissionStatus === 'denied' ? (
+              <TouchableOpacity
+                onPress={onOpenPhotoEnableModal}
+                style={styles.enableButton}
+                accessibilityRole="button"
+                accessibilityLabel="Enable photo library access"
+                accessibilityHint="Opens instructions for enabling photo access in Settings"
+              >
+                <Text style={styles.enableButtonText}>Enable</Text>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity
+                onPress={onRequestPhotoPermission}
+                style={styles.enableButton}
+                accessibilityRole="button"
+                accessibilityLabel="Enable photo library access"
+                accessibilityHint="Requests permission to access your photo library"
+              >
+                <Text style={styles.enableButtonText}>Enable</Text>
+              </TouchableOpacity>
+            )}
+          </View>
         </View>
       </View>
     </View>
@@ -219,13 +295,13 @@ const styles = StyleSheet.create({
   },
   card: {
     backgroundColor: colors.cloudWhite,
-    borderRadius: 16,
+    borderRadius: 20,
     paddingVertical: 4,
     shadowColor: colors.midnightNavy,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 4,
   },
   cardRow: {
     flexDirection: 'row',
@@ -299,6 +375,9 @@ const styles = StyleSheet.create({
     fontFamily: fonts.openSans.semiBold,
     fontSize: 14,
     color: colors.cloudWhite,
+  },
+  permissionGrantedIndicator: {
+    paddingHorizontal: 8,
   },
   emailNote: {
     fontFamily: fonts.openSans.regular,

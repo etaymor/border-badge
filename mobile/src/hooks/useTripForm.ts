@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 
 import { useSendInvite, useTripPendingInvites } from './useInvites';
 import { useAddTripTag, useCreateTrip, useRemoveTripTag, useTrip, useUpdateTrip } from './useTrips';
+import type { TripWithTags } from './useTrips';
 
 export interface UseTripFormOptions {
   tripId?: string;
@@ -48,6 +49,9 @@ export interface UseTripFormResult {
 
   // Mode
   isEditing: boolean;
+
+  // Existing trip data (when editing)
+  existingTrip: TripWithTags | undefined;
 }
 
 /**
@@ -162,11 +166,23 @@ export function useTripForm(options: UseTripFormOptions = {}): UseTripFormResult
 
       try {
         if (isEditing && tripId) {
-          // Update existing trip
+          // Update existing trip. Only send country_code if it actually changed,
+          // so the backend doesn't redundantly resolve it on every name/image edit.
+          // System trips (Saved Places) cannot have their country changed.
+          const originalCountryCode = existingTrip?.country_code;
+          const isSystemTrip = !!existingTrip?.is_system;
+          const countryChanged =
+            !!countryCode && !isSystemTrip && countryCode !== originalCountryCode;
           await updateTrip.mutateAsync({
             id: tripId,
             name: name.trim(),
             cover_image_url: coverImageUrl.trim() || undefined,
+            ...(countryChanged
+              ? {
+                  country_code: countryCode,
+                  previousCountryCode: originalCountryCode,
+                }
+              : {}),
           });
 
           // Handle tag changes
@@ -235,6 +251,7 @@ export function useTripForm(options: UseTripFormOptions = {}): UseTripFormResult
       tripId,
       name,
       coverImageUrl,
+      existingTrip,
       selectedFriendIds,
       originalTaggedIds,
       invitedEmails,
@@ -274,5 +291,6 @@ export function useTripForm(options: UseTripFormOptions = {}): UseTripFormResult
     isFetching,
     handleSave,
     isEditing,
+    existingTrip,
   };
 }

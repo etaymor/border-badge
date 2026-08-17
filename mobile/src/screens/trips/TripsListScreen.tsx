@@ -1,8 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
-import { useCallback, useMemo, useState } from 'react';
+import { memo, useCallback, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Animated,
+  Image,
   Pressable,
   RefreshControl,
   StyleSheet,
@@ -14,15 +16,25 @@ import { FlashList } from '@shopify/flash-list';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { NotificationBell, SegmentedTabs, TripCard } from '@components/ui';
+import { features } from '@config/features';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { useCountries } from '@hooks/useCountries';
+import { usePhotoTrips } from '@hooks/usePhotoTrips';
+import { useScreenEntrance } from '@hooks/useScreenEntrance';
+import { useStableCallback } from '@hooks/useStableCallback';
 import { usePendingTripTagCount } from '@hooks/useTripTags';
-import { TripWithTags, useTrips } from '@hooks/useTrips';
+import { TripWithTags, useTrips, useUncategorizedTrip } from '@hooks/useTrips';
 import { useUserCountries } from '@hooks/useUserCountries';
 import { getFlagEmoji } from '@utils/flags';
 import type { TripsStackScreenProps } from '@navigation/types';
 import { useAuthStore } from '@stores/authStore';
+
+import { PhotoTripsCallout } from '../lists/components/PhotoTripsCallout';
+
+/* eslint-disable @typescript-eslint/no-require-imports */
+const backpackIllustration = require('../../../assets/illustations/backpack-illustration-compressed.png');
+/* eslint-enable @typescript-eslint/no-require-imports */
 
 type Props = TripsStackScreenProps<'TripsList'>;
 
@@ -35,14 +47,14 @@ type TripsListRenderable =
   | { type: 'header'; title: string; key: string }
   | { type: 'trip'; trip: TripWithTags; key: string };
 
-const SectionHeader = ({ title }: { title: string }) => {
+const SectionHeader = memo(function SectionHeader({ title }: { title: string }) {
   return (
     <View style={styles.sectionHeader}>
       <Text style={styles.sectionHeaderText}>{title}</Text>
       <View style={styles.sectionHeaderLine} />
     </View>
   );
-};
+});
 
 interface EmptyStateProps {
   variant: 'my' | 'tagged';
@@ -66,9 +78,7 @@ function EmptyState({ variant, onAddTrip }: EmptyStateProps) {
 
   return (
     <View style={styles.emptyContainer}>
-      <View style={styles.emptyIconCircle}>
-        <Text style={styles.emptyIcon}>✈️</Text>
-      </View>
+      <Image source={backpackIllustration} style={styles.emptyIllustration} resizeMode="contain" />
       <Text style={styles.emptyTitle}>The World Awaits</Text>
       <Text style={styles.emptySubtitle}>
         Your passport is ready. Add your first trip to start your collection of memories.
@@ -81,18 +91,48 @@ function EmptyState({ variant, onAddTrip }: EmptyStateProps) {
   );
 }
 
+// Saved Places Header Badge Component
+function SavedPlacesBadge({ entryCount, onPress }: { entryCount: number; onPress: () => void }) {
+  if (entryCount === 0) return null;
+
+  return (
+    <Pressable
+      style={styles.savedPlacesBadge}
+      onPress={onPress}
+      hitSlop={8}
+      accessibilityLabel={`${entryCount} saved places to organize`}
+    >
+      <Ionicons name="bookmark" size={22} color={colors.stormGray} />
+      <View style={styles.badgeCount}>
+        <Text style={styles.badgeCountText}>{entryCount > 99 ? '99+' : entryCount}</Text>
+      </View>
+    </Pressable>
+  );
+}
+
 export function TripsListScreen({ navigation }: Props) {
   const currentUserId = useAuthStore((state) => state.session?.user.id);
   const { data: trips, isLoading, isRefetching, refetch, error } = useTrips();
   const { data: countries } = useCountries();
   const { data: userCountries } = useUserCountries();
   const { data: pendingTagCount } = usePendingTripTagCount();
+  const { data: uncategorizedTrip } = useUncategorizedTrip();
+  const {
+    trips: photoTrips,
+    previewUris,
+    hasInitialImport,
+    isLoading: isPhotoTripsLoading,
+  } = usePhotoTrips();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTab, setSelectedTab] = useState<'my' | 'tagged'>('my');
 
   const handleNotificationsPress = useCallback(() => {
     navigation.navigate('PendingTripTags');
   }, [navigation]);
+
+  // Staggered entrance animations for premium feel
+  // 0: Title, 1: Search bar, 2: Photo callout, 3: FAB
+  const { getAnimatedStyle, getButtonStyle } = useScreenEntrance({ elementCount: 4 });
 
   // Create a set of visited country codes for quick lookup
   const visitedCountryCodes = useMemo(() => {
@@ -126,7 +166,7 @@ export function TripsListScreen({ navigation }: Props) {
     const query = searchQuery.toLowerCase().trim();
     const filteredTrips = tripsForTab.filter((trip) => {
       if (!query) return true;
-      const country = countriesMap.get(trip.country_code); // O(1) Map lookup instead of O(n) find
+      const country = trip.country_code ? countriesMap.get(trip.country_code) : undefined; // O(1) Map lookup instead of O(n) find
       const countryName = country?.name.toLowerCase() || '';
       return trip.name.toLowerCase().includes(query) || countryName.includes(query);
     });
@@ -137,7 +177,7 @@ export function TripsListScreen({ navigation }: Props) {
     const plannedTrips: TripWithTags[] = [];
 
     filteredTrips.forEach((trip) => {
-      if (visitedCountryCodes.has(trip.country_code)) {
+      if (trip.country_code && visitedCountryCodes.has(trip.country_code)) {
         visitedTrips.push(trip);
       } else {
         plannedTrips.push(trip);
@@ -167,8 +207,18 @@ export function TripsListScreen({ navigation }: Props) {
     return rows;
   }, [sections]);
 
+  const hasTrips = sections.reduce((sum, s) => sum + s.data.length, 0) > 0;
+
   const handleAddTrip = useCallback(() => {
     navigation.navigate('TripForm', {});
+  }, [navigation]);
+
+  const handleSavedPlacesPress = useCallback(() => {
+    navigation.navigate('SavedPlaces');
+  }, [navigation]);
+
+  const handleViewPhotoTrips = useCallback(() => {
+    navigation.navigate('PhotoTrips', {});
   }, [navigation]);
 
   const handleTripPress = useCallback(
@@ -178,19 +228,37 @@ export function TripsListScreen({ navigation }: Props) {
     [navigation]
   );
 
+  // Identity-stable wrapper that always dispatches to the latest handler, so the
+  // per-id callbacks below can be created once and cached.
+  const stableTripPress = useStableCallback(handleTripPress);
+
+  // Per-id, stable onPress callbacks so TripCard's React.memo holds across
+  // parent re-renders instead of being defeated by a fresh inline closure.
+  const tripPressCallbacksRef = useRef<Map<string, () => void>>(new Map());
+  const getTripPressHandler = useCallback(
+    (tripId: string) => {
+      const existing = tripPressCallbacksRef.current.get(tripId);
+      if (existing) return existing;
+      const handler = () => stableTripPress(tripId);
+      tripPressCallbacksRef.current.set(tripId, handler);
+      return handler;
+    },
+    [stableTripPress]
+  );
+
   const renderFlatItem = useCallback(
     ({ item }: { item: TripsListRenderable }) => {
       if (item.type === 'header') {
         return <SectionHeader title={item.title} />;
       }
 
-      const flagEmoji = getFlagEmoji(item.trip.country_code);
+      const flagEmoji = item.trip.country_code ? getFlagEmoji(item.trip.country_code) : '';
       return (
-        <View style={styles.tripItem}>
+        <View style={styles.tripCardWrapper}>
           <TripCard
             trip={item.trip}
             flagEmoji={flagEmoji}
-            onPress={() => handleTripPress(item.trip.id)}
+            onPress={getTripPressHandler(item.trip.id)}
             tags={item.trip.tags}
             owner={item.trip.owner}
             currentUserId={currentUserId}
@@ -198,7 +266,7 @@ export function TripsListScreen({ navigation }: Props) {
         </View>
       );
     },
-    [handleTripPress, currentUserId]
+    [getTripPressHandler, currentUserId]
   );
 
   const handleTabSelect = useCallback((index: number) => {
@@ -208,27 +276,35 @@ export function TripsListScreen({ navigation }: Props) {
   const renderHeader = useMemo(
     () => (
       <>
-        {/* Header Title */}
-        <View style={styles.headerContainer}>
+        {/* Header Title with Notification Bell + Saved Places Badge - animates first */}
+        <Animated.View style={[styles.headerContainer, getAnimatedStyle(0)]}>
           <View style={styles.headerRow}>
             <View style={styles.headerSpacer} />
             <Text style={styles.headerTitle}>My Trips</Text>
             <View style={styles.headerRight}>
-              <NotificationBell count={pendingTagCount ?? 0} onPress={handleNotificationsPress} />
+              {features.enableSocial && (
+                <NotificationBell count={pendingTagCount ?? 0} onPress={handleNotificationsPress} />
+              )}
             </View>
           </View>
-        </View>
+          <SavedPlacesBadge
+            entryCount={uncategorizedTrip?.entry_count ?? 0}
+            onPress={handleSavedPlacesPress}
+          />
+        </Animated.View>
 
-        {/* Tab Selector */}
-        <SegmentedTabs
-          tabs={['My Trips', 'Tagged']}
-          selectedIndex={selectedTab === 'my' ? 0 : 1}
-          onSelect={handleTabSelect}
-          testID="trip-tabs"
-        />
+        {/* Tab Selector - Tagged trips are a social feature */}
+        {features.enableSocial && (
+          <SegmentedTabs
+            tabs={['My Trips', 'Tagged']}
+            selectedIndex={selectedTab === 'my' ? 0 : 1}
+            onSelect={handleTabSelect}
+            testID="trip-tabs"
+          />
+        )}
 
-        {/* Search Bar with Liquid Glass */}
-        <View style={styles.searchRow}>
+        {/* Search Bar with Liquid Glass - animates second */}
+        <Animated.View style={[styles.searchRow, getAnimatedStyle(1)]}>
           <View style={styles.searchGlassWrapper}>
             <BlurView intensity={80} tint="light" style={styles.searchGlassContainer}>
               <View style={styles.searchInputContainer}>
@@ -251,10 +327,35 @@ export function TripsListScreen({ navigation }: Props) {
               </View>
             </BlurView>
           </View>
-        </View>
+        </Animated.View>
+
+        {/* Photo Trips Callout - animates third */}
+        <Animated.View style={[styles.photoTripsContainer, getAnimatedStyle(2)]}>
+          <PhotoTripsCallout
+            tripCount={photoTrips.length}
+            previewUris={previewUris}
+            hasInitialImport={hasInitialImport}
+            onPress={handleViewPhotoTrips}
+            isLoading={isPhotoTripsLoading}
+          />
+        </Animated.View>
       </>
     ),
-    [searchQuery, pendingTagCount, handleNotificationsPress, selectedTab, handleTabSelect]
+    [
+      searchQuery,
+      pendingTagCount,
+      handleNotificationsPress,
+      selectedTab,
+      handleTabSelect,
+      uncategorizedTrip?.entry_count,
+      handleSavedPlacesPress,
+      photoTrips.length,
+      previewUris,
+      hasInitialImport,
+      handleViewPhotoTrips,
+      isPhotoTripsLoading,
+      getAnimatedStyle,
+    ]
   );
 
   if (isLoading) {
@@ -284,7 +385,7 @@ export function TripsListScreen({ navigation }: Props) {
         keyExtractor={(item) => item.key}
         renderItem={renderFlatItem}
         ListHeaderComponent={renderHeader}
-        contentContainerStyle={styles.listContent}
+        contentContainerStyle={[styles.listContent, !hasTrips && styles.listContentEmpty]}
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl
@@ -300,10 +401,14 @@ export function TripsListScreen({ navigation }: Props) {
         }
       />
 
-      {/* FAB for adding new trip */}
-      <Pressable style={styles.fab} onPress={handleAddTrip} testID="fab-add-trip">
-        <Ionicons name="add" size={28} color={colors.midnightNavy} />
-      </Pressable>
+      {/* FAB for adding new trip - only when user has trips */}
+      {hasTrips && (
+        <Animated.View style={[styles.fabContainer, getButtonStyle(3)]}>
+          <Pressable style={styles.fab} onPress={handleAddTrip} testID="fab-add-trip">
+            <Ionicons name="add" size={28} color={colors.midnightNavy} />
+          </Pressable>
+        </Animated.View>
+      )}
     </SafeAreaView>
   );
 }
@@ -317,6 +422,7 @@ const styles = StyleSheet.create({
     paddingTop: 16,
     paddingBottom: 16,
     paddingHorizontal: 16,
+    position: 'relative',
   },
   headerRow: {
     flexDirection: 'row',
@@ -336,6 +442,33 @@ const styles = StyleSheet.create({
     color: colors.midnightNavy,
     fontStyle: 'italic',
     letterSpacing: -0.5,
+  },
+  savedPlacesBadge: {
+    position: 'absolute',
+    // Sits left of the NotificationBell (which occupies the headerRight slot)
+    right: 60,
+    top: 16,
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  badgeCount: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    minWidth: 18,
+    height: 18,
+    backgroundColor: colors.adobeBrick,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 5,
+  },
+  badgeCountText: {
+    fontFamily: fonts.openSans.bold,
+    fontSize: 11,
+    color: '#fff',
   },
   searchRow: {
     paddingTop: 8,
@@ -404,9 +537,11 @@ const styles = StyleSheet.create({
   listContent: {
     paddingBottom: 130, // Space for FAB + Tab Bar
   },
-  tripItem: {
-    paddingHorizontal: 16,
-    marginBottom: 16,
+  listContentEmpty: {
+    paddingBottom: 80, // No FAB when empty; space for Tab Bar
+  },
+  tripCardWrapper: {
+    marginBottom: 24, // Space for shadow to render below card
   },
   sectionHeader: {
     flexDirection: 'row',
@@ -430,10 +565,16 @@ const styles = StyleSheet.create({
   },
   emptyContainer: {
     flex: 1,
-    justifyContent: 'center',
+    justifyContent: 'flex-start',
     alignItems: 'center',
     padding: 32,
-    marginTop: 60,
+    paddingTop: 24,
+    marginTop: 0,
+  },
+  emptyIllustration: {
+    width: 120,
+    height: 120,
+    marginBottom: 24,
   },
   emptyIconCircle: {
     width: 100,
@@ -484,10 +625,12 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontFamily: fonts.openSans.semiBold,
   },
-  fab: {
+  fabContainer: {
     position: 'absolute',
     right: 20,
     bottom: 120,
+  },
+  fab: {
     width: 60,
     height: 60,
     borderRadius: 30,
@@ -499,5 +642,8 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 10,
     elevation: 8,
+  },
+  photoTripsContainer: {
+    paddingHorizontal: 16,
   },
 });

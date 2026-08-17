@@ -4,6 +4,7 @@ import React, { memo, useCallback, useEffect, useRef } from 'react';
 import {
   Animated,
   Image,
+  Keyboard,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -13,7 +14,9 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { GlassBackButton, Text } from '@components/ui';
+import { useReducedMotion } from '@hooks/useReducedMotion';
 import { useResponsive } from '@hooks/useResponsive';
+import { useScreenEntrance } from '@hooks/useScreenEntrance';
 import atlasLogo from '../../../assets/atlasi-logo.png';
 import { colors } from '@constants/colors';
 import {
@@ -24,24 +27,14 @@ import {
 import { fonts } from '@constants/typography';
 import type { OnboardingStackScreenProps } from '@navigation/types';
 import { Analytics } from '@services/analytics';
-import { useOnboardingStore } from '@stores/onboardingStore';
+import { useOnboardingStore, selectTrackingPreference } from '@stores/onboardingStore';
 
 type Props = OnboardingStackScreenProps<'TrackingPreference'>;
-
-// Animation timing constants
-const ANIMATION_TIMING = {
-  titleDuration: 400,
-  subtitleDuration: 300,
-  cardStagger: 100,
-  cardDuration: 300,
-  buttonDuration: 300,
-} as const;
 
 interface PresetCardProps {
   preset: TrackingPreset;
   isSelected: boolean;
   onSelect: () => void;
-  animatedValue: Animated.Value;
   hideDescription?: boolean;
 }
 
@@ -49,14 +42,18 @@ const PresetCard = memo(function PresetCard({
   preset,
   isSelected,
   onSelect,
-  animatedValue,
   hideDescription,
 }: PresetCardProps) {
   const presetData = TRACKING_PRESETS[preset];
+  const reduceMotion = useReducedMotion();
   const scaleAnim = useRef(new Animated.Value(1)).current;
 
   const handlePress = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    if (reduceMotion) {
+      onSelect();
+      return;
+    }
     // Scale animation on selection
     Animated.sequence([
       Animated.timing(scaleAnim, {
@@ -71,21 +68,10 @@ const PresetCard = memo(function PresetCard({
       }),
     ]).start();
     onSelect();
-  }, [onSelect, scaleAnim]);
+  }, [onSelect, scaleAnim, reduceMotion]);
 
   return (
-    <Animated.View
-      style={[
-        styles.cardAnimationWrapper,
-        {
-          opacity: animatedValue,
-          transform: [
-            { translateY: animatedValue.interpolate({ inputRange: [0, 1], outputRange: [20, 0] }) },
-            { scale: scaleAnim },
-          ],
-        },
-      ]}
-    >
+    <Animated.View style={[styles.cardAnimationWrapper, { transform: [{ scale: scaleAnim }] }]}>
       <Pressable
         style={[styles.presetCard, isSelected && styles.presetCardSelected]}
         onPress={handlePress}
@@ -117,8 +103,20 @@ const PresetCard = memo(function PresetCard({
 });
 
 function TrackingPreferenceScreen({ navigation }: Props) {
-  const { trackingPreference, setTrackingPreference } = useOnboardingStore();
+  const trackingPreference = useOnboardingStore(selectTrackingPreference);
+  const setTrackingPreference = useOnboardingStore((s) => s.setTrackingPreference);
   const { isSmallScreen } = useResponsive();
+
+  // Premium entrance animation
+  const { getAnimatedStyle, getButtonStyle } = useScreenEntrance({ elementCount: 4 });
+
+  // Dismiss keyboard when screen receives focus (safety net from previous screen)
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', () => {
+      Keyboard.dismiss();
+    });
+    return unsubscribe;
+  }, [navigation]);
 
   // Track screen view
   useEffect(() => {
@@ -129,78 +127,6 @@ function TrackingPreferenceScreen({ navigation }: Props) {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     navigation.goBack();
   }, [navigation]);
-
-  // Staggered fade-in animations
-  const titleOpacity = useRef(new Animated.Value(0)).current;
-  const titleTranslate = useRef(new Animated.Value(20)).current;
-  const subtitleOpacity = useRef(new Animated.Value(0)).current;
-  const card1Opacity = useRef(new Animated.Value(0)).current;
-  const card2Opacity = useRef(new Animated.Value(0)).current;
-  const card3Opacity = useRef(new Animated.Value(0)).current;
-  const card4Opacity = useRef(new Animated.Value(0)).current;
-  const buttonOpacity = useRef(new Animated.Value(0)).current;
-
-  const cardOpacities = [card1Opacity, card2Opacity, card3Opacity, card4Opacity];
-
-  useEffect(() => {
-    // Staggered entrance animations
-    Animated.sequence([
-      Animated.parallel([
-        Animated.timing(titleOpacity, {
-          toValue: 1,
-          duration: ANIMATION_TIMING.titleDuration,
-          useNativeDriver: true,
-        }),
-        Animated.timing(titleTranslate, {
-          toValue: 0,
-          duration: ANIMATION_TIMING.titleDuration,
-          useNativeDriver: true,
-        }),
-      ]),
-      Animated.timing(subtitleOpacity, {
-        toValue: 1,
-        duration: ANIMATION_TIMING.subtitleDuration,
-        useNativeDriver: true,
-      }),
-      // Stagger cards
-      Animated.stagger(ANIMATION_TIMING.cardStagger, [
-        Animated.timing(card1Opacity, {
-          toValue: 1,
-          duration: ANIMATION_TIMING.cardDuration,
-          useNativeDriver: true,
-        }),
-        Animated.timing(card2Opacity, {
-          toValue: 1,
-          duration: ANIMATION_TIMING.cardDuration,
-          useNativeDriver: true,
-        }),
-        Animated.timing(card3Opacity, {
-          toValue: 1,
-          duration: ANIMATION_TIMING.cardDuration,
-          useNativeDriver: true,
-        }),
-        Animated.timing(card4Opacity, {
-          toValue: 1,
-          duration: ANIMATION_TIMING.cardDuration,
-          useNativeDriver: true,
-        }),
-      ]),
-      Animated.timing(buttonOpacity, {
-        toValue: 1,
-        duration: ANIMATION_TIMING.buttonDuration,
-        useNativeDriver: true,
-      }),
-    ]).start();
-  }, [
-    titleOpacity,
-    titleTranslate,
-    subtitleOpacity,
-    card1Opacity,
-    card2Opacity,
-    card3Opacity,
-    card4Opacity,
-    buttonOpacity,
-  ]);
 
   const handleNext = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -236,50 +162,43 @@ function TrackingPreferenceScreen({ navigation }: Props) {
 
       <View style={styles.content}>
         {/* Title - Text component handles responsive sizing */}
-        <Animated.View
-          style={[
-            styles.header,
-            {
-              opacity: titleOpacity,
-              transform: [{ translateY: titleTranslate }],
-            },
-          ]}
-        >
+        <Animated.View style={[styles.header, getAnimatedStyle(0)]}>
           <Text variant="title" style={styles.title}>
-            How do you want to track your travels?
+            Choose your country list
           </Text>
         </Animated.View>
 
         {/* Subtitle */}
-        <Animated.View style={{ opacity: subtitleOpacity }}>
+        <Animated.View style={getAnimatedStyle(1)}>
           <Text variant="body" style={styles.subtitle}>
-            Choose what counts as a country in your passport. You can always change this later.
+            Pick how many destinations you want to track. You can always change this later.
           </Text>
         </Animated.View>
 
         {/* Preset Cards */}
-        <ScrollView
-          style={styles.scrollContainer}
-          contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
-        >
-          {TRACKING_PRESET_ORDER.map((preset, index) => (
-            <PresetCard
-              key={preset}
-              preset={preset}
-              isSelected={trackingPreference === preset}
-              onSelect={() => handleSelectPreset(preset)}
-              animatedValue={cardOpacities[index]}
-              hideDescription={isSmallScreen}
-            />
-          ))}
-        </ScrollView>
+        <Animated.View style={[styles.scrollWrapper, getAnimatedStyle(2)]}>
+          <ScrollView
+            style={styles.scrollContainer}
+            contentContainerStyle={styles.scrollContent}
+            showsVerticalScrollIndicator={false}
+          >
+            {TRACKING_PRESET_ORDER.map((preset) => (
+              <PresetCard
+                key={preset}
+                preset={preset}
+                isSelected={trackingPreference === preset}
+                onSelect={() => handleSelectPreset(preset)}
+                hideDescription={isSmallScreen}
+              />
+            ))}
+          </ScrollView>
+        </Animated.View>
 
         {/* Footer with Next button */}
-        <Animated.View style={[styles.footer, { opacity: buttonOpacity }]}>
+        <Animated.View style={[styles.footer, getButtonStyle(3)]}>
           <TouchableOpacity style={styles.nextButton} onPress={handleNext}>
             <Text variant="label" style={styles.nextButtonText}>
-              Next
+              Continue
             </Text>
             <Ionicons name="arrow-forward" size={20} color={colors.midnightNavy} />
           </TouchableOpacity>
@@ -334,6 +253,9 @@ const styles = StyleSheet.create({
     color: colors.stormGray,
     marginBottom: 20,
   },
+  scrollWrapper: {
+    flex: 1,
+  },
   scrollContainer: {
     flex: 1,
   },
@@ -346,7 +268,7 @@ const styles = StyleSheet.create({
   presetCard: {
     flexDirection: 'row',
     backgroundColor: colors.cloudWhite,
-    borderRadius: 16,
+    borderRadius: 20,
     padding: 16,
     borderWidth: 2,
     borderColor: colors.paperBeige,
@@ -363,7 +285,7 @@ const styles = StyleSheet.create({
   radioOuter: {
     width: 24,
     height: 24,
-    borderRadius: 12,
+    borderRadius: 9999,
     borderWidth: 2,
     borderColor: colors.stormGray,
     marginRight: 12,
@@ -424,7 +346,7 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     paddingVertical: 16,
     paddingHorizontal: 56,
-    borderRadius: 12,
+    borderRadius: 9999,
     gap: 8,
     minWidth: 260,
     shadowColor: colors.shadow,

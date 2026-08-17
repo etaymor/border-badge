@@ -34,7 +34,7 @@ interface InlineTripFormProps {
 export function InlineTripForm({
   defaultCountryCode,
   onSubmit,
-  onCancel,
+  onCancel: _onCancel,
   onError,
   isSubmitting,
 }: InlineTripFormProps) {
@@ -142,8 +142,6 @@ export function InlineTripForm({
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Create New Trip</Text>
-
       {/* Trip Name */}
       <View style={styles.field}>
         <GlassInput
@@ -208,9 +206,6 @@ export function InlineTripForm({
           loading={isSubmitting}
           disabled={isSubmitting}
         />
-        <TouchableOpacity style={styles.cancelButton} onPress={onCancel} disabled={isSubmitting}>
-          <Text style={styles.cancelButtonText}>Cancel</Text>
-        </TouchableOpacity>
       </View>
     </View>
   );
@@ -227,11 +222,10 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   title: {
-    fontFamily: fonts.playfair.bold,
-    fontSize: 22,
+    fontFamily: fonts.oswald.medium,
+    fontSize: 18,
     color: colors.midnightNavy,
-    textAlign: 'center',
-    marginBottom: 20,
+    letterSpacing: 0.5,
   },
   field: {
     marginBottom: 20,
@@ -249,7 +243,7 @@ const styles = StyleSheet.create({
   // Country Button
   countryButtonContainer: {
     ...liquidGlass.container,
-    borderRadius: 12,
+    borderRadius: 20,
     overflow: 'hidden',
     borderWidth: 0, // Handled by container style
   },
@@ -312,7 +306,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 16,
     paddingVertical: 12,
-    borderRadius: 10,
+    borderRadius: 20,
     marginBottom: 4,
     gap: 12,
   },
@@ -336,14 +330,5 @@ const styles = StyleSheet.create({
   // Actions
   actions: {
     marginTop: 8,
-  },
-  cancelButton: {
-    paddingVertical: 14,
-    alignItems: 'center',
-  },
-  cancelButtonText: {
-    fontFamily: fonts.openSans.semiBold,
-    fontSize: 16,
-    color: colors.stormGray,
   },
 });

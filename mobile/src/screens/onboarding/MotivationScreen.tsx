@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
 import { useEffect, useRef } from 'react';
 import { Animated, Image, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -6,90 +7,91 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import atlasLogo from '../../../assets/atlasi-logo.png';
 import { Chip, Text } from '@components/ui';
 import { colors } from '@constants/colors';
+import { fonts } from '@constants/typography';
+import { useScreenEntrance } from '@hooks/useScreenEntrance';
 import type { OnboardingStackScreenProps } from '@navigation/types';
 import { Analytics } from '@services/analytics';
-import { useOnboardingStore } from '@stores/onboardingStore';
+import {
+  useOnboardingStore,
+  selectMotivationTags,
+  selectPersonaTags,
+} from '@stores/onboardingStore';
 
 type Props = OnboardingStackScreenProps<'Motivation'>;
 
-// "Why I Travel" motivation tags
-const MOTIVATION_TAGS = ['Adventure', 'Food', 'Culture', 'Relax', 'Nightlife', 'Nature', 'History'];
+// What draws you to travel
+const MOTIVATION_TAGS = [
+  'Adventure',
+  'Food',
+  'Culture',
+  'Relaxation',
+  'Nightlife',
+  'Nature',
+  'History',
+];
 
-// "I Am A..." persona tags
+// How you see yourself
 const PERSONA_TAGS = ['Explorer', 'Storyteller', 'Foodie', 'Minimalist', 'Social Butterfly'];
 
-export function MotivationScreen({ navigation }: Props) {
-  const { motivationTags, toggleMotivationTag, personaTags, togglePersonaTag } =
-    useOnboardingStore();
+// Floating chip animation component
+interface FloatingChipProps {
+  tag: string;
+  selected: boolean;
+  onPress: () => void;
+  delay: number;
+}
 
-  // Staggered fade-in animations
-  const titleOpacity = useRef(new Animated.Value(0)).current;
-  const titleTranslate = useRef(new Animated.Value(20)).current;
-  const section1Opacity = useRef(new Animated.Value(0)).current;
-  const section1Translate = useRef(new Animated.Value(20)).current;
-  const section2Opacity = useRef(new Animated.Value(0)).current;
-  const section2Translate = useRef(new Animated.Value(20)).current;
-  const buttonOpacity = useRef(new Animated.Value(0)).current;
+function FloatingChip({ tag, selected, onPress, delay }: FloatingChipProps) {
+  const animValue = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      Animated.spring(animValue, {
+        toValue: 1,
+        friction: 6,
+        tension: 80,
+        useNativeDriver: true,
+      }).start();
+    }, delay);
+
+    return () => clearTimeout(timeoutId);
+  }, [animValue, delay]);
+
+  const translateY = animValue.interpolate({
+    inputRange: [0, 1],
+    outputRange: [20, 0],
+  });
+
+  const opacity = animValue.interpolate({
+    inputRange: [0, 0.3, 1],
+    outputRange: [0, 0.8, 1],
+  });
+
+  return (
+    <Animated.View
+      style={{
+        opacity,
+        transform: [{ translateY }],
+      }}
+    >
+      <Chip label={tag} selected={selected} onPress={onPress} />
+    </Animated.View>
+  );
+}
+
+export function MotivationScreen({ navigation }: Props) {
+  const motivationTags = useOnboardingStore(selectMotivationTags);
+  const personaTags = useOnboardingStore(selectPersonaTags);
+  const toggleMotivationTag = useOnboardingStore((s) => s.toggleMotivationTag);
+  const togglePersonaTag = useOnboardingStore((s) => s.togglePersonaTag);
+
+  // Premium entrance animation for screen structure
+  const { getAnimatedStyle, getButtonStyle } = useScreenEntrance({ elementCount: 4 });
 
   // Track screen view
   useEffect(() => {
     Analytics.viewOnboardingMotivation();
   }, []);
-
-  useEffect(() => {
-    // Staggered entrance animations
-    Animated.sequence([
-      Animated.parallel([
-        Animated.timing(titleOpacity, {
-          toValue: 1,
-          duration: 400,
-          useNativeDriver: true,
-        }),
-        Animated.timing(titleTranslate, {
-          toValue: 0,
-          duration: 400,
-          useNativeDriver: true,
-        }),
-      ]),
-      Animated.parallel([
-        Animated.timing(section1Opacity, {
-          toValue: 1,
-          duration: 400,
-          useNativeDriver: true,
-        }),
-        Animated.timing(section1Translate, {
-          toValue: 0,
-          duration: 400,
-          useNativeDriver: true,
-        }),
-      ]),
-      Animated.parallel([
-        Animated.timing(section2Opacity, {
-          toValue: 1,
-          duration: 400,
-          useNativeDriver: true,
-        }),
-        Animated.timing(section2Translate, {
-          toValue: 0,
-          duration: 400,
-          useNativeDriver: true,
-        }),
-      ]),
-      Animated.timing(buttonOpacity, {
-        toValue: 1,
-        duration: 300,
-        useNativeDriver: true,
-      }),
-    ]).start();
-  }, [
-    titleOpacity,
-    titleTranslate,
-    section1Opacity,
-    section1Translate,
-    section2Opacity,
-    section2Translate,
-    buttonOpacity,
-  ]);
 
   const handleNext = () => {
     navigation.navigate('HomeCountry');
@@ -112,84 +114,66 @@ export function MotivationScreen({ navigation }: Props) {
         </TouchableOpacity>
       </View>
 
-      <View style={styles.content}>
-        {/* Title - Text component handles responsive sizing */}
-        <Animated.View
-          style={[
-            styles.header,
-            {
-              opacity: titleOpacity,
-              transform: [{ translateY: titleTranslate }],
-            },
-          ]}
-        >
+      <ScrollView
+        style={styles.scrollContainer}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Title */}
+        <Animated.View style={[styles.header, getAnimatedStyle(0)]}>
           <Text variant="title" style={styles.title}>
-            What kind of traveler are you?
+            Tell us about you
           </Text>
         </Animated.View>
 
-        <ScrollView style={styles.scrollContainer} showsVerticalScrollIndicator={false}>
-          {/* Why I Travel Section */}
-          <Animated.View
-            style={[
-              styles.section,
-              {
-                opacity: section1Opacity,
-                transform: [{ translateY: section1Translate }],
-              },
-            ]}
-          >
-            <Text variant="accent" style={styles.sectionTitle}>
-              Why I Travel
-            </Text>
-            <View style={styles.chipContainer}>
-              {MOTIVATION_TAGS.map((tag) => (
-                <Chip
-                  key={tag}
-                  label={tag}
-                  selected={motivationTags.includes(tag)}
-                  onPress={() => toggleMotivationTag(tag)}
-                />
-              ))}
-            </View>
-          </Animated.View>
-
-          {/* I Am A... Section */}
-          <Animated.View
-            style={[
-              styles.section,
-              {
-                opacity: section2Opacity,
-                transform: [{ translateY: section2Translate }],
-              },
-            ]}
-          >
-            <Text variant="accent" style={styles.sectionTitle}>
-              I am a . . .
-            </Text>
-            <View style={styles.chipContainer}>
-              {PERSONA_TAGS.map((tag) => (
-                <Chip
-                  key={tag}
-                  label={tag}
-                  selected={personaTags.includes(tag)}
-                  onPress={() => togglePersonaTag(tag)}
-                />
-              ))}
-            </View>
-          </Animated.View>
-        </ScrollView>
-
-        {/* Footer with Next button */}
-        <Animated.View style={[styles.footer, { opacity: buttonOpacity }]}>
-          <TouchableOpacity style={styles.nextButton} onPress={handleNext}>
-            <Text variant="label" style={styles.nextButtonText}>
-              Next
-            </Text>
-            <Ionicons name="arrow-forward" size={20} color={colors.midnightNavy} />
-          </TouchableOpacity>
+        {/* Why I Travel Section */}
+        <Animated.View style={[styles.section, getAnimatedStyle(1)]}>
+          <Text style={styles.sectionTitle}>I travel for...</Text>
+          <View style={styles.chipContainer}>
+            {MOTIVATION_TAGS.map((tag, index) => (
+              <FloatingChip
+                key={tag}
+                tag={tag}
+                selected={motivationTags.includes(tag)}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  toggleMotivationTag(tag);
+                }}
+                delay={300 + index * 60}
+              />
+            ))}
+          </View>
         </Animated.View>
-      </View>
+
+        {/* I Am A... Section */}
+        <Animated.View style={[styles.section, getAnimatedStyle(2)]}>
+          <Text style={styles.sectionTitle}>I am a...</Text>
+          <View style={styles.chipContainer}>
+            {PERSONA_TAGS.map((tag, index) => (
+              <FloatingChip
+                key={tag}
+                tag={tag}
+                selected={personaTags.includes(tag)}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  togglePersonaTag(tag);
+                }}
+                delay={700 + index * 60}
+              />
+            ))}
+          </View>
+        </Animated.View>
+      </ScrollView>
+
+      {/* Footer with Next button */}
+      <Animated.View style={[styles.footer, getButtonStyle(3)]}>
+        <TouchableOpacity style={styles.nextButton} onPress={handleNext}>
+          <Text variant="label" style={styles.nextButtonText}>
+            Continue
+          </Text>
+          <Ionicons name="arrow-forward" size={20} color={colors.midnightNavy} />
+        </TouchableOpacity>
+      </Animated.View>
     </SafeAreaView>
   );
 }
@@ -197,7 +181,7 @@ export function MotivationScreen({ navigation }: Props) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.lakeBlue,
+    backgroundColor: colors.warmCream,
   },
   headerRow: {
     flexDirection: 'row',
@@ -220,34 +204,41 @@ const styles = StyleSheet.create({
   loginText: {
     color: colors.midnightNavy,
   },
-  content: {
+  scrollContainer: {
     flex: 1,
-    paddingHorizontal: 24,
-    paddingTop: 16,
+  },
+  scrollContent: {
+    paddingTop: 32,
+    paddingBottom: 24,
   },
   header: {
-    marginBottom: 24,
+    marginBottom: 40,
+    paddingHorizontal: 28,
   },
   title: {
     color: colors.midnightNavy,
   },
-  scrollContainer: {
-    flex: 1,
-  },
   section: {
-    marginBottom: 28,
+    marginBottom: 44,
   },
   sectionTitle: {
-    marginBottom: 16,
-    color: colors.midnightNavy,
+    fontFamily: fonts.dawning.regular,
+    fontSize: 34,
+    lineHeight: 44,
+    color: colors.adobeBrick,
+    marginBottom: 20,
+    paddingHorizontal: 28,
   },
   chipContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
+    gap: 14,
+    paddingHorizontal: 28,
   },
   footer: {
-    paddingVertical: 24,
+    paddingTop: 16,
     paddingBottom: 40,
+    paddingHorizontal: 28,
   },
   nextButton: {
     backgroundColor: colors.sunsetGold,
@@ -257,7 +248,7 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     paddingVertical: 16,
     paddingHorizontal: 56,
-    borderRadius: 12,
+    borderRadius: 9999,
     gap: 8,
     minWidth: 260,
     shadowColor: colors.shadow,

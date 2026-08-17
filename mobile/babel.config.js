@@ -21,6 +21,16 @@ module.exports = function (api) {
           },
         },
       ],
+      // react-native-reanimated/plugin must be last
+      'react-native-reanimated/plugin',
     ],
+    // PERF (U10): strip console.* from production bundles (keep error/warn).
+    // Build-time only via babel-plugin-transform-remove-console (devDependency);
+    // dev builds are unaffected. `error`/`warn` are preserved intentionally.
+    env: {
+      production: {
+        plugins: [['transform-remove-console', { exclude: ['error', 'warn'] }]],
+      },
+    },
   };
 };

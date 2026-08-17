@@ -114,6 +114,36 @@ function sanitizeUrlForAnalytics(url: string, maxLength = 100): string {
 }
 
 // ============================================================================
+// Percentile Calculation Utilities
+// ============================================================================
+
+/**
+ * Calculate a percentile value from a sorted array.
+ */
+function calculatePercentile(sortedValues: number[], percentile: number): number {
+  if (sortedValues.length === 0) return 0;
+  const index = Math.ceil((percentile / 100) * sortedValues.length) - 1;
+  return sortedValues[Math.max(0, index)];
+}
+
+/**
+ * Calculate p50, p95, and p99 percentiles from an array of response times.
+ * Used for API performance tracking.
+ */
+export function calculateApiPercentiles(responseTimes: number[]): {
+  p50: number;
+  p95: number;
+  p99: number;
+} {
+  const sorted = [...responseTimes].sort((a, b) => a - b);
+  return {
+    p50: calculatePercentile(sorted, 50),
+    p95: calculatePercentile(sorted, 95),
+    p99: calculatePercentile(sorted, 99),
+  };
+}
+
+// ============================================================================
 // Typed Event Helpers
 // ============================================================================
 
@@ -132,6 +162,8 @@ export const Analytics = {
   viewOnboardingProgress: (countriesCount: number) =>
     track('view_onboarding_progress', { countries_count: countriesCount }),
   viewOnboardingName: () => track('view_onboarding_name'),
+  viewOnboardingEmotionalHook: () => track('view_onboarding_emotional_hook'),
+  viewOnboardingFunctionalHook: () => track('view_onboarding_functional_hook'),
   viewOnboardingAccount: () => track('view_onboarding_account'),
 
   completeOnboarding: (props: {
@@ -260,4 +292,213 @@ export const Analytics = {
 
   clipboardPasteButtonUsed: (props: { provider: string }) =>
     track('clipboard_paste_button_used', { provider: props.provider }),
+
+  // Photo Import Events
+  photoImportScanStarted: () => track('photo_import_scan_started'),
+
+  photoImportScanCompleted: (props: {
+    photoCount: number;
+    tripCandidateCount: number;
+    scanDurationMs: number;
+    isIncremental: boolean;
+    newPhotosCount?: number;
+  }) =>
+    track('photo_import_scan_completed', {
+      photo_count: props.photoCount,
+      trip_candidate_count: props.tripCandidateCount,
+      scan_duration_ms: props.scanDurationMs,
+      is_incremental: props.isIncremental,
+      new_photos_count: props.newPhotosCount ?? null,
+    }),
+
+  photoImportCandidateSelected: (props: { countryCode: string; clusterCount: number }) =>
+    track('photo_import_candidate_selected', {
+      country_code: props.countryCode,
+      cluster_count: props.clusterCount,
+    }),
+
+  photoImportPlaceConfirmed: (props: {
+    category: string;
+    suggestionRank: number;
+    wasFromCache: boolean;
+    /** Google Place ID of the system's top-ranked suggestion. Null on pure manual entries. */
+    originalSuggestionPlaceId?: string | null;
+    alternativesCount?: number;
+    alternativesViewed?: number;
+    /** True when the saved place differs from the system's top-ranked suggestion. */
+    wasOverride?: boolean;
+  }) =>
+    track('photo_import_place_confirmed', {
+      category: props.category,
+      suggestion_rank: props.suggestionRank,
+      was_from_cache: props.wasFromCache,
+      original_suggestion_place_id: props.originalSuggestionPlaceId ?? null,
+      alternatives_count: props.alternativesCount ?? null,
+      alternatives_viewed: props.alternativesViewed ?? null,
+      was_override: props.wasOverride ?? null,
+    }),
+
+  photoImportPlaceRejected: (props: {
+    suggestionCount: number;
+    wasFromCache: boolean;
+    /** Google Place ID currently shown when the user tapped the edit/override button. */
+    originalSuggestionPlaceId?: string | null;
+    /** 1-based rank of the suggestion shown at reject time. */
+    suggestedRank?: number;
+    alternativesViewed?: number;
+  }) =>
+    track('photo_import_place_rejected', {
+      suggestion_count: props.suggestionCount,
+      was_from_cache: props.wasFromCache,
+      original_suggestion_place_id: props.originalSuggestionPlaceId ?? null,
+      suggested_rank: props.suggestedRank ?? null,
+      alternatives_viewed: props.alternativesViewed ?? null,
+    }),
+
+  photoImportClusterHidden: () => track('photo_import_cluster_hidden'),
+
+  photoImportScanCancelled: () => track('photo_import_scan_cancelled'),
+
+  photoImportScanFailed: (props: { error: string }) =>
+    track('photo_import_scan_failed', { error: props.error }),
+
+  photoImportManualSearchOpened: () => track('photo_import_manual_search_opened'),
+
+  photoImportSuggestionsCompleted: (props: {
+    suggestionCount: number;
+    failedChunks: number;
+    cachedClusters: number;
+    uncachedClusters: number;
+    cacheHitRate: number;
+    apiP50Ms?: number;
+    apiP95Ms?: number;
+    apiP99Ms?: number;
+    totalApiDurationMs?: number;
+  }) =>
+    track('photo_import_suggestions_completed', {
+      suggestion_count: props.suggestionCount,
+      failed_chunks: props.failedChunks,
+      cached_clusters: props.cachedClusters,
+      uncached_clusters: props.uncachedClusters,
+      cache_hit_rate: props.cacheHitRate,
+      api_p50_ms: props.apiP50Ms ?? null,
+      api_p95_ms: props.apiP95Ms ?? null,
+      api_p99_ms: props.apiP99Ms ?? null,
+      total_api_duration_ms: props.totalApiDurationMs ?? null,
+    }),
+
+  photoImportApiError: (props: { errorType: 'quota_exhausted' | 'rate_limited' | 'unknown' }) =>
+    track('photo_import_api_error', { error_type: props.errorType }),
+
+  photoImportWorkflowCompleted: (props: {
+    totalClusters: number;
+    confirmedCount: number;
+    rejectedCount: number;
+    hiddenCount: number;
+    workflowDurationMs: number;
+    successRate: number;
+    acceptanceRate: number;
+  }) =>
+    track('photo_import_workflow_completed', {
+      total_clusters: props.totalClusters,
+      confirmed_count: props.confirmedCount,
+      rejected_count: props.rejectedCount,
+      hidden_count: props.hiddenCount,
+      workflow_duration_ms: props.workflowDurationMs,
+      success_rate: props.successRate,
+      acceptance_rate: props.acceptanceRate,
+    }),
+
+  photoImportWorkflowExited: (props: {
+    totalClusters: number;
+    processedClusters: number;
+    remainingClusters: number;
+    workflowDurationMs: number;
+  }) =>
+    track('photo_import_workflow_exited', {
+      total_clusters: props.totalClusters,
+      processed_clusters: props.processedClusters,
+      remaining_clusters: props.remainingClusters,
+      workflow_duration_ms: props.workflowDurationMs,
+    }),
+
+  // Entry organization (Saved Places feature)
+  moveEntry: (props: { entryCount: number; targetTripId: string; isUncategorizedTrip: boolean }) =>
+    track('move_entry', {
+      entry_count: props.entryCount,
+      target_trip_id: props.targetTripId,
+      is_bulk: props.entryCount > 1,
+      is_uncategorized_trip: props.isUncategorizedTrip,
+    }),
+
+  // Subscription & Paywall Events
+  viewPaywall: (props: { location: 'onboarding' | 'modal' | 'settings'; feature?: string }) =>
+    track('view_paywall', { location: props.location, feature: props.feature ?? null }),
+
+  paywallDismissed: (props: { location: 'onboarding' | 'modal' | 'settings'; feature?: string }) =>
+    track('paywall_dismissed', { location: props.location, feature: props.feature ?? null }),
+
+  purchaseCompleted: (props: {
+    plan: string | null;
+    location: 'onboarding' | 'modal' | 'settings';
+  }) => track('purchase_completed', { plan: props.plan, location: props.location }),
+
+  purchaseFailed: (props: {
+    plan: string | null;
+    error: string;
+    location: 'onboarding' | 'modal' | 'settings';
+  }) =>
+    track('purchase_failed', { plan: props.plan, error: props.error, location: props.location }),
+
+  purchaseCancelled: (props: { location: 'onboarding' | 'modal' | 'settings' }) =>
+    track('purchase_cancelled', { location: props.location }),
+
+  restoreInitiated: () => track('restore_initiated'),
+
+  restoreCompleted: (props: { foundSubscription: boolean }) =>
+    track('restore_completed', { found_subscription: props.foundSubscription }),
+
+  restoreFailed: (props: { error: string }) => track('restore_failed', { error: props.error }),
+
+  featureLimitHit: (props: {
+    feature: 'entries' | 'shareExtension' | 'photoImport';
+    remaining: number;
+  }) => track('feature_limit_hit', { feature: props.feature, remaining: props.remaining }),
+
+  revenueCatError: (props: { action: 'identify' | 'logout'; error: string }) =>
+    track('revenuecat_error', {
+      action: props.action,
+      error: props.error,
+    }),
+
+  revenueCatIdentified: (props: { hasEntitlements: boolean; entitlements: string[] }) =>
+    track('revenuecat_identified', {
+      has_entitlements: props.hasEntitlements,
+      entitlements: props.entitlements.join(',') || null,
+    }),
+
+  subscriptionStatusChanged: (props: { from: string; to: string; plan?: string }) =>
+    track('subscription_status_changed', {
+      from_status: props.from,
+      to_status: props.to,
+      plan: props.plan ?? null,
+    }),
+
+  // Review Request Events
+  reviewSatisfactionShown: (
+    trigger: 'post_onboarding' | 'country_visited' | 'first_social_save' | 'first_photo_import'
+  ) => track('review_satisfaction_shown', { trigger }),
+  reviewSatisfactionPositive: (
+    trigger: 'post_onboarding' | 'country_visited' | 'first_social_save' | 'first_photo_import'
+  ) => track('review_satisfaction_positive', { trigger }),
+  reviewSatisfactionNegative: (
+    trigger: 'post_onboarding' | 'country_visited' | 'first_social_save' | 'first_photo_import'
+  ) => track('review_satisfaction_negative', { trigger }),
+  reviewSatisfactionDismissed: (
+    trigger: 'post_onboarding' | 'country_visited' | 'first_social_save' | 'first_photo_import'
+  ) => track('review_satisfaction_dismissed', { trigger }),
+  reviewNativeRequested: () => track('review_native_requested'),
+  reviewNativeUnavailable: () => track('review_native_unavailable'),
+  reviewNativeError: (error: string) => track('review_native_error', { error }),
+  reviewSupportLinkTapped: () => track('review_support_link_tapped'),
 };

@@ -641,12 +641,12 @@ describe('PlacesAutocomplete Integration', () => {
         website_url: null,
       };
 
-      const { getByDisplayValue } = render(
+      const { getByText } = render(
         <PlacesAutocomplete onSelect={onSelect} value={selectedPlace} placeholder="Search..." />
       );
 
-      // Input should show the place name
-      expect(getByDisplayValue('Sensoji Temple')).toBeTruthy();
+      // Selected place name should be displayed
+      expect(getByText('Sensoji Temple')).toBeTruthy();
     });
 
     it('syncs with external value prop changes', async () => {
@@ -661,11 +661,11 @@ describe('PlacesAutocomplete Integration', () => {
         website_url: null,
       };
 
-      const { getByDisplayValue, rerender } = render(
+      const { getByText, rerender } = render(
         <PlacesAutocomplete onSelect={onSelect} value={initialValue} placeholder="Search..." />
       );
 
-      expect(getByDisplayValue('First Place')).toBeTruthy();
+      expect(getByText('First Place')).toBeTruthy();
 
       // Update value prop
       const newValue: SelectedPlace = {
@@ -680,7 +680,7 @@ describe('PlacesAutocomplete Integration', () => {
 
       rerender(<PlacesAutocomplete onSelect={onSelect} value={newValue} placeholder="Search..." />);
 
-      expect(getByDisplayValue('Second Place')).toBeTruthy();
+      expect(getByText('Second Place')).toBeTruthy();
     });
   });
 

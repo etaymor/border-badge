@@ -5,12 +5,19 @@ import { colors } from '@constants/colors';
 import type { Country } from '@hooks/useCountries';
 import type { OnboardingStackScreenProps } from '@navigation/types';
 import { Analytics } from '@services/analytics';
-import { useOnboardingStore } from '@stores/onboardingStore';
+import {
+  useOnboardingStore,
+  selectHomeCountry,
+  selectSelectedCountries,
+} from '@stores/onboardingStore';
 
 type Props = OnboardingStackScreenProps<'HomeCountry'>;
 
 export function HomeCountryScreen({ navigation }: Props) {
-  const { homeCountry, setHomeCountry, toggleCountry, selectedCountries } = useOnboardingStore();
+  const homeCountry = useOnboardingStore(selectHomeCountry);
+  const selectedCountries = useOnboardingStore(selectSelectedCountries);
+  const setHomeCountry = useOnboardingStore((s) => s.setHomeCountry);
+  const toggleCountry = useOnboardingStore((s) => s.toggleCountry);
 
   // Track screen view
   useEffect(() => {
@@ -33,15 +40,17 @@ export function HomeCountryScreen({ navigation }: Props) {
   };
 
   const config: CountrySelectionConfig = {
-    backgroundColor: colors.dustyCoral,
-    title: "Where's home?",
-    dropdownBorderColor: colors.dustyCoral,
+    backgroundColor: colors.warmCream,
+    title: 'What country do you live in?',
     celebrationType: 'home',
-    heroElement: 'locationPin',
-    showBackButton: false,
+    showBackButton: true,
+    onNavigateBack: () => navigation.goBack(),
+    stampSuggestions: ['US', 'DE', 'BR', 'GB', 'AE'],
     onCountrySelect: handleCountrySelect,
     getCurrentSelection: () => homeCountry,
-    onNavigateNext: () => navigation.navigate('TrackingPreference'),
+    // LAUNCH_SIMPLIFICATION: Skip TrackingPreference, go directly to DreamDestination
+    // TODO: Restore to 'TrackingPreference' when re-enabling tracking preference selection
+    onNavigateNext: () => navigation.navigate('DreamDestination'),
     onNavigateLogin: () => {
       Analytics.skipToLogin('HomeCountry');
       navigation.navigate('Auth', { screen: 'Login' });

@@ -5,6 +5,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Alert } from 'react-native';
 
+import { features } from '@config/features';
 import { api } from '@services/api';
 
 /**
@@ -57,6 +58,8 @@ export function usePendingTripTagCount() {
       return response.data.count;
     },
     staleTime: 1000 * 30, // 30 seconds
+    // Trip tags are a social feature; the endpoint 404s when the flag is off.
+    enabled: features.enableSocial,
   });
 }
 

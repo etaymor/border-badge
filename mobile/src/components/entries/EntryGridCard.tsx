@@ -1,7 +1,7 @@
 import { memo, useMemo, useState } from 'react';
-import { Image, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { BlurView } from 'expo-blur';
+import { Image } from 'expo-image';
 
 import type { EntryType } from '@navigation/types';
 import type { EntryWithPlace } from '@hooks/useEntries';
@@ -39,11 +39,12 @@ function EntryGridCardComponent({ entry, onPress }: EntryGridCardProps) {
     ENTRY_TYPE_CONFIG[entry.entry_type as keyof typeof ENTRY_TYPE_CONFIG] ??
     ENTRY_TYPE_CONFIG.place;
 
-  // Use user-uploaded media first, fall back to Google Places photo
+  // Use user-uploaded media first, fall back to Google Places photo, then social media thumbnail
   const firstMedia = entry.media_files?.[0];
   const userMediaUrl = firstMedia?.thumbnail_url ?? firstMedia?.url;
   const googlePhotoUrl = entry.place?.google_photo_url;
-  const firstMediaUrl = userMediaUrl ?? googlePhotoUrl;
+  const socialThumbnailUrl = entry.metadata?.thumbnail_url;
+  const firstMediaUrl = userMediaUrl ?? googlePhotoUrl ?? socialThumbnailUrl;
   const hasValidImage = firstMediaUrl && !imageError;
 
   return (
@@ -54,39 +55,43 @@ function EntryGridCardComponent({ entry, onPress }: EntryGridCardProps) {
       accessibilityLabel={`${entry.title}, ${typeConfig.label}`}
     >
       {/* Image or Icon Placeholder Background */}
-      <View style={[styles.imageContainer, { height: cardWidth }]}>
+      <View style={[styles.imageContainer, { aspectRatio: 1 }]}>
         {hasValidImage ? (
           <Image
+            testID="entry-grid-card-image"
             source={{ uri: firstMediaUrl }}
             style={styles.image}
+            contentFit="cover"
+            recyclingKey={entry.id}
+            cachePolicy="memory-disk"
             onError={() => setImageError(true)}
           />
         ) : (
           <View style={[styles.iconPlaceholder, { backgroundColor: typeConfig.color + '15' }]}>
-            <Ionicons name={typeConfig.icon} size={40} color={typeConfig.color} />
+            <Ionicons name={typeConfig.icon} size={48} color={typeConfig.color} />
           </View>
         )}
 
-        {/* Top Glass Pane - Entry Title */}
-        <BlurView intensity={45} tint="light" style={styles.topGlassPane}>
-          <Text style={styles.title} numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.85}>
+        {/* Top Glass Pane - Entry Title (frosted translucent fill, no live blur) */}
+        <View style={styles.topGlassPane}>
+          <Text style={styles.title} numberOfLines={2}>
             {entry.title}
           </Text>
-        </BlurView>
+        </View>
 
         {/* Bottom Row - Type Badge Left, Media Count Right */}
         <View style={styles.bottomRow}>
           {/* Type Badge - Glass Pill */}
-          <BlurView intensity={30} tint="light" style={styles.typeBadge}>
-            <Ionicons name={typeConfig.icon} size={14} color={typeConfig.color} />
-          </BlurView>
+          <View style={styles.typeBadge}>
+            <Ionicons name={typeConfig.icon} size={20} color={typeConfig.color} />
+          </View>
 
           {/* Media Count Badge (if more than 1 photo) */}
           {entry.media_files && entry.media_files.length > 1 && (
-            <BlurView intensity={30} tint="light" style={styles.mediaCountBadge}>
+            <View style={styles.mediaCountBadge}>
               <Ionicons name="images" size={12} color={colors.midnightNavy} />
               <Text style={styles.mediaCountText}>{entry.media_files.length}</Text>
-            </BlurView>
+            </View>
           )}
         </View>
       </View>
@@ -103,12 +108,12 @@ const styles = StyleSheet.create({
     backgroundColor: colors.backgroundSecondary,
     position: 'relative',
     shadowColor: colors.shadow,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
+    // Cheaper static lift: smaller blur radius, slightly higher opacity so the
+    // card still reads as elevated without a wide per-frame shadow composite.
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.18,
     shadowRadius: 8,
-    elevation: 4,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.4)',
+    elevation: 6,
   },
   imageContainer: {
     width: '100%',
@@ -134,7 +139,9 @@ const styles = StyleSheet.create({
     right: 0,
     paddingVertical: 8,
     paddingHorizontal: 12,
-    backgroundColor: 'rgba(253, 246, 237, 0.75)', // Warm cream tint
+    // Frosted cream fill (was 0.75 over a live blur); higher opacity reads as
+    // frosted glass over the photo without compositing a UIVisualEffectView.
+    backgroundColor: 'rgba(253, 246, 237, 0.86)',
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255, 255, 255, 0.6)',
     minHeight: 44,
@@ -163,15 +170,19 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
   },
   typeBadge: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 36, // Larger touch target/visual
+    height: 36,
+    borderRadius: 18,
     overflow: 'hidden',
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.25)',
+    backgroundColor: 'rgba(255, 255, 255, 0.85)', // More opaque for better contrast
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.6)',
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
   },
   mediaCountBadge: {
     flexDirection: 'row',
@@ -181,7 +192,9 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 12,
     overflow: 'hidden',
-    backgroundColor: 'rgba(255, 255, 255, 0.25)',
+    // Frosted white fill (was 0.25 over a live blur); higher opacity so the
+    // count pill reads as frosted glass without the per-cell blur.
+    backgroundColor: 'rgba(255, 255, 255, 0.7)',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.6)',
   },

@@ -1,5 +1,5 @@
 /**
- * Share Queue Service
+ * Share Queue Service (TypeScript/React Native)
  *
  * TODO: Refactor - this file exceeds 500 lines (currently ~540 lines).
  * Consider splitting into smaller modules:
@@ -17,11 +17,42 @@
  * - Automatic expiration of old shares (7 days)
  * - Deduplication by URL
  * - Silent error handling (logs but doesn't throw)
+ *
+ * ============================================================================
+ * IMPORTANT: DUAL QUEUE SYSTEM LIMITATION
+ * ============================================================================
+ *
+ * There are TWO separate offline queue systems in this app:
+ *
+ * 1. **This TypeScript queue** - Uses AsyncStorage, accessible from React Native
+ *    - Location: mobile/src/services/shareQueue.ts (this file)
+ *    - Storage: AsyncStorage with key 'share_queue'
+ *    - Used by: Main React Native app for retry logic
+ *
+ * 2. **Swift queue** - Uses App Group UserDefaults, accessible from iOS extensions
+ *    - Location: mobile/plugins/share-extension/Services/OfflineQueueService.swift
+ *    - Storage: App Group UserDefaults (group.com.atlasi.app)
+ *    - Used by: iOS Share Extension when shares fail or need user input
+ *
+ * These queues DO NOT communicate with each other. Items queued by the share
+ * extension (Swift) are stored in App Group UserDefaults, which this TypeScript
+ * code cannot read directly.
+ *
+ * CURRENT BEHAVIOR:
+ * - Share extension queues to Swift queue -> may not be processed by main app
+ * - Main app queues to TypeScript queue -> processed correctly on retry
+ *
+ * RESOLVED: The native bridge is now implemented via SharedGroupPreferences
+ * native module. The syncOfflineQueueFromExtension() function in
+ * shareExtensionBridge.ts reads the Swift queue and calls mergeFromExtension()
+ * in this file to sync items to the TypeScript queue.
+ * ============================================================================
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Crypto from 'expo-crypto';
 
+import { logger } from '../utils/logger';
 import type { EntryType } from '../types/shared';
 
 export type { EntryType };
@@ -118,14 +149,6 @@ export interface QueuedShare {
  * Input for enqueueing a new share (without auto-generated fields)
  */
 export type EnqueueShareInput = Omit<QueuedShare, 'id' | 'retryCount' | 'lastRetryAt'>;
-
-/**
- * Result of flushing the queue
- */
-export interface FlushResult {
-  succeeded: number;
-  failed: number;
-}
 
 /**
  * Calculate the next retry time based on retry count and last attempt
@@ -227,27 +250,6 @@ export async function enqueueFailedShare(share: EnqueueShareInput): Promise<void
 }
 
 /**
- * Get all pending shares in the queue
- *
- * @returns Array of queued shares (excludes expired ones)
- */
-export async function getPendingShares(): Promise<QueuedShare[]> {
-  const queue = await readQueue();
-  // Filter out expired shares
-  return queue.filter((share) => !isExpired(share));
-}
-
-/**
- * Get the count of pending shares
- *
- * @returns Number of shares in the queue
- */
-export async function getPendingShareCount(): Promise<number> {
-  const pending = await getPendingShares();
-  return pending.length;
-}
-
-/**
  * Remove a share from the queue after successful processing
  * Uses locking to prevent race conditions.
  *
@@ -307,7 +309,7 @@ export async function markRetryAttempt(id: string, error?: string): Promise<bool
       if (newRetryCount >= MAX_RETRIES) {
         queue.splice(index, 1);
         await writeQueue(queue);
-        console.log(`Share ${id} abandoned after ${MAX_RETRIES} retries`);
+        logger.log(`Share ${id} abandoned after ${MAX_RETRIES} retries`);
         return true;
       }
 
@@ -348,66 +350,6 @@ export async function clearExpiredShares(): Promise<void> {
   } finally {
     queueLock.release();
   }
-}
-
-/**
- * Clear all shares from the queue
- * Use with caution - removes all pending retries
- */
-export async function clearAllShares(): Promise<void> {
-  try {
-    await AsyncStorage.removeItem(SHARE_QUEUE_KEY);
-  } catch (error) {
-    console.error('Failed to clear all shares:', error);
-  }
-}
-
-/**
- * Flush the queue - attempt to process all ready retries
- *
- * This is a placeholder that should be called with a retry function.
- * The actual retry logic should be implemented in the component that
- * calls this, as it needs access to the ingest mutation.
- *
- * @param retryFn - Function to retry a single share, returns true if successful
- * @returns Count of succeeded and failed retries
- */
-export async function flushQueue(
-  retryFn?: (share: QueuedShare) => Promise<boolean>
-): Promise<FlushResult> {
-  // First, clear any expired shares
-  await clearExpiredShares();
-
-  // If no retry function provided, just return zeros
-  if (!retryFn) {
-    return { succeeded: 0, failed: 0 };
-  }
-
-  const result: FlushResult = { succeeded: 0, failed: 0 };
-  let share = await getNextRetryableShare();
-
-  while (share) {
-    try {
-      const success = await retryFn(share);
-
-      if (success) {
-        await dequeueShare(share.id);
-        result.succeeded++;
-      } else {
-        await markRetryAttempt(share.id, 'Retry failed');
-        result.failed++;
-      }
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      await markRetryAttempt(share.id, errorMessage);
-      result.failed++;
-    }
-
-    // Get next share (if any)
-    share = await getNextRetryableShare();
-  }
-
-  return result;
 }
 
 /**
@@ -542,5 +484,125 @@ export async function retrySingleShare(
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     await markRetryAttempt(id, errorMessage);
     return 'failed';
+  }
+}
+
+// ============================================================================
+// SWIFT QUEUE BRIDGE
+// ============================================================================
+
+/**
+ * Swift QueuedShare format (from App Group via SharedGroupPreferences native module)
+ * This matches the JSON structure returned by SharedGroupPreferences.getOfflineQueue()
+ */
+export interface SwiftQueuedShare {
+  id: string;
+  url: string;
+  caption: string | null;
+  timestamp: number; // milliseconds since epoch
+  reason: 'unauthenticated' | 'networkError' | 'serverError' | 'timeout';
+  selectedTripId: string | null;
+  entryType: EntryType | null;
+  notes: string | null;
+}
+
+/**
+ * Convert Swift queue reason to error message
+ */
+function reasonToError(reason: string): string {
+  switch (reason) {
+    case 'unauthenticated':
+      return 'Queued while not signed in';
+    case 'networkError':
+      return 'Network error';
+    case 'serverError':
+      return 'Server error';
+    case 'timeout':
+      return 'Request timed out';
+    default:
+      return 'Queued from share extension';
+  }
+}
+
+/**
+ * Merge shares from iOS Share Extension into the TypeScript queue.
+ * Deduplicates by URL (keeps the most recent).
+ * Uses locking to prevent race conditions.
+ *
+ * Called by syncOfflineQueueFromExtension() in shareExtensionBridge.ts
+ * after reading the Swift queue via the SharedGroupPreferences native module.
+ *
+ * IMPORTANT: This function throws on failure to ensure the caller knows
+ * whether it's safe to clear the Swift queue. Only clear the Swift queue
+ * if this function resolves successfully.
+ *
+ * @param swiftShares - Array of shares from the Swift offline queue
+ * @returns Number of new items added (not counting duplicates that were updated)
+ * @throws Error if the merge operation fails (e.g., AsyncStorage write failure)
+ */
+export async function mergeFromExtension(swiftShares: SwiftQueuedShare[]): Promise<number> {
+  if (!swiftShares.length) return 0;
+
+  await queueLock.acquire();
+  try {
+    // Read queue directly (don't use readQueue() which swallows errors)
+    // Let AsyncStorage/JSON errors propagate so caller knows merge failed
+    const data = await AsyncStorage.getItem(SHARE_QUEUE_KEY);
+    const queue: QueuedShare[] = data ? JSON.parse(data) : [];
+    let addedCount = 0;
+    let hasUpdates = false;
+
+    for (const swiftShare of swiftShares) {
+      // Skip expired items (7 days)
+      const ageMs = Date.now() - swiftShare.timestamp;
+      if (ageMs > EXPIRY_DAYS * 24 * 60 * 60 * 1000) {
+        continue;
+      }
+
+      // Check for existing item with same URL
+      const existingIndex = queue.findIndex((s) => s.url === swiftShare.url);
+
+      // Convert to TypeScript format
+      const tsShare: QueuedShare = {
+        id: swiftShare.id,
+        url: swiftShare.url,
+        source: 'share_extension',
+        tripId: swiftShare.selectedTripId ?? undefined,
+        entryType: swiftShare.entryType ?? undefined,
+        notes: swiftShare.notes ?? undefined,
+        createdAt: swiftShare.timestamp,
+        retryCount: 0,
+        lastRetryAt: null,
+        error: reasonToError(swiftShare.reason),
+      };
+
+      if (existingIndex !== -1) {
+        // Keep the more recent one, but preserve retry state for stability
+        if (swiftShare.timestamp > queue[existingIndex].createdAt) {
+          const prev = queue[existingIndex];
+          queue[existingIndex] = {
+            ...tsShare,
+            id: prev.id, // Keep original ID for consistency
+            retryCount: prev.retryCount, // Preserve retry progress
+            lastRetryAt: prev.lastRetryAt, // Preserve backoff timing
+          };
+          hasUpdates = true;
+        }
+        // Don't increment addedCount for duplicates
+      } else {
+        queue.push(tsShare);
+        addedCount++;
+        hasUpdates = true;
+      }
+    }
+
+    // Write queue if anything changed (new items OR updated duplicates)
+    if (hasUpdates) {
+      await AsyncStorage.setItem(SHARE_QUEUE_KEY, JSON.stringify(queue));
+    }
+
+    return addedCount;
+  } finally {
+    queueLock.release();
   }
 }

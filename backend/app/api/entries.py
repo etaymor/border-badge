@@ -1,20 +1,25 @@
 """Entry endpoints."""
 
 import logging
+from typing import Any, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
 
-from app.api.utils import check_duplicate_place_in_entries, get_token_from_request
+from app.api.subscriptions import FREE_LIMITS
+from app.api.utils import get_token_from_request
 from app.core.media import build_media_url
 from app.core.security import CurrentUser
 from app.db.postgrest import in_list
 from app.db.session import get_supabase_client
 from app.main import limiter
 from app.schemas.entries import (
+    BulkMoveRequest,
+    BulkMoveResponse,
     Entry,
     EntryCreate,
     EntryMediaFile,
+    EntryMoveRequest,
     EntryType,
     EntryUpdate,
     EntryWithPlace,
@@ -59,18 +64,32 @@ async def list_entries(
     user: CurrentUser,
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
+    sort: Literal["date_asc", "created_at_desc"] = Query("date_asc"),
 ) -> list[EntryWithPlace]:
-    """List all entries for a trip with pagination."""
+    """List all entries for a trip with pagination.
+
+    Args:
+        sort: Sort order. "date_asc" (default) sorts by date then created_at.
+              "created_at_desc" sorts by creation time descending (for Saved Places).
+    """
     token = get_token_from_request(request)
     db = get_supabase_client(user_token=token)
+
+    # Determine order clause based on sort parameter
+    order_clause = (
+        "created_at.desc"
+        if sort == "created_at_desc"
+        else "date.asc.nullslast,created_at.asc"
+    )
 
     # Fetch entries with embedded places and media_files in single query
     entries = await db.get(
         "entry",
         {
             "trip_id": f"eq.{trip_id}",
+            "deleted_at": "is.null",
             "select": "*, place(*), media_files(*)",
-            "order": "date.asc.nullslast,created_at.asc",
+            "order": order_clause,
             "limit": limit,
             "offset": offset,
         },
@@ -138,31 +157,35 @@ async def create_entry(
     data: EntryCreate,
     user: CurrentUser,
 ) -> EntryWithPlace:
-    """Create a new entry for a trip."""
+    """Create a new entry for a trip.
+
+    Uses atomic database function with advisory lock to prevent race conditions
+    in entry limit enforcement for free tier users.
+    """
     token = get_token_from_request(request)
     db = get_supabase_client(user_token=token)
 
-    # Check for duplicate place in same trip (by google_place_id)
-    if data.place and data.place.google_place_id:
-        existing_entries = await db.get(
-            "entry",
-            {
-                "trip_id": f"eq.{trip_id}",
-                "deleted_at": "is.null",
-                "select": "id, place!inner(google_place_id)",
-            },
-        )
-        if check_duplicate_place_in_entries(
-            existing_entries, data.place.google_place_id
-        ):
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="This place has already been saved to this trip",
-            )
+    # Get subscription status to determine if entry limit applies
+    profile_result: list[dict[str, Any]] | None = await db.get(
+        "user_profile",
+        {
+            "user_id": f"eq.{user.id}",
+            "select": "subscription_status",
+        },
+    )
+    subscription_status: str = (
+        profile_result[0].get("subscription_status", "free")
+        if profile_result
+        else "free"
+    )
 
-    # Create entry
-    entry_data = {
-        "trip_id": str(trip_id),
+    # Set limit for free users only (premium/trial users get None = no limit)
+    entries_limit: int | None = None
+    if subscription_status not in ("premium", "trial"):
+        entries_limit = FREE_LIMITS["entries_per_trip"]
+
+    # Prepare entry data for RPC
+    entry_payload: dict[str, Any] = {
         "type": data.type.value,
         "title": data.title,
         "notes": data.notes,
@@ -171,26 +194,15 @@ async def create_entry(
         "date": data.date.isoformat() if data.date else None,
     }
 
-    entry_rows = await db.post("entry", entry_data)
-    if not entry_rows:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to create entry",
-        )
-
-    entry = Entry(**entry_rows[0])
-    place = None
-
-    # Create place if provided
+    # Prepare place data for RPC (if provided)
+    place_payload: dict[str, Any] | None = None
     if data.place:
         logger.info(
-            "Creating place for entry %s: place_name=%s, google_place_id=%s",
-            entry.id,
+            "Creating entry with place: place_name=%s, google_place_id=%s",
             data.place.place_name,
             data.place.google_place_id,
         )
-        place_data = {
-            "entry_id": str(entry.id),
+        place_payload = {
             "google_place_id": data.place.google_place_id,
             "place_name": data.place.place_name,
             "lat": data.place.lat,
@@ -198,41 +210,73 @@ async def create_entry(
             "address": data.place.address,
             "extra_data": data.place.extra_data,
         }
-        place_rows = await db.post("place", place_data)
+
+    # Atomic entry creation with limit enforcement
+    # Uses advisory lock in DB to prevent TOCTOU race conditions
+    try:
+        result = await db.rpc(
+            "atomic_create_entry_with_place",
+            {
+                "p_trip_id": str(trip_id),
+                "p_entry_data": entry_payload,
+                "p_place_data": place_payload,
+                "p_entries_limit": entries_limit,
+            },
+        )
+    except HTTPException as e:
+        # Handle unique constraint violation for duplicate places
+        detail = str(e.detail).lower() if e.detail else ""
+        if "unique" in detail or "duplicate" in detail:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="This place has already been saved to this trip",
+            ) from None
+        raise
+
+    # Empty result means trip not found or user not authorized
+    if not result or len(result) == 0:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Trip not found or not authorized",
+        )
+
+    row = result[0]
+
+    # Handle limit exceeded error from atomic function
+    if row.get("error_code") == "LIMIT_EXCEEDED":
+        current_count = row.get("current_count", entries_limit)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "code": "LIMIT_EXCEEDED",
+                "message": f"Free tier allows {entries_limit} entries per trip. Upgrade to premium for unlimited entries.",
+                "limit": entries_limit,
+                "current_count": current_count,
+            },
+        )
+
+    # Parse entry and place from RPC result
+    entry_data = row.get("entry_row")
+    place_data_result = row.get("place_row")
+
+    if not entry_data:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create entry",
+        )
+
+    entry = Entry(**entry_data)
+    place = Place(**place_data_result) if place_data_result else None
+
+    if data.place and place:
         logger.debug(
             "Place created for entry",
             extra={
                 "entry_id": str(entry.id),
-                "place_id": place_rows[0]["id"] if place_rows else None,
+                "place_id": str(place.id),
                 "has_google_place_id": bool(data.place.google_place_id),
             },
         )
-        if not place_rows:
-            # Rollback: delete the entry we just created
-            # If cleanup fails, log the orphaned entry for manual resolution
-            try:
-                await db.delete("entry", {"id": f"eq.{entry.id}"})
-                logger.warning(
-                    "Place creation failed for entry %s, successfully rolled back",
-                    entry.id,
-                )
-            except Exception as cleanup_error:
-                logger.error(
-                    "ORPHANED ENTRY: Entry %s created but place creation failed "
-                    "and cleanup delete also failed: %s. Manual cleanup required.",
-                    entry.id,
-                    cleanup_error,
-                    exc_info=True,
-                )
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail="Failed to create entry. Please contact support.",
-                ) from None
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to create place for entry",
-            )
-        place = Place(**place_rows[0])
 
     # Reassign pending media to this entry
     if data.pending_media_ids:
@@ -273,8 +317,11 @@ async def get_entry(
     token = get_token_from_request(request)
     db = get_supabase_client(user_token=token)
 
-    # Fetch entry with embedded place in single query
-    entries = await db.get("entry", {"id": f"eq.{entry_id}", "select": "*, place(*)"})
+    # Fetch entry with embedded place in single query (exclude soft-deleted)
+    entries = await db.get(
+        "entry",
+        {"id": f"eq.{entry_id}", "deleted_at": "is.null", "select": "*, place(*)"},
+    )
 
     if not entries:
         raise HTTPException(
@@ -455,3 +502,159 @@ async def restore_entry(
         place = Place(**places[0])
 
     return EntryWithPlace(**entry.model_dump(), place=place)
+
+
+@router.patch("/entries/{entry_id}/move", response_model=EntryWithPlace)
+@limiter.limit("30/minute")
+async def move_entry(
+    request: Request,
+    entry_id: UUID,
+    data: EntryMoveRequest,
+    user: CurrentUser,
+) -> EntryWithPlace:
+    """Move an entry to a different trip.
+
+    This is useful for organizing entries from the Saved Places (uncategorized)
+    trip into specific country trips.
+
+    Note: The RPC returns place_row directly to avoid an N+1 query. Duplicate
+    detection relies on the unique index (idx_place_unique_google_per_trip)
+    enforced atomically via trigger when entry.trip_id changes.
+    """
+    token = get_token_from_request(request)
+    db = get_supabase_client(user_token=token)
+
+    # Use RPC for atomic move with validation
+    try:
+        result = await db.rpc(
+            "move_entry_to_trip",
+            {"p_entry_id": str(entry_id), "p_target_trip_id": str(data.trip_id)},
+        )
+    except HTTPException as e:
+        # Handle unique constraint violations from concurrent moves
+        detail = str(e.detail).lower() if e.detail else ""
+        if "unique" in detail or "duplicate" in detail:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="This place already exists in the target trip",
+            ) from e
+        raise
+
+    if result is None or len(result) == 0:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Entry not found or not authorized",
+        )
+
+    row = result[0]
+    entry_data = row.get("entry_row")
+    place_data = row.get("place_row")
+
+    if not entry_data:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to move entry",
+        )
+
+    entry = Entry(**entry_data)
+    place = Place(**place_data) if place_data else None
+
+    return EntryWithPlace(**entry.model_dump(), place=place)
+
+
+@router.post("/entries/bulk-move", response_model=BulkMoveResponse)
+@limiter.limit("10/minute")
+async def bulk_move_entries(
+    request: Request,
+    data: BulkMoveRequest,
+    user: CurrentUser,
+) -> BulkMoveResponse:
+    """Move multiple entries to a target trip in a single atomic operation.
+
+    All entries must belong to trips owned by the current user.
+    If any entry would create a duplicate in the target trip, the entire
+    operation is rolled back (atomic).
+    """
+    token = get_token_from_request(request)
+    db = get_supabase_client(user_token=token)
+
+    # Convert entry_ids to list of strings for RPC
+    entry_id_strs = [str(eid) for eid in data.entry_ids]
+
+    # Call RPC with explicit error handling for known failure modes
+    # The bulk_move_entries_to_trip function is atomic - it either moves all
+    # entries or rolls back completely, so we don't need to handle partial success.
+    try:
+        result = await db.rpc(
+            "bulk_move_entries_to_trip",
+            {
+                "p_entry_ids": entry_id_strs,
+                "p_target_trip_id": str(data.target_trip_id),
+            },
+        )
+    except HTTPException as e:
+        # Map RPC error messages to appropriate HTTP status codes.
+        # Using 'from None' since these are intentional transformations to cleaner errors.
+        detail = str(e.detail).lower() if e.detail else ""
+
+        if "not authenticated" in detail:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Authentication required",
+            ) from None
+        elif "not authorized" in detail:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Not authorized to perform this operation",
+            ) from None
+        elif "not found" in detail:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=e.detail,
+            ) from None
+        elif "already exist" in detail:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="One or more places already exist in the target trip",
+            ) from None
+        elif "no entries specified" in detail:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No entries specified",
+            ) from None
+        # Re-raise unexpected errors as-is (client already converts to 5xx for network errors)
+        raise
+
+    # Validate response structure - the RPC always returns exactly one row on success
+    if not result or not isinstance(result, list) or len(result) == 0:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unexpected response from bulk move operation",
+        )
+
+    row = result[0]
+    moved_count = row.get("moved_count", 0)
+    entries_data = row.get("entries", [])
+
+    # Parse moved entries and batch fetch their places
+    parsed_entries = [Entry(**entry_data) for entry_data in entries_data]
+
+    # Batch fetch all places in a single query
+    # Re-validate UUIDs defensively even though they come from the DB
+    entry_ids = [str(UUID(str(entry.id))) for entry in parsed_entries]
+    places_by_entry_id: dict[str, Place] = {}
+    if entry_ids:
+        # Use proper PostgREST array syntax with validated UUIDs
+        ids_param = ",".join(entry_ids)
+        places_result = await db.get("place", {"entry_id": f"in.({ids_param})"})
+        for place_data in places_result or []:
+            place = Place(**place_data)
+            places_by_entry_id[str(place.entry_id)] = place
+
+    # Build EntryWithPlace objects using the lookup map
+    entries: list[EntryWithPlace] = []
+    for entry in parsed_entries:
+        place = places_by_entry_id.get(str(entry.id))
+        entries.append(EntryWithPlace(**entry.model_dump(), place=place))
+
+    return BulkMoveResponse(moved_count=moved_count, entries=entries)

@@ -6,11 +6,15 @@ import type { EntryType } from '../types/shared';
 
 export type { EntryType };
 
+// Gated feature types for paywall modal
+export type GatedFeature = 'shareExtension' | 'photoImport' | 'entries';
+
 // Root stack contains auth, onboarding, and main tab navigator
 export type RootStackParamList = {
   Auth: NavigatorScreenParams<AuthStackParamList>;
   Onboarding: NavigatorScreenParams<OnboardingStackParamList>;
   Main: NavigatorScreenParams<MainTabParamList>;
+  PaywallModal: { feature?: GatedFeature };
 };
 
 // Auth stack screens
@@ -32,6 +36,8 @@ export type OnboardingStackParamList = {
   AntarcticaPrompt: undefined;
   ProgressSummary: undefined;
   NameEntry: undefined;
+  EmotionalHook: undefined;
+  FunctionalHook: undefined;
   Paywall: undefined;
   AccountCreation: undefined;
 };
@@ -59,6 +65,13 @@ export type FriendsStackParamList = {
 export type DreamsStackParamList = {
   DreamsHome: undefined;
   CountryDetail: { countryId: string; countryName?: string; countryCode?: string };
+  TripForm: {
+    tripId?: string;
+    countryId?: string;
+    countryName?: string;
+    prefillPlace?: PrefillPlace;
+    prefillPhotos?: string[];
+  };
 };
 
 // Share capture source types
@@ -70,21 +83,65 @@ export type PassportStackParamList = {
   CountryDetail: { countryId: string; countryName?: string; countryCode?: string };
   ProfileSettings: undefined;
   Trips: NavigatorScreenParams<TripsStackParamList>;
+  TripForm: {
+    tripId?: string;
+    countryId?: string;
+    countryName?: string;
+    prefillPlace?: PrefillPlace;
+    prefillPhotos?: string[];
+  };
   ShareCapture: { url: string; caption?: string; source?: ShareCaptureSource };
+  PhotoTrips: { countryCode?: string };
+  PhotoImport: PhotoImportParams;
+};
+
+// Prefill place data for TripForm (from photo import)
+export type PrefillPlace = {
+  placeId: string;
+  name: string;
+  address: string;
+  category: EntryType;
+};
+
+// Photo import params (shared between navigators)
+export type PhotoImportParams = {
+  countryCode?: string;
+  tripId?: string; // Pre-associate with existing trip
+  autoStart?: boolean; // Auto-start scan when cache exists
+  skipToSuggestions?: boolean; // Skip scanning and go directly to candidates when cache exists
 };
 
 // Trips stack (nested in tab)
 export type TripsStackParamList = {
   TripsList: undefined;
-  TripDetail: { tripId: string };
-  TripForm: { tripId?: string; countryId?: string; countryName?: string }; // undefined tripId = create, string = edit
+  TripDetail: {
+    tripId: string;
+    prefillPlace?: PrefillPlace; // Pre-filled place from photo import
+    prefillPhotos?: string[]; // Photo URIs from photo import
+  };
+  PhotoTrips: { countryCode?: string };
+  PhotoImport: PhotoImportParams;
+  TripForm: {
+    tripId?: string;
+    countryId?: string;
+    countryName?: string;
+    prefillPlace?: PrefillPlace; // Pre-filled place from photo import
+    prefillPhotos?: string[]; // Photo URIs from photo import
+  }; // undefined tripId = create, string = edit
   EntryList: { tripId: string; tripName?: string };
   EntryDetail: { entryId: string };
-  EntryForm: { tripId: string; entryId?: string; entryType?: EntryType };
+  EntryForm: {
+    tripId: string;
+    entryId?: string;
+    entryType?: EntryType;
+    prefillPlace?: PrefillPlace; // Pre-filled place from photo import
+    prefillPhotos?: string[]; // Photo URIs from photo import
+  };
   TripLists: { tripId: string; tripName?: string };
   ListCreate: { tripId: string; tripName?: string };
   ListEdit: { listId: string; tripId: string; tripName?: string };
   PendingTripTags: undefined;
+  SavedPlaces: undefined; // Uncategorized entries holding area
 };
 
 // Screen props helpers

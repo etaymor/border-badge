@@ -20,17 +20,157 @@ const path = require('path');
 // Configuration constants
 const EXTENSION_NAME = 'ShareExtension';
 const EXTENSION_BUNDLE_ID_SUFFIX = '.ShareExtension';
-const APP_GROUP_ID = 'group.com.borderbadge.app';
+const APP_GROUP_ID = 'group.com.atlasi.app';
 const EXTENSION_DISPLAY_NAME = 'Save Place';
+const ASSOCIATED_DOMAIN = 'atlasi.app';
+
+// Font files to include in the Share Extension bundle
+// These are copied from Resources/Fonts/ to the extension target
+const FONT_FILES = [
+  'PlayfairDisplay_700Bold.ttf',
+  'OpenSans_400Regular.ttf',
+  'OpenSans_600SemiBold.ttf',
+  'Oswald_500Medium.ttf',
+];
+
+// Files that are React Native native modules - these should only be in the main app target,
+// not in the ShareExtension target (which doesn't link to React Native)
+const MAIN_APP_ONLY_FILES = [
+  'SharedGroupPreferences.swift',
+  'SharedGroupPreferences.m',
+  'Models/QueuedShareApp.swift',
+  'QueuedShareApp.swift',
+];
+
+// Files to copy into the main app target (Atlasi) in addition to the native modules
+// (e.g., shared models the app needs to decode extension data)
+const MAIN_APP_EXTRA_FILES = ['Models/QueuedShareApp.swift'];
 
 /**
- * Add App Group entitlement to the main app
+ * Recursively find all Swift files in a directory, excluding Tests folder
+ * and files that should only be in the main app target.
+ * @param {string} dir - The directory to search
+ * @param {string} basePath - The relative path from the root (for recursion)
+ * @returns {string[]} - Array of relative file paths (always forward slashes for Xcode)
  */
-function withAppGroupEntitlement(config) {
+function getSwiftFilesRecursively(dir, basePath = '') {
+  // Validate directory exists and is accessible
+  try {
+    if (!fs.existsSync(dir)) {
+      console.warn(`getSwiftFilesRecursively: Directory does not exist: ${dir}`);
+      return [];
+    }
+    const stat = fs.statSync(dir);
+    if (!stat.isDirectory()) {
+      console.warn(`getSwiftFilesRecursively: Path is not a directory: ${dir}`);
+      return [];
+    }
+  } catch (err) {
+    console.warn(`getSwiftFilesRecursively: Cannot access directory ${dir}: ${err.message}`);
+    return [];
+  }
+
+  let files = [];
+  let entries;
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch (err) {
+    console.warn(`getSwiftFilesRecursively: Cannot read directory ${dir}: ${err.message}`);
+    return [];
+  }
+
+  for (const entry of entries) {
+    const fullPath = path.join(dir, entry.name);
+    // Use path.posix.join to ensure forward slashes for Xcode (works on Windows too)
+    const relativePath = basePath ? path.posix.join(basePath, entry.name) : entry.name;
+    if (entry.isDirectory()) {
+      // Skip Tests directory - not needed in production build
+      if (entry.name !== 'Tests') {
+        files = files.concat(getSwiftFilesRecursively(fullPath, relativePath));
+      }
+    } else if (entry.name.endsWith('.swift')) {
+      // Skip files that should only be in the main app target (React Native native modules)
+      // Check both the full relative path and just the filename for exclusion
+      const shouldExclude =
+        MAIN_APP_ONLY_FILES.includes(relativePath) || MAIN_APP_ONLY_FILES.includes(entry.name);
+      if (!shouldExclude) {
+        files.push(relativePath);
+      }
+    }
+  }
+  return files;
+}
+
+// Get Apple Team ID - only required during actual iOS builds (prebuild), not Metro
+function getAppleTeamId() {
+  const teamId = process.env.APPLE_TEAM_ID || process.env.DEVELOPMENT_TEAM || process.env.TEAM_ID;
+  if (!teamId) {
+    throw new Error(
+      'APPLE_TEAM_ID environment variable must be set for iOS builds. ' +
+        'Set APPLE_TEAM_ID, DEVELOPMENT_TEAM, or TEAM_ID in your environment.'
+    );
+  }
+  return teamId;
+}
+
+/**
+ * Add App Group, Keychain Access Groups, and Associated Domains entitlements to the main app.
+ * These entitlements enable:
+ * - App Groups: Sharing UserDefaults data between main app and Share Extension
+ * - Keychain Access Groups: Sharing auth tokens between main app and Share Extension
+ * - Associated Domains: Universal Links for Share Extension to open app via https URL
+ *
+ * @param {Object} config - Expo config object
+ * @param {string} bundleIdentifier - The app's bundle identifier (e.g., 'com.atlasi.app')
+ */
+function withAppGroupEntitlement(config, bundleIdentifier) {
   return withEntitlementsPlist(config, (mod) => {
+    // App Groups for sharing data with Share Extension
     mod.modResults['com.apple.security.application-groups'] = [APP_GROUP_ID];
+
+    // Keychain Access Groups for sharing auth tokens with Share Extension
+    // Uses $(AppIdentifierPrefix) which Xcode substitutes with TeamID. at build time
+    // Must match the access group in ShareExtension.entitlements and KeychainHelper.swift
+    mod.modResults['keychain-access-groups'] = [`$(AppIdentifierPrefix)${bundleIdentifier}`];
+
+    // Associated Domains for Universal Links (allows Share Extension to open app via https URL)
+    mod.modResults['com.apple.developer.associated-domains'] = [`applinks:${ASSOCIATED_DOMAIN}`];
+
     return mod;
   });
+}
+
+/**
+ * Find extension target by name, handling the xcode library's quoted name format.
+ * The xcode npm package stores target names with quotes (e.g., "ShareExtension"),
+ * but pbxTargetByName expects unquoted names. This function handles both cases.
+ * @param {Object} xcodeProject - The xcode project object
+ * @param {string} name - The unquoted target name to find
+ * @returns {Object|null} - The target object or null if not found
+ */
+function findExtensionTarget(xcodeProject, name) {
+  const nativeTargets = xcodeProject.pbxNativeTargetSection();
+  const quotedName = `"${name}"`;
+
+  for (const key in nativeTargets) {
+    // Skip comment keys
+    if (key.endsWith('_comment')) continue;
+
+    const target = nativeTargets[key];
+    if (target && (target.name === name || target.name === quotedName)) {
+      return { uuid: key, target };
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Get API base URL from environment or default to production.
+ * Priority: EXPO_PUBLIC_API_URL env var > production URL
+ */
+function getApiBaseUrl() {
+  return process.env.EXPO_PUBLIC_API_URL || 'https://atlasi.app';
 }
 
 /**
@@ -39,17 +179,47 @@ function withAppGroupEntitlement(config) {
 function withShareExtensionTarget(config) {
   return withXcodeProject(config, async (mod) => {
     const xcodeProject = mod.modResults;
-    const appBundleId = mod.ios?.bundleIdentifier ?? 'com.borderbadge.app';
+    const appBundleId = mod.ios?.bundleIdentifier ?? 'com.atlasi.app';
     const extensionBundleId = `${appBundleId}${EXTENSION_BUNDLE_ID_SUFFIX}`;
     const projectRoot = mod.modRequest.projectRoot;
     const iosPath = path.join(projectRoot, 'ios');
+    const appName = mod.modRequest.projectName || 'Atlasi';
 
-    // Check if extension already exists
-    const extensionTargetName = EXTENSION_NAME;
-    const existingTarget = xcodeProject.pbxTargetByName(extensionTargetName);
-    if (existingTarget) {
-      console.log(`Share Extension target "${extensionTargetName}" already exists, skipping...`);
-      return mod;
+    // Validate model sync before copying - fail fast if models have drifted
+    const { validate } = require('./share-extension/scripts/validate-model-sync');
+    validate(); // Throws and exits if validation fails
+
+    // Copy native module files to main app target
+    const pluginExtensionPath = path.join(__dirname, 'share-extension');
+    const nativeModuleFiles = ['SharedGroupPreferences.swift', 'SharedGroupPreferences.m'];
+    const appPath = path.join(iosPath, appName);
+
+    // Find the main app group (the group with the same name as the app)
+    const mainAppGroupKey = xcodeProject.findPBXGroupKey({ name: appName });
+    const mainTarget = xcodeProject.getFirstTarget();
+
+    const mainAppFiles = [...nativeModuleFiles, ...MAIN_APP_EXTRA_FILES];
+
+    for (const file of mainAppFiles) {
+      const srcPath = path.join(pluginExtensionPath, file);
+      const destPath = path.join(appPath, file);
+      if (fs.existsSync(srcPath)) {
+        const destDir = path.dirname(destPath);
+        if (!fs.existsSync(destDir)) {
+          fs.mkdirSync(destDir, { recursive: true });
+        }
+        fs.copyFileSync(srcPath, destPath);
+        console.log(`Copied ${file} to ${appPath}`);
+
+        // Add to main app's build sources with proper path reference
+        // The path must be relative to ios/ directory: Atlasi/SharedGroupPreferences.swift
+        if (file.endsWith('.swift') || file.endsWith('.m')) {
+          const filePath = `${appName}/${file}`;
+          const fileOptions = { target: mainTarget.uuid };
+          xcodeProject.addSourceFile(filePath, fileOptions, mainAppGroupKey);
+          console.log(`Added ${filePath} to main app build sources`);
+        }
+      }
     }
 
     // Create extension directory
@@ -58,21 +228,359 @@ function withShareExtensionTarget(config) {
       fs.mkdirSync(extensionPath, { recursive: true });
     }
 
-    // Copy extension files from plugin directory
-    const pluginExtensionPath = path.join(__dirname, 'share-extension');
-    const filesToCopy = ['ShareViewController.swift', 'Info.plist', 'ShareExtension.entitlements'];
+    // Get all Swift files recursively (excluding Tests directory)
+    const swiftFiles = getSwiftFilesRecursively(pluginExtensionPath);
 
-    for (const file of filesToCopy) {
+    // Validate that we found Swift files - abort if none found
+    if (swiftFiles.length === 0) {
+      throw new Error(
+        `No Swift files found in ${pluginExtensionPath}. ` +
+          'Share Extension requires Swift source files to build.'
+      );
+    }
+
+    const staticFiles = ['Info.plist', 'ShareExtension.entitlements'];
+    const allFiles = [...swiftFiles, ...staticFiles];
+
+    // Fail fast: validate required static files exist before copying
+    const missingStaticFiles = staticFiles.filter(
+      (file) => !fs.existsSync(path.join(pluginExtensionPath, file))
+    );
+    if (missingStaticFiles.length > 0) {
+      throw new Error(
+        `Share Extension: Required static files missing from ${pluginExtensionPath}: ` +
+          `${missingStaticFiles.join(', ')}. ` +
+          `Cannot create extension target at ${extensionPath}.`
+      );
+    }
+
+    // Always copy files preserving directory structure (even if target exists)
+    // This ensures plugin source changes are reflected in the iOS project
+    let filesCopied = 0;
+    for (const file of allFiles) {
       const srcPath = path.join(pluginExtensionPath, file);
       const destPath = path.join(extensionPath, file);
+
+      // Create subdirectory if needed
+      const destDir = path.dirname(destPath);
+      if (!fs.existsSync(destDir)) {
+        fs.mkdirSync(destDir, { recursive: true });
+      }
+
       if (fs.existsSync(srcPath)) {
         fs.copyFileSync(srcPath, destPath);
+        filesCopied++;
+      } else {
+        // Warn for optional Swift files only (staticFiles already validated above)
+        console.warn(`Share Extension: Missing source file: ${srcPath}`);
       }
+    }
+    console.log(`Copied ${filesCopied} files to ${extensionPath}`);
+
+    // Update Info.plist with the API base URL from environment
+    // This allows the Share Extension to connect to dev servers during development
+    const infoPlistPath = path.join(extensionPath, 'Info.plist');
+    if (fs.existsSync(infoPlistPath)) {
+      let plistContent = fs.readFileSync(infoPlistPath, 'utf8');
+      const apiBaseUrl = getApiBaseUrl();
+      // Replace the hardcoded production URL with the environment-configured URL
+      plistContent = plistContent.replace(
+        /<key>API_BASE_URL<\/key>\s*<string>[^<]*<\/string>/,
+        `<key>API_BASE_URL</key>\n\t<string>${apiBaseUrl}</string>`
+      );
+      fs.writeFileSync(infoPlistPath, plistContent);
+      console.log(`Share Extension: API_BASE_URL set to ${apiBaseUrl}`);
+    }
+
+    // Copy font files to extension Resources directory
+    // Track which fonts were actually copied for build phase accuracy
+    const fontSrcDir = path.join(pluginExtensionPath, 'Resources', 'Fonts');
+    const fontDestDir = path.join(extensionPath, 'Resources', 'Fonts');
+    if (!fs.existsSync(fontDestDir)) {
+      fs.mkdirSync(fontDestDir, { recursive: true });
+    }
+
+    const copiedFonts = [];
+    const missingFonts = [];
+    for (const fontFile of FONT_FILES) {
+      const srcPath = path.join(fontSrcDir, fontFile);
+      const destPath = path.join(fontDestDir, fontFile);
+      if (fs.existsSync(srcPath)) {
+        fs.copyFileSync(srcPath, destPath);
+        copiedFonts.push(fontFile);
+      } else {
+        missingFonts.push(fontFile);
+        console.warn(`Share Extension: Missing font file: ${srcPath}`);
+      }
+    }
+    console.log(`Copied ${copiedFonts.length} font files to ${fontDestDir}`);
+
+    // Warn clearly if any expected fonts are missing (could break build)
+    if (missingFonts.length > 0) {
+      console.warn(
+        `Share Extension: ${missingFonts.length} font file(s) missing: ${missingFonts.join(', ')}. ` +
+          'The extension may fail to build or display text incorrectly.'
+      );
+    }
+
+    // Check if extension target already exists using our custom finder
+    // (pbxTargetByName doesn't handle quoted names properly)
+    const existingTarget = findExtensionTarget(xcodeProject, EXTENSION_NAME);
+    if (existingTarget) {
+      console.log(
+        `Share Extension target "${EXTENSION_NAME}" already exists, updating build phases...`
+      );
+
+      // Update build phases for existing target to ensure Swift files and fonts are in sync
+      // This handles cases where files were added/removed in plugins/share-extension/
+      const swiftFilePaths = swiftFiles.map((f) => `${EXTENSION_NAME}/${f}`);
+      const fontFilePaths = copiedFonts.map((f) => `${EXTENSION_NAME}/Resources/Fonts/${f}`);
+      let extensionGroupKey = xcodeProject.findPBXGroupKey({ name: EXTENSION_NAME });
+
+      /**
+       * Ensure we have a PBXGroup for the extension.
+       *
+       * Why: xcode@3.x's addSourceFile() falls back to addPluginFile() when no group is provided,
+       * and addPluginFile() assumes a "Plugins" group exists (it doesn't in many RN/Expo projects),
+       * causing `pbxGroupByName('Plugins').path` to crash.
+       */
+      const ensureExtensionGroupKey = () => {
+        if (extensionGroupKey) return extensionGroupKey;
+
+        // Try to locate by PBXGroup name/path (findPBXGroupKey can miss quoted/unnamed groups)
+        const pbxGroups = xcodeProject.hash?.project?.objects?.PBXGroup;
+        if (pbxGroups) {
+          for (const key of Object.keys(pbxGroups)) {
+            if (key.endsWith('_comment')) continue;
+            const g = pbxGroups[key];
+            const name = (g?.name || '').replace(/^"(.*)"$/, '$1');
+            const pathValue = (g?.path || '').replace(/^"(.*)"$/, '$1');
+            if (name === EXTENSION_NAME || pathValue === EXTENSION_NAME) {
+              extensionGroupKey = key;
+              return extensionGroupKey;
+            }
+          }
+        }
+
+        // Create the group if still missing
+        const createdGroup = xcodeProject.addPbxGroup([], EXTENSION_NAME, EXTENSION_NAME);
+        const mainGroupKey = xcodeProject.findPBXGroupKey({ name: undefined, path: undefined });
+        if (mainGroupKey) {
+          xcodeProject.addToPbxGroup(createdGroup.uuid, mainGroupKey);
+        }
+        extensionGroupKey = createdGroup.uuid;
+        return extensionGroupKey;
+      };
+
+      extensionGroupKey = ensureExtensionGroupKey();
+
+      // Helper to check if a file reference path is plugin-managed
+      // Plugin-managed source files are under ShareExtension/ directory
+      const isPluginManagedSource = (fileRefPath) => {
+        if (!fileRefPath) return false;
+        return fileRefPath.startsWith(`${EXTENSION_NAME}/`) && fileRefPath.endsWith('.swift');
+      };
+
+      // Plugin-managed resource files are fonts under ShareExtension/Resources/Fonts/
+      const isPluginManagedResource = (fileRefPath) => {
+        if (!fileRefPath) return false;
+        return fileRefPath.startsWith(`${EXTENSION_NAME}/Resources/Fonts/`);
+      };
+
+      // Helper to get file path from a build file reference
+      const getFilePathFromBuildFile = (buildFileValue) => {
+        const buildFiles = xcodeProject.pbxBuildFileSection();
+        const buildFile = buildFiles[buildFileValue];
+        if (!buildFile || !buildFile.fileRef) return null;
+
+        const fileRefs = xcodeProject.pbxFileReferenceSection();
+        const fileRef = fileRefs[buildFile.fileRef];
+        if (!fileRef || !fileRef.path) return null;
+
+        // Remove quotes if present
+        return fileRef.path.replace(/^"(.*)"$/, '$1');
+      };
+
+      /**
+       * Find an existing PBXFileReference UUID by its path.
+       * We match both quoted and unquoted forms.
+       */
+      const findFileRefUuidByPath = (filePath) => {
+        const fileRefs = xcodeProject.pbxFileReferenceSection();
+        const quoted = `"${filePath}"`;
+        for (const key of Object.keys(fileRefs)) {
+          if (key.endsWith('_comment')) continue;
+          const ref = fileRefs[key];
+          const refPath = ref?.path;
+          if (!refPath) continue;
+          if (refPath === filePath || refPath === quoted) {
+            return key;
+          }
+        }
+        return null;
+      };
+
+      /**
+       * Force-add an existing file reference into a target build phase.
+       *
+       * Why: xcode@3.x addSourceFile/addResourceFile return false when a PBXFileReference already exists,
+       * which means we can accidentally clear build phases (during "sync") and never re-add the files.
+       * That results in an .appex bundle with no executable (no sources compiled).
+       */
+      const forceAddExistingFileToBuildPhase = (filePath, phase) => {
+        const fileRefUuid = findFileRefUuidByPath(filePath);
+        if (!fileRefUuid) {
+          console.warn(
+            `Share Extension: Could not find fileRef for ${filePath}; skipping force-add.`
+          );
+          return false;
+        }
+
+        const file = {
+          uuid: xcodeProject.generateUuid(),
+          fileRef: fileRefUuid,
+          basename: path.basename(filePath),
+          group: phase, // used for comments ("<basename> in Sources/Resources")
+          target: existingTarget.uuid,
+          path: filePath,
+        };
+
+        xcodeProject.addToPbxBuildFileSection(file);
+        if (phase === 'Sources') {
+          xcodeProject.addToPbxSourcesBuildPhase(file);
+        } else if (phase === 'Resources') {
+          xcodeProject.addToPbxResourcesBuildPhase(file);
+        } else {
+          console.warn(`Share Extension: Unknown phase ${phase} for force-add.`);
+          return false;
+        }
+
+        return true;
+      };
+
+      /**
+       * cordova-node-xcode (xcode@3.x) does not expose pbxBuildPhaseObj().
+       * We implement a tiny equivalent here to find a build phase object for a target UUID.
+       *
+       * @param {string} targetUuid - PBXNativeTarget UUID
+       * @param {string} phaseIsa - e.g. 'PBXSourcesBuildPhase' or 'PBXResourcesBuildPhase'
+       * @returns {{ uuid: string, buildPhase: object } | null}
+       */
+      const getBuildPhaseObj = (targetUuid, phaseIsa) => {
+        const nativeTargets = xcodeProject.pbxNativeTargetSection();
+        const target = nativeTargets[targetUuid];
+        if (!target || !Array.isArray(target.buildPhases)) return null;
+
+        const objects = xcodeProject.hash?.project?.objects;
+        const section = objects?.[phaseIsa];
+        if (!section) return null;
+
+        for (const phaseRef of target.buildPhases) {
+          const phaseUuid = phaseRef?.value;
+          if (!phaseUuid) continue;
+          const phase = section[phaseUuid];
+          if (phase) {
+            return { uuid: phaseUuid, buildPhase: phase };
+          }
+        }
+
+        return null;
+      };
+
+      // Find and update the Sources build phase
+      const buildPhases = getBuildPhaseObj(existingTarget.uuid, 'PBXSourcesBuildPhase');
+      if (buildPhases) {
+        const sourcesBuildPhase = buildPhases.buildPhase;
+        if (sourcesBuildPhase && sourcesBuildPhase.files) {
+          // Filter out only plugin-managed files, keeping user-owned files
+          const originalCount = sourcesBuildPhase.files.length;
+          sourcesBuildPhase.files = sourcesBuildPhase.files.filter((fileEntry) => {
+            const filePath = getFilePathFromBuildFile(fileEntry.value);
+            return !isPluginManagedSource(filePath);
+          });
+          const removedCount = originalCount - sourcesBuildPhase.files.length;
+          if (removedCount > 0) {
+            console.log(`Removed ${removedCount} plugin-managed source files from build phase`);
+          }
+        }
+        // Add all current Swift files.
+        // NOTE: addSourceFile returns false when the file reference already exists; in that case,
+        // force-add it back into the Sources build phase so the extension actually compiles.
+        for (const filePath of swiftFilePaths) {
+          const added = xcodeProject.addSourceFile(
+            filePath,
+            { target: existingTarget.uuid },
+            extensionGroupKey
+          );
+          if (!added) {
+            forceAddExistingFileToBuildPhase(filePath, 'Sources');
+          }
+        }
+        console.log(`Updated Sources build phase with ${swiftFilePaths.length} Swift files`);
+      } else {
+        // No Sources build phase exists, create one
+        xcodeProject.addBuildPhase(
+          swiftFilePaths,
+          'PBXSourcesBuildPhase',
+          'Sources',
+          existingTarget.uuid,
+          'app_extension',
+          EXTENSION_NAME
+        );
+        console.log(`Created Sources build phase with ${swiftFilePaths.length} Swift files`);
+      }
+
+      // Find and update the Resources build phase for fonts
+      const resourcesBuildPhase = getBuildPhaseObj(existingTarget.uuid, 'PBXResourcesBuildPhase');
+      if (resourcesBuildPhase) {
+        const resBuildPhase = resourcesBuildPhase.buildPhase;
+        if (resBuildPhase && resBuildPhase.files) {
+          // Filter out only plugin-managed font files, keeping user-owned resources
+          const originalCount = resBuildPhase.files.length;
+          resBuildPhase.files = resBuildPhase.files.filter((fileEntry) => {
+            const filePath = getFilePathFromBuildFile(fileEntry.value);
+            return !isPluginManagedResource(filePath);
+          });
+          const removedCount = originalCount - resBuildPhase.files.length;
+          if (removedCount > 0) {
+            console.log(`Removed ${removedCount} plugin-managed resource files from build phase`);
+          }
+        }
+        // Add all current font files.
+        //
+        // IMPORTANT: We intentionally do NOT use xcodeProject.addResourceFile here.
+        // xcode@3.x's addResourceFile() calls correctForResourcesPath(), which assumes a PBXGroup
+        // named "Resources" exists. Many RN/Expo projects don't have that group, which crashes prebuild.
+        // Instead, we ensure the PBXFileReference exists (in the ShareExtension group) and then
+        // force-add it into the PBXResourcesBuildPhase.
+        for (const filePath of fontFilePaths) {
+          // Ensure a file reference exists in the ShareExtension PBXGroup
+          if (!findFileRefUuidByPath(filePath)) {
+            xcodeProject.addFile(filePath, extensionGroupKey);
+          }
+          // Ensure it is included in the Resources build phase
+          forceAddExistingFileToBuildPhase(filePath, 'Resources');
+        }
+        console.log(`Updated Resources build phase with ${fontFilePaths.length} font files`);
+      } else {
+        // No Resources build phase exists, create one
+        xcodeProject.addBuildPhase(
+          fontFilePaths,
+          'PBXResourcesBuildPhase',
+          'Resources',
+          existingTarget.uuid,
+          'app_extension',
+          EXTENSION_NAME
+        );
+        console.log(`Created Resources build phase with ${fontFilePaths.length} font files`);
+      }
+
+      return mod;
     }
 
     // Create PBXNativeTarget for extension
     const target = xcodeProject.addTarget(
-      extensionTargetName,
+      EXTENSION_NAME,
       'app_extension',
       EXTENSION_NAME,
       extensionBundleId
@@ -83,11 +591,10 @@ function withShareExtensionTarget(config) {
       return mod;
     }
 
-    // Add source files to target
-    const groupName = EXTENSION_NAME;
+    // Add source files to target - include all Swift files
     const extensionGroup = xcodeProject.addPbxGroup(
-      ['ShareViewController.swift', 'Info.plist', 'ShareExtension.entitlements'],
-      groupName,
+      [...swiftFiles, ...staticFiles],
+      EXTENSION_NAME,
       EXTENSION_NAME
     );
 
@@ -97,78 +604,109 @@ function withShareExtensionTarget(config) {
       xcodeProject.addToPbxGroup(extensionGroup.uuid, mainGroupKey);
     }
 
-    // Add Swift file to build sources
-    const swiftFilePath = `${EXTENSION_NAME}/ShareViewController.swift`;
-    xcodeProject.addSourceFile(swiftFilePath, { target: target.uuid }, extensionGroup.uuid);
+    // Add all Swift files to build sources
+    // File paths must include the extension directory for Xcode to find them
+    const swiftFilePaths = swiftFiles.map((f) => `${EXTENSION_NAME}/${f}`);
+
+    // Add a Sources build phase with all Swift files to the extension target
+    // Use the full relative path from the ios directory
+    xcodeProject.addBuildPhase(
+      swiftFilePaths,
+      'PBXSourcesBuildPhase',
+      'Sources',
+      target.uuid,
+      'app_extension',
+      EXTENSION_NAME
+    );
+    console.log(
+      `Added Sources build phase with ${swiftFilePaths.length} files to ${EXTENSION_NAME}`
+    );
+
+    // Add font files to Resources build phase
+    // Use copiedFonts (not FONT_FILES) to only include fonts that actually exist on disk
+    const fontFilePaths = copiedFonts.map((f) => `${EXTENSION_NAME}/Resources/Fonts/${f}`);
+    xcodeProject.addBuildPhase(
+      fontFilePaths,
+      'PBXResourcesBuildPhase',
+      'Resources',
+      target.uuid,
+      'app_extension',
+      EXTENSION_NAME
+    );
+    console.log(
+      `Added Resources build phase with ${fontFilePaths.length} font files to ${EXTENSION_NAME}`
+    );
 
     // Configure build settings for extension
+    // Note on quoting: Values containing spaces, special chars, or Xcode variables like
+    // $(TARGET_NAME) need outer quotes to survive pbxproj serialization. Path values
+    // without spaces (e.g., CODE_SIGN_ENTITLEMENTS) don't need quotes.
     const buildSettings = {
       ASSETCATALOG_COMPILER_APPICON_NAME: 'AppIcon',
       CLANG_ENABLE_MODULES: 'YES',
       CODE_SIGN_ENTITLEMENTS: `${EXTENSION_NAME}/ShareExtension.entitlements`,
       CODE_SIGN_STYLE: 'Automatic',
+      DEVELOPMENT_TEAM: getAppleTeamId(),
       CURRENT_PROJECT_VERSION: 1,
       GENERATE_INFOPLIST_FILE: 'NO',
       INFOPLIST_FILE: `${EXTENSION_NAME}/Info.plist`,
-      INFOPLIST_KEY_CFBundleDisplayName: EXTENSION_DISPLAY_NAME,
-      INFOPLIST_KEY_NSHumanReadableCopyright: '',
-      IPHONEOS_DEPLOYMENT_TARGET: '15.0',
-      LD_RUNPATH_SEARCH_PATHS:
-        '$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks',
+      INFOPLIST_KEY_CFBundleDisplayName: `"${EXTENSION_DISPLAY_NAME}"`,
+      INFOPLIST_KEY_NSHumanReadableCopyright: '""',
+      // iOS 15.1 matches React Native 0.81's minimum deployment target (set in RN 0.76+).
+      // ShareViewController.swift uses UniformTypeIdentifiers (UTType), which requires iOS 14+.
+      IPHONEOS_DEPLOYMENT_TARGET: '15.1',
+      // Quote runpath entries so the generated pbxproj parses cleanly under CocoaPods/Nanaimo
+      LD_RUNPATH_SEARCH_PATHS: [
+        '"$(inherited)"',
+        '"@executable_path/Frameworks"',
+        '"@executable_path/../../Frameworks"',
+      ],
+      // Main app bundle ID for shared keychain access group
+      // Used in Info.plist as $(AppIdentifierPrefix)$(MAIN_APP_BUNDLE_ID)
+      MAIN_APP_BUNDLE_ID: appBundleId,
       MARKETING_VERSION: '1.0',
       PRODUCT_BUNDLE_IDENTIFIER: extensionBundleId,
-      PRODUCT_NAME: '$(TARGET_NAME)',
+      PRODUCT_NAME: '"$(TARGET_NAME)"',
       SKIP_INSTALL: 'YES',
       SWIFT_EMIT_LOC_STRINGS: 'YES',
       SWIFT_VERSION: '5.0',
       TARGETED_DEVICE_FAMILY: '"1,2"',
     };
 
-    // Apply build settings to debug and release configurations
+    // Apply build settings to debug and release configurations for the extension target
     const configurations = xcodeProject.pbxXCBuildConfigurationSection();
-    for (const key in configurations) {
-      if (typeof configurations[key] === 'object' && configurations[key].buildSettings) {
-        const config = configurations[key];
-        if (config.name === 'Debug' || config.name === 'Release') {
-          // Check if this config belongs to our extension target
-          const configList = xcodeProject.pbxXCConfigurationList();
-          for (const listKey in configList) {
-            if (
-              configList[listKey].buildConfigurations &&
-              configList[listKey].buildConfigurations.some((c) => c.value === key)
-            ) {
-              // Check if this list belongs to extension target
-              const targets = xcodeProject.pbxNativeTargetSection();
-              for (const targetKey in targets) {
-                if (
-                  targets[targetKey].name === extensionTargetName &&
-                  targets[targetKey].buildConfigurationList === listKey
-                ) {
-                  Object.assign(config.buildSettings, buildSettings);
-                }
-              }
-            }
-          }
+    const configLists = xcodeProject.pbxXCConfigurationList();
+    const targets = xcodeProject.pbxNativeTargetSection();
+
+    // Find the extension target's configuration list (handle quoted names)
+    const quotedExtensionName = `"${EXTENSION_NAME}"`;
+    let extensionConfigListKey = null;
+    for (const targetKey in targets) {
+      const targetName = targets[targetKey].name;
+      if (targetName === EXTENSION_NAME || targetName === quotedExtensionName) {
+        extensionConfigListKey = targets[targetKey].buildConfigurationList;
+        break;
+      }
+    }
+
+    if (extensionConfigListKey && configLists[extensionConfigListKey]) {
+      const buildConfigs = configLists[extensionConfigListKey].buildConfigurations || [];
+      for (const buildConfig of buildConfigs) {
+        const configKey = buildConfig.value;
+        if (configurations[configKey] && configurations[configKey].buildSettings) {
+          Object.assign(configurations[configKey].buildSettings, buildSettings);
         }
       }
     }
 
-    // Add extension to main app's "Embed App Extensions" build phase
-    // This ensures the extension is embedded in the app bundle
-    const mainAppTarget = xcodeProject.getFirstTarget();
-    if (mainAppTarget) {
-      // Add copy files build phase for embedding extension
-      xcodeProject.addBuildPhase(
-        [`${EXTENSION_NAME}.appex`],
-        'PBXCopyFilesBuildPhase',
-        'Embed App Extensions',
-        mainAppTarget.uuid,
-        'app_extension'
-      );
-    }
+    // Note: addTarget() for 'app_extension' type automatically:
+    // 1. Creates a "Copy Files" build phase to embed the extension
+    // 2. Adds the extension product to that build phase
+    // 3. Adds a target dependency from the main app to the extension
+    // So we don't need to add these manually.
 
     console.log(
-      `Added Share Extension target "${extensionTargetName}" with bundle ID "${extensionBundleId}"`
+      `Added Share Extension target "${EXTENSION_NAME}" with bundle ID "${extensionBundleId}"`
     );
 
     return mod;
@@ -179,8 +717,11 @@ function withShareExtensionTarget(config) {
  * Main plugin function
  */
 function withShareExtension(config) {
-  // Add App Group entitlement to main app
-  config = withAppGroupEntitlement(config);
+  // Get bundle identifier from config, with fallback for safety
+  const bundleIdentifier = config.ios?.bundleIdentifier ?? 'com.atlasi.app';
+
+  // Add App Group entitlement to main app (uses dynamic bundle ID for keychain-access-groups)
+  config = withAppGroupEntitlement(config, bundleIdentifier);
 
   // Add Share Extension target
   config = withShareExtensionTarget(config);

@@ -10,6 +10,7 @@ import * as Haptics from 'expo-haptics';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
+  Dimensions,
   FlatList,
   StyleSheet,
   Text,
@@ -26,6 +27,7 @@ import { RECOGNITION_GROUPS } from '@constants/regions';
 import { fonts } from '@constants/typography';
 import { useCountries } from '@hooks/useCountries';
 import { useResponsive } from '@hooks/useResponsive';
+import { useStableCallback } from '@hooks/useStableCallback';
 import { useTrips } from '@hooks/useTrips';
 import { useAddUserCountry, useRemoveUserCountry, useUserCountries } from '@hooks/useUserCountries';
 import type { DreamsStackScreenProps } from '@navigation/types';
@@ -39,7 +41,7 @@ import {
 import { PHONE_COLUMNS, TABLET_COLUMNS, GRID_GAP } from './passport/passportConstants';
 
 // Animation timing constants
-const HEART_PULSE_DELAY_MS = 150;
+const AIRPLANE_PULSE_DELAY_MS = 150;
 const CARD_EXIT_DURATION_MS = 250;
 const CARD_EXIT_TRANSLATE_Y = -20;
 const CARD_EXIT_SCALE = 0.95;
@@ -52,6 +54,27 @@ interface DreamCountry {
   region: string;
   isWishlisted: boolean;
   hasTrips: boolean;
+}
+
+interface SectionHeader {
+  type: 'section-header';
+  id: string;
+  title: string;
+}
+
+interface EmptyPlaceholder {
+  type: 'placeholder';
+  id: string;
+}
+
+type ListItem = DreamCountry | SectionHeader | EmptyPlaceholder;
+
+function isSectionHeader(item: ListItem): item is SectionHeader {
+  return 'type' in item && item.type === 'section-header';
+}
+
+function isPlaceholder(item: ListItem): item is EmptyPlaceholder {
+  return 'type' in item && item.type === 'placeholder';
 }
 
 interface SnackbarState {
@@ -92,8 +115,10 @@ export function DreamsScreen({ navigation }: Props) {
     };
   }, []);
 
-  // Animation state (per-card to prevent shared interference)
-  const [animatingCards, setAnimatingCards] = useState<Set<string>>(new Set());
+  // Per-card exit-animation values. The Animated.Values sit at rest (scale=1,
+  // opacity=1, translateY=0), so the wrapper can ALWAYS apply the transform
+  // without any visual change — which lets us drive the exit animation purely
+  // through the native driver without a React re-render of the card.
   const animationValuesRef = useRef(
     new Map<
       string,
@@ -111,6 +136,12 @@ export function DreamsScreen({ navigation }: Props) {
     }
     return animationValuesRef.current.get(code)!;
   }, []);
+
+  // Set of codes currently mid-exit-animation. Kept in a ref (NOT state) so
+  // toggling it does not change `renderItem`'s identity and therefore does not
+  // re-render every visible card. It's only read/written inside handlers to
+  // dedupe rapid taps on the same card.
+  const animatingCardsRef = useRef<Set<string>>(new Set());
 
   // Snackbar state
   const [snackbar, setSnackbar] = useState<SnackbarState>({ visible: false, message: '' });
@@ -167,7 +198,7 @@ export function DreamsScreen({ navigation }: Props) {
   }, [searchableCountries, filters]);
 
   // Compute sorted countries: dreams first, then alphabetical, excluding visited
-  const sortedCountries = useMemo((): DreamCountry[] => {
+  const sortedCountries = useMemo((): ListItem[] => {
     if (!filteredCountries.length) return [];
 
     const query = searchQuery.toLowerCase().trim();
@@ -190,21 +221,49 @@ export function DreamsScreen({ navigation }: Props) {
       .sort((a, b) => a.name.localeCompare(b.name));
 
     // Dreams first, then rest alphabetically
-    return [...wishlisted, ...notWishlisted].map((c) => ({
+    const wishlistedItems: DreamCountry[] = wishlisted.map((c) => ({
       code: c.code,
       name: c.name,
       region: c.region,
-      isWishlisted: wishlistCodes.has(c.code),
+      isWishlisted: true,
       hasTrips: countriesWithTrips.has(c.code),
     }));
+
+    const notWishlistedItems: DreamCountry[] = notWishlisted.map((c) => ({
+      code: c.code,
+      name: c.name,
+      region: c.region,
+      isWishlisted: false,
+      hasTrips: countriesWithTrips.has(c.code),
+    }));
+
+    // Build the list with section headers
+    // Each section needs to start on a fresh row, so we pad odd sections with placeholders
+    const items: ListItem[] = [...wishlistedItems];
+
+    // If wishlist has odd number, add placeholder to complete the row
+    if (wishlistedItems.length > 0 && wishlistedItems.length % 2 === 1) {
+      items.push({ type: 'placeholder', id: 'wishlist-placeholder' });
+    }
+
+    // Add section header if both sections have items
+    if (wishlistedItems.length > 0 && notWishlistedItems.length > 0) {
+      // Section header takes full width (paired with placeholder)
+      items.push({ type: 'section-header', id: 'section-header', title: 'Rest of the world' });
+      items.push({ type: 'placeholder', id: 'header-placeholder' });
+    }
+
+    items.push(...notWishlistedItems);
+
+    return items;
   }, [filteredCountries, wishlistCountries, visitedCountries, trips, searchQuery]);
 
   const handleCountryPress = useCallback(
-    (country: DreamCountry) => {
+    (countryCode: string, countryName: string) => {
       navigation.navigate('CountryDetail', {
-        countryId: country.code,
-        countryName: country.name,
-        countryCode: country.code,
+        countryId: countryCode,
+        countryName: countryName,
+        countryCode: countryCode,
       });
     },
     [navigation]
@@ -261,17 +320,13 @@ export function DreamsScreen({ navigation }: Props) {
         });
       } else {
         // Prevent duplicate animation if already animating
-        if (animatingCards.has(countryCode)) return;
+        if (animatingCardsRef.current.has(countryCode)) return;
 
         // Adding to wishlist - animate card exit then add
         const { scale, opacity, translateY } = getAnimationValues(countryCode);
-        setAnimatingCards((prev) => {
-          const next = new Set(prev);
-          next.add(countryCode);
-          return next;
-        });
+        animatingCardsRef.current.add(countryCode);
 
-        // Short delay to let the heart pulse animation start first
+        // Short delay to let the airplane pulse animation start first
         const timeoutId = setTimeout(() => {
           pendingTimeoutsRef.current.delete(timeoutId);
           Animated.parallel([
@@ -312,13 +367,9 @@ export function DreamsScreen({ navigation }: Props) {
             scale.setValue(1);
             opacity.setValue(1);
             translateY.setValue(0);
-            setAnimatingCards((prev) => {
-              const next = new Set(prev);
-              next.delete(countryCode);
-              return next;
-            });
+            animatingCardsRef.current.delete(countryCode);
           });
-        }, HEART_PULSE_DELAY_MS);
+        }, AIRPLANE_PULSE_DELAY_MS);
         pendingTimeoutsRef.current.add(timeoutId);
 
         // Show snackbar immediately
@@ -329,23 +380,73 @@ export function DreamsScreen({ navigation }: Props) {
         });
       }
     },
-    [addUserCountry, removeUserCountry, wishlistCountries, getAnimationValues, animatingCards]
+    [addUserCountry, removeUserCountry, wishlistCountries, getAnimationValues]
+  );
+
+  // Identity-stable wrappers around the handlers above. Each keeps a permanently
+  // stable identity while always dispatching to the CURRENT implementation (the
+  // wishlist toggle, for instance, closes over `wishlistCountries`). That lets
+  // the per-card callbacks below be created once and cached, which is what keeps
+  // CountryCard's React.memo holding across parent re-renders.
+  const stableCountryPress = useStableCallback(handleCountryPress);
+  const stableAddVisited = useStableCallback(handleAddVisited);
+  const stableToggleWishlist = useStableCallback(handleToggleWishlist);
+
+  // Per-code, stable, zero-arg callbacks for CountryCard. Created once per code
+  // and cached, so a given card receives the SAME onPress/onAddVisited/
+  // onToggleWishlist function identities on every render — tapping one card no
+  // longer re-renders its siblings.
+  const cardCallbacksRef = useRef<
+    Map<string, { onPress: () => void; onAddVisited: () => void; onToggleWishlist: () => void }>
+  >(new Map());
+
+  const getCardCallbacks = useCallback(
+    (code: string, name: string) => {
+      const existing = cardCallbacksRef.current.get(code);
+      if (existing) return existing;
+      const callbacks = {
+        onPress: () => stableCountryPress(code, name),
+        onAddVisited: () => stableAddVisited(code, name),
+        onToggleWishlist: () => stableToggleWishlist(code, name),
+      };
+      cardCallbacksRef.current.set(code, callbacks);
+      return callbacks;
+    },
+    [stableCountryPress, stableAddVisited, stableToggleWishlist]
   );
 
   const renderItem = useCallback(
-    ({ item }: { item: DreamCountry }) => {
-      const { scale, opacity, translateY } = getAnimationValues(item.code);
-      const isAnimating = animatingCards.has(item.code);
+    ({ item }: { item: ListItem }) => {
+      if (isPlaceholder(item)) {
+        return <View style={styles.placeholder} />;
+      }
 
+      if (isSectionHeader(item)) {
+        // Calculate width to span both columns plus the gap
+        const screenWidth = Dimensions.get('window').width;
+        const horizontalPadding = 32; // 16 * 2 from columnWrapper paddingHorizontal
+        const gap = 12; // gap between columns
+        const cardWidth = (screenWidth - horizontalPadding - gap) / 2;
+        const headerWidth = cardWidth * 2 + gap;
+
+        return (
+          <View style={[styles.sectionHeaderContainer, { width: headerWidth }]}>
+            <Text style={styles.sectionHeaderText}>{item.title}</Text>
+          </View>
+        );
+      }
+
+      const { scale, opacity, translateY } = getAnimationValues(item.code);
+      const callbacks = getCardCallbacks(item.code, item.name);
+
+      // Always apply the transform: the Animated.Values rest at scale=1,
+      // opacity=1, translateY=0, so an idle card looks identical while the exit
+      // animation drives the native driver on the one card being wishlisted.
+      // (Previously gated on `animatingCards` state, which re-rendered ALL cards
+      // on every toggle.)
       return (
         <Animated.View
-          style={[
-            styles.countryCardWrapper,
-            isAnimating && {
-              transform: [{ scale }, { translateY }],
-              opacity,
-            },
-          ]}
+          style={[styles.countryCardWrapper, { transform: [{ scale }, { translateY }], opacity }]}
         >
           <CountryCard
             code={item.code}
@@ -353,17 +454,20 @@ export function DreamsScreen({ navigation }: Props) {
             isVisited={false}
             isWishlisted={item.isWishlisted}
             hasTrips={item.hasTrips}
-            onPress={() => handleCountryPress(item)}
-            onAddVisited={() => handleAddVisited(item.code, item.name)}
-            onToggleWishlist={() => handleToggleWishlist(item.code, item.name)}
+            onPress={callbacks.onPress}
+            onAddVisited={callbacks.onAddVisited}
+            onToggleWishlist={callbacks.onToggleWishlist}
           />
         </Animated.View>
       );
     },
-    [handleCountryPress, handleAddVisited, handleToggleWishlist, animatingCards, getAnimationValues]
+    [getAnimationValues, getCardCallbacks]
   );
 
-  const getItemKey = useCallback((item: DreamCountry) => item.code, []);
+  const getItemKey = useCallback(
+    (item: ListItem) => (isSectionHeader(item) || isPlaceholder(item) ? item.id : item.code),
+    []
+  );
 
   const handleExplorePress = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -440,7 +544,7 @@ export function DreamsScreen({ navigation }: Props) {
         <Text style={styles.emptySubtitle}>
           {searchQuery
             ? 'Try a different search term'
-            : 'Tap the heart on any country to add it to your dreams'}
+            : 'Tap the airplane on any country to add it to your dreams'}
         </Text>
       </View>
     ),
@@ -618,6 +722,20 @@ const styles = StyleSheet.create({
   },
   // Country Card Wrapper
   countryCardWrapper: {
+    flex: 1,
+  },
+  // Section Header - spans both columns, matches PassportSectionHeader style
+  sectionHeaderContainer: {
+    marginTop: 12,
+    marginBottom: 8,
+  },
+  sectionHeaderText: {
+    fontFamily: fonts.dawning.regular,
+    fontSize: 32,
+    color: colors.adobeBrick,
+  },
+  // Placeholder for padding odd sections
+  placeholder: {
     flex: 1,
   },
   // Empty State

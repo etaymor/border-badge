@@ -37,6 +37,8 @@ interface PlacesAutocompleteProps {
   countryCode?: string;
   testID?: string;
   onDropdownOpen?: (isOpen: boolean) => void;
+  onFocus?: () => void;
+  onBlur?: () => void;
 }
 
 export function PlacesAutocomplete({
@@ -46,6 +48,8 @@ export function PlacesAutocomplete({
   countryCode,
   testID = 'places-search',
   onDropdownOpen,
+  onFocus,
+  onBlur,
 }: PlacesAutocompleteProps) {
   const [query, setQuery] = useState(value?.name ?? '');
   const [predictions, setPredictions] = useState<Prediction[]>([]);
@@ -236,7 +240,8 @@ export function PlacesAutocomplete({
     if (query.length > 0 && predictions.length > 0 && !value && !hasSelectedRef.current) {
       setShowDropdown(true);
     }
-  }, [query, predictions.length, value]);
+    onFocus?.();
+  }, [query, predictions.length, value, onFocus]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -290,44 +295,48 @@ export function PlacesAutocomplete({
 
   return (
     <View style={styles.container}>
-      {/* Search Input */}
-      <PlacesSearchInput
-        ref={inputRef}
-        value={query}
-        onChangeText={handleTextChange}
-        onClear={handleClear}
-        onFocus={handleInputFocus}
-        isLoading={isLoading}
-        placeholder={placeholder}
-        testID={testID}
-      />
+      {value && !showDropdown ? (
+        <SelectedPlaceDisplay place={value} onChange={handleClear} />
+      ) : (
+        <>
+          {/* Search Input */}
+          <PlacesSearchInput
+            ref={inputRef}
+            value={query}
+            onChangeText={handleTextChange}
+            onClear={handleClear}
+            onFocus={handleInputFocus}
+            onBlur={onBlur}
+            isLoading={isLoading}
+            placeholder={placeholder}
+            testID={testID}
+          />
 
-      {/* Error Message */}
-      {error && <Text style={styles.errorText}>{error}</Text>}
+          {/* Error Message */}
+          {error && <Text style={styles.errorText}>{error}</Text>}
 
-      {/* Manual Entry Link */}
-      {!showDropdown && !value && !hasApiKey() && (
-        <Pressable onPress={handleManualEntry}>
-          <Text style={styles.manualLink}>Enter place manually</Text>
-        </Pressable>
-      )}
+          {/* Manual Entry Link */}
+          {!showDropdown && !hasApiKey() && (
+            <Pressable onPress={handleManualEntry}>
+              <Text style={styles.manualLink}>Enter place manually</Text>
+            </Pressable>
+          )}
 
-      {/* Selected Place Display */}
-      {value && !showDropdown && <SelectedPlaceDisplay place={value} />}
+          {/* Predictions Dropdown */}
+          {showDropdown && predictions.length > 0 && (
+            <PredictionsDropdown
+              predictions={predictions}
+              onSelectPrediction={handleSelectPrediction}
+              onManualEntry={handleManualEntry}
+              testID={testID}
+            />
+          )}
 
-      {/* Predictions Dropdown */}
-      {showDropdown && predictions.length > 0 && (
-        <PredictionsDropdown
-          predictions={predictions}
-          onSelectPrediction={handleSelectPrediction}
-          onManualEntry={handleManualEntry}
-          testID={testID}
-        />
-      )}
-
-      {/* No Results */}
-      {showDropdown && predictions.length === 0 && query.length > 2 && !isLoading && (
-        <NoResultsDropdown onManualEntry={handleManualEntry} />
+          {/* No Results */}
+          {showDropdown && predictions.length === 0 && query.length > 2 && !isLoading && (
+            <NoResultsDropdown onManualEntry={handleManualEntry} />
+          )}
+        </>
       )}
     </View>
   );

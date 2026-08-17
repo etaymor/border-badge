@@ -1,6 +1,17 @@
-import React, { useCallback, useMemo } from 'react';
-import { GestureResponderEvent, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useRef } from 'react';
+import {
+  Animated,
+  GestureResponderEvent,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import * as Haptics from 'expo-haptics';
 
+import { colors } from '@constants/colors';
+import { useAnimatedPress, AnimatedPressPresets } from '@hooks/useAnimatedPress';
+import { useBreathingAnimation, BreathingPresets } from '@hooks/useBreathingAnimation';
 import { getFlagEmoji } from '@utils/flags';
 
 interface CountryGridItemProps {
@@ -34,53 +45,111 @@ export const CountryGridItem = React.memo(function CountryGridItem({
   // Memoize flag emoji calculation
   const flagEmoji = useMemo(() => getFlagEmoji(code), [code]);
 
-  // Memoize star button press handler to avoid new function reference each render
+  // Press feedback animation
+  const { scaleValue: pressScale, pressHandlers } = useAnimatedPress(AnimatedPressPresets.default);
+
+  // Breathing animation for visited countries
+  const { breathingScale, startBreathing, stopBreathing } = useBreathingAnimation(
+    BreathingPresets.subtle
+  );
+
+  // Start/stop breathing based on selection state
+  useEffect(() => {
+    if (isSelected) {
+      startBreathing();
+    } else {
+      stopBreathing();
+    }
+  }, [isSelected, startBreathing, stopBreathing]);
+
+  // Combine press and breathing scales - memoize to avoid creating new animated node each render
+  const combinedScale = useMemo(
+    () => Animated.multiply(pressScale, breathingScale),
+    [pressScale, breathingScale]
+  );
+
+  // Wishlist star pop animation
+  const wishlistScale = useRef(new Animated.Value(1)).current;
+
+  const triggerWishlistPop = useCallback(() => {
+    // Quick pop: scale up to 1.4 then back to 1
+    Animated.sequence([
+      Animated.spring(wishlistScale, {
+        toValue: 1.4,
+        friction: 3,
+        tension: 200,
+        useNativeDriver: true,
+      }),
+      Animated.spring(wishlistScale, {
+        toValue: 1,
+        friction: 5,
+        tension: 100,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [wishlistScale]);
+
+  // Handle visited toggle with haptic feedback
+  const handleToggleVisited = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    onToggleVisited();
+  }, [onToggleVisited]);
+
+  // Memoize star button press handler with haptic feedback and pop animation
   const handleStarPress = useCallback(
     (e: GestureResponderEvent) => {
       e.stopPropagation?.();
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      triggerWishlistPop();
       onToggleWishlist();
     },
-    [onToggleWishlist]
+    [onToggleWishlist, triggerWishlistPop]
   );
 
   return (
-    <TouchableOpacity
-      style={[styles.container, isSelected && styles.containerSelected]}
-      onPress={onToggleVisited}
-      activeOpacity={0.7}
-      accessibilityRole="button"
-      accessibilityLabel={`${name}, ${isSelected ? 'visited' : 'not visited'}`}
-      accessibilityHint="Double tap to toggle visited status"
-      testID={`country-item-${code}`}
-    >
-      {/* Grey placeholder for country illustration */}
-      <View style={styles.illustrationPlaceholder}>
-        <Text style={styles.flagEmoji}>{flagEmoji}</Text>
-      </View>
-
-      <Text style={styles.countryName} numberOfLines={2}>
-        {name}
-      </Text>
-
-      {/* Wishlist star button */}
+    <Animated.View style={{ transform: [{ scale: combinedScale }] }}>
       <TouchableOpacity
-        style={[styles.starButton, isWishlisted && styles.starButtonActive]}
-        onPress={handleStarPress}
-        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        style={[styles.container, isSelected && styles.containerSelected]}
+        onPress={handleToggleVisited}
+        onPressIn={pressHandlers.onPressIn}
+        onPressOut={pressHandlers.onPressOut}
+        activeOpacity={1}
         accessibilityRole="button"
-        accessibilityLabel={`${isWishlisted ? 'Remove from' : 'Add to'} wishlist`}
-        testID={`country-wishlist-${code}`}
+        accessibilityLabel={`${name}, ${isSelected ? 'visited' : 'not visited'}`}
+        accessibilityHint="Double tap to toggle visited status"
+        testID={`country-item-${code}`}
       >
-        <Text style={styles.starIcon}>{isWishlisted ? '★' : '☆'}</Text>
-      </TouchableOpacity>
-
-      {/* Selected checkmark */}
-      {isSelected && (
-        <View style={styles.checkmark}>
-          <Text style={styles.checkmarkText}>✓</Text>
+        {/* Grey placeholder for country illustration */}
+        <View style={styles.illustrationPlaceholder}>
+          <Text style={styles.flagEmoji}>{flagEmoji}</Text>
         </View>
-      )}
-    </TouchableOpacity>
+
+        <Text style={styles.countryName} numberOfLines={2}>
+          {name}
+        </Text>
+
+        {/* Wishlist star button */}
+        <Animated.View style={{ transform: [{ scale: wishlistScale }] }}>
+          <TouchableOpacity
+            style={[styles.starButton, isWishlisted && styles.starButtonActive]}
+            onPress={handleStarPress}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityRole="button"
+            accessibilityLabel={`${isWishlisted ? 'Remove from' : 'Add to'} wishlist`}
+            testID={`country-wishlist-${code}`}
+          >
+            <Text style={styles.starIcon}>{isWishlisted ? '★' : '☆'}</Text>
+          </TouchableOpacity>
+        </Animated.View>
+
+        {/* Selected checkmark */}
+        {isSelected && (
+          <View style={styles.checkmark}>
+            <Text style={styles.checkmarkText}>✓</Text>
+          </View>
+        )}
+      </TouchableOpacity>
+    </Animated.View>
   );
 }, arePropsEqual);
 
@@ -89,13 +158,18 @@ const styles = StyleSheet.create({
     flex: 1,
     margin: 4,
     backgroundColor: '#F2F2F7',
-    borderRadius: 12,
-    padding: 8,
+    borderRadius: 20,
+    padding: 12,
     alignItems: 'center',
     minHeight: 120,
     position: 'relative',
     borderWidth: 2,
     borderColor: 'transparent',
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
   },
   containerSelected: {
     borderColor: '#007AFF',

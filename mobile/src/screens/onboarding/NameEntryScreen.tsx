@@ -1,9 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Animated,
   Image,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   StyleSheet,
@@ -16,6 +17,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Text } from '@components/ui';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
+import { useScreenEntrance } from '@hooks/useScreenEntrance';
 import type { OnboardingStackScreenProps } from '@navigation/types';
 import { Analytics } from '@services/analytics';
 import { useOnboardingStore } from '@stores/onboardingStore';
@@ -40,43 +42,13 @@ export function NameEntryScreen({ navigation }: Props) {
     }
   }, [displayName, usernameInput]);
 
-  // Animation values
-  const titleAnim = useRef(new Animated.Value(0)).current;
-  const accentAnim = useRef(new Animated.Value(0)).current;
-  const contentAnim = useRef(new Animated.Value(0)).current;
-  const buttonAnim = useRef(new Animated.Value(0)).current;
+  // Premium entrance animation
+  const { getAnimatedStyle, getButtonStyle } = useScreenEntrance({ elementCount: 4 });
 
   // Track screen view
   useEffect(() => {
     Analytics.viewOnboardingName();
   }, []);
-
-  // Run entrance animations
-  useEffect(() => {
-    Animated.stagger(100, [
-      Animated.timing(titleAnim, {
-        toValue: 1,
-        duration: 300,
-        useNativeDriver: true,
-      }),
-      Animated.timing(accentAnim, {
-        toValue: 1,
-        duration: 200,
-        useNativeDriver: true,
-      }),
-      Animated.timing(contentAnim, {
-        toValue: 1,
-        duration: 250,
-        useNativeDriver: true,
-      }),
-      Animated.spring(buttonAnim, {
-        toValue: 1,
-        friction: 8,
-        tension: 60,
-        useNativeDriver: true,
-      }),
-    ]).start();
-  }, [titleAnim, accentAnim, contentAnim, buttonAnim]);
 
   const handleContinue = () => {
     const validation = validateUsername(usernameInput);
@@ -93,29 +65,12 @@ export function NameEntryScreen({ navigation }: Props) {
       setDisplayName(validation.value);
     }
 
-    // Navigate to account creation
+    // Dismiss keyboard immediately before navigating
+    Keyboard.dismiss();
+
+    // Navigate to account creation before value proposition screens + paywall
     navigation.navigate('AccountCreation');
   };
-
-  const titleTranslateY = titleAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [15, 0],
-  });
-
-  const accentTranslateY = accentAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [10, 0],
-  });
-
-  const contentTranslateY = contentAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [10, 0],
-  });
-
-  const buttonScale = buttonAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0.95, 1],
-  });
 
   return (
     <SafeAreaView style={styles.container}>
@@ -130,37 +85,19 @@ export function NameEntryScreen({ navigation }: Props) {
 
         <View style={styles.content}>
           {/* Title */}
-          <Animated.View
-            style={{
-              opacity: titleAnim,
-              transform: [{ translateY: titleTranslateY }],
-            }}
-          >
+          <Animated.View style={getAnimatedStyle(0)}>
             <Text variant="title" style={styles.title}>
               Choose your username
             </Text>
           </Animated.View>
 
           {/* Accent subtitle */}
-          <Animated.Text
-            style={[
-              styles.accentSubtitle,
-              {
-                opacity: accentAnim,
-                transform: [{ translateY: accentTranslateY }],
-              },
-            ]}
-          >
-            How friends will find you
-          </Animated.Text>
+          <Animated.View style={getAnimatedStyle(1)}>
+            <Text style={styles.accentSubtitle}>How friends will find you</Text>
+          </Animated.View>
 
           {/* Input section - Liquid Glass Style */}
-          <Animated.View
-            style={{
-              opacity: contentAnim,
-              transform: [{ translateY: contentTranslateY }],
-            }}
-          >
+          <Animated.View style={getAnimatedStyle(2)}>
             <View style={styles.inputGlassWrapper}>
               <BlurView intensity={60} tint="light" style={styles.inputGlassContainer}>
                 <View style={[styles.inputWrapper, error && styles.inputWrapperError]}>
@@ -209,13 +146,7 @@ export function NameEntryScreen({ navigation }: Props) {
 
         {/* Footer */}
         <View style={styles.footer}>
-          <Animated.View
-            style={{
-              opacity: buttonAnim,
-              transform: [{ scale: buttonScale }],
-              width: '100%',
-            }}
-          >
+          <Animated.View style={[{ width: '100%' }, getButtonStyle(3)]}>
             <TouchableOpacity
               style={styles.continueButton}
               onPress={handleContinue}
@@ -268,7 +199,7 @@ const styles = StyleSheet.create({
     marginBottom: 32,
   },
   inputGlassWrapper: {
-    borderRadius: 24,
+    borderRadius: 20,
     overflow: 'hidden',
     marginBottom: 12,
     shadowColor: colors.midnightNavy,
@@ -278,7 +209,7 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   inputGlassContainer: {
-    borderRadius: 24,
+    borderRadius: 20,
     overflow: 'hidden',
     backgroundColor: 'rgba(255, 255, 255, 0.35)',
   },
@@ -287,7 +218,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 16,
     height: 48,
-    borderRadius: 24,
+    borderRadius: 20,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.6)',
     backgroundColor: 'transparent',
@@ -329,7 +260,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.sunsetGold,
     paddingVertical: 16,
     paddingHorizontal: 32,
-    borderRadius: 12,
+    borderRadius: 9999,
     alignItems: 'center',
     justifyContent: 'center',
     width: '100%',

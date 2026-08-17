@@ -2,12 +2,16 @@ import { useMutation } from '@tanstack/react-query';
 import { Alert } from 'react-native';
 
 import {
+  api,
   clearOnboardingComplete,
   clearTokens,
   storeOnboardingComplete,
   storeTokens,
 } from '@services/api';
-import { migrateGuestData } from '@services/guestMigration';
+import { AdEvents } from '@services/adEvents';
+import { Analytics } from '@services/analytics';
+import { migrateGuestData, captureOnboardingSnapshot } from '@services/guestMigration';
+import { clearPhotoCache } from '@services/photoImport/photoCacheDb';
 import { registerForPushNotifications } from '@services/pushNotifications';
 import { queryClient } from '../queryClient';
 import { supabase } from '@services/supabase';
@@ -34,13 +38,23 @@ interface PasswordAuthInput {
  * dashboard for immediate sign-in without email verification.
  */
 export function useSignUpWithPassword() {
-  const { setSession, setHasCompletedOnboarding } = useAuthStore();
+  const setSession = useAuthStore((s) => s.setSession);
+  const setHasCompletedOnboarding = useAuthStore((s) => s.setHasCompletedOnboarding);
+  const setIsMigrating = useAuthStore((s) => s.setIsMigrating);
+  const setNeedsPostSignupFlow = useAuthStore((s) => s.setNeedsPostSignupFlow);
 
   return useMutation({
     mutationFn: async ({ email, password, displayName, username }: PasswordAuthInput) => {
       const userData: Record<string, string> = {};
       if (displayName) userData.display_name = displayName;
       if (username) userData.username = username;
+
+      // Set BEFORE signUp so the flag is in place before Supabase's
+      // onAuthStateChange fires and triggers a RootNavigator re-render.
+      // Without this, onAuthStateChange sets the session before onSuccess
+      // can set the flag, causing a brief flash to Main before returning
+      // to onboarding (which then remounts at WelcomeCarousel).
+      setNeedsPostSignupFlow(true);
 
       const { data, error } = await supabase.auth.signUp({
         email,
@@ -50,25 +64,55 @@ export function useSignUpWithPassword() {
         },
       });
 
-      if (error) throw error;
+      if (error) {
+        setNeedsPostSignupFlow(false);
+        throw error;
+      }
 
       // If email confirmation is required, session will be null
       if (!data.session) {
+        setNeedsPostSignupFlow(false);
         throw new Error('Email confirmation required. Check your inbox.');
       }
 
       return data;
     },
-    onSuccess: async (data) => {
+    onSuccess: async (data, variables) => {
       if (data.session) {
-        await clearTokens();
-        await storeTokens(data.session.access_token, data.session.refresh_token ?? '');
-
-        // New user - attempt migration of guest data
+        // Store tokens explicitly for Share Extension access
+        // Supabase stores under 'supabase.auth.token' but Share Extension looks for 'auth_token'
         try {
-          await migrateGuestData(data.session);
-        } catch {
-          console.warn('Migration failed for new password user');
+          await clearTokens();
+          await storeTokens(data.session.access_token, data.session.refresh_token ?? '');
+        } catch (tokenError) {
+          // Token storage failed - rollback to safe state
+          console.error('Failed to store tokens for Share Extension:', tokenError);
+          try {
+            await clearTokens(); // Ensure no partial tokens remain
+          } catch {
+            // Ignore cleanup errors
+          }
+          // Sign out from Supabase to avoid session without Share Extension access
+          await supabase.auth.signOut();
+          throw new Error('Failed to store authentication tokens. Please try again.');
+        }
+
+        // Capture onboarding state BEFORE any session/navigation changes.
+        // After setSession(), React re-renders can cause Zustand persist middleware
+        // rehydration that resets homeCountry to null.
+        const snapshot = captureOnboardingSnapshot();
+
+        // Set isMigrating BEFORE setting session to prevent empty state flash
+        // This ensures useUserCountries shows onboarding data immediately
+        setIsMigrating(true);
+
+        // Schedule welcome emails for new user
+        try {
+          await api.post('/welcome/emails', {
+            display_name: variables.displayName,
+          });
+        } catch (error) {
+          console.warn('Failed to schedule welcome emails:', error);
         }
 
         // Request push notification permission and register token
@@ -80,9 +124,29 @@ export function useSignUpWithPassword() {
         // New sign-up, so onboarding not completed
         setHasCompletedOnboarding(false);
         setSession(data.session);
+
+        // Track onboarding completion analytics
+        const uniqueCountries = new Set([
+          ...snapshot.selectedCountries,
+          ...(snapshot.homeCountry ? [snapshot.homeCountry] : []),
+        ]);
+        Analytics.completeOnboarding({
+          countriesCount: uniqueCountries.size,
+          homeCountry: snapshot.homeCountry,
+          trackingPreference: snapshot.trackingPreference,
+        });
+
+        // Track ad conversion (fire-and-forget)
+        AdEvents.accountCreated('email').catch(() => {});
+
+        // Migrate in background - isMigrating will be cleared when done
+        migrateGuestData(data.session, snapshot)
+          .catch(() => console.warn('Migration failed for new password user'))
+          .finally(() => setIsMigrating(false));
       }
     },
     onError: (error) => {
+      setNeedsPostSignupFlow(false);
       console.error('Password sign-up failed:', getSafeLogMessage(error));
       const message = getAuthErrorMessage(error) || 'Failed to create account';
       Alert.alert('Sign Up Failed', message);
@@ -95,7 +159,9 @@ export function useSignUpWithPassword() {
  * Authenticates an existing account.
  */
 export function useSignInWithPassword() {
-  const { setSession, setHasCompletedOnboarding } = useAuthStore();
+  const setSession = useAuthStore((s) => s.setSession);
+  const setHasCompletedOnboarding = useAuthStore((s) => s.setHasCompletedOnboarding);
+  const setIsMigrating = useAuthStore((s) => s.setIsMigrating);
 
   return useMutation({
     mutationFn: async ({ email, password }: PasswordAuthInput) => {
@@ -109,22 +175,22 @@ export function useSignInWithPassword() {
     },
     onSuccess: async (data) => {
       if (data.session) {
-        await clearTokens();
-        await storeTokens(data.session.access_token, data.session.refresh_token ?? '');
-
-        // Check if returning user
-        const onboarded = await hasUserOnboarded(data.session.user.id);
-
-        if (onboarded) {
-          setHasCompletedOnboarding(true);
-          await storeOnboardingComplete();
-        } else {
-          // User exists but hasn't onboarded - attempt migration
+        // Store tokens explicitly for Share Extension access
+        // Supabase stores under 'supabase.auth.token' but Share Extension looks for 'auth_token'
+        try {
+          await clearTokens();
+          await storeTokens(data.session.access_token, data.session.refresh_token ?? '');
+        } catch (tokenError) {
+          // Token storage failed - rollback to safe state
+          console.error('Failed to store tokens for Share Extension:', tokenError);
           try {
-            await migrateGuestData(data.session);
+            await clearTokens(); // Ensure no partial tokens remain
           } catch {
-            console.warn('Migration failed for password user');
+            // Ignore cleanup errors
           }
+          // Sign out from Supabase to avoid session without Share Extension access
+          await supabase.auth.signOut();
+          throw new Error('Failed to store authentication tokens. Please try again.');
         }
 
         // Register for push notifications (returning users may not have registered)
@@ -133,7 +199,26 @@ export function useSignInWithPassword() {
           console.warn('Push notification registration failed:', err)
         );
 
-        setSession(data.session);
+        // Check if returning user
+        const onboarded = await hasUserOnboarded(data.session.user.id);
+
+        if (onboarded) {
+          setHasCompletedOnboarding(true);
+          await storeOnboardingComplete();
+          setSession(data.session);
+        } else {
+          // Capture onboarding state before session change triggers re-renders
+          const snapshot = captureOnboardingSnapshot();
+
+          // User exists but hasn't onboarded - set isMigrating before session
+          setIsMigrating(true);
+          setSession(data.session);
+
+          // Migrate in background
+          migrateGuestData(data.session, snapshot)
+            .catch(() => console.warn('Migration failed for password user'))
+            .finally(() => setIsMigrating(false));
+        }
       }
     },
     onError: (error) => {
@@ -149,13 +234,17 @@ export function useSignInWithPassword() {
 // ============================================================================
 
 export function useSignOut() {
-  const { signOut } = useAuthStore();
-  const { reset: resetOnboarding } = useOnboardingStore();
+  const signOut = useAuthStore((s) => s.signOut);
+  const resetOnboarding = useOnboardingStore((s) => s.reset);
 
   return useMutation({
     mutationFn: async () => {
       const { error } = await supabase.auth.signOut();
-      if (error) throw error;
+      // Ignore "Auth session missing" error - user is effectively signed out
+      // This can happen if the session was already cleared or expired
+      if (error && !error.message.includes('Auth session missing')) {
+        throw error;
+      }
     },
     onSuccess: async () => {
       signOut();
@@ -163,11 +252,55 @@ export function useSignOut() {
       queryClient.clear(); // Clear all cached data
       await clearTokens();
       await clearOnboardingComplete();
+      // Clear cached GPS data to prevent leaking location data to next user
+      await clearPhotoCache().catch(() => {});
+      // Clear Facebook user data
+      AdEvents.clearUserId();
     },
     onError: (error) => {
       console.error('Sign out failed:', getSafeLogMessage(error));
       const message = getAuthErrorMessage(error) || 'Failed to sign out';
       Alert.alert('Sign Out Failed', message);
+    },
+  });
+}
+
+// ============================================================================
+// Delete Account Hook
+// ============================================================================
+
+/**
+ * Hook to permanently delete the user's account.
+ * This is irreversible and will delete all user data.
+ */
+export function useDeleteAccount() {
+  const signOut = useAuthStore((s) => s.signOut);
+  const resetOnboarding = useOnboardingStore((s) => s.reset);
+
+  return useMutation({
+    mutationFn: async () => {
+      // Call backend to delete account (uses Supabase Admin API)
+      await api.delete('/profile');
+    },
+    onSuccess: async () => {
+      // No need to call supabase.auth.signOut() - the backend already deleted
+      // the auth record via Admin API. Just clear local state.
+      signOut();
+      resetOnboarding();
+      queryClient.clear();
+      await clearTokens();
+      await clearOnboardingComplete();
+      // Clear cached GPS data to prevent leaking location data to next user
+      await clearPhotoCache().catch(() => {});
+      // Clear Facebook user data
+      AdEvents.clearUserId();
+    },
+    onError: (error) => {
+      console.error('Account deletion failed:', getSafeLogMessage(error));
+      Alert.alert(
+        'Deletion Failed',
+        'Failed to delete your account. Please try again or contact support.'
+      );
     },
   });
 }

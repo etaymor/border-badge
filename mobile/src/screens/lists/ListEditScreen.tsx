@@ -11,10 +11,10 @@ import {
   FlatList,
   Platform,
   Pressable,
-  ScrollView,
   Share,
   StyleSheet,
   Text,
+  TouchableOpacity,
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -46,24 +46,36 @@ interface EntrySelectionItemProps {
 
 function EntrySelectionItem({ entry, selected, onToggle }: EntrySelectionItemProps) {
   return (
-    <Pressable style={styles.entryItem} onPress={onToggle}>
-      <View style={[styles.checkbox, selected && styles.checkboxSelected]}>
-        {selected && <Ionicons name="checkmark" size={16} color="#fff" />}
-      </View>
+    <TouchableOpacity
+      style={[styles.entryItem, selected && styles.entryItemSelected]}
+      onPress={onToggle}
+      activeOpacity={0.7}
+    >
       <View style={styles.entryContent}>
-        <Text style={styles.entryTitle} numberOfLines={1}>
+        <Text style={[styles.entryTitle, selected && styles.entryTitleSelected]} numberOfLines={2}>
           {entry.title}
         </Text>
-        {entry.place?.name && (
-          <Text style={styles.entryPlace} numberOfLines={1}>
-            {entry.place.name}
+      </View>
+
+      <View style={styles.entryRightSide}>
+        <View style={[styles.entryTypeBadge, selected && styles.entryTypeBadgeSelected]}>
+          <Text style={[styles.entryTypeText, selected && styles.entryTypeTextSelected]}>
+            {entry.entry_type}
           </Text>
+        </View>
+
+        {selected ? (
+          <Ionicons
+            name="checkmark-circle"
+            size={24}
+            color={colors.midnightNavy}
+            style={styles.checkIcon}
+          />
+        ) : (
+          <View style={styles.uncheckedCircle} />
         )}
       </View>
-      <View style={styles.entryTypeBadge}>
-        <Text style={styles.entryTypeText}>{entry.entry_type}</Text>
-      </View>
-    </Pressable>
+    </TouchableOpacity>
   );
 }
 
@@ -72,7 +84,7 @@ export function ListEditScreen({ route, navigation }: Props) {
   const insets = useSafeAreaInsets();
 
   const { data: list, isLoading: listLoading } = useList(listId);
-  const { data: entries, isLoading: entriesLoading } = useEntries(tripId);
+  const { data: entries, isLoading: _entriesLoading } = useEntries(tripId);
   const updateList = useUpdateList();
   const updateListEntries = useUpdateListEntries();
 
@@ -144,9 +156,6 @@ export function ListEditScreen({ route, navigation }: Props) {
     if (!list) return;
     try {
       Analytics.shareList(list.id);
-      // On iOS, only pass URL so "Copy" action copies just the link
-      // Messaging apps will still receive the URL and users can add their own text
-      // On Android, we need to use message since url is not well-supported
       await Share.share(
         Platform.OS === 'ios'
           ? { url: shareUrl }
@@ -243,9 +252,115 @@ export function ListEditScreen({ route, navigation }: Props) {
     navigation.pop(2);
   }, [navigation]);
 
+  // List Header Component
+  const ListHeader = useCallback(
+    () => (
+      <View style={styles.content}>
+        <Text style={styles.headerSubtitle}>Update your curated list</Text>
+
+        {/* Share URL */}
+        <View style={styles.urlContainer}>
+          <Text style={styles.label}>PUBLIC LINK</Text>
+          <View style={styles.urlBox}>
+            <Text style={styles.urlText} numberOfLines={1}>
+              {shareUrl}
+            </Text>
+            <Pressable style={styles.copyButton} onPress={handleCopy} hitSlop={8}>
+              <Ionicons
+                name={copied ? 'checkmark' : 'copy-outline'}
+                size={18}
+                color={colors.sunsetGold}
+              />
+            </Pressable>
+            <Pressable style={styles.shareIconButton} onPress={handleShare} hitSlop={8}>
+              <Ionicons name="share-outline" size={18} color={colors.sunsetGold} />
+            </Pressable>
+          </View>
+        </View>
+
+        {/* List Name */}
+        <GlassInput
+          label="LIST NAME"
+          value={name}
+          onChangeText={(text) => {
+            setName(text);
+            if (errors.name) setErrors((prev) => ({ ...prev, name: '' }));
+          }}
+          placeholder="e.g., Best Restaurants in Paris"
+          error={errors.name}
+          returnKeyType="next"
+          testID="list-name-input"
+        />
+
+        {/* Description */}
+        <GlassInput
+          label="DESCRIPTION (OPTIONAL)"
+          value={description}
+          onChangeText={setDescription}
+          placeholder="Tell people what this list is about..."
+          multiline
+          testID="list-description-input"
+        />
+
+        {/* Entries Header */}
+        <View style={styles.entriesHeader}>
+          <Text style={styles.label}>SELECT ENTRIES ({selectedEntryIds.size} selected)</Text>
+          <View style={styles.selectionActions}>
+            <Pressable onPress={handleSelectAll} hitSlop={12} style={styles.actionButton}>
+              <Text style={styles.selectionAction}>Select All</Text>
+            </Pressable>
+            <Text style={styles.selectionDivider}>•</Text>
+            <Pressable onPress={handleClearAll} hitSlop={12} style={styles.actionButton}>
+              <Text style={styles.selectionAction}>Clear</Text>
+            </Pressable>
+          </View>
+        </View>
+        {errors.entries && <Text style={styles.errorTextSmall}>{errors.entries}</Text>}
+      </View>
+    ),
+    [
+      name,
+      description,
+      errors,
+      selectedEntryIds.size,
+      shareUrl,
+      copied,
+      handleCopy,
+      handleShare,
+      handleSelectAll,
+      handleClearAll,
+    ]
+  );
+
+  // List Footer Component
+  const ListFooter = useCallback(
+    () => (
+      <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 16) + 16 }]}>
+        <Pressable
+          style={[
+            styles.submitButton,
+            (isSubmitting || selectedEntryIds.size === 0 || !hasChanges) &&
+              styles.submitButtonDisabled,
+          ]}
+          onPress={handleSubmit}
+          disabled={isSubmitting || selectedEntryIds.size === 0 || !hasChanges}
+        >
+          {isSubmitting ? (
+            <ActivityIndicator size="small" color="#fff" />
+          ) : (
+            <>
+              <Ionicons name="checkmark" size={20} color="#fff" />
+              <Text style={styles.submitButtonText}>Save Changes</Text>
+            </>
+          )}
+        </Pressable>
+      </View>
+    ),
+    [insets.bottom, handleSubmit, isSubmitting, selectedEntryIds.size, hasChanges]
+  );
+
   // Show success view after update
   if (showSuccess && list) {
-    // Create an updated list object with the new name for display
     const updatedList: ListDetail = {
       ...list,
       name: name.trim(),
@@ -292,132 +407,17 @@ export function ListEditScreen({ route, navigation }: Props) {
         </View>
       </View>
 
-      <ScrollView
-        style={styles.scrollView}
+      {/* Main List */}
+      <FlatList
+        data={entries ?? []}
+        keyExtractor={(item) => item.id}
+        renderItem={renderEntry}
+        ListHeaderComponent={ListHeader}
+        ListFooterComponent={ListFooter}
         contentContainerStyle={styles.scrollContent}
-        keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
-      >
-        <View style={styles.content}>
-          <Text style={styles.headerSubtitle}>Update your curated list</Text>
-
-          {/* Share URL */}
-          <View style={styles.urlContainer}>
-            <Text style={styles.label}>PUBLIC LINK</Text>
-            <View style={styles.urlBox}>
-              <Text style={styles.urlText} numberOfLines={1}>
-                {shareUrl}
-              </Text>
-              <Pressable style={styles.copyButton} onPress={handleCopy}>
-                <Ionicons
-                  name={copied ? 'checkmark' : 'copy-outline'}
-                  size={18}
-                  color={colors.sunsetGold}
-                />
-              </Pressable>
-              <Pressable style={styles.shareIconButton} onPress={handleShare}>
-                <Ionicons name="share-outline" size={18} color={colors.sunsetGold} />
-              </Pressable>
-            </View>
-          </View>
-
-          {/* List Name */}
-          <GlassInput
-            label="LIST NAME"
-            value={name}
-            onChangeText={(text) => {
-              setName(text);
-              if (errors.name) setErrors((prev) => ({ ...prev, name: '' }));
-            }}
-            placeholder="e.g., Best Restaurants in Paris"
-            error={errors.name}
-            returnKeyType="next"
-            testID="list-name-input"
-          />
-
-          {/* Description */}
-          <GlassInput
-            label="DESCRIPTION (OPTIONAL)"
-            value={description}
-            onChangeText={setDescription}
-            placeholder="Tell people what this list is about..."
-            multiline
-            testID="list-description-input"
-          />
-
-          {/* Public info */}
-          <View style={styles.infoBanner}>
-            <Ionicons
-              name="globe-outline"
-              size={18}
-              color={colors.sunsetGold}
-              style={styles.infoIcon}
-            />
-            <View style={styles.infoTextContainer}>
-              <Text style={styles.infoTitle}>Lists are public</Text>
-              <Text style={styles.infoDescription}>Anyone with the link can view this list.</Text>
-            </View>
-          </View>
-
-          {/* Entries Header */}
-          <View style={styles.entriesHeader}>
-            <Text style={styles.label}>SELECT ENTRIES ({selectedEntryIds.size} selected)</Text>
-            <View style={styles.selectionActions}>
-              <Pressable onPress={handleSelectAll}>
-                <Text style={styles.selectionAction}>Select All</Text>
-              </Pressable>
-              <Text style={styles.selectionDivider}>|</Text>
-              <Pressable onPress={handleClearAll}>
-                <Text style={styles.selectionAction}>Clear</Text>
-              </Pressable>
-            </View>
-          </View>
-          {errors.entries && <Text style={styles.errorTextSmall}>{errors.entries}</Text>}
-        </View>
-
-        {/* Entries List */}
-        {entriesLoading ? (
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator size="small" color={colors.sunsetGold} />
-            <Text style={styles.loadingText}>Loading entries...</Text>
-          </View>
-        ) : entries && entries.length > 0 ? (
-          <FlatList
-            data={entries}
-            keyExtractor={(item) => item.id}
-            renderItem={renderEntry}
-            scrollEnabled={false}
-            ItemSeparatorComponent={() => <View style={styles.separator} />}
-          />
-        ) : (
-          <View style={styles.emptyContainer}>
-            <Ionicons name="bookmark-outline" size={48} color={colors.textTertiary} />
-            <Text style={styles.emptyText}>No entries in this trip</Text>
-          </View>
-        )}
-
-        {/* Submit Button */}
-        <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 16) + 16 }]}>
-          <Pressable
-            style={[
-              styles.submitButton,
-              (isSubmitting || selectedEntryIds.size === 0 || !hasChanges) &&
-                styles.submitButtonDisabled,
-            ]}
-            onPress={handleSubmit}
-            disabled={isSubmitting || selectedEntryIds.size === 0 || !hasChanges}
-          >
-            {isSubmitting ? (
-              <ActivityIndicator size="small" color="#fff" />
-            ) : (
-              <>
-                <Ionicons name="checkmark" size={20} color="#fff" />
-                <Text style={styles.submitButtonText}>Save Changes</Text>
-              </>
-            )}
-          </Pressable>
-        </View>
-      </ScrollView>
+        keyboardShouldPersistTaps="handled"
+      />
     </View>
   );
 }
@@ -432,6 +432,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 8,
     paddingBottom: 8,
+    zIndex: 10,
   },
   headerRow: {
     flexDirection: 'row',
@@ -473,15 +474,13 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontFamily: fonts.openSans.semiBold,
   },
-  scrollView: {
-    flex: 1,
-  },
   scrollContent: {
     flexGrow: 1,
   },
   content: {
     padding: 24,
     paddingTop: 8,
+    paddingBottom: 16,
   },
   headerSubtitle: {
     fontFamily: fonts.openSans.regular,
@@ -534,127 +533,114 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     marginLeft: 4,
   },
-  infoBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(218, 165, 32, 0.08)',
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    gap: 10,
-    marginBottom: 24,
-    borderWidth: 1,
-    borderColor: 'rgba(218, 165, 32, 0.15)',
-  },
-  infoIcon: {
-    marginTop: 1,
-  },
-  infoTextContainer: {
-    flex: 1,
-  },
-  infoTitle: {
-    fontSize: 15,
-    fontFamily: fonts.playfair.bold,
-    color: colors.midnightNavy,
-  },
-  infoDescription: {
-    fontSize: 13,
-    color: colors.textSecondary,
-    fontFamily: fonts.openSans.regular,
-    marginTop: 2,
-  },
+  // Entries Header
   entriesHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: 16,
+    paddingHorizontal: 4,
   },
   selectionActions: {
     flexDirection: 'row',
     alignItems: 'center',
   },
+  actionButton: {
+    padding: 4,
+  },
   selectionAction: {
-    fontSize: 14,
-    color: colors.sunsetGold,
     fontFamily: fonts.openSans.semiBold,
+    fontSize: 14,
+    color: colors.adobeBrick,
   },
   selectionDivider: {
+    fontFamily: fonts.openSans.regular,
     fontSize: 14,
     color: colors.textTertiary,
     marginHorizontal: 8,
   },
+  // Entry Item
   entryItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    backgroundColor: colors.warmCream,
+    padding: 16,
+    backgroundColor: colors.white,
+    borderRadius: 20,
+    marginHorizontal: 16,
+    marginBottom: 12,
+    ...Platform.select({
+      ios: {
+        shadowColor: colors.shadow,
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.08,
+        shadowRadius: 12,
+      },
+      android: {
+        elevation: 3,
+      },
+    }),
   },
-  checkbox: {
+  entryItemSelected: {
+    backgroundColor: colors.sunsetGold,
+    ...Platform.select({
+      ios: {
+        shadowColor: colors.sunsetGold,
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.25,
+        shadowRadius: 16,
+      },
+      android: {
+        elevation: 6,
+      },
+    }),
+  },
+  entryContent: {
+    flex: 1,
+    marginRight: 16,
+  },
+  entryTitle: {
+    fontFamily: fonts.openSans.semiBold,
+    fontSize: 16,
+    color: colors.midnightNavy,
+    lineHeight: 22,
+  },
+  entryTitleSelected: {
+    color: colors.midnightNavy,
+  },
+  entryRightSide: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  entryTypeBadge: {
+    backgroundColor: 'rgba(23, 42, 58, 0.05)',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  entryTypeBadgeSelected: {
+    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+  },
+  entryTypeText: {
+    fontFamily: fonts.openSans.semiBold,
+    fontSize: 11,
+    color: colors.textSecondary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  entryTypeTextSelected: {
+    color: colors.midnightNavy,
+  },
+  uncheckedCircle: {
     width: 24,
     height: 24,
     borderRadius: 12,
     borderWidth: 2,
-    borderColor: colors.textTertiary,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
+    borderColor: 'rgba(23, 42, 58, 0.1)',
+    backgroundColor: 'transparent',
   },
-  checkboxSelected: {
-    backgroundColor: colors.sunsetGold,
-    borderColor: colors.sunsetGold,
-  },
-  entryContent: {
-    flex: 1,
-    marginRight: 12,
-  },
-  entryTitle: {
-    fontSize: 15,
-    fontFamily: fonts.openSans.semiBold,
-    color: colors.midnightNavy,
-  },
-  entryPlace: {
-    fontSize: 13,
-    color: colors.textSecondary,
-    fontFamily: fonts.openSans.regular,
-    marginTop: 2,
-  },
-  entryTypeBadge: {
-    backgroundColor: 'rgba(0, 0, 0, 0.05)',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 4,
-  },
-  entryTypeText: {
-    fontSize: 11,
-    fontFamily: fonts.oswald.medium,
-    color: colors.textSecondary,
-    textTransform: 'capitalize',
-  },
-  separator: {
-    height: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.05)',
-    marginLeft: 60,
-  },
-  loadingContainer: {
-    padding: 40,
-    alignItems: 'center',
-  },
-  loadingText: {
-    fontSize: 14,
-    color: colors.textSecondary,
-    fontFamily: fonts.openSans.regular,
-    marginTop: 8,
-  },
-  emptyContainer: {
-    padding: 40,
-    alignItems: 'center',
-  },
-  emptyText: {
-    fontSize: 16,
-    fontFamily: fonts.openSans.semiBold,
-    color: colors.midnightNavy,
-    marginTop: 16,
+  checkIcon: {
+    // Icon handles its own size
   },
   footer: {
     padding: 24,
