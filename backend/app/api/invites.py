@@ -1,18 +1,20 @@
 """Email invite system endpoints."""
 
+import asyncio
 import hashlib
 import logging
 from datetime import UTC, datetime
-from urllib.parse import quote
+from urllib.parse import urlencode
 from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request, status
 
-from app.api.utils import get_token_from_request
+from app.api.utils import get_token_from_request, is_duplicate_key_error
 from app.core.config import get_settings
 from app.core.db_utils import get_rpc_first_row
 from app.core.edge_functions import send_invite_email, send_push_notification
 from app.core.invite_signer import generate_invite_code, verify_invite_code
+from app.core.notifications import get_user_push_tokens, profile_display_name
 from app.core.security import CurrentUser
 from app.db.session import get_service_supabase_client, get_supabase_client
 from app.main import limiter
@@ -24,6 +26,7 @@ from app.schemas.invites import (
     InviterSummary,
     PendingInviteSummary,
 )
+from app.schemas.trips import TripTagStatus
 
 logger = logging.getLogger(__name__)
 
@@ -38,15 +41,15 @@ def build_invite_url(invite_code: str | None, ref: str | None = None) -> str | N
     A missing email provider therefore never silently drops the invite.
 
     ``ref`` carries the inviter's username so the landing page logs share
-    attribution (U7) alongside the code's deterministic attribution.
+    attribution alongside the code's deterministic attribution.
     """
     if not invite_code:
         return None
     base_url = get_settings().base_url.rstrip("/")
-    url = f"{base_url}/invite?code={quote(invite_code)}"
+    params = {"code": invite_code}
     if ref:
-        url += f"&ref={quote(ref)}"
-    return url
+        params["ref"] = ref
+    return f"{base_url}/invite?{urlencode(params)}"
 
 
 @router.post("", status_code=201)
@@ -73,13 +76,35 @@ async def send_invite(
 
     email_lower = invite.email.lower()
 
-    # Check if user already exists with this email.
-    # Use service role: auth.users table requires admin access for email lookups.
-    # The RPC function 'check_email_exists' is SECURITY DEFINER and validates input.
+    # Three independent reads, run concurrently:
+    # - Does a user already exist with this email? Use service role: the
+    #   auth.users table requires admin access for email lookups, and the
+    #   'check_email_exists' RPC is SECURITY DEFINER and validates input.
+    # - Inviter's display name/username: the name personalizes the email and
+    #   the username rides on the invite URL as ?ref= attribution.
+    # - Is there already a pending invite for this email from this user?
     service_db = get_service_supabase_client()
-    existing_user_result = await service_db.rpc(
-        "check_email_exists",
-        {"email_to_check": email_lower},
+    existing_user_result, inviter_profile, existing_invite = await asyncio.gather(
+        service_db.rpc(
+            "check_email_exists",
+            {"email_to_check": email_lower},
+        ),
+        db.get(
+            "user_profile",
+            {
+                "select": "display_name,username",
+                "user_id": f"eq.{user.id}",
+            },
+        ),
+        db.get(
+            "pending_invite",
+            {
+                "select": "id,status,invite_code",
+                "inviter_id": f"eq.{user.id}",
+                "email": f"eq.{email_lower}",
+                "status": "eq.pending",
+            },
+        ),
     )
 
     existing_user = get_rpc_first_row(existing_user_result)
@@ -90,33 +115,11 @@ async def send_invite(
             detail="Unable to send invite. Please try a different email or search by username.",
         )
 
-    # Fetch inviter's display name/username up front: the name personalizes the
-    # email and the username rides on the invite URL as ?ref= attribution.
-    inviter_profile = await db.get(
-        "user_profile",
-        {
-            "select": "display_name,username",
-            "user_id": f"eq.{user.id}",
-        },
-    )
     inviter_name = "Someone"
     inviter_username: str | None = None
     if inviter_profile:
         inviter_username = inviter_profile[0].get("username")
-        inviter_name = (
-            inviter_profile[0].get("display_name") or inviter_username or "Someone"
-        )
-
-    # Check if we already have a pending invite for this email from this user
-    existing_invite = await db.get(
-        "pending_invite",
-        {
-            "select": "id,status,invite_code",
-            "inviter_id": f"eq.{user.id}",
-            "email": f"eq.{email_lower}",
-            "status": "eq.pending",
-        },
-    )
+        inviter_name = profile_display_name(inviter_profile[0])
 
     if existing_invite:
         # Surface the existing link so the user can re-share it.
@@ -198,7 +201,7 @@ async def redeem_invite(
       no-op that still returns the inviter. Expired or invalid codes redeem
       nothing and are never marked accepted.
     - Email-match at signup remains the fallback path, and deliberately
-      auto-connects *all* users who invited that email (Q1 default). This
+      auto-connects *all* users who invited that email. This
       endpoint is narrower: it redeems only the invite whose link the
       recipient actually followed.
     - Invites are email-keyed and survive the invited account's deletion; a
@@ -308,12 +311,11 @@ async def redeem_invite(
                         "trip_id": str(trip_id),
                         "tagged_user_id": str(user.id),
                         "initiated_by": str(trips[0]["user_id"]),
-                        "status": "pending",
+                        "status": TripTagStatus.PENDING.value,
                     },
                 )
             except Exception as e:
-                error_msg = str(e).lower()
-                if "duplicate key" not in error_msg and "unique" not in error_msg:
+                if not is_duplicate_key_error(e):
                     raise
         else:
             mark_accepted = False
@@ -330,7 +332,7 @@ async def redeem_invite(
         )
     except Exception as e:
         error_msg = str(e).lower()
-        if "duplicate key" in error_msg or "unique" in error_msg:
+        if is_duplicate_key_error(error_msg):
             pass  # already following -- fine
         elif "cannot follow" in error_msg or "blocked" in error_msg:
             # A blocked pair redeems nothing and the invite stays unmarked.
@@ -362,6 +364,10 @@ async def redeem_invite(
         try:
             admin_db = get_service_supabase_client()
 
+            tokens = await get_user_push_tokens(admin_db, inviter_id)
+            if not tokens:
+                return
+
             redeemer_profile = await admin_db.get(
                 "user_profile",
                 {
@@ -372,25 +378,8 @@ async def redeem_invite(
             redeemer_name = "Someone"
             redeemer_username = ""
             if redeemer_profile:
-                redeemer_name = (
-                    redeemer_profile[0].get("display_name")
-                    or redeemer_profile[0].get("username")
-                    or "Someone"
-                )
+                redeemer_name = profile_display_name(redeemer_profile[0])
                 redeemer_username = redeemer_profile[0].get("username") or ""
-
-            # Fetch ALL of the inviter's device tokens (multi-device,
-            # plan U10/KTD11): push_token holds one row per device.
-            push_token_rows = await admin_db.get(
-                "push_token",
-                {
-                    "select": "token",
-                    "user_id": f"eq.{inviter_id}",
-                },
-            )
-            tokens = [row["token"] for row in push_token_rows or [] if row.get("token")]
-            if not tokens:
-                return
 
             await send_push_notification(
                 tokens=tokens,

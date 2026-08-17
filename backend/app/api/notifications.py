@@ -1,6 +1,6 @@
 """Push notification registration endpoints.
 
-Push tokens are keyed on the token itself (plan KTD11 / migration 0091):
+Push tokens are keyed on the token itself (migration 0091):
 one user holds many device tokens; a device token belongs to at most one
 user. Registration transfers token ownership in one transaction;
 unregistration removes a single device's token.

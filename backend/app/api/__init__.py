@@ -69,7 +69,7 @@ router.include_router(ad_events.router, tags=["ad-events"])
 # Social routes are registered ONLY when ENABLE_SOCIAL_FEATURES is explicitly
 # enabled. There is deliberately no ENV=development fallback: a deployed
 # environment that leaves ENV at its "development" default would otherwise
-# silently expose every social route with the flag off (plan U3/R2). Local
+# silently expose every social route with the flag off. Local
 # testing must set ENABLE_SOCIAL_FEATURES=true in backend/.env.
 if _settings.enable_social_features:
     router.include_router(trip_tags.router, prefix="/trip-tags", tags=["trip_tags"])

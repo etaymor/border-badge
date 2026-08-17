@@ -1,5 +1,6 @@
 """Trip CRUD and sharing endpoints."""
 
+import asyncio
 import logging
 from uuid import UUID
 
@@ -19,7 +20,7 @@ from app.core.media import build_media_url
 from app.core.notifications import send_trip_tag_notification
 from app.core.security import CurrentUser
 from app.db.postgrest import in_list
-from app.db.session import get_supabase_client
+from app.db.session import get_service_supabase_client, get_supabase_client
 from app.main import limiter
 from app.schemas.public import TripShareResponse
 from app.schemas.trips import (
@@ -253,11 +254,13 @@ async def create_trip(
     # Create trip tags for tagged users
     if data.tagged_user_ids:
         # Deduplicate and drop self-tags, preserving order
-        candidate_ids: list[str] = []
-        for tagged_user_id in data.tagged_user_ids:
-            tagged_id_str = str(tagged_user_id)
-            if tagged_id_str != str(user.id) and tagged_id_str not in candidate_ids:
-                candidate_ids.append(tagged_id_str)
+        candidate_ids: list[str] = list(
+            dict.fromkeys(
+                tagged_id_str
+                for tagged_id_str in map(str, data.tagged_user_ids)
+                if tagged_id_str != str(user.id)
+            )
+        )
 
         # Target-existence check in one query
         existing_profiles = await db.get(
@@ -269,20 +272,42 @@ async def create_trip(
         )
         existing_ids = {p["user_id"] for p in existing_profiles or []}
 
-        # Bidirectional block check via SECURITY DEFINER RPC (a JWT-scoped
-        # user_block query cannot see "someone blocked me" rows under RLS).
-        # Nonexistent and blocked targets are skipped, not errors: the trip
-        # itself is already created, and skipping keeps blocks unobservable.
-        taggable_ids: list[str] = []
-        for tagged_id_str in candidate_ids:
-            if tagged_id_str not in existing_ids:
-                continue
-            blocked = await db.rpc(
-                "is_blocked_bidirectional", {"p_user_id": tagged_id_str}
+        # Bidirectional block check, batched: two user_block queries via the
+        # service client (a JWT-scoped user_block query cannot see "someone
+        # blocked me" rows under RLS). Nonexistent and blocked targets are
+        # skipped, not errors: the trip itself is already created, and
+        # skipping keeps blocks unobservable.
+        blocked_ids: set[str] = set()
+        if candidate_ids:
+            candidate_id_list = in_list(candidate_ids)
+            service_db = get_service_supabase_client()
+            blocks_out, blocks_in = await asyncio.gather(
+                service_db.get(
+                    "user_block",
+                    {
+                        "select": "blocked_id",
+                        "blocker_id": f"eq.{user.id}",
+                        "blocked_id": candidate_id_list,
+                    },
+                ),
+                service_db.get(
+                    "user_block",
+                    {
+                        "select": "blocker_id",
+                        "blocked_id": f"eq.{user.id}",
+                        "blocker_id": candidate_id_list,
+                    },
+                ),
             )
-            if blocked:
-                continue
-            taggable_ids.append(tagged_id_str)
+            blocked_ids = {row["blocked_id"] for row in blocks_out or []} | {
+                row["blocker_id"] for row in blocks_in or []
+            }
+
+        taggable_ids: list[str] = [
+            tagged_id_str
+            for tagged_id_str in candidate_ids
+            if tagged_id_str in existing_ids and tagged_id_str not in blocked_ids
+        ]
 
         if taggable_ids:
             # Batch insert: one call for the whole tag list. Notifications go

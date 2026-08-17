@@ -326,9 +326,8 @@ def get_supabase_client(user_token: str | None = None) -> SupabaseClient:
 
     A user token is REQUIRED. Calling without one used to silently fall back
     to the service role key - a silent RLS bypass that produced real bugs
-    (e.g. block-delete no-ops). Service-role access is now explicit-only
-    (plan KTD10): use get_service_supabase_client() when you actually intend
-    to bypass RLS.
+    (e.g. block-delete no-ops). Service-role access is now explicit-only:
+    use get_service_supabase_client() when you actually intend to bypass RLS.
 
     Args:
         user_token: JWT for user-scoped queries with RLS.

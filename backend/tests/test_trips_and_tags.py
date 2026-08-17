@@ -161,15 +161,22 @@ def test_create_trip_with_tags(
         [sample_country],
         [{"user_id": OTHER_USER_ID}],
     ]
-    # Bidirectional block check RPC: not blocked
-    mock_supabase_client.rpc.return_value = False
+    # Batched bidirectional block check (service client): no blocks either way
+    mock_service_client = AsyncMock()
+    mock_service_client.get.return_value = []
     # Trip insert, then ONE batch insert for the whole tag list
     mock_supabase_client.post.side_effect = [[sample_trip], [tag_data]]
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
-        with patch(
-            "app.api.trips.get_supabase_client", return_value=mock_supabase_client
+        with (
+            patch(
+                "app.api.trips.get_supabase_client", return_value=mock_supabase_client
+            ),
+            patch(
+                "app.api.trips.get_service_supabase_client",
+                return_value=mock_service_client,
+            ),
         ):
             response = client.post(
                 "/trips",
@@ -209,8 +216,17 @@ def test_create_trip_skips_blocked_tagged_user(
         [sample_country],
         [{"user_id": OTHER_USER_ID}],  # Target exists
     ]
-    # Bidirectional block check RPC: blocked
-    mock_supabase_client.rpc.return_value = True
+
+    # Batched bidirectional block check (service client): the caller has
+    # blocked the tagged user (rows only in the blocker_id=caller direction).
+    def _user_block_rows(table: str, params: dict) -> list[dict]:
+        assert table == "user_block"
+        if params["select"] == "blocked_id":
+            return [{"blocked_id": OTHER_USER_ID}]
+        return []
+
+    mock_service_client = AsyncMock()
+    mock_service_client.get.side_effect = _user_block_rows
     mock_supabase_client.post.side_effect = [[sample_trip]]
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
@@ -219,6 +235,10 @@ def test_create_trip_skips_blocked_tagged_user(
             patch(
                 "app.api.trips.get_supabase_client",
                 return_value=mock_supabase_client,
+            ),
+            patch(
+                "app.api.trips.get_service_supabase_client",
+                return_value=mock_service_client,
             ),
             patch(
                 "app.api.trips.send_trip_tag_notification",

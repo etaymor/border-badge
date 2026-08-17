@@ -11,6 +11,13 @@ def get_token_from_request(request: Request) -> str | None:
     return None
 
 
+def is_duplicate_key_error(error: Exception | str) -> bool:
+    """True when a database error indicates a duplicate-key / unique-constraint
+    violation (e.g. the row already exists)."""
+    msg = str(error).lower()
+    return "duplicate key" in msg or "unique" in msg
+
+
 # Special flag mappings for non-standard country codes
 SPECIAL_FLAGS: dict[str, str] = {
     # UK constituent countries (subdivision flags)

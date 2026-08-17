@@ -10,7 +10,11 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request, s
 from app.api.trips_helpers import verify_trip_ownership
 from app.api.utils import get_token_from_request
 from app.core.edge_functions import send_push_notification
-from app.core.notifications import send_trip_tag_notification
+from app.core.notifications import (
+    get_user_push_tokens,
+    profile_display_name,
+    send_trip_tag_notification,
+)
 from app.core.security import CurrentUser
 from app.db.postgrest import in_list
 from app.db.session import get_service_supabase_client, get_supabase_client
@@ -323,17 +327,7 @@ async def _notify_trip_owner_of_acceptance(
     owner_id: str,
 ) -> None:
     """Send push notification to trip owner when tag is accepted."""
-    # Fetch ALL of the owner's device tokens (multi-device, plan U10/KTD11):
-    # push_token holds one row per device. Requires admin_db for cross-user
-    # access.
-    push_token_rows = await db.get(
-        "push_token",
-        {
-            "select": "token",
-            "user_id": f"eq.{owner_id}",
-        },
-    )
-    tokens = [row["token"] for row in push_token_rows or [] if row.get("token")]
+    tokens = await get_user_push_tokens(db, owner_id)
     if not tokens:
         return
 
@@ -347,11 +341,7 @@ async def _notify_trip_owner_of_acceptance(
     if not tagged_user:
         return
 
-    tagged_name = (
-        tagged_user[0].get("display_name")
-        or tagged_user[0].get("username")
-        or "Someone"
-    )
+    tagged_name = profile_display_name(tagged_user[0])
     await send_push_notification(
         tokens=tokens,
         title="Trip Tag Accepted",
@@ -467,7 +457,7 @@ async def withdraw_trip_tag(
 ) -> None:
     """Withdraw the current user's own tag from a trip (tagged user only).
 
-    Consent is revocable (plan Q3): the tagged user may remove their own tag
+    Consent is revocable: the tagged user may remove their own tag
     at any status - decline handles the pending case, and this endpoint also
     covers tags that were already approved. Deleting the tag removes the trip
     from the tagged user's profile view and from the owner's tag list.

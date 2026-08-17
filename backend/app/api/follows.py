@@ -6,8 +6,9 @@ from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request, status
 
-from app.api.utils import get_token_from_request
+from app.api.utils import get_token_from_request, is_duplicate_key_error
 from app.core.edge_functions import send_push_notification
+from app.core.notifications import get_user_push_tokens, profile_display_name
 from app.core.security import CurrentUser
 from app.db.postgrest import in_list
 from app.db.session import get_service_supabase_client, get_supabase_client
@@ -106,7 +107,7 @@ async def follow_user(
     except Exception as e:
         error_msg = str(e).lower()
         # Handle duplicate key constraint violation (already following)
-        if "duplicate key" in error_msg or "unique" in error_msg:
+        if is_duplicate_key_error(error_msg):
             return FollowResponse(status="already_following", following_id=str(user_id))
         # Handle block constraint from database trigger (race condition protection)
         if "cannot follow" in error_msg or "blocked" in error_msg:
@@ -139,22 +140,9 @@ async def follow_user(
             if not follower_profile:
                 return
 
-            follower_name = (
-                follower_profile[0].get("display_name")
-                or follower_profile[0].get("username")
-                or "Someone"
-            )
+            follower_name = profile_display_name(follower_profile[0])
 
-            # Fetch ALL of the followed user's device tokens (multi-device,
-            # plan U10/KTD11): push_token holds one row per device.
-            push_token_rows = await admin_db.get(
-                "push_token",
-                {
-                    "select": "token",
-                    "user_id": f"eq.{user_id}",
-                },
-            )
-            tokens = [row["token"] for row in push_token_rows or [] if row.get("token")]
+            tokens = await get_user_push_tokens(admin_db, user_id)
             if not tokens:
                 return
 

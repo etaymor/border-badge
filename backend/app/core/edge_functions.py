@@ -5,7 +5,7 @@ import logging
 import httpx
 
 from app.core.config import get_settings
-from app.db.session import get_http_client
+from app.core.http_client import get_http_client
 
 logger = logging.getLogger(__name__)
 

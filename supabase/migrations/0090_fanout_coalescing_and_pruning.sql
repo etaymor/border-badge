@@ -332,23 +332,40 @@ BEGIN
   END LOOP;
 
   -- Pass 2: per-recipient cap (newest p_keep_per_recipient survive; the
-  -- ordering tuple matches the feed's (created_at, activity_id) keyset).
+  -- ranking tuple matches the feed's (created_at, activity_id) keyset).
+  -- The over-cap id set is materialized ONCE per invocation -- recomputing
+  -- the full-table window ranking on every batch is the failure path. The
+  -- function always runs inside a transaction (pg_cron wraps each run), so
+  -- ON COMMIT DROP cleans the temp table up automatically; the DROP guards
+  -- against a second invocation in the same transaction.
+  DROP TABLE IF EXISTS pg_temp.prune_over_cap_ids;
+  CREATE TEMP TABLE prune_over_cap_ids ON COMMIT DROP AS
+  SELECT ranked.id
+  FROM (
+    SELECT sfi.id,
+           row_number() OVER (
+             PARTITION BY sfi.recipient_id
+             ORDER BY sfi.created_at DESC, sfi.activity_id DESC
+           ) AS rn
+    FROM social_feed_inbox sfi
+  ) ranked
+  WHERE ranked.rn > p_keep_per_recipient;
+
+  -- Batched deletes consume the materialized set: each iteration pops up to
+  -- p_batch_size ids and deletes the matching inbox rows, keeping locks
+  -- short and WAL bounded exactly as in Pass 1.
   v_batches := 0;
   LOOP
+    WITH batch AS (
+      DELETE FROM prune_over_cap_ids
+      WHERE id IN (
+        SELECT id FROM prune_over_cap_ids
+        LIMIT p_batch_size
+      )
+      RETURNING id
+    )
     DELETE FROM social_feed_inbox
-    WHERE id IN (
-      SELECT ranked.id
-      FROM (
-        SELECT sfi.id,
-               row_number() OVER (
-                 PARTITION BY sfi.recipient_id
-                 ORDER BY sfi.created_at DESC, sfi.activity_id DESC
-               ) AS rn
-        FROM social_feed_inbox sfi
-      ) ranked
-      WHERE ranked.rn > p_keep_per_recipient
-      LIMIT p_batch_size
-    );
+    WHERE id IN (SELECT id FROM batch);
     GET DIAGNOSTICS v_deleted = ROW_COUNT;
     v_inbox_deleted := v_inbox_deleted + v_deleted;
     v_batches := v_batches + 1;
