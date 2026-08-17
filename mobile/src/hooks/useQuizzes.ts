@@ -216,6 +216,9 @@ export function useSwapQuizQuestion(quizId: string) {
         storage_path: upload.storagePath,
         country_code: upload.countryCode,
         capture_year: upload.captureYear,
+        // Only present when a cached eligibility verdict supplied one; the
+        // server normalizes an unknown value back to null.
+        landscape: upload.landscape,
       });
       await clearStoredAnswer(quizId, input.questionId);
       return response.data;

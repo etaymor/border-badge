@@ -1,9 +1,19 @@
 /**
- * Quiz creation orchestration for the travel photo quiz.
+ * Quiz creation orchestration for Guess Where - the sequencing only.
  *
  * One tap from the entry point to a built quiz awaiting owner play:
  *   draft -> refresh photo cache -> select candidates -> vision eligibility
  *   -> pick 5-10 with country spread -> upload via quiz signed URLs -> finalize.
+ *
+ * Each stage lives in its own module so a failure can be read (and tested) in
+ * isolation; this file owns only the order they run in and what each outcome
+ * means:
+ * - `quizDraftStore`     resumable draft + used-asset ledger (KTD7/KTD12)
+ * - `candidateSelection` which photos to spend the vision budget on (KTD2/KTD3)
+ * - `quizImagePrep`      cached URI -> bytes, with iCloud recovery
+ * - `quizClassification` the eligibility gate and its budget meters (R2)
+ * - `quizUpload`         signed upload + finalize, resumable (KTD5/KTD7)
+ * - `quizHttpErrors`     the two failures that must never look like an outage
  *
  * Key behaviors:
  * - KTD1: candidates come from the existing SQLite photo cache. Refresh uses
@@ -11,465 +21,96 @@
  *   never a forced full rescan. A fresh install with an empty cache runs the
  *   initial extraction here, so the flow works with photo permission as the
  *   only prerequisite (R7).
- * - KTD3: first batch <= FIRST_BATCH_MAX, ONE resample of ~RESAMPLE_BATCH_MAX
- *   from unclassified countries when fewer than QUIZ_MIN_PHOTOS are eligible,
- *   bounded by the server-reported remaining budget.
- * - KTD5: eligibility thumbnails reuse the 768px JPEG vision pipeline; final
- *   picks are ALWAYS re-encoded through expo-image-manipulator before upload
- *   (its native save writes pixels only - `UIImage.jpegData` on iOS - so EXIF
- *   GPS never reaches storage). Uploads go to the quiz signed URLs with the
- *   server-directed cacheControl header, NOT through the trip/entry media flow.
- * - KTD7: a thin-library decline deletes the draft server-side; an interrupted
- *   or abandoned creation keeps a locally persisted resumable draft, and
- *   resuming never re-uploads completed photos.
- * - KTD12: used asset ids persist locally (photo cache metadata) so repeat
- *   creations prefer unused photos.
+ * - KTD3: the first batch targets FIRST_BATCH_MAX images, then the hunt keeps
+ *   drawing fresh batches - sized by the pass rate it is observing - until the
+ *   game is FULL. Not until the first batch is spent: a library whose photos
+ *   clear the vision gate only ~11% of the time (the measured case) yields a
+ *   handful per 50, so stopping after a pass or two declined creations that
+ *   had thousands of unexamined photos left. Only the image budget, the pool
+ *   running dry, or repeated failures may end it short.
+ * - Home-country photos are deprioritized: everyday life crowded the budget
+ *   out on a large library and the creation declined as "not enough photos".
  *
  * Module-load discipline: this file is evaluated at app boot (the creation
  * screen is registered in the root navigator), so country-coder access goes
- * through the LAZY accessor and expo-image-manipulator through an inline
- * require - mirroring the photo-import modules.
+ * through the LAZY accessor - never a top-level `@rapideditor/country-coder`
+ * import.
  */
 
-import { File as ExpoFile } from 'expo-file-system';
-import { fetch as expoFetch } from 'expo/fetch';
-
-import { api } from '@services/api';
-import { getAllCountries } from '@services/countriesDb';
-import { getImageDimensions } from '@services/mediaUpload';
+import { features } from '@config/features';
+import { getAllCountries, getHomeCountry } from '@services/countriesDb';
 import { iso1A2Code } from '@services/photoImport/countryCoder';
 import { ensureFreshLibrary } from '@services/photoImport/photoBackgroundSync';
-import { getAllCachedPhotos, getMetadata, setMetadata } from '@services/photoImport/photoCacheDb';
-import { prepareVisionImage } from '@services/photoImport/visionPhoto';
+import { getAllCachedPhotos } from '@services/photoImport/photoCacheDb';
+import { api } from '@services/api';
 import type { CachedPhoto } from '@services/photoImport/types';
 
 import {
   CLASSIFICATION_BUDGET_PER_QUIZ,
   FIRST_BATCH_MAX,
+  QUIZ_MAX_PHOTOS,
   QUIZ_MIN_PHOTOS,
-  RESAMPLE_BATCH_MAX,
+  nextResampleSize,
+  orderByCountrySpread,
   pickQuizPhotos,
+  prepareCandidatePool,
   selectEligibilityBatch,
   toCandidate,
-  type GeoEligibleCandidate,
 } from './candidateSelection';
-import { recordQuizAssets } from './quizAssets';
+import {
+  CANDIDATE_OVERSELECT,
+  classifyBatch,
+  createClassificationSession,
+  dominantRejectionReason,
+  summarizeRejections,
+} from './quizClassification';
+import type { ClassifyBatchResult } from './quizClassification';
+import {
+  clearDraftState,
+  discardDraft,
+  getUsedAssetIds,
+  loadDraftState,
+  saveDraftState,
+} from './quizDraftStore';
+import { decoratePoolWithTags, formatTagFunnel } from './quizCandidateTags';
+import { loadCurrentVerdicts, seedFromVerdicts } from './quizVerdictStore';
+import { uploadAndFinalize } from './quizUpload';
 
-// ---------------------------------------------------------------------------
-// Public types
-// ---------------------------------------------------------------------------
+import type { CreateQuizOptions, QuizCreationOutcome, QuizDraftState } from './quizCreationTypes';
 
-export type QuizCreationStep = 'scanning' | 'checking' | 'building';
-
-export interface QuizCreationProgress {
-  step: QuizCreationStep;
-  current?: number;
-  total?: number;
-}
-
-export type QuizCreationOutcome =
-  /** Quiz finalized; awaiting owner play. */
-  | { status: 'created'; quizId: string; photoCount: number }
-  /** Genuine thin library (AE2). hasGeoCandidates distinguishes "no geotagged
-   * travel photos at all" from "photos exist but too few passed the gate". */
-  | { status: 'thin-library'; eligibleCount: number; hasGeoCandidates: boolean }
-  /** Retryable service failure - DISTINCT from a thin-library decline. */
-  | { status: 'service-error'; stage: 'scan' | 'classify' }
-  /** Upload/finalize interrupted; a resumable draft is persisted locally. */
-  | { status: 'interrupted'; quizId: string; uploadedCount: number; totalCount: number }
-  /** Caller aborted; any persisted draft state is left resumable. */
-  | { status: 'cancelled' };
-
-export interface CreateQuizOptions {
-  onProgress?: (progress: QuizCreationProgress) => void;
-  signal?: AbortSignal;
-}
-
-// ---------------------------------------------------------------------------
-// Local persistence (photo cache metadata conventions - local and simple)
-// ---------------------------------------------------------------------------
-
-const DRAFT_STATE_KEY = 'quiz_draft_state';
-const USED_ASSET_IDS_KEY = 'quiz_used_asset_ids';
-
-interface DraftPick {
-  assetId: string;
-  uri: string;
-  countryCode: string;
-  captureYear: number | null;
-  storagePath: string | null;
-  uploaded: boolean;
-  landscape?: string | null;
-}
-
-export interface QuizDraftState {
-  quizId: string;
-  createdAt: number;
-  /** Empty until final picks are chosen; uploads flip `uploaded` per photo. */
-  picks: DraftPick[];
-}
-
-export async function loadDraftState(): Promise<QuizDraftState | null> {
-  try {
-    const raw = await getMetadata(DRAFT_STATE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as QuizDraftState;
-    if (!parsed?.quizId || !Array.isArray(parsed.picks)) return null;
-    return parsed;
-  } catch {
-    return null;
-  }
-}
-
-async function saveDraftState(state: QuizDraftState): Promise<void> {
-  await setMetadata(DRAFT_STATE_KEY, JSON.stringify(state));
-}
-
-export async function clearDraftState(): Promise<void> {
-  await setMetadata(DRAFT_STATE_KEY, '');
-}
-
-/** Asset ids already used by the owner's existing quizzes (KTD12). */
-export async function getUsedAssetIds(): Promise<Set<string>> {
-  try {
-    const raw = await getMetadata(USED_ASSET_IDS_KEY);
-    if (!raw) return new Set();
-    const parsed = JSON.parse(raw) as string[];
-    return new Set(Array.isArray(parsed) ? parsed : []);
-  } catch {
-    return new Set();
-  }
-}
-
-/** Record asset ids as quiz-used (KTD12). Exported for the swap flow. */
-export async function markAssetsUsed(assetIds: string[]): Promise<void> {
-  const existing = await getUsedAssetIds();
-  for (const id of assetIds) existing.add(id);
-  await setMetadata(USED_ASSET_IDS_KEY, JSON.stringify([...existing]));
-}
+// The creation pipeline's public surface. Callers (screens, hooks, the swap
+// flow) import from here rather than reaching into the stages.
+export type {
+  CreateQuizOptions,
+  DraftPick,
+  QuizCreationOutcome,
+  QuizCreationProgress,
+  QuizCreationStep,
+  QuizDraftState,
+} from './quizCreationTypes';
+export { markAssetsUsed } from './quizDraftStore';
+export { clearDraftState, discardDraft, getUsedAssetIds, loadDraftState };
+export { prepareQuizUploadImage } from './quizImagePrep';
 
 /**
- * Discard the current draft server-side AND locally (KTD7 decline path).
- * DELETE /quiz/{id} cascades DB rows; storage object cleanup is the backend's
- * scheduled-deletion seam. Best-effort: a failed delete never blocks the UX.
- */
-export async function discardDraft(quizId: string): Promise<void> {
-  try {
-    await api.delete(`/quiz/${quizId}`);
-  } catch {
-    // Best-effort: an unreachable server just leaves an orphan draft row.
-  }
-  await clearDraftState();
-}
-
-// ---------------------------------------------------------------------------
-// HTTP error classification
-// ---------------------------------------------------------------------------
-
-interface HttpErrorLike {
-  response?: {
-    status?: number;
-    data?: { detail?: string | { code?: string } };
-  };
-}
-
-function httpStatus(error: unknown): number | null {
-  const status = (error as HttpErrorLike)?.response?.status;
-  return typeof status === 'number' ? status : null;
-}
-
-function httpDetailCode(error: unknown): string | null {
-  const detail = (error as HttpErrorLike)?.response?.data?.detail;
-  if (detail && typeof detail === 'object' && typeof detail.code === 'string') {
-    return detail.code;
-  }
-  return null;
-}
-
-/** The server draft no longer exists (owner deleted it / it was purged). */
-function isDraftGoneError(error: unknown): boolean {
-  return httpStatus(error) === 404;
-}
-
-/**
- * The per-draft classification budget is spent (429 with the explicit code).
- * NOT a transport failure: retrying never succeeds, and re-classifying only
- * re-spends budget - the flow must proceed with what is already eligible.
- */
-function isBudgetExceededError(error: unknown): boolean {
-  return (
-    httpStatus(error) === 429 && httpDetailCode(error) === 'QUIZ_CLASSIFICATION_BUDGET_EXCEEDED'
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Eligibility classification (R2)
-// ---------------------------------------------------------------------------
-
-interface EligibilityResult {
-  id: string;
-  eligible: boolean;
-  status: 'eligible' | 'ineligible' | 'error';
-  reason?: string | null;
-  landscape?: string | null;
-}
-
-interface EligibilityResponse {
-  results: EligibilityResult[];
-  classified_count: number;
-  budget_remaining: number;
-}
-
-type ClassifyBatchResult =
-  | { budgetRemaining: number }
-  /** Transport/5xx outage - retryable. */
-  | 'unavailable'
-  /** 404: the server draft is gone - clear the local mirror and start fresh. */
-  | 'draft-gone'
-  /** 429 budget-exceeded - terminal for classification; build from what we have. */
-  | 'budget-exceeded';
-
-/** Bounded concurrency for local thumbnail preparation (I/O + native resize). */
-const PREPARE_CONCURRENCY = 6;
-
-/**
- * Send one batch through POST /quiz/eligibility.
+ * When to stop hunting for a BETTER game and build the one we have.
  *
- * Every prepared image is marked classified regardless of outcome - attempts
- * consume the server-side budget, so a later resample must target NEW photos.
- * "error" statuses (transport failures inside the vision service) do not
- * produce verdicts; a batch with zero verdicts is a retryable outage.
+ * Deliberately gated on already holding QUIZ_MIN_PHOTOS: past this point the
+ * deadline can end a good run early, but it can never turn a winnable run into
+ * a "Not Enough Photos Yet". Below the minimum the hunt continues to the image
+ * budget, because the alternative is declining while the library still has
+ * thousands of unexamined photos - the whole reason this loop exists.
  */
-async function classifyBatch(
-  quizId: string,
-  batch: GeoEligibleCandidate[],
-  classifiedIds: Set<string>,
-  eligible: GeoEligibleCandidate[],
-  onProgress: ((progress: QuizCreationProgress) => void) | undefined
-): Promise<ClassifyBatchResult> {
-  const byId = new Map(batch.map((candidate) => [candidate.id, candidate]));
-  const images: Array<{ id: string; image_base64: string }> = [];
-  let checked = 0;
-  for (let start = 0; start < batch.length; start += PREPARE_CONCURRENCY) {
-    onProgress?.({ step: 'checking', current: checked, total: batch.length });
-    // 768px JPEG thumbnails via the existing vision pipeline (KTD5), prepared
-    // a bounded chunk at a time; results keep the batch's candidate order.
-    const chunk = batch.slice(start, start + PREPARE_CONCURRENCY);
-    const prepared = await Promise.all(chunk.map((candidate) => prepareVisionImage(candidate.uri)));
-    checked += chunk.length;
-    prepared.forEach((base64, index) => {
-      const candidate = chunk[index];
-      if (base64) {
-        images.push({ id: candidate.id, image_base64: base64 });
-      } else {
-        // Unreadable locally - never send, never retry within this creation.
-        classifiedIds.add(candidate.id);
-      }
-    });
-  }
-  if (images.length === 0) {
-    return 'unavailable';
-  }
-
-  let data: EligibilityResponse;
-  try {
-    ({ data } = await api.post<EligibilityResponse>('/quiz/eligibility', {
-      quiz_id: quizId,
-      images,
-    }));
-  } catch (error) {
-    // A 404 (draft gone) or 429 (budget exceeded) is NOT a transport failure:
-    // retrying can never succeed, so neither maps to the retryable outage.
-    if (isDraftGoneError(error)) return 'draft-gone';
-    if (isBudgetExceededError(error)) return 'budget-exceeded';
-    return 'unavailable';
-  }
-
-  // The server reserved budget for every image sent, so all of them count as
-  // classified even when their individual status is "error".
-  for (const image of images) classifiedIds.add(image.id);
-
-  let sawVerdict = false;
-  for (const result of data.results) {
-    if (result.status === 'error') continue;
-    sawVerdict = true;
-    const candidate = byId.get(result.id);
-    if (candidate && result.eligible) {
-      candidate.landscape = result.landscape ?? undefined;
-      eligible.push(candidate);
-    }
-  }
-  onProgress?.({ step: 'checking', current: batch.length, total: batch.length });
-  if (!sawVerdict) {
-    return 'unavailable';
-  }
-  return { budgetRemaining: data.budget_remaining };
-}
-
-// ---------------------------------------------------------------------------
-// Upload preparation (KTD5 - EXIF stripping)
-// ---------------------------------------------------------------------------
-
-const QUIZ_UPLOAD_MAX_DIMENSION = 2048;
-const QUIZ_UPLOAD_JPEG_QUALITY = 0.8;
+export const HUNT_SOFT_DEADLINE_MS = 90_000;
 
 /**
- * Prepare a final quiz photo for upload.
+ * Consecutive failed passes tolerated before the hunt gives up.
  *
- * ALWAYS re-encodes through expo-image-manipulator - no pass-through for
- * already-small images (unlike `resizeImageForUpload` in mediaUpload.ts).
- * The manipulator's native save serializes pixels only (`UIImage.jpegData` on
- * iOS, `Bitmap.compress` on Android), so the output carries no EXIF GPS; the
- * unconditional re-encode is the explicit strip.
+ * Applies to both an unreachable service and batches where nothing could be
+ * read locally. One bad pass out of the ten a long hunt may run is not a
+ * reason to throw the other nine away.
  */
-export async function prepareQuizUploadImage(uri: string): Promise<string> {
-  // Inline require keeps the native module off the boot path (mirrors visionPhoto).
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { manipulateAsync, SaveFormat } = require('expo-image-manipulator');
-
-  let actions: Array<{ resize: { width?: number; height?: number } }> = [];
-  try {
-    const { width, height } = await getImageDimensions(uri);
-    if (Math.max(width, height) > QUIZ_UPLOAD_MAX_DIMENSION) {
-      actions = [
-        {
-          resize:
-            width >= height
-              ? { width: QUIZ_UPLOAD_MAX_DIMENSION }
-              : { height: QUIZ_UPLOAD_MAX_DIMENSION },
-        },
-      ];
-    }
-  } catch {
-    // Dimension probe failed: re-encode without resizing (strip still applies).
-  }
-
-  const result = await manipulateAsync(uri, actions, {
-    format: SaveFormat.JPEG,
-    compress: QUIZ_UPLOAD_JPEG_QUALITY,
-  });
-  return result.uri as string;
-}
-
-// ---------------------------------------------------------------------------
-// Upload + finalize (resumable - KTD7)
-// ---------------------------------------------------------------------------
-
-interface QuizUploadTarget {
-  storage_path: string;
-  upload_url: string;
-  cache_control: string;
-}
-
-function interruptedOutcome(state: QuizDraftState): QuizCreationOutcome {
-  return {
-    status: 'interrupted',
-    quizId: state.quizId,
-    uploadedCount: state.picks.filter((pick) => pick.uploaded).length,
-    totalCount: state.picks.length,
-  };
-}
-
-/**
- * Upload the not-yet-uploaded picks via quiz signed URLs, then finalize.
- * Progress is persisted after every successful upload so resuming skips
- * completed photos (KTD7). Returns 'draft-gone' when the server draft no
- * longer exists (404 minting upload URLs or finalizing) - the caller clears
- * the local mirror and starts a fresh creation instead of retry-looping.
- */
-async function uploadAndFinalize(
-  state: QuizDraftState,
-  onProgress: ((progress: QuizCreationProgress) => void) | undefined,
-  signal: AbortSignal | undefined
-): Promise<QuizCreationOutcome | 'draft-gone'> {
-  const total = state.picks.length;
-  const reportBuilding = () =>
-    onProgress?.({
-      step: 'building',
-      current: state.picks.filter((pick) => pick.uploaded).length,
-      total,
-    });
-  reportBuilding();
-
-  const pending = state.picks.filter((pick) => !pick.uploaded);
-  if (pending.length > 0) {
-    let uploads: QuizUploadTarget[];
-    try {
-      const { data } = await api.post<{ uploads: QuizUploadTarget[] }>(
-        `/quiz/${state.quizId}/upload-urls`,
-        { count: pending.length }
-      );
-      uploads = data.uploads;
-    } catch (error) {
-      if (isDraftGoneError(error)) return 'draft-gone';
-      return interruptedOutcome(state);
-    }
-
-    for (let index = 0; index < pending.length; index++) {
-      if (signal?.aborted) {
-        return { status: 'cancelled' };
-      }
-      const pick = pending[index];
-      const target = uploads[index];
-      try {
-        const preparedUri = await prepareQuizUploadImage(pick.uri);
-        const response = await expoFetch(target.upload_url, {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'image/jpeg',
-            // KTD5: the server-directed cacheControl MUST accompany the signed
-            // upload (Supabase reads it as `cache-control: max-age=<value>`).
-            'cache-control': `max-age=${target.cache_control}`,
-          },
-          body: new ExpoFile(preparedUri),
-        });
-        if (!response.ok) {
-          throw new Error(`Upload failed with status ${response.status}`);
-        }
-        pick.uploaded = true;
-        pick.storagePath = target.storage_path;
-        await saveDraftState(state);
-        reportBuilding();
-      } catch (error) {
-        console.warn(
-          '[QuizCreation] Photo upload failed:',
-          error instanceof Error ? error.message : error
-        );
-        await saveDraftState(state);
-        return interruptedOutcome(state);
-      }
-    }
-  }
-
-  try {
-    await api.post(`/quiz/${state.quizId}/finalize`, {
-      photos: state.picks.map((pick) => ({
-        storage_path: pick.storagePath,
-        country_code: pick.countryCode,
-        capture_year: pick.captureYear,
-        landscape: pick.landscape ?? null,
-      })),
-    });
-  } catch (error) {
-    console.warn('[QuizCreation] Finalize failed:', error instanceof Error ? error.message : error);
-    if (isDraftGoneError(error)) return 'draft-gone';
-    return interruptedOutcome(state);
-  }
-
-  await markAssetsUsed(state.picks.map((pick) => pick.assetId));
-  // Remember which assets THIS quiz uses - the server never returns asset
-  // ids, and the swap picker needs them to exclude the quiz's own photos.
-  await recordQuizAssets(
-    state.quizId,
-    state.picks.map((pick) => pick.assetId)
-  );
-  await clearDraftState();
-  return { status: 'created', quizId: state.quizId, photoCount: state.picks.length };
-}
-
-// ---------------------------------------------------------------------------
-// Main orchestration
-// ---------------------------------------------------------------------------
+const MAX_CONSECUTIVE_FAILED_PASSES = 2;
 
 /**
  * Build a quiz from the photo library, end to end.
@@ -546,21 +187,101 @@ async function runQuizCreation(
   }
   if (signal?.aborted) return { status: 'cancelled' };
 
-  const [countries, usedAssetIds] = await Promise.all([getAllCountries(), getUsedAssetIds()]);
+  const [countries, usedAssetIds, homeCountry] = await Promise.all([
+    getAllCountries(),
+    getUsedAssetIds(),
+    getHomeCountry().catch(() => null),
+  ]);
   const validCodes = new Set(countries.map((country) => country.code));
   const pool = cached.map(toCandidate);
 
+  // Home-country photos are everyday life, not travel: on a large library they
+  // crowd the vision budget with kitchens, kids, and receipts and the creation
+  // declines with "not enough photos". Deprioritizing (rather than filtering)
+  // uses the existing spread segments, so home photos are reached only once the
+  // away-from-home pool is exhausted - a hard exclusion in practice, with an
+  // automatic fallback for someone whose only geotagged photos are at home.
+  const homeCountries = new Set(homeCountry ? [homeCountry] : []);
+
   // Step 2: select the first candidate batch (KTD2 + KTD3).
-  const firstBatch = selectEligibilityBatch({
-    pool,
-    validCodes,
-    coder: iso1A2Code,
-    usedAssetIds,
-    limit: FIRST_BATCH_MAX,
-  });
-  if (firstBatch.length === 0) {
+  //
+  // The geo gate and near-duplicate collapse run ONCE here: neither depends on
+  // what a given pass has already classified, and the hunt below may run ten
+  // passes over a library of tens of thousands of photos. Emit a progress tick
+  // first so the wizard is not silent through it.
+  onProgress?.({ step: 'checking', current: 0, total: QUIZ_MAX_PHOTOS });
+  const preparedPool = prepareCandidatePool(pool, validCodes);
+
+  // Step 2a: on-device pre-filter. Drops only the near-certain rejects
+  // (screenshots, utility images, photos whose subject is a person) and tiers
+  // the rest by quality so the paid gate sees the best candidates first.
+  // Degrades to the undecorated pool whenever tags are missing or unreadable.
+  const decorated = await decoratePoolWithTags(preparedPool);
+  const rankedPool = decorated.pool;
+
+  // Step 2b: seed from verdicts this device has ALREADY paid for. Eligible
+  // photos go straight into the game with their stored landscape; ineligible
+  // ones go into classifiedIds so no pass re-draws them. On a repeat creation
+  // this alone can fill the game, making it upload-bound instead of gate-bound.
+  const session = createClassificationSession();
+  const { classifiedIds, eligible } = session;
+  let seededEligible = 0;
+  let seededIneligible = 0;
+  if (features.enableVerdictCache) {
+    const verdicts = await loadCurrentVerdicts();
+    if (verdicts.size > 0) {
+      const seeded = seedFromVerdicts(rankedPool, verdicts);
+      for (const id of seeded.seenIds) classifiedIds.add(id);
+      // Order them the way a fresh hunt would, so a seeded game has the same
+      // country/day spread as a classified one rather than whatever order the
+      // cache happened to hold.
+      eligible.push(
+        ...orderByCountrySpread(seeded.eligible, usedAssetIds, homeCountries, QUIZ_MAX_PHOTOS)
+      );
+      seededEligible = seeded.eligibleCount;
+      seededIneligible = seeded.ineligibleCount;
+      if (eligible.length > 0) {
+        onProgress?.({
+          step: 'checking',
+          current: Math.min(eligible.length, QUIZ_MAX_PHOTOS),
+          total: QUIZ_MAX_PHOTOS,
+        });
+      }
+    }
+  }
+
+  // A game already filled from cache needs no candidates at all.
+  const firstBatch =
+    eligible.length >= QUIZ_MAX_PHOTOS
+      ? []
+      : selectEligibilityBatch({
+          pool: rankedPool,
+          validCodes,
+          prepared: true,
+          coder: iso1A2Code,
+          usedAssetIds,
+          excludeIds: classifiedIds,
+          deprioritizedCountries: homeCountries,
+          limit: FIRST_BATCH_MAX * CANDIDATE_OVERSELECT,
+        });
+  // console.warn (not log) so the funnel survives the production console strip:
+  // a thin-library decline is meaningless without knowing which stage ate the
+  // candidates - cache size, geo coding, the on-device drops, or the vision gate.
+  console.warn(
+    `[QuizCreation] funnel: refresh=${refresh.status} cached=${cached.length} ` +
+      `geocoded=${pool.reduce((count, photo) => count + (photo.countryCode ? 1 : 0), 0)} ` +
+      `home=${homeCountry ?? 'unset'} ${formatTagFunnel(decorated)} ` +
+      `seeded=${seededEligible}/${seededIneligible} firstBatch=${firstBatch.length}`
+  );
+  if (firstBatch.length === 0 && eligible.length < QUIZ_MIN_PHOTOS) {
     if (persisted) await discardDraft(persisted.quizId);
-    return { status: 'thin-library', eligibleCount: 0, hasGeoCandidates: false };
+    return {
+      status: 'thin-library',
+      eligibleCount: eligible.length,
+      // Distinguishes "no geotagged travel photos at all" from "photos exist
+      // but the pre-filter or the gate ate them" - the decline copy differs.
+      hasGeoCandidates: preparedPool.length > 0,
+    };
   }
 
   // Step 3: server draft (reuse a persisted id so retries stay cheap).
@@ -575,62 +296,142 @@ async function runQuizCreation(
     await saveDraftState({ quizId, createdAt: Date.now(), picks: [] });
   }
 
-  // Step 4: vision eligibility (R2), with one resample pass (KTD3).
-  const classifiedIds = new Set<string>();
-  const eligible: GeoEligibleCandidate[] = [];
-  const firstResult = await classifyBatch(quizId, firstBatch, classifiedIds, eligible, onProgress);
-  if (firstResult === 'unavailable') {
-    return { status: 'service-error', stage: 'classify' };
+  // Step 4: vision eligibility (R2), hunting until the game is full (KTD3).
+  const startedAt = Date.now();
+  // An empty first batch means the verdict cache already filled the game, so
+  // there is nothing to classify. Treat it as a clean pass with the full budget
+  // intact rather than as a failure - the hunt loop below simply never runs.
+  let firstResult: ClassifyBatchResult = { budgetRemaining: CLASSIFICATION_BUDGET_PER_QUIZ };
+  if (firstBatch.length > 0) {
+    firstResult = await classifyBatch(quizId, firstBatch, FIRST_BATCH_MAX, session, onProgress);
+    if (firstResult === 'draft-gone') {
+      return restartAfterDraftGone(options, restartedAfterDraftGone);
+    }
+    if (signal?.aborted) return { status: 'cancelled' };
   }
-  if (firstResult === 'draft-gone') {
-    return restartAfterDraftGone(options, restartedAfterDraftGone);
+
+  // Keep drawing fresh batches until the game is FULL - not until the first
+  // batch is spent. A library with a low pass rate (the measured case: ~11% of
+  // candidates clear the people/indoor gate) yields only a handful of photos
+  // per 50, so stopping after one or two passes declined creations that had
+  // thousands of unexamined photos left. What may end the hunt, in order of
+  // how much it costs the user:
+  //   - a full game (QUIZ_MAX_PHOTOS)                      the good stop
+  //   - the soft deadline, once the game is at least legal
+  //   - the per-draft image budget (client mirror, or a server 429)
+  //   - the candidate pool running dry
+  //   - repeated failed passes
+  // Only the last two can still end in a decline, and both mean the library
+  // really has nothing more to offer.
+  const classifiedCountries = new Set(firstBatch.map((candidate) => candidate.countryCode));
+  let lastResult = firstResult;
+  // The server's own view of what this draft may still spend. When a pass
+  // fails the server tells us nothing, so keep the last known figure rather
+  // than assuming zero - a failed pass has to leave room for the retry below.
+  // The mirror clamp is applied separately, per pass.
+  let budgetRemaining =
+    typeof firstResult === 'object' ? firstResult.budgetRemaining : CLASSIFICATION_BUDGET_PER_QUIZ;
+  let consecutiveFailures = typeof firstResult === 'object' ? 0 : 1;
+  let passes = 1;
+
+  while (lastResult !== 'budget-exceeded' && eligible.length < QUIZ_MAX_PHOTOS) {
+    if (consecutiveFailures >= MAX_CONSECUTIVE_FAILED_PASSES) break;
+    // Past the deadline with a playable game in hand: build it. Below the
+    // minimum, the deadline is ignored - a slow hunt beats a false decline.
+    if (Date.now() - startedAt >= HUNT_SOFT_DEADLINE_MS && eligible.length >= QUIZ_MIN_PHOTOS) {
+      break;
+    }
+    // Sized by the pass rate seen so far, then clamped by BOTH budget meters:
+    // the server's last reported remainder and our own mirror. The mirror is
+    // recomputed every pass rather than carried, so images sent on a pass that
+    // then failed still count - they were charged.
+    const resampleTarget = Math.min(
+      nextResampleSize(QUIZ_MAX_PHOTOS - eligible.length, session.sentCount, eligible.length),
+      budgetRemaining,
+      CLASSIFICATION_BUDGET_PER_QUIZ - session.sentCount
+    );
+    if (resampleTarget <= 0) break;
+
+    const resampleBatch = selectEligibilityBatch({
+      pool: rankedPool,
+      validCodes,
+      prepared: true,
+      coder: iso1A2Code,
+      usedAssetIds,
+      excludeIds: classifiedIds,
+      // Countries already classified AND home rank last: each pass reaches
+      // for photos from somewhere the vision gate has not seen yet.
+      deprioritizedCountries: new Set([...homeCountries, ...classifiedCountries]),
+      limit: resampleTarget * CANDIDATE_OVERSELECT,
+    });
+    // Pool exhausted: every remaining candidate has already been classified.
+    if (resampleBatch.length === 0) break;
+
+    const resampleResult = await classifyBatch(
+      quizId,
+      resampleBatch,
+      resampleTarget,
+      session,
+      onProgress
+    );
+    passes += 1;
+    if (resampleResult === 'draft-gone') {
+      return restartAfterDraftGone(options, restartedAfterDraftGone);
+    }
+    if (signal?.aborted) return { status: 'cancelled' };
+
+    if (resampleResult === 'no-images') {
+      // Nothing in this draw could be read locally (iCloud-offloaded). The
+      // service is fine and the budget is untouched, so draw again - those
+      // candidates are already in classifiedIds, so the next pass reaches
+      // further into the library rather than re-picking them.
+      consecutiveFailures += 1;
+      continue;
+    }
+    if (resampleResult === 'unavailable') {
+      consecutiveFailures += 1;
+      continue;
+    }
+    if (resampleResult === 'budget-exceeded') {
+      // The server says this draft is done spending. Terminal, never
+      // retryable: build with what the hunt already found.
+      lastResult = resampleResult;
+      break;
+    }
+    consecutiveFailures = 0;
+    for (const candidate of resampleBatch) classifiedCountries.add(candidate.countryCode);
+    lastResult = resampleResult;
+    budgetRemaining = resampleResult.budgetRemaining;
   }
   if (signal?.aborted) return { status: 'cancelled' };
 
-  // Budget exhaustion is terminal for classification (never retryable):
-  // skip the resample and build from whatever is already eligible - the
-  // minimum-photos check below turns "not enough" into the guided decline.
-  if (firstResult !== 'budget-exceeded' && eligible.length < QUIZ_MIN_PHOTOS) {
-    const budgetRemaining = Math.min(
-      firstResult.budgetRemaining,
-      CLASSIFICATION_BUDGET_PER_QUIZ - classifiedIds.size
-    );
-    const resampleLimit = Math.min(RESAMPLE_BATCH_MAX, budgetRemaining);
-    if (resampleLimit > 0) {
-      const classifiedCountries = new Set(firstBatch.map((candidate) => candidate.countryCode));
-      const resampleBatch = selectEligibilityBatch({
-        pool,
-        validCodes,
-        coder: iso1A2Code,
-        usedAssetIds,
-        excludeIds: classifiedIds,
-        deprioritizedCountries: classifiedCountries,
-        limit: resampleLimit,
-      });
-      if (resampleBatch.length > 0) {
-        const resampleResult = await classifyBatch(
-          quizId,
-          resampleBatch,
-          classifiedIds,
-          eligible,
-          onProgress
-        );
-        if (resampleResult === 'draft-gone') {
-          return restartAfterDraftGone(options, restartedAfterDraftGone);
-        }
-        if (resampleResult === 'unavailable' && eligible.length < QUIZ_MIN_PHOTOS) {
-          return { status: 'service-error', stage: 'classify' };
-        }
-        // 'budget-exceeded' falls through: proceed with the eligible photos.
-      }
-    }
+  // Failing to build because passes were FAILING is a retryable outage;
+  // failing to build after the library was honestly searched is a thin
+  // library. `consecutiveFailures` is what separates them: it is zero only
+  // when the last pass returned real verdicts, so a hunt that ended on a
+  // failure - including one that ran out of candidates before its retry could
+  // run - is never mislabeled as the user's library being too thin.
+  if (eligible.length < QUIZ_MIN_PHOTOS && consecutiveFailures > 0) {
+    return { status: 'service-error', stage: 'classify' };
   }
-  if (signal?.aborted) return { status: 'cancelled' };
+
+  const reasonSummary = summarizeRejections(session);
+  console.warn(
+    `[QuizCreation] funnel: attempted=${classifiedIds.size} sent=${session.sentCount} ` +
+      `eligible=${eligible.length} seeded=${seededEligible} passes=${passes} ` +
+      `elapsedMs=${Date.now() - startedAt} offloaded=${session.offloadedFailures}` +
+      (reasonSummary ? ` ${reasonSummary}` : '')
+  );
 
   if (eligible.length < QUIZ_MIN_PHOTOS) {
     // Genuine decline (AE2): the draft is deleted, not left dangling (KTD7).
     await discardDraft(quizId);
-    return { status: 'thin-library', eligibleCount: eligible.length, hasGeoCandidates: true };
+    return {
+      status: 'thin-library',
+      eligibleCount: eligible.length,
+      hasGeoCandidates: true,
+      dominantReason: dominantRejectionReason(session.reasons),
+    };
   }
 
   // Step 5: final picks (R1 spread, KTD12 freshness) and resumable state.

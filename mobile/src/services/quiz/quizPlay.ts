@@ -17,6 +17,7 @@
 import { File as ExpoFile } from 'expo-file-system';
 import { fetch as expoFetch } from 'expo/fetch';
 
+import { features } from '@config/features';
 import { api } from '@services/api';
 import { getAllCountries } from '@services/countriesDb';
 import { iso1A2Code } from '@services/photoImport/countryCoder';
@@ -25,12 +26,15 @@ import { getAllCachedPhotos, getMetadata, setMetadata } from '@services/photoImp
 import {
   filterNearDuplicatesOf,
   filterSameDayAs,
+  prepareCandidatePool,
   selectEligibilityBatch,
   toCandidate,
   type GeoEligibleCandidate,
 } from './candidateSelection';
 import { getQuizAssetIds, recordQuizAssets } from './quizAssets';
+import { decoratePoolWithTags } from './quizCandidateTags';
 import { getUsedAssetIds, markAssetsUsed, prepareQuizUploadImage } from './quizCreation';
+import { loadCurrentVerdicts } from './quizVerdictStore';
 
 // ---------------------------------------------------------------------------
 // Persisted play state
@@ -151,9 +155,17 @@ export const SWAP_CANDIDATE_LIMIT = 30;
  * contains, one that plays as its twin, or one that breaks the
  * no-same-day-in-one-game rule.
  *
- * Note: these candidates have passed the geo gate only - the vision
- * eligibility budget belongs to the 'building' state and is not re-spent on
- * swaps.
+ * Swaps never spend the vision budget - that belongs to the 'building' state -
+ * so historically these candidates passed the GEO gate only, and the picker
+ * could happily offer an indoor shot, a portrait, or a receipt. Free local
+ * knowledge now filters them:
+ * - photos a previous creation already paid to have REJECTED are removed
+ * - on-device drops (screenshots, utility images, prominent people) are applied
+ * - the remainder is ranked by tier and aesthetics like a creation batch
+ * - a stored `landscape` rides along, so a swapped question gets real lookalike
+ *   decoys instead of the blind ones an unclassified photo produces
+ *
+ * All of it degrades to the previous geo-only behavior when nothing is cached.
  */
 export async function loadSwapCandidates(quizId: string): Promise<GeoEligibleCandidate[]> {
   const [cached, countries, usedAssetIds, quizAssetIds] = await Promise.all([
@@ -165,9 +177,29 @@ export async function loadSwapCandidates(quizId: string): Promise<GeoEligibleCan
   const validCodes = new Set(countries.map((country) => country.code));
   const pool = cached.map(toCandidate);
   const anchors = pool.filter((photo) => quizAssetIds.has(photo.id));
+  const geoPool = prepareCandidatePool(
+    filterSameDayAs(filterNearDuplicatesOf(pool, anchors), anchors),
+    validCodes
+  );
+
+  const verdicts = features.enableVerdictCache ? await loadCurrentVerdicts() : new Map();
+  const known = geoPool.filter((candidate) => {
+    const verdict = verdicts.get(candidate.id);
+    // A photo the gate has already rejected must never be offered as a swap:
+    // we know it fails the very rule the swap exists to satisfy.
+    return !verdict || verdict.eligible;
+  });
+  const withLandscape = known.map((candidate) => {
+    const verdict = verdicts.get(candidate.id);
+    return verdict?.landscape ? { ...candidate, landscape: verdict.landscape } : candidate;
+  });
+
+  const { pool: ranked } = await decoratePoolWithTags(withLandscape);
+
   return selectEligibilityBatch({
-    pool: filterSameDayAs(filterNearDuplicatesOf(pool, anchors), anchors),
+    pool: ranked,
     validCodes,
+    prepared: true,
     coder: iso1A2Code,
     usedAssetIds,
     limit: SWAP_CANDIDATE_LIMIT,
@@ -178,6 +210,12 @@ export interface SwapUploadResult {
   storagePath: string;
   countryCode: string;
   captureYear: number | null;
+  /**
+   * Scenic tag for decoy selection, when a cached verdict supplied one. The
+   * swap endpoint has always accepted it (QuizSwapRequest extends
+   * QuizFinalizePhoto); the client simply never had one to send.
+   */
+  landscape: string | null;
 }
 
 /**
@@ -217,5 +255,6 @@ export async function uploadSwapPhoto(
     storagePath: target.storage_path,
     countryCode: candidate.countryCode,
     captureYear: candidate.creationTime > 0 ? new Date(candidate.creationTime).getFullYear() : null,
+    landscape: candidate.landscape ?? null,
   };
 }

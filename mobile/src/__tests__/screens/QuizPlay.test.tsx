@@ -30,6 +30,7 @@ declare global {
 }
 const mockAlert = global.__mockAlert.alert;
 
+import { Image as MockedExpoImage } from 'expo-image';
 import { api } from '@services/api';
 import * as ShareModule from '@utils/share';
 import type { QuizDetail, QuizQuestion } from '@hooks/useQuizzes';
@@ -45,6 +46,19 @@ jest.mock('@services/quiz/quizCreation', () => ({
   loadDraftState: jest.fn().mockResolvedValue(null),
   clearDraftState: jest.fn(),
 }));
+
+// expo-image with a spy-able static `prefetch`, so the tests can assert the
+// NEXT photo is fetched while the current one is on screen.
+/* eslint-disable @typescript-eslint/no-require-imports -- jest.mock factories are hoisted above imports */
+jest.mock('expo-image', () => {
+  const React = require('react');
+  const { Image: RNImage } = require('react-native');
+  const MockImage = (props: Record<string, unknown>) => React.createElement(RNImage, props);
+  MockImage.prefetch = jest.fn(() => Promise.resolve(true));
+  MockImage.clearMemoryCache = jest.fn(() => Promise.resolve(true));
+  return { Image: MockImage };
+});
+/* eslint-enable @typescript-eslint/no-require-imports */
 
 jest.mock('@services/quiz/quizPlay', () => ({
   ensurePlaySession: jest.fn(),
@@ -196,6 +210,109 @@ beforeEach(() => {
     answers: { ...state.answers, [answer.questionId]: answer },
   }));
   mockLoadSwapCandidates.mockResolvedValue([]);
+});
+
+describe('QuizPlayScreen photo loading', () => {
+  // Every photo is fetched cold at the moment its question mounts, so the wait
+  // after answering is a full download + decode of a 2048px JPEG. Warming the
+  // NEXT photo while the player is still looking at the current one moves that
+  // cost off the transition. It is also what keeps only a bounded number of
+  // full-size bitmaps alive - the play session was being killed part-way
+  // through a 10-photo game.
+  const ExpoImage = MockedExpoImage as unknown as { prefetch: jest.Mock };
+
+  it('warms the next photo while the current question is on screen', async () => {
+    mockQuizDetail(makeDetail());
+    mockEnsurePlaySession.mockResolvedValue(makePlayState([]));
+
+    renderPlayScreen();
+
+    await waitFor(() => expect(screen.getByTestId('quiz-play-photo')).toBeTruthy());
+    await waitFor(() =>
+      expect(ExpoImage.prefetch).toHaveBeenCalledWith(
+        expect.arrayContaining(['https://cdn.example/quiz/q1.jpg'])
+      )
+    );
+    // Only the next one - not the whole game, which is what fills memory.
+    const warmed = ExpoImage.prefetch.mock.calls.flatMap(([urls]: [string[]]) => urls);
+    expect(warmed).not.toContain('https://cdn.example/quiz/q4.jpg');
+  });
+
+  it('keeps warming one photo ahead as the game advances', async () => {
+    mockQuizDetail(makeDetail());
+    mockEnsurePlaySession.mockResolvedValue(makePlayState(['q0']));
+
+    renderPlayScreen();
+
+    await waitFor(() => expect(screen.getByText('Photo 2 of 5')).toBeTruthy());
+    await waitFor(() =>
+      expect(ExpoImage.prefetch).toHaveBeenCalledWith(
+        expect.arrayContaining(['https://cdn.example/quiz/q2.jpg'])
+      )
+    );
+  });
+
+  it('does not warm anything past the last photo', async () => {
+    mockQuizDetail(makeDetail());
+    mockEnsurePlaySession.mockResolvedValue(makePlayState(['q0', 'q1', 'q2', 'q3']));
+
+    renderPlayScreen();
+
+    await waitFor(() => expect(screen.getByText('Photo 5 of 5')).toBeTruthy());
+    const warmed = ExpoImage.prefetch.mock.calls.flatMap(([urls]: [string[]]) => urls);
+    expect(warmed).toEqual([]);
+  });
+});
+
+describe('QuizPlayScreen stall recovery', () => {
+  // The tapped option keeps its gold ring - and every option stays disabled -
+  // for as long as `pendingAnswerKey` is set, and only advancing clears it. Any
+  // path that sets it without reaching the next question freezes the game with
+  // the tapped year still lit and no way out but killing the app. Nothing may
+  // hold that lock indefinitely.
+  it('recovers into the retryable error state when an answer never settles', async () => {
+    jest.useFakeTimers();
+    try {
+      mockQuizDetail(makeDetail({ questions: [makeQuestion(0, [2019, 2020, 2021, 2022])] }));
+      mockEnsurePlaySession.mockResolvedValue(makePlayState([]));
+      // The request goes out and never comes back: no success, no error.
+      mockApiPost.mockImplementation(() => new Promise(() => {}));
+
+      renderPlayScreen();
+
+      await waitFor(() => expect(screen.getByTestId('quiz-option-0')).toBeTruthy());
+      fireEvent.press(screen.getByTestId('quiz-option-0'));
+      await waitFor(() => expect(screen.getByTestId('quiz-year-2020')).toBeTruthy());
+      fireEvent.press(screen.getByTestId('quiz-year-2020'));
+
+      // Frozen: the year is lit and every option is disabled.
+      await waitFor(() => expect(screen.getByTestId('quiz-year-2020').props.accessibilityState));
+
+      jest.advanceTimersByTime(20_000);
+
+      await waitFor(() => expect(screen.getByTestId('quiz-play-error')).toBeTruthy());
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('does not strand the highlight when the answer cannot be submitted', async () => {
+    mockQuizDetail(makeDetail({ questions: [makeQuestion(0)] }));
+    mockEnsurePlaySession.mockResolvedValue(makePlayState([]));
+    mockPostRoutes({
+      [`/quiz/${QUIZ_ID}/answer`]: () => {
+        throw Object.assign(new Error('boom'), { response: { status: 500 } });
+      },
+    });
+
+    renderPlayScreen();
+
+    await waitFor(() => expect(screen.getByTestId('quiz-option-0')).toBeTruthy());
+    fireEvent.press(screen.getByTestId('quiz-option-0'));
+
+    // A hard failure surfaces the error screen rather than a dead highlight.
+    await waitFor(() => expect(screen.getByTestId('quiz-play-error')).toBeTruthy());
+  });
 });
 
 describe('QuizPlayScreen', () => {
@@ -445,6 +562,7 @@ describe('QuizResultsScreen', () => {
       storagePath: `quiz/${QUIZ_ID}/new-object.jpg`,
       countryCode: 'FR',
       captureYear: 2021,
+      landscape: null,
     });
     mockPostRoutes({
       [`/quiz/${QUIZ_ID}/questions/q2/swap`]: makeDetail({
@@ -469,6 +587,7 @@ describe('QuizResultsScreen', () => {
       storage_path: `quiz/${QUIZ_ID}/new-object.jpg`,
       country_code: 'FR',
       capture_year: 2021,
+      landscape: null,
     });
   });
 

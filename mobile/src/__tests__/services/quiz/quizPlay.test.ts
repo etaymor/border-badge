@@ -40,6 +40,12 @@ jest.mock('@services/photoImport/countryCoder', () => ({
   iso1A2Code: jest.fn(() => null),
 }));
 
+jest.mock('@services/photoImport/photoTagDb', () => ({
+  getTagsForIds: jest.fn().mockResolvedValue(new Map()),
+  getAllVerdicts: jest.fn().mockResolvedValue(new Map()),
+  upsertVerdicts: jest.fn().mockResolvedValue(undefined),
+}));
+
 import {
   clearStoredAnswer,
   ensurePlaySession,
@@ -53,11 +59,14 @@ import {
 import { getQuizAssetIds, recordQuizAssets } from '@services/quiz/quizAssets';
 import { getAllCachedPhotos } from '@services/photoImport/photoCacheDb';
 import { getAllCountries } from '@services/countriesDb';
+import { getAllVerdicts, getTagsForIds } from '@services/photoImport/photoTagDb';
 import type { CachedPhoto } from '@services/photoImport/types';
 
 const mockApiPost = api.post as jest.Mock;
 const mockGetAllCachedPhotos = getAllCachedPhotos as jest.MockedFunction<typeof getAllCachedPhotos>;
 const mockGetAllCountries = getAllCountries as jest.MockedFunction<typeof getAllCountries>;
+const mockGetTagsForIds = getTagsForIds as jest.Mock;
+const mockGetAllVerdicts = getAllVerdicts as jest.Mock;
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -226,5 +235,117 @@ describe('loadSwapCandidates (BUG-2: never re-offer the quiz its own photos)', (
     const candidates = await loadSwapCandidates('quiz-a');
 
     expect(candidates.map((candidate) => candidate.id)).toEqual(['asset-3']);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Swap picker quality (verdict cache + on-device tags)
+// ---------------------------------------------------------------------------
+
+describe('loadSwapCandidates - free local knowledge', () => {
+  const ROME = { latitude: 41.9029, longitude: 12.4534 };
+
+  function makeCached(id: string, dayOffset: number): CachedPhoto {
+    return {
+      id,
+      uri: `file:///photos/${id}.jpg`,
+      filename: `${id}.jpg`,
+      // Distinct days so the same-day-as-quiz exclusion does not interfere.
+      creationTime: Date.UTC(2024, 0, 1 + dayOffset, 12),
+      latitude: ROME.latitude,
+      longitude: ROME.longitude,
+      geohash: 'sr2yk3h',
+      countryCode: 'IT',
+    };
+  }
+
+  const verdictRow = (id: string, eligible: boolean, landscape: string | null = null) => ({
+    id,
+    eligible,
+    reason: eligible ? null : 'people_present',
+    landscape,
+    classifierVersion: 'gemini-2.5-flash-lite/v1',
+    classifiedAt: 1_700_000_000_000,
+  });
+
+  beforeEach(() => {
+    mockGetAllCountries.mockResolvedValue([{ code: 'IT', name: 'Italy' }] as Awaited<
+      ReturnType<typeof getAllCountries>
+    >);
+    mockGetTagsForIds.mockResolvedValue(new Map());
+    mockGetAllVerdicts.mockResolvedValue(new Map());
+  });
+
+  it('never offers a photo the gate already rejected', async () => {
+    // Swaps spend no vision budget, so before the cache existed the picker
+    // could happily offer an indoor shot or a portrait - the exact photos the
+    // swap is meant to replace.
+    const photos = Array.from({ length: 8 }, (_, i) => makeCached(`p${i}`, i));
+    mockGetAllCachedPhotos.mockResolvedValue(photos);
+    mockGetAllVerdicts.mockResolvedValue(
+      new Map([
+        ['p0', verdictRow('p0', false)],
+        ['p1', verdictRow('p1', false)],
+      ])
+    );
+
+    const candidates = await loadSwapCandidates('quiz-swap-1');
+    const ids = candidates.map((c) => c.id);
+
+    expect(ids).not.toContain('p0');
+    expect(ids).not.toContain('p1');
+    expect(ids.length).toBeGreaterThan(0);
+  });
+
+  it('attaches the cached landscape so a swapped question gets real decoys', async () => {
+    const photos = [makeCached('p0', 0)];
+    mockGetAllCachedPhotos.mockResolvedValue(photos);
+    mockGetAllVerdicts.mockResolvedValue(
+      new Map([['p0', verdictRow('p0', true, 'mediterranean')]])
+    );
+
+    const candidates = await loadSwapCandidates('quiz-swap-2');
+
+    expect(candidates[0]?.landscape).toBe('mediterranean');
+  });
+
+  it('drops screenshots from the picker', async () => {
+    const photos = Array.from({ length: 6 }, (_, i) => makeCached(`p${i}`, i));
+    mockGetAllCachedPhotos.mockResolvedValue(photos);
+    mockGetTagsForIds.mockImplementation(async (ids: string[]) => {
+      const map = new Map();
+      for (const id of ids) {
+        map.set(id, {
+          id,
+          taggerVersion: 1,
+          status: 'ok',
+          isScreenshot: id === 'p0',
+          faceCount: 0,
+          maxFaceArea: 0,
+          totalFaceArea: 0,
+          humanCount: 0,
+          maxHumanArea: 0,
+          totalHumanArea: 0,
+          labels: [],
+          aestheticScore: null,
+          isUtility: null,
+          computedAt: 1,
+        });
+      }
+      return map;
+    });
+
+    const ids = (await loadSwapCandidates('quiz-swap-3')).map((c) => c.id);
+
+    expect(ids).not.toContain('p0');
+  });
+
+  it('still returns geo-eligible candidates when nothing is cached', async () => {
+    const photos = Array.from({ length: 5 }, (_, i) => makeCached(`p${i}`, i));
+    mockGetAllCachedPhotos.mockResolvedValue(photos);
+
+    const ids = (await loadSwapCandidates('quiz-swap-4')).map((c) => c.id);
+
+    expect(ids).toHaveLength(5);
   });
 });
