@@ -170,7 +170,10 @@ class TestQuizClassificationCaps:
     """
 
     def test_per_quiz_budget_default(self) -> None:
-        assert _settings().quiz_classification_budget_per_quiz == 70
+        # Sized so the budget is not what ends a creation. At the measured ~11%
+        # pass rate a 10-photo game needs ~90 images classified; the old 70
+        # stopped mid-hunt and declined as "not enough photos".
+        assert _settings().quiz_classification_budget_per_quiz == 300
 
     def test_daily_cap_default(self) -> None:
         assert _settings().quiz_classification_daily_cap == 50_000

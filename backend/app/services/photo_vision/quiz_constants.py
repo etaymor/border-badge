@@ -6,9 +6,16 @@ import classifier is precision-tuned for place matching and must not change,
 while the quiz gate answers a different question -- is this photo safe and
 suitable to show publicly as a "guess where" puzzle?
 
-Eligibility rule (R2): a photo is eligible only when it has NO people, is
-OUTDOOR, and falls in one of the three allowed categories below. Everything
-else -- including "unclear" answers -- fails closed to ineligible.
+Eligibility rule (R2): a photo is eligible only when no person is a SUBJECT of
+it, it is OUTDOOR, and it falls in one of the three allowed categories below.
+Everything else -- including "unclear" answers -- fails closed to ineligible.
+
+The people and outdoor tests are deliberately judged on prominence, not
+presence: the original "any person at all, when in doubt say true" wording,
+combined with covered-but-open spaces counting as indoor, rejected ~all 70
+photos of a real 50k-photo library and the creation always declined as
+"not enough photos". A street scene with distant passers-by is a good
+guess-where puzzle; a portrait is not.
 """
 
 from app.core.quiz_landscape import QUIZ_LANDSCAPE_VALUES
@@ -44,9 +51,10 @@ QUIZ_ELIGIBILITY_RESPONSE_FORMAT = {
                 "has_people": {
                     "type": "boolean",
                     "description": (
-                        "True if ANY person is visible: faces, bodies, "
-                        "silhouettes, reflections, or partial body parts, "
-                        "however small, blurred, or distant."
+                        "True only when a person is a SUBJECT of the photo: a "
+                        "legible face, or a body filling a significant part of "
+                        "the frame. Distant, blurred, back-turned, or "
+                        "incidental passers-by are false."
                     ),
                 },
                 "setting": {
@@ -79,9 +87,9 @@ QUIZ_ELIGIBILITY_RESPONSE_FORMAT = {
 
 QUIZ_ELIGIBILITY_SYSTEM_PROMPT = """You are screening travel photos for a "guess where this was taken" quiz. Answer four questions about the photo.
 
-1. has_people: Are ANY people visible? Count faces, bodies, silhouettes, reflections, and partial body parts (hands, feet, shoulders), however small, blurred, or distant. When in doubt, answer true.
+1. has_people: Is a person a SUBJECT of this photo? Answer true when a face is legible, or when a body fills a significant part of the frame -- a portrait, a group shot, someone posing. Answer false for incidental people: distant figures, blurred or back-turned passers-by, small silhouettes, a crowd far off in a street or landscape. Judge prominence, not presence.
 
-2. setting: Was the photo taken outdoors or indoors? Covered but open spaces (markets, train platforms, stadium stands) count as indoor. Answer "unclear" if you cannot tell (extreme close-up, abstract shot, heavy editing).
+2. setting: Was the photo taken outdoors or indoors? Covered but open spaces count as OUTDOOR -- street markets, train platforms, arcades, colonnades, terraces, stadium stands. Only fully enclosed interiors are indoor. Answer "unclear" if you cannot tell (extreme close-up, abstract shot, heavy editing).
 
 3. category:
 - scenery: natural landscapes -- mountains, beaches, lakes, forests, deserts, countryside, city skylines seen from afar

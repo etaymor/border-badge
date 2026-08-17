@@ -303,8 +303,16 @@ class Settings(BaseSettings):
     # bounded twice: per draft (hard cap on images one quiz creation may
     # classify, anchored on quiz.classified_count) and globally per day
     # (circuit breaker derived from DB state so it holds across workers).
+    # 300, not 70: the budget is what STOPS a creation, so sizing it to a
+    # typical creation's spend made it the reason most declines happened.
+    # Measured on a real 50k-photo library, the gate passes ~11% of candidates
+    # (people/indoor rejections dominate), so a 10-photo game needs ~90 images
+    # classified — 70 produced 8 photos and sat one bad batch away from the
+    # 5-photo decline. The client stops the moment it has 10 eligible, so a
+    # healthy library still spends ~50-70 and only a struggling one reaches the
+    # cap. At ~$0.00023/photo the worst case is ~$0.07 per creation.
     quiz_classification_budget_per_quiz: int = Field(
-        default=70,
+        default=300,
         ge=1,
         le=500,
         description=(
@@ -312,8 +320,9 @@ class Settings(BaseSettings):
             "server-side against the quiz row's classified_count."
         ),
     )
-    # 50k/day is ~1k quiz creations at the typical 50-image first batch. At
-    # measured 2.5 Flash Lite rates (~2.2k prompt + ~37 completion tokens per
+    # 50k/day is ~165 quiz creations at the 300-image worst case, ~700 at the
+    # ~70 images a healthy library actually spends. At measured 2.5 Flash Lite
+    # rates (~2.2k prompt + ~37 completion tokens per
     # 768px photo) that is ~$0.00023/photo, so a ~$12/day ceiling. Sized as an
     # abuse circuit breaker, not a demand throttle: normal traffic should never
     # reach it, so a trip means a farming loop, not a good day. Revisit this
