@@ -5,12 +5,14 @@
  * - permission denied renders the explanatory state with a Settings link
  * - the intro step is freshness-aware: a fresh cache promises no scan and
  *   the initial step list skips it; a stale cache announces the check
- * - a picks-bearing draft pre-flights straight to the resume confirm
+ * - a picks-bearing draft pre-flights straight to the resume confirm and
+ *   shows the first saved pick as the hero
  * - limited photo access renders the "allow more photos" branch on a thin
  *   decline, distinct from the genuinely-thin-library guidance
  * - classifier/service failure renders a Retry branch, DISTINCT from the
  *   thin-library decline
- * - interrupted upload renders resume/abandon
+ * - interrupted upload renders resume/abandon, with the last found photo
+ *   (not the poster) as the hero when picks were found
  * - success navigates toward owner play (QuizPlay seam)
  * - the working phase renders the live build: hero of the latest find, the
  *   serif found-counter, the slot grid (photos + neutral placeholders), the
@@ -56,6 +58,11 @@ let mockOutcome: QuizCreationOutcome = { status: 'created', quizId: 'quiz-1', ph
 // When true the mutation never resolves, holding the screen in the working
 // phase so the live-progress UI can be driven via `emitProgress`.
 let mockHoldWorking = false;
+// Progress updates the mock mutation replays before resolving with
+// `mockOutcome`, so outcome states (e.g. interrupted) render with pickUris
+// already in hand - mirroring the real service, which always emits progress
+// before an interrupted outcome.
+let mockProgressBeforeOutcome: QuizCreationProgress[] = [];
 let capturedOnProgress: ((update: QuizCreationProgress) => void) | undefined;
 const mockMutate = jest.fn(
   (
@@ -63,6 +70,9 @@ const mockMutate = jest.fn(
     callbacks?: { onSuccess?: (outcome: QuizCreationOutcome) => void; onError?: () => void }
   ) => {
     capturedOnProgress = options?.onProgress;
+    for (const update of mockProgressBeforeOutcome) {
+      options?.onProgress?.(update);
+    }
     if (mockHoldWorking) return;
     callbacks?.onSuccess?.(mockOutcome);
   }
@@ -133,6 +143,7 @@ describe('QuizCreationScreen', () => {
     mockPermission.isLoading = false;
     mockOutcome = { status: 'created', quizId: 'quiz-1', photoCount: 6 };
     mockHoldWorking = false;
+    mockProgressBeforeOutcome = [];
     capturedOnProgress = undefined;
     mockLoadDraftState.mockResolvedValue(null);
     mockGetLibraryFreshness.mockResolvedValue(freshFreshness());
@@ -191,14 +202,20 @@ describe('QuizCreationScreen', () => {
   });
 
   it('pre-flights a picks-bearing draft straight to the resume confirm (Q5)', async () => {
+    // Full DraftPick objects (per quizCreationTypes) so the hero branch that
+    // reads picks[0].uri actually has a uri to render.
+    const draftPick = (assetId: string, uploaded: boolean) => ({
+      assetId,
+      uri: `file:///photos/draft-${assetId}.jpg`,
+      countryCode: 'JP',
+      captureYear: 2024,
+      storagePath: uploaded ? `quiz-1/${assetId}.jpg` : null,
+      uploaded,
+    });
     mockLoadDraftState.mockResolvedValue({
       quizId: 'quiz-1',
       createdAt: 1,
-      picks: [
-        { assetId: 'a', uploaded: true },
-        { assetId: 'b', uploaded: false },
-        { assetId: 'c', uploaded: false },
-      ],
+      picks: [draftPick('a', true), draftPick('b', false), draftPick('c', false)],
     });
 
     await renderScreen();
@@ -206,6 +223,15 @@ describe('QuizCreationScreen', () => {
     await waitFor(() => expect(screen.getByTestId('quiz-resume-draft')).toBeTruthy());
     expect(screen.getByText(/1 of 3 photos already made it up/)).toBeTruthy();
     expect(mockMutate).not.toHaveBeenCalled();
+
+    // The hero is the FIRST saved pick's photo, not the intro poster.
+    expect(screen.getByTestId('quiz-draft-hero')).toBeTruthy();
+    const draftHeroImage = screen
+      .UNSAFE_getAllByType(ExpoImage)
+      .find(
+        (node) => node.props.source?.uri === 'file:///photos/draft-a.jpg' && !node.props.testID
+      );
+    expect(draftHeroImage).toBeTruthy();
 
     fireEvent.press(screen.getByTestId('quiz-resume-start'));
     await waitFor(() => expect(mockMutate).toHaveBeenCalledTimes(1));
@@ -345,5 +371,29 @@ describe('QuizCreationScreen', () => {
     // Abandon leaves via goBack (the resumable draft stays persisted).
     fireEvent.press(screen.getByText('Finish Later'));
     expect(mockNavigation.goBack).toHaveBeenCalled();
+  });
+
+  it('shows the last found photo (not the poster) as the interrupted hero', async () => {
+    const picks = [
+      'file:///photos/pick-0.jpg',
+      'file:///photos/pick-1.jpg',
+      'file:///photos/pick-2.jpg',
+    ];
+    // The service emits progress carrying the pick uris before the upload is
+    // cut short, so the interrupted screen has real photos in hand.
+    mockProgressBeforeOutcome = [{ step: 'building', current: 1, total: 3, pickUris: picks }];
+    mockOutcome = { status: 'interrupted', quizId: 'quiz-1', uploadedCount: 1, totalCount: 3 };
+
+    await renderScreen();
+    await startFromIntro();
+
+    await waitFor(() => expect(screen.getByTestId('quiz-interrupted')).toBeTruthy());
+    // The hero renders the LAST found pick, so the poster/neutral fallbacks
+    // never appear once real photos are known.
+    const heroImage = screen
+      .UNSAFE_getAllByType(ExpoImage)
+      .find((node) => node.props.source?.uri === picks[2] && !node.props.testID);
+    expect(heroImage).toBeTruthy();
+    expect(screen.queryByTestId('quiz-hero-empty')).toBeNull();
   });
 });
