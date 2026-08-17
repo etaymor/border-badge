@@ -25,7 +25,7 @@ anywhere — neutral gold acknowledgment in-run, score revealed once at the end,
 
 Still open / follow-ups:
 - On-device pass for motion + haptics feel (all animation is Reduce Motion-aware).
-- Image hand-off — see the checklist below.
+- Image hand-off — delivered 2026-08-17; see the checklist below.
 - The swap picker's own-photo exclusion applies to challenges finalized after this change (older
   quizzes have no local asset record).
 - If the ErrorBoundary "Something went wrong" recurs, pull the `componentDidCatch` stack from
@@ -36,6 +36,13 @@ Still open / follow-ups:
 
 ## Image hand-off (what to make, where to drop it, what happens next)
 
+> **Delivered 2026-08-17:** intro background video (`mobile/assets/GeoGuesser-Onboarding-Background.mp4`),
+> the Guess Where mark (`mobile/assets/illustations/geoguesser-mark-compass.png`), the trophy accent
+> (`mobile/assets/illustations/geoguesser-results.png`), and extracted stills for the playable demo and
+> Reduce-Motion poster (`mobile/assets/guess-where-samples/demo-cappadocia.jpg` — Türkiye — and
+> `intro-poster.jpg`). All are exposed through `mobile/src/screens/quiz/sampleAssets.ts`; the per-item
+> notes below are kept for historical context.
+
 Three assets finish the Guess Where visuals. For each: match the existing sticker style
 (`mobile/assets/illustations/polaroids-illustration.png` — bold navy outline, soft watercolor
 fill, transparent background), export PNG with transparency at ~800x800 (square canvas, subject
@@ -45,7 +52,8 @@ ask Claude to "wire in the new Guess Where art" — each spot below currently us
 illustration or a color dot as a stand-in, so wiring is a small require-swap plus a look pass.
 All three are JS/asset changes: shippable over EAS Update, no new build.
 
-1. **The Guess Where mark** — a map pin or compass with a question mark in/on it.
+1. **The Guess Where mark** — delivered as `geoguesser-mark-compass.png`. A map pin or compass with
+   a question mark in/on it.
    - Drop at: `mobile/assets/illustations/guess-where-mark.png`
    - Replaces the polaroids stand-in on: the passport entry card
      (`mobile/src/components/passport/GuessWhereCard.tsx`), the intro screen
@@ -54,15 +62,16 @@ All three are JS/asset changes: shippable over EAS Update, no new build.
      intro/gone pages later, export a second copy to `backend/app/static/images/` (webp is fine
      there).
 
-2. **Trophy / laurel stamp (optional)** — a passport-stamp-style trophy or laurel wreath for the
-   score-reveal moment.
+2. **Trophy / laurel stamp (optional)** — delivered as `geoguesser-results.png` (small-accent use
+   only). A passport-stamp-style trophy or laurel wreath for the score-reveal moment.
    - Drop at: `mobile/assets/illustations/trophy-stamp.png`
    - Used on: the results reveal (`QuizResultsScreen`, beside/behind the stamp plate when the
      owner beats expectations) and potentially the leaderboard's #1 row. Skippable — the star
      illustrations cover this if you'd rather not make it.
 
-3. **One real travel photo for the intro demo** — the playable ten-second demo currently guesses
-   against the polaroids illustration, which is charming but not a real guess.
+3. **One real travel photo for the intro demo** — delivered as
+   `guess-where-samples/demo-cappadocia.jpg` (Türkiye). The playable ten-second demo currently
+   guesses against the polaroids illustration, which is charming but not a real guess.
    - Pick a photo that is: yours (it ships in the app bundle, visible to every user — treat it as
      public), a recognizable-but-not-trivial outdoor scene, no people, and from a country that
      makes a fun guess.
