@@ -1,21 +1,24 @@
 /**
  * GuessWhereIntroScreen - the "show, don't tell" introduction (Q7).
  *
- * A one-tap miniature of the real game on the same dark stage the play
- * screen uses: a print deals in, the player makes a guess, and the stamp
- * press lands - the full loop in ten seconds, before asking for photo
- * permission or any commitment. Reachable any time (entry card, My
- * Challenges), not a one-shot onboarding moment.
+ * A full-bleed looping travel montage sets the stage; fixed copy and the
+ * primary CTA sit over a navy scrim. "See how it works" expands a one-tap
+ * miniature of the real game in place: a real sample photo, four country
+ * options, and a small serif score acknowledgment naming the answer. The
+ * loop holds still while that answered state is on screen and resumes when
+ * the demo collapses. Reachable any time (entry card, My Challenges), not a
+ * one-shot onboarding moment.
  *
- * The demo print is a bundled illustration, never a user photo; when a real
- * sample travel photo is added to assets, swap it in here.
+ * Under Reduce Motion the video never mounts - a static poster stands in.
  */
 
 import * as Haptics from 'expo-haptics';
-import { useState } from 'react';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useVideoPlayer, VideoView } from 'expo-video';
+import { useEffect, useState } from 'react';
 import { Image, StatusBar, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
+import Animated, { FadeIn } from 'react-native-reanimated';
 
 import { Button } from '@components/ui/Button';
 import { GlassBackButton } from '@components/ui/GlassBackButton';
@@ -26,20 +29,99 @@ import { useStableCallback } from '@hooks/useStableCallback';
 import type { RootStackScreenProps } from '@navigation/types';
 
 import { GuessOption } from './components/GuessOption';
-import { StampScorePlate } from './components/StampScorePlate';
-
-/* eslint-disable @typescript-eslint/no-require-imports */
-const polaroidsIllustration = require('../../../assets/illustations/polaroids-illustration.png');
-/* eslint-enable @typescript-eslint/no-require-imports */
+import { SerifScore } from './components/SerifScore';
+import { DURATION_BASE } from './components/motionTokens';
+import { demoCountry, demoOptions, demoPhoto, introPoster, introVideo } from './sampleAssets';
 
 type Props = RootStackScreenProps<'GuessWhereIntro'>;
 
-const DEMO_OPTIONS = ['Italy', 'Japan', 'Peru', 'Iceland'];
+/** Fisher-Yates copy-shuffle; called once per mount via a lazy initializer. */
+function shuffled(options: readonly string[]): string[] {
+  const result = [...options];
+  for (let i = result.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [result[i], result[j]] = [result[j], result[i]];
+  }
+  return result;
+}
+
+/**
+ * The looping background video. Mounted only when motion is allowed, so the
+ * Reduce Motion path never creates a native player. Mirrors the onboarding
+ * screens' decoder discipline: release the source on blur, restore on focus.
+ */
+function IntroVideoBackground({
+  paused,
+  navigation,
+}: {
+  paused: boolean;
+  navigation: Props['navigation'];
+}) {
+  const player = useVideoPlayer(introVideo, (player) => {
+    player.loop = true;
+    player.muted = true;
+    player.audioMixingMode = 'mixWithOthers';
+    player.play();
+  });
+
+  // The loop holds still while the demo's answered state is showing.
+  useEffect(() => {
+    try {
+      if (paused) {
+        player.pause();
+      } else {
+        player.play();
+      }
+    } catch {
+      // Native player may be released
+    }
+  }, [paused, player]);
+
+  // Release the decoder on blur, restore on focus (mirrors WelcomeCarouselScreen).
+  useEffect(() => {
+    const unsubscribeFocus = navigation.addListener('focus', () => {
+      try {
+        player.replace(introVideo);
+        if (!paused) player.play();
+      } catch {
+        // Native player may be released
+      }
+    });
+    const unsubscribeBlur = navigation.addListener('blur', () => {
+      try {
+        player.replace(null);
+      } catch {
+        // Native player may be released
+      }
+    });
+    return () => {
+      unsubscribeFocus();
+      unsubscribeBlur();
+    };
+  }, [navigation, player, paused]);
+
+  return (
+    <VideoView
+      player={player}
+      style={StyleSheet.absoluteFill}
+      contentFit="cover"
+      nativeControls={false}
+      accessible={true}
+      accessibilityLabel="Decorative video montage of travel moments"
+      testID="guess-where-intro-video"
+    />
+  );
+}
 
 export function GuessWhereIntroScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
   const reduceMotion = useReducedMotion();
+  const [demoVisible, setDemoVisible] = useState(false);
   const [guessed, setGuessed] = useState<number | null>(null);
+  const [options] = useState<string[]>(() => shuffled(demoOptions));
+
+  const revealShowing = demoVisible && guessed !== null;
+  const guessedCorrect = guessed !== null && options[guessed] === demoCountry;
 
   const handleGuess = useStableCallback((index: number) => {
     if (guessed !== null) return;
@@ -57,6 +139,16 @@ export function GuessWhereIntroScreen({ navigation }: Props) {
     navigation.replace('QuizCreation');
   });
 
+  const handleToggleDemo = useStableCallback(() => {
+    if (demoVisible) {
+      // Collapse resets the round; the background loop resumes.
+      setDemoVisible(false);
+      setGuessed(null);
+    } else {
+      setDemoVisible(true);
+    }
+  });
+
   const handleBack = useStableCallback(() => {
     navigation.goBack();
   });
@@ -64,64 +156,103 @@ export function GuessWhereIntroScreen({ navigation }: Props) {
   return (
     <View style={styles.stage}>
       <StatusBar barStyle="light-content" />
+
+      {reduceMotion ? (
+        <Image
+          source={introPoster}
+          style={styles.posterImage}
+          resizeMode="cover"
+          accessible={true}
+          accessibilityLabel="Decorative still of a travel destination"
+          testID="guess-where-intro-poster"
+        />
+      ) : (
+        <IntroVideoBackground paused={revealShowing} navigation={navigation} />
+      )}
+
+      {/* Navy scrim keeps the type legible over arbitrary footage. */}
+      <LinearGradient
+        colors={[
+          withAlpha(colors.midnightNavy, 0.6),
+          withAlpha(colors.midnightNavy, 0.25),
+          withAlpha(colors.midnightNavy, 0.92),
+        ]}
+        locations={[0, 0.4, 1]}
+        style={StyleSheet.absoluteFill}
+        pointerEvents="none"
+      />
+
       <View style={[styles.topBar, { paddingTop: insets.top + 8 }]}>
         <GlassBackButton onPress={handleBack} variant="dark" size="small" icon="close" />
       </View>
 
       <View style={styles.body}>
         <Text style={styles.eyebrow}>Guess Where</Text>
-        <Text style={styles.title}>Your photos. Their guesses.</Text>
+        <Text style={styles.title}>How well do your friends know your world?</Text>
         <Text style={styles.copy}>
-          We deal out photos from your trips. Friends guess the country each one was taken in - and
-          try to beat your score.
+          Turn your travel photos into a challenge only your friends can solve.
         </Text>
 
-        <Animated.View
-          entering={reduceMotion ? undefined : FadeInDown.duration(350)}
-          style={styles.polaroid}
-        >
-          <Image source={polaroidsIllustration} style={styles.polaroidImage} />
-          <Text style={styles.polaroidCaption}>your photos here</Text>
-        </Animated.View>
-
-        {guessed === null ? (
-          <View style={styles.demoBlock} testID="guess-where-demo">
-            <Text style={styles.prompt}>try one - where was this taken?</Text>
-            <View style={styles.optionsGrid}>
-              {DEMO_OPTIONS.map((option, index) => (
-                <GuessOption
-                  key={option}
-                  label={option}
-                  entranceDelay={reduceMotion ? 0 : 150 + index * 50}
-                  onPress={() => handleGuess(index)}
-                  style={styles.optionCell}
-                  testID={`guess-where-demo-option-${index}`}
-                />
-              ))}
-            </View>
-          </View>
-        ) : (
+        {demoVisible && (
           <Animated.View
-            entering={reduceMotion ? undefined : FadeIn.duration(200)}
-            style={styles.revealBlock}
-            testID="guess-where-demo-reveal"
+            entering={reduceMotion ? undefined : FadeIn.duration(DURATION_BASE)}
+            style={styles.demoBlock}
+            testID="guess-where-demo"
           >
-            <StampScorePlate score={1} total={1} label="You've got it" animateIn size="small" />
-            <Text style={styles.copy}>
-              Exactly like that - except with your real travel photos, and a leaderboard of everyone
-              who dares.
-            </Text>
+            <View style={styles.print}>
+              <Image source={demoPhoto} style={styles.printImage} />
+            </View>
+
+            {guessed === null ? (
+              <>
+                <Text style={styles.prompt}>try one - where was this taken?</Text>
+                <View style={styles.optionsGrid}>
+                  {options.map((option, index) => (
+                    <GuessOption
+                      key={option}
+                      label={option}
+                      entranceDelay={reduceMotion ? 0 : 100 + index * 50}
+                      onPress={() => handleGuess(index)}
+                      style={styles.optionCell}
+                      testID={`guess-where-demo-option-${index}`}
+                    />
+                  ))}
+                </View>
+              </>
+            ) : (
+              <Animated.View
+                entering={reduceMotion ? undefined : FadeIn.duration(DURATION_BASE)}
+                style={styles.revealBlock}
+                testID="guess-where-demo-reveal"
+              >
+                <SerifScore
+                  score={guessedCorrect ? 1 : 0}
+                  total={1}
+                  size="small"
+                  testID="guess-where-demo-score"
+                />
+                <Text style={styles.revealLine}>
+                  {guessedCorrect ? `Right: ${demoCountry}` : `It was ${demoCountry}`}
+                </Text>
+              </Animated.View>
+            )}
           </Animated.View>
         )}
       </View>
 
       <View style={[styles.footer, { paddingBottom: insets.bottom + 20 }]}>
         <Button
-          title="Make my first challenge"
+          title="Create Your Challenge"
           onPress={handleCreate}
           testID="guess-where-intro-create"
         />
-        <Button title="Maybe later" variant="ghost" onDark onPress={handleBack} />
+        <Button
+          title={demoVisible ? 'Hide the demo' : 'See how it works'}
+          variant="ghost"
+          onDark
+          onPress={handleToggleDemo}
+          testID="guess-where-intro-demo-toggle"
+        />
       </View>
     </View>
   );
@@ -131,6 +262,11 @@ const styles = StyleSheet.create({
   stage: {
     flex: 1,
     backgroundColor: colors.midnightNavy,
+  },
+  posterImage: {
+    ...StyleSheet.absoluteFillObject,
+    width: undefined,
+    height: undefined,
   },
   topBar: {
     paddingHorizontal: 16,
@@ -152,8 +288,8 @@ const styles = StyleSheet.create({
   },
   title: {
     fontFamily: fonts.playfair.bold,
-    fontSize: 30,
-    lineHeight: 36,
+    fontSize: 32,
+    lineHeight: 38,
     color: colors.warmCream,
     textAlign: 'center',
   },
@@ -164,34 +300,27 @@ const styles = StyleSheet.create({
     color: withAlpha(colors.warmCream, 0.85),
     textAlign: 'center',
   },
-  polaroid: {
+  demoBlock: {
+    gap: 10,
+    marginTop: 8,
+  },
+  print: {
     alignSelf: 'center',
     backgroundColor: colors.cloudWhite,
     padding: 8,
-    paddingBottom: 4,
     borderRadius: 4,
-    transform: [{ rotate: '-2.5deg' }],
+    transform: [{ rotate: '-1.5deg' }],
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.35,
     shadowRadius: 12,
     elevation: 6,
-    marginVertical: 8,
   },
-  polaroidImage: {
-    width: 132,
-    height: 132,
-    resizeMode: 'contain',
-  },
-  polaroidCaption: {
-    fontFamily: fonts.dawning.regular,
-    fontSize: 15,
-    color: colors.midnightNavy,
-    textAlign: 'center',
-    height: 24,
-  },
-  demoBlock: {
-    gap: 10,
+  printImage: {
+    width: 216,
+    height: 150,
+    borderRadius: 2,
+    resizeMode: 'cover',
   },
   prompt: {
     fontFamily: fonts.dawning.regular,
@@ -210,8 +339,15 @@ const styles = StyleSheet.create({
     flexGrow: 1,
   },
   revealBlock: {
-    gap: 14,
+    gap: 6,
     alignItems: 'center',
+  },
+  revealLine: {
+    fontFamily: fonts.body.semiBold,
+    fontSize: 15,
+    lineHeight: 22,
+    color: colors.warmCream,
+    textAlign: 'center',
   },
   footer: {
     paddingHorizontal: 24,
