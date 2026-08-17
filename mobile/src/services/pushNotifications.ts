@@ -5,12 +5,19 @@
  * npx expo install expo-notifications expo-device expo-constants
  */
 
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
 import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 
 import { api } from './api';
+
+// Last token this device registered with the backend. Push tokens are keyed
+// per device server-side (one user holds many device tokens), so unregister
+// must name THIS device's token — deleting by user would kill the user's
+// other devices too.
+const PUSH_TOKEN_STORAGE_KEY = 'borderbadge.pushToken';
 
 // Configure notification handler - determines how notifications are displayed
 // when app is in foreground
@@ -99,11 +106,23 @@ export async function registerForPushNotifications(): Promise<string | null> {
         });
       }
 
-      // Register token with backend
+      // Register token with backend. The backend upserts on the token and
+      // transfers ownership if another account held it (shared device).
       await api.post('/notifications/register', {
         token,
         platform: Platform.OS,
       });
+
+      // Remember which token this device registered so sign-out can
+      // unregister exactly this device. Best effort: registration already
+      // succeeded, so a storage failure must not report failure.
+      try {
+        await AsyncStorage.setItem(PUSH_TOKEN_STORAGE_KEY, token);
+      } catch (storageError) {
+        if (__DEV__) {
+          console.warn('Failed to persist push token locally:', storageError);
+        }
+      }
 
       if (__DEV__) {
         console.log('Push token registered:', token);
@@ -125,11 +144,18 @@ export async function registerForPushNotifications(): Promise<string | null> {
 }
 
 /**
- * Unregister push notifications (opt out).
+ * Unregister push notifications (opt out / sign-out).
+ *
+ * Sends this device's token so the backend deletes only this device's
+ * registration; the user's other devices keep receiving pushes. Without a
+ * stored token (never registered on this install, or pre-multi-device
+ * versions), the backend falls back to removing all of the user's tokens.
  */
 export async function unregisterPushNotifications(): Promise<void> {
   try {
-    await api.delete('/notifications/unregister');
+    const token = await AsyncStorage.getItem(PUSH_TOKEN_STORAGE_KEY);
+    await api.delete('/notifications/unregister', token ? { params: { token } } : undefined);
+    await AsyncStorage.removeItem(PUSH_TOKEN_STORAGE_KEY);
   } catch (error) {
     console.error('Failed to unregister push notifications:', error);
   }

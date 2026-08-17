@@ -1120,6 +1120,63 @@ def test_redeem_invite_notifies_inviter(
         app.dependency_overrides.clear()
 
 
+def test_redeem_invite_notifies_all_inviter_devices(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+) -> None:
+    """The invite-accepted push reaches every device the inviter holds.
+
+    Multi-device (plan U10/KTD11): push_token is keyed on the token, so the
+    send path must fetch all of the inviter's tokens, not just one row.
+    """
+    code = make_invite_code(OTHER_USER_ID, SAMPLE_EMAIL)
+    mock_supabase_client.get.side_effect = supabase_tables(
+        pending_invite=[_pending_invite_row(code)],
+        user_profile=[
+            [INVITER_PROFILE],  # inviter lookup in request path
+            [  # redeemer lookup in the notification task
+                {
+                    "user_id": TEST_USER_ID,
+                    "username": "new_traveler",
+                    "display_name": "New Traveler",
+                }
+            ],
+        ],
+        push_token=[
+            {"token": "ExponentPushToken[phone]"},
+            {"token": "ExponentPushToken[tablet]"},
+        ],
+    )
+    mock_supabase_client.patch.return_value = [{"id": SAMPLE_INVITE_ID}]
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with (
+            patch(
+                "app.api.invites.get_service_supabase_client",
+                return_value=mock_supabase_client,
+            ),
+            patch(
+                "app.api.invites.send_push_notification", new_callable=AsyncMock
+            ) as mock_push,
+        ):
+            response = client.post(
+                "/invites/redeem",
+                headers=auth_headers,
+                json={"code": code},
+            )
+        assert response.status_code == 200
+        mock_push.assert_awaited_once()
+        assert mock_push.await_args.kwargs["tokens"] == [
+            "ExponentPushToken[phone]",
+            "ExponentPushToken[tablet]",
+        ]
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_invite_flow_pending_status_used_for_lookup():
     """
     Document: Pending invites are found by email + status='pending'.

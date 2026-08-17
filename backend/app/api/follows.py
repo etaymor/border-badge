@@ -145,21 +145,21 @@ async def follow_user(
                 or "Someone"
             )
 
-            # Get followed user's push token from dedicated table
-            push_token_row = await admin_db.get(
+            # Fetch ALL of the followed user's device tokens (multi-device,
+            # plan U10/KTD11): push_token holds one row per device.
+            push_token_rows = await admin_db.get(
                 "push_token",
                 {
                     "select": "token",
                     "user_id": f"eq.{user_id}",
                 },
             )
-            if not push_token_row or not push_token_row[0].get("token"):
+            tokens = [row["token"] for row in push_token_rows or [] if row.get("token")]
+            if not tokens:
                 return
 
-            push_token = push_token_row[0]["token"]
-
             await send_push_notification(
-                tokens=[push_token],
+                tokens=tokens,
                 title="New Follower",
                 body=f"{follower_name} started following you",
                 data={

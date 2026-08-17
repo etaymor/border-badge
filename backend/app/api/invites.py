@@ -379,18 +379,21 @@ async def redeem_invite(
                 )
                 redeemer_username = redeemer_profile[0].get("username") or ""
 
-            push_token_row = await admin_db.get(
+            # Fetch ALL of the inviter's device tokens (multi-device,
+            # plan U10/KTD11): push_token holds one row per device.
+            push_token_rows = await admin_db.get(
                 "push_token",
                 {
                     "select": "token",
                     "user_id": f"eq.{inviter_id}",
                 },
             )
-            if not push_token_row or not push_token_row[0].get("token"):
+            tokens = [row["token"] for row in push_token_rows or [] if row.get("token")]
+            if not tokens:
                 return
 
             await send_push_notification(
-                tokens=[push_token_row[0]["token"]],
+                tokens=tokens,
                 title="Invite Accepted",
                 body=f"{redeemer_name} accepted your invite",
                 data={

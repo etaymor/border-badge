@@ -1,4 +1,10 @@
-"""Push notification registration endpoints."""
+"""Push notification registration endpoints.
+
+Push tokens are keyed on the token itself (plan KTD11 / migration 0091):
+one user holds many device tokens; a device token belongs to at most one
+user. Registration transfers token ownership in one transaction;
+unregistration removes a single device's token.
+"""
 
 import logging
 from datetime import UTC, datetime
@@ -9,7 +15,7 @@ from pydantic import BaseModel
 
 from app.api.utils import get_token_from_request
 from app.core.security import CurrentUser
-from app.db.session import get_supabase_client
+from app.db.session import get_service_supabase_client, get_supabase_client
 from app.main import limiter
 
 logger = logging.getLogger(__name__)
@@ -38,17 +44,24 @@ async def register_push_token(
     user: CurrentUser,
 ) -> RegisterTokenResponse:
     """
-    Register or update the user's push notification token.
+    Register this device's push token for the calling user.
+
+    Upserts ON CONFLICT (token): if another user currently holds this device
+    token (shared device, account switch), the DO UPDATE overwrites user_id --
+    a one-transaction ownership transfer, so the previous owner stops
+    receiving pushes on this device. A user's other tokens are untouched
+    (multi-device).
 
     Security:
-    - Token is protected by Supabase encryption at rest (no app-level encryption)
-    - Only the user can update their own token (RLS enforced)
-    - Tokens are never exposed in API responses
+    - Runs under the service role deliberately: the RLS UPDATE policy only
+      allows user_id = auth.uid(), so a JWT-scoped upsert could never claim
+      a token still owned by another user. user_id is bound to the verified
+      JWT identity, never taken from the request body.
+    - Tokens are protected by Supabase encryption at rest and never exposed
+      in API responses.
     """
-    token = get_token_from_request(request)
-    db = get_supabase_client(user_token=token)
+    db = get_service_supabase_client()
 
-    # Upsert push token in dedicated table (strict RLS - owner only)
     await db.upsert(
         "push_token",
         [
@@ -59,7 +72,7 @@ async def register_push_token(
                 "updated_at": datetime.now(UTC).isoformat(),
             }
         ],
-        on_conflict="user_id",
+        on_conflict="token",
     )
 
     logger.info(
@@ -78,22 +91,29 @@ async def register_push_token(
 async def unregister_push_token(
     request: Request,
     user: CurrentUser,
+    token: str | None = None,
 ) -> RegisterTokenResponse:
-    """Remove the user's push notification token (opt out)."""
-    token = get_token_from_request(request)
-    db = get_supabase_client(user_token=token)
+    """Remove push registration for the calling user (opt out / sign-out).
 
-    # Delete push token from dedicated table
-    await db.delete(
-        "push_token",
-        {
-            "user_id": f"eq.{user.id}",
-        },
-    )
+    With ?token=..., deletes only that device's registration -- the user's
+    other devices keep receiving pushes. Without it (legacy clients from the
+    one-token-per-user era), deletes all of the user's tokens.
+
+    JWT-scoped on purpose: RLS restricts the delete to the caller's own
+    rows, so a user can never unregister someone else's claim to a token.
+    """
+    jwt = get_token_from_request(request)
+    db = get_supabase_client(user_token=jwt)
+
+    params = {"user_id": f"eq.{user.id}"}
+    if token:
+        params["token"] = f"eq.{token}"
+
+    await db.delete("push_token", params)
 
     logger.info(
         "Push token unregistered",
-        extra={"user_id": str(user.id)},
+        extra={"user_id": str(user.id), "single_device": token is not None},
     )
 
     return RegisterTokenResponse(status="unregistered")

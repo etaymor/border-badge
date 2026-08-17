@@ -323,15 +323,18 @@ async def _notify_trip_owner_of_acceptance(
     owner_id: str,
 ) -> None:
     """Send push notification to trip owner when tag is accepted."""
-    # Get push token from dedicated table (requires admin_db for cross-user access)
-    push_token_row = await db.get(
+    # Fetch ALL of the owner's device tokens (multi-device, plan U10/KTD11):
+    # push_token holds one row per device. Requires admin_db for cross-user
+    # access.
+    push_token_rows = await db.get(
         "push_token",
         {
             "select": "token",
             "user_id": f"eq.{owner_id}",
         },
     )
-    if not push_token_row or not push_token_row[0].get("token"):
+    tokens = [row["token"] for row in push_token_rows or [] if row.get("token")]
+    if not tokens:
         return
 
     tagged_user = await db.get(
@@ -350,7 +353,7 @@ async def _notify_trip_owner_of_acceptance(
         or "Someone"
     )
     await send_push_notification(
-        tokens=[push_token_row[0]["token"]],
+        tokens=tokens,
         title="Trip Tag Accepted",
         body=f"{tagged_name} accepted your trip tag and is now following you",
         data={

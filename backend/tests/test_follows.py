@@ -11,6 +11,7 @@ from tests.conftest import (
     OTHER_USER_ID,
     TEST_USER_ID,
     mock_auth_dependency,
+    supabase_tables,
 )
 
 # ============================================================================
@@ -54,6 +55,56 @@ def test_follow_user_success(
         data = response.json()
         assert data["status"] == "following"
         assert data["following_id"] == OTHER_USER_ID
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_follow_push_sends_to_all_devices(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+) -> None:
+    """The follow push goes to every device token the followed user holds.
+
+    Multi-device (plan U10/KTD11): push_token is keyed on the token, so one
+    user can hold several rows; the send path must fetch them all.
+    """
+    mock_supabase_client.get.side_effect = [
+        [],  # No blocks (user blocking target)
+        [],  # No blocks (target blocking user)
+        [{"id": "profile-id", "user_id": OTHER_USER_ID}],  # Target user exists
+    ]
+    mock_supabase_client.post.return_value = [
+        {"id": "follow-id", "follower_id": TEST_USER_ID, "following_id": OTHER_USER_ID}
+    ]
+    admin_db = AsyncMock()
+    admin_db.get.side_effect = supabase_tables(
+        user_profile=[{"username": "traveler", "display_name": "Traveler"}],
+        push_token=[
+            {"token": "ExponentPushToken[device-a]"},
+            {"token": "ExponentPushToken[device-b]"},
+        ],
+    )
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with (
+            patch(
+                "app.api.follows.get_supabase_client", return_value=mock_supabase_client
+            ),
+            patch("app.api.follows.get_service_supabase_client", return_value=admin_db),
+            patch(
+                "app.api.follows.send_push_notification", new_callable=AsyncMock
+            ) as mock_push,
+        ):
+            response = client.post(f"/follows/{OTHER_USER_ID}", headers=auth_headers)
+        assert response.status_code == 201
+        mock_push.assert_awaited_once()
+        assert mock_push.await_args.kwargs["tokens"] == [
+            "ExponentPushToken[device-a]",
+            "ExponentPushToken[device-b]",
+        ]
     finally:
         app.dependency_overrides.clear()
 

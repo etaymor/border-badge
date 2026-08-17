@@ -82,6 +82,26 @@ def pin_environment_settings(monkeypatch) -> None:
     monkeypatch.setattr(settings, "base_url", "http://localhost:8000")
 
 
+@pytest.fixture(autouse=True)
+def stub_trip_tag_push(monkeypatch) -> None:
+    """Keep the trip-tag push (plan U10) out of endpoint tests by default.
+
+    `send_trip_tag_notification` is a real push sender now: it opens a
+    service-role Supabase client and calls the push edge function. Endpoint
+    tests that create tags run their BackgroundTasks synchronously, so
+    without this stub every such test would attempt real network calls.
+    Tests that assert on notification scheduling still `patch(...)` the same
+    attributes locally, which simply overrides this stub for their duration;
+    tests of the core sender itself patch inside `app.core.notifications`.
+    """
+    monkeypatch.setattr(
+        "app.api.trips.send_trip_tag_notification", AsyncMock(return_value=None)
+    )
+    monkeypatch.setattr(
+        "app.api.trip_tags.send_trip_tag_notification", AsyncMock(return_value=None)
+    )
+
+
 @pytest.fixture
 def client() -> TestClient:
     """Create a test client for the FastAPI app."""
