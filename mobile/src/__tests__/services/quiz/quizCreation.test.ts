@@ -67,7 +67,7 @@ jest.mock(
 import { api } from '@services/api';
 import { getAllCountries, getHomeCountry } from '@services/countriesDb';
 import { ensureFreshLibrary } from '@services/photoImport/photoBackgroundSync';
-import { getAllCachedPhotos } from '@services/photoImport/photoCacheDb';
+import { getAllCachedPhotos, getMetadata } from '@services/photoImport/photoCacheDb';
 import { getAllVerdicts, getTagsForIds, upsertVerdicts } from '@services/photoImport/photoTagDb';
 import { resolveLoadableUri } from '@services/photoImport/resolveLoadableUri';
 import { prepareVisionImage } from '@services/photoImport/visionPhoto';
@@ -75,12 +75,14 @@ import { CLASSIFICATION_BUDGET_PER_QUIZ } from '@services/quiz/candidateSelectio
 import { createQuizFromLibrary } from '@services/quiz/quizCreation';
 
 import type { CachedPhoto } from '@services/photoImport/types';
+import type { QuizCreationProgress } from '@services/quiz/quizCreation';
 
 const mockApi = api as unknown as { post: jest.Mock; delete: jest.Mock };
 const mockGetAllCountries = getAllCountries as jest.Mock;
 const mockGetHomeCountry = getHomeCountry as jest.Mock;
 const mockEnsureFreshLibrary = ensureFreshLibrary as jest.Mock;
 const mockGetAllCachedPhotos = getAllCachedPhotos as jest.Mock;
+const mockGetMetadata = getMetadata as jest.Mock;
 const mockGetTagsForIds = getTagsForIds as jest.Mock;
 const mockGetAllVerdicts = getAllVerdicts as jest.Mock;
 const mockUpsertVerdicts = upsertVerdicts as jest.Mock;
@@ -752,5 +754,116 @@ describe('createQuizFromLibrary - verdict cache', () => {
 
     expect(outcome.status).toBe('created');
     expect(eligibilityBatches().flat().length).toBeGreaterThan(0);
+  });
+});
+
+describe('createQuizFromLibrary - progress pick URIs', () => {
+  beforeEach(() => {
+    mockPrepareVisionImage.mockResolvedValue('base64-image');
+  });
+
+  /** The library URI for a cached photo id (`${code}-${index}` -> `asset-${index}`). */
+  const uriFor = (id: string) => `file:///stale/asset-${id.slice(id.indexOf('-') + 1)}.jpg`;
+
+  it('grows the found list monotonically across hunt passes, without rejected photos', async () => {
+    // Low pass rate forces several classification passes, so the list must
+    // survive - and only grow across - many emissions, not just one batch.
+    mockGetAllCachedPhotos.mockResolvedValue(buildCachedLibrary(600));
+    const eligibleIds = new Set<string>();
+    let seen = 0;
+    verdictFor = (id) => {
+      seen += 1;
+      if (seen % 25 === 0) {
+        eligibleIds.add(id);
+        return { eligible: true };
+      }
+      return { eligible: false, reason: 'people_present' };
+    };
+
+    const emissions: QuizCreationProgress[] = [];
+    const outcome = await createQuizFromLibrary({
+      onProgress: (progress) => emissions.push(progress),
+    });
+
+    expect(outcome).toMatchObject({ status: 'created', photoCount: 10 });
+
+    const lists = emissions
+      .filter((progress) => progress.step === 'checking')
+      .map((progress) => progress.pickUris);
+    expect(lists.length).toBeGreaterThan(0);
+    for (const list of lists) expect(list).toBeDefined();
+    // Found order is stable: every emission extends the previous one, so the
+    // hero slot (the most recent entry) only changes when a NEW photo is found.
+    for (let index = 1; index < lists.length; index++) {
+      expect(lists[index]!.slice(0, lists[index - 1]!.length)).toEqual(lists[index - 1]);
+    }
+    const final = lists[lists.length - 1]!;
+    expect(final).toHaveLength(10);
+    // Only photos the gate passed may appear - never a rejected candidate's URI.
+    const eligibleUris = new Set([...eligibleIds].map(uriFor));
+    for (const uri of final) expect(eligibleUris.has(uri)).toBe(true);
+  });
+
+  it('keeps the found count and the URI list in agreement on every hunt emission', async () => {
+    mockGetAllCachedPhotos.mockResolvedValue(buildCachedLibrary(40));
+    verdictFor = (id) =>
+      id.startsWith('FR-') ? { eligible: true } : { eligible: false, reason: 'people_present' };
+
+    const emissions: QuizCreationProgress[] = [];
+    await createQuizFromLibrary({ onProgress: (progress) => emissions.push(progress) });
+
+    const checking = emissions.filter((progress) => progress.step === 'checking');
+    expect(checking.length).toBeGreaterThan(0);
+    for (const progress of checking) {
+      expect(progress.pickUris).toBeDefined();
+      expect(progress.current).toBe(progress.pickUris!.length);
+    }
+  });
+
+  it('retains the full pick list on upload-phase emissions', async () => {
+    mockGetAllCachedPhotos.mockResolvedValue(buildCachedLibrary(20));
+
+    const emissions: QuizCreationProgress[] = [];
+    const outcome = await createQuizFromLibrary({
+      onProgress: (progress) => emissions.push(progress),
+    });
+
+    expect(outcome.status).toBe('created');
+    if (outcome.status !== 'created') throw new Error('unreachable');
+    const building = emissions.filter((progress) => progress.step === 'building');
+    expect(building.length).toBeGreaterThan(0);
+    for (const progress of building) {
+      expect(progress.pickUris).toHaveLength(outcome.photoCount);
+    }
+    // The same list, in the same order, from the first upload tick to the last:
+    // the redesigned screen keeps all thumbnails visible through the upload.
+    expect(new Set(building.map((progress) => JSON.stringify(progress.pickUris))).size).toBe(1);
+  });
+
+  it('carries the persisted picks through a resumed upload', async () => {
+    const picks = Array.from({ length: 5 }, (_, index) => ({
+      assetId: `FR-${index}`,
+      uri: `file:///stale/asset-${index}.jpg`,
+      countryCode: 'FR',
+      captureYear: 2024,
+      storagePath: null,
+      uploaded: false,
+      landscape: null,
+    }));
+    mockGetMetadata.mockImplementation(async (key: string) =>
+      key === 'quiz_draft_state' ? JSON.stringify({ quizId: 'quiz-9', createdAt: 1, picks }) : null
+    );
+
+    const emissions: QuizCreationProgress[] = [];
+    const outcome = await createQuizFromLibrary({
+      onProgress: (progress) => emissions.push(progress),
+    });
+
+    expect(outcome).toMatchObject({ status: 'created', quizId: 'quiz-9' });
+    const building = emissions.filter((progress) => progress.step === 'building');
+    expect(building.length).toBeGreaterThan(0);
+    for (const progress of building) {
+      expect(progress.pickUris).toEqual(picks.map((pick) => pick.uri));
+    }
   });
 });

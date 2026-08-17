@@ -12,6 +12,16 @@ export interface QuizCreationProgress {
   step: QuizCreationStep;
   current?: number;
   total?: number;
+  /**
+   * Local URIs of the eligible picks found so far, in found order, capped at
+   * the game size (so `current === pickUris.length` on hunt emissions). Lets
+   * the creation screen render the photos live: hero = the most recent find,
+   * thumbnails = every find in order. Only photos that passed the eligibility
+   * gate appear - rejected candidates never do. During the upload phase
+   * ('building') this is the final pick list, held constant across emissions.
+   * Absent on 'scanning' emissions (nothing has been found yet).
+   */
+  pickUris?: string[];
 }
 
 export type QuizCreationOutcome =

@@ -79,7 +79,12 @@ import { computeAgreement } from './tagAgreement';
 import { loadCurrentVerdicts, seedFromVerdicts } from './quizVerdictStore';
 import { uploadAndFinalize } from './quizUpload';
 
-import type { CreateQuizOptions, QuizCreationOutcome, QuizDraftState } from './quizCreationTypes';
+import type {
+  CreateQuizOptions,
+  QuizCreationOutcome,
+  QuizCreationProgress,
+  QuizDraftState,
+} from './quizCreationTypes';
 
 // The creation pipeline's public surface. Callers (screens, hooks, the swap
 // flow) import from here rather than reaching into the stages.
@@ -145,6 +150,21 @@ function reportPrefilterAgreement(
 }
 
 /**
+ * Decorate a progress callback so every emission carries the running pick
+ * URIs. The creation screen renders the found photos live - hero = the most
+ * recent find, thumbnail grid = every find in found order - so the list rides
+ * along with each count update instead of arriving only at the end. The
+ * getter is read per emission, so callers hand over a live view, not a copy.
+ */
+function withPickUris(
+  onProgress: ((progress: QuizCreationProgress) => void) | undefined,
+  getPickUris: () => string[]
+): ((progress: QuizCreationProgress) => void) | undefined {
+  if (!onProgress) return undefined;
+  return (progress) => onProgress({ ...progress, pickUris: getPickUris() });
+}
+
+/**
  * Build a quiz from the photo library, end to end.
  *
  * Resumable: when a persisted draft already carries final picks, this skips
@@ -184,7 +204,11 @@ async function runQuizCreation(
 
   const persisted = await loadDraftState();
   if (persisted && persisted.picks.length > 0) {
-    const outcome = await uploadAndFinalize(persisted, onProgress, signal);
+    const outcome = await uploadAndFinalize(
+      persisted,
+      withPickUris(onProgress, () => persisted.picks.map((pick) => pick.uri)),
+      signal
+    );
     if (outcome === 'draft-gone') {
       return restartAfterDraftGone(options, restartedAfterDraftGone);
     }
@@ -241,7 +265,7 @@ async function runQuizCreation(
   // what a given pass has already classified, and the hunt below may run ten
   // passes over a library of tens of thousands of photos. Emit a progress tick
   // first so the wizard is not silent through it.
-  onProgress?.({ step: 'checking', current: 0, total: QUIZ_MAX_PHOTOS });
+  onProgress?.({ step: 'checking', current: 0, total: QUIZ_MAX_PHOTOS, pickUris: [] });
   const preparedPool = prepareCandidatePool(pool, validCodes);
 
   // Step 2a: on-device pre-filter. Drops only the near-certain rejects
@@ -257,6 +281,10 @@ async function runQuizCreation(
   // this alone can fill the game, making it upload-bound instead of gate-bound.
   const session = createClassificationSession();
   const { classifiedIds, eligible } = session;
+  // The running list the screen renders while the hunt is on: eligible picks
+  // in found order, capped at the game size so it always matches `current`.
+  const huntPickUris = () => eligible.slice(0, QUIZ_MAX_PHOTOS).map((candidate) => candidate.uri);
+  const huntProgress = withPickUris(onProgress, huntPickUris);
   let seededEligible = 0;
   let seededIneligible = 0;
   if (features.enableVerdictCache) {
@@ -277,6 +305,7 @@ async function runQuizCreation(
           step: 'checking',
           current: Math.min(eligible.length, QUIZ_MAX_PHOTOS),
           total: QUIZ_MAX_PHOTOS,
+          pickUris: huntPickUris(),
         });
       }
     }
@@ -335,7 +364,7 @@ async function runQuizCreation(
   // intact rather than as a failure - the hunt loop below simply never runs.
   let firstResult: ClassifyBatchResult = { budgetRemaining: CLASSIFICATION_BUDGET_PER_QUIZ };
   if (firstBatch.length > 0) {
-    firstResult = await classifyBatch(quizId, firstBatch, FIRST_BATCH_MAX, session, onProgress);
+    firstResult = await classifyBatch(quizId, firstBatch, FIRST_BATCH_MAX, session, huntProgress);
     if (firstResult === 'draft-gone') {
       return restartAfterDraftGone(options, restartedAfterDraftGone);
     }
@@ -404,7 +433,7 @@ async function runQuizCreation(
       resampleBatch,
       resampleTarget,
       session,
-      onProgress
+      huntProgress
     );
     passes += 1;
     if (resampleResult === 'draft-gone') {
@@ -488,8 +517,13 @@ async function runQuizCreation(
   };
   await saveDraftState(state);
 
-  // Step 6: upload + finalize (resumable).
-  const outcome = await uploadAndFinalize(state, onProgress, signal);
+  // Step 6: upload + finalize (resumable). The full pick list stays on every
+  // emission so the screen keeps all thumbnails visible through the upload.
+  const outcome = await uploadAndFinalize(
+    state,
+    withPickUris(onProgress, () => state.picks.map((pick) => pick.uri)),
+    signal
+  );
   if (outcome === 'draft-gone') {
     return restartAfterDraftGone(options, restartedAfterDraftGone);
   }
