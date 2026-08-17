@@ -27,6 +27,8 @@ export interface DecoratedPool {
   tiers: Record<PrefilterTier, number>;
   /** Candidates with no usable tag row - the coverage gap. */
   untagged: number;
+  /** Predicted tier per candidate id, for agreement telemetry. */
+  tierById: Map<string, PrefilterTier>;
 }
 
 const emptyTiers = (): Record<PrefilterTier, number> => ({
@@ -45,15 +47,17 @@ const emptyTiers = (): Record<PrefilterTier, number> => ({
 export async function decoratePoolWithTags(pool: GeoEligibleCandidate[]): Promise<DecoratedPool> {
   const tiers = emptyTiers();
 
+  const tierById = new Map<string, PrefilterTier>();
+
   if (!features.enableTagPrefilter || pool.length === 0) {
-    return { pool, dropped: 0, tiers, untagged: pool.length };
+    return { pool, dropped: 0, tiers, untagged: pool.length, tierById };
   }
 
   let tags;
   try {
     tags = await getTagsForIds(pool.map((candidate) => candidate.id));
   } catch {
-    return { pool, dropped: 0, tiers, untagged: pool.length };
+    return { pool, dropped: 0, tiers, untagged: pool.length, tierById };
   }
 
   const decorated: GeoEligibleCandidate[] = [];
@@ -63,6 +67,9 @@ export async function decoratePoolWithTags(pool: GeoEligibleCandidate[]): Promis
   for (const candidate of pool) {
     const row = tags.get(candidate.id);
     if (!row) {
+      // No row means no prediction, so this photo is deliberately left OUT of
+      // tierById: counting untagged photos as `unknown` agreement would dilute
+      // the very rates the telemetry exists to measure.
       untagged += 1;
       tiers.unknown += 1;
       decorated.push(candidate);
@@ -71,6 +78,7 @@ export async function decoratePoolWithTags(pool: GeoEligibleCandidate[]): Promis
     const signals = deriveSignals(row);
     const tier = classifyPrefilter(signals);
     tiers[tier] += 1;
+    tierById.set(candidate.id, tier);
     if (tier === 'drop') {
       dropped += 1;
       continue;
@@ -78,7 +86,7 @@ export async function decoratePoolWithTags(pool: GeoEligibleCandidate[]): Promis
     decorated.push({ ...candidate, tags: signals, tier });
   }
 
-  return { pool: decorated, dropped, tiers, untagged };
+  return { pool: decorated, dropped, tiers, untagged, tierById };
 }
 
 /** Compact funnel fragment, e.g. `tags=likely:12/unknown:80/marginal:9 dropped=4`. */

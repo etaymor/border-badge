@@ -98,6 +98,15 @@ export interface ClassificationSession {
   sentCount: number;
   /** Prepare failures whose cached URI was a ph:// asset (iCloud-offloaded). */
   offloadedFailures: number;
+  /**
+   * Per-photo gate verdict for THIS run, id -> eligible.
+   *
+   * Every entry is a free labeled example: the paid gate's opinion of a photo
+   * the on-device pre-filter also had an opinion about. Comparing the two is
+   * the only evidence that can justify tightening the drop rules, so the
+   * per-photo answer is kept rather than only tallied.
+   */
+  verdictsById: Map<string, boolean>;
 }
 
 export function createClassificationSession(): ClassificationSession {
@@ -107,6 +116,7 @@ export function createClassificationSession(): ClassificationSession {
     reasons: {},
     sentCount: 0,
     offloadedFailures: 0,
+    verdictsById: new Map<string, boolean>(),
   };
 }
 
@@ -243,6 +253,7 @@ export async function classifyBatch(
       continue;
     }
     sawVerdict = true;
+    session.verdictsById.set(result.id, result.eligible);
     const candidate = byId.get(result.id);
     if (candidate && result.eligible) {
       candidate.landscape = result.landscape ?? undefined;

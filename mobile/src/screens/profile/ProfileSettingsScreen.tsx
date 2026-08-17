@@ -55,6 +55,7 @@ import { ClipboardEnableModal } from './components/ClipboardEnableModal';
 import { DeleteConfirmationModal } from './components/DeleteConfirmationModal';
 import { PhotoLibraryEnableModal } from './components/PhotoLibraryEnableModal';
 import { PhotoLibraryInfoModal } from './components/PhotoLibraryInfoModal';
+import { PhotoTagDiagnostic } from '@screens/photos/PhotoTagDiagnostic';
 
 type Props = PassportStackScreenProps<'ProfileSettings'>;
 
@@ -614,6 +615,9 @@ export function ProfileSettingsScreen({ navigation }: Props) {
             Manage your photo challenges and see who beat your score
           </Text>
         </Pressable>
+
+        {/* Dev builds only (features.showDebugInfo); renders null otherwise. */}
+        <PhotoTagDiagnostic />
 
         <View style={styles.contactSupportSection}>
           <Pressable

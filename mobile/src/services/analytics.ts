@@ -493,6 +493,63 @@ export const Analytics = {
 
   quizRevoked: (props: { quizId: string }) => track('quiz_revoked', { quiz_id: props.quizId }),
 
+  /**
+   * How the free on-device prediction compared with the paid eligibility gate,
+   * aggregated per creation. This is the evidence that decides whether the
+   * shadow-mode drop rules can be tightened over-the-air: `likely_rejected`
+   * says the "likely" signal is unreliable, and `marginal_passed` is the
+   * false-negative count a marginal drop rule would have cost users.
+   */
+  quizPrefilterAgreement: (props: {
+    compared: number;
+    likelySent: number;
+    likelyPassed: number;
+    unknownSent: number;
+    unknownPassed: number;
+    marginalSent: number;
+    marginalPassed: number;
+    likelyRejected: number;
+    dropped: number;
+    untagged: number;
+    seededEligible: number;
+  }) =>
+    track('quiz_prefilter_agreement', {
+      compared: props.compared,
+      likely_sent: props.likelySent,
+      likely_passed: props.likelyPassed,
+      unknown_sent: props.unknownSent,
+      unknown_passed: props.unknownPassed,
+      marginal_sent: props.marginalSent,
+      marginal_passed: props.marginalPassed,
+      likely_rejected: props.likelyRejected,
+      dropped: props.dropped,
+      untagged: props.untagged,
+      seeded_eligible: props.seededEligible,
+    }),
+
+  /**
+   * Outcome of one background tagging pass. `no_local_image` is the number to
+   * watch: if "Optimize iPhone Storage" evicts even 512px thumbnails at scale,
+   * tag coverage stays low no matter how many passes run, and allowing network
+   * access becomes worth considering.
+   */
+  photoTaggingPass: (props: {
+    tagged: number;
+    chunks: number;
+    stoppedBy: string;
+    coverageTotal: number;
+    coverageCurrentVersion: number;
+    noLocalImage: number;
+  }) =>
+    track('photo_tagging_pass', {
+      tagged: props.tagged,
+      chunks: props.chunks,
+      stopped_by: props.stoppedBy,
+      coverage_total: props.coverageTotal,
+      coverage_current_version: props.coverageCurrentVersion,
+      no_local_image: props.noLocalImage,
+    }),
+
   // Post-paywall "make your first quiz" offer
   firstQuizOfferShown: () => track('first_quiz_offer_shown'),
   firstQuizOfferAccepted: () => track('first_quiz_offer_accepted'),

@@ -38,6 +38,7 @@
  */
 
 import { features } from '@config/features';
+import { Analytics } from '@services/analytics';
 import { getAllCountries, getHomeCountry } from '@services/countriesDb';
 import { iso1A2Code } from '@services/photoImport/countryCoder';
 import { ensureFreshLibrary } from '@services/photoImport/photoBackgroundSync';
@@ -73,6 +74,8 @@ import {
   saveDraftState,
 } from './quizDraftStore';
 import { decoratePoolWithTags, formatTagFunnel } from './quizCandidateTags';
+import type { DecoratedPool } from './quizCandidateTags';
+import { computeAgreement } from './tagAgreement';
 import { loadCurrentVerdicts, seedFromVerdicts } from './quizVerdictStore';
 import { uploadAndFinalize } from './quizUpload';
 
@@ -111,6 +114,35 @@ export const HUNT_SOFT_DEADLINE_MS = 90_000;
  * reason to throw the other nine away.
  */
 const MAX_CONSECUTIVE_FAILED_PASSES = 2;
+
+/**
+ * Emit one aggregate agreement event per creation.
+ *
+ * Aggregate only - no per-photo events, no asset ids. Silent when nothing was
+ * both predicted and classified, which is the normal case on a device with no
+ * tag coverage yet.
+ */
+function reportPrefilterAgreement(
+  verdictsById: Map<string, boolean>,
+  decorated: DecoratedPool,
+  seededEligible: number
+): void {
+  const agreement = computeAgreement(verdictsById, decorated.tierById);
+  if (agreement.compared === 0) return;
+  Analytics.quizPrefilterAgreement({
+    compared: agreement.compared,
+    likelySent: agreement.byTier.likely.sent,
+    likelyPassed: agreement.byTier.likely.passed,
+    unknownSent: agreement.byTier.unknown.sent,
+    unknownPassed: agreement.byTier.unknown.passed,
+    marginalSent: agreement.byTier.marginal.sent,
+    marginalPassed: agreement.byTier.marginal.passed,
+    likelyRejected: agreement.likelyRejected,
+    dropped: decorated.dropped,
+    untagged: decorated.untagged,
+    seededEligible,
+  });
+}
 
 /**
  * Build a quiz from the photo library, end to end.
@@ -414,6 +446,11 @@ async function runQuizCreation(
   if (eligible.length < QUIZ_MIN_PHOTOS && consecutiveFailures > 0) {
     return { status: 'service-error', stage: 'classify' };
   }
+
+  // Every classified photo that also had a tag tier is a free labeled example.
+  // Aggregated per creation (never per photo), this is the only evidence that
+  // can justify tightening the shadow-mode drop rules over-the-air.
+  reportPrefilterAgreement(session.verdictsById, decorated, seededEligible);
 
   const reasonSummary = summarizeRejections(session);
   console.warn(

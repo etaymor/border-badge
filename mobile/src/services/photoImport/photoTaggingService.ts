@@ -22,11 +22,12 @@
  */
 
 import { features } from '@config/features';
+import { Analytics } from '@services/analytics';
 
 import { getMetadata, setMetadata } from './photoCacheDb';
 import { isBackgroundSyncInProgress } from './photoBackgroundSync';
 import { isScanRunning } from './photoScanState';
-import { getUntaggedIds, TAGGER_VERSION, upsertTags } from './photoTagDb';
+import { getTagCoverageStats, getUntaggedIds, TAGGER_VERSION, upsertTags } from './photoTagDb';
 import type { PhotoMlTag } from './photoTagDb';
 import { SCAN_CONFIG } from './photoImportService';
 
@@ -153,6 +154,37 @@ export async function runTaggingPass(
   return { tagged, chunks, stoppedBy: 'complete' };
 }
 
+/**
+ * Report one pass's outcome plus overall coverage.
+ *
+ * `no_local_image` is the number that decides a real open question: if
+ * "Optimize iPhone Storage" evicts even 512px thumbnails at scale, coverage
+ * stays low no matter how many passes run, and allowing network access becomes
+ * worth considering. Best-effort - telemetry never fails a pass.
+ */
+async function reportPass(result: TaggingPassResult): Promise<void> {
+  try {
+    const coverage = await getTagCoverageStats();
+    if (__DEV__) {
+      console.log(
+        `[PhotoTagging] pass complete: tagged=${result.tagged} chunks=${result.chunks} ` +
+          `stoppedBy=${result.stoppedBy} coverage=${coverage.currentVersion}/${coverage.total} ` +
+          `noLocalImage=${coverage.byStatus['no-local-image'] ?? 0}`
+      );
+    }
+    Analytics.photoTaggingPass({
+      tagged: result.tagged,
+      chunks: result.chunks,
+      stoppedBy: result.stoppedBy,
+      coverageTotal: coverage.total,
+      coverageCurrentVersion: coverage.currentVersion,
+      noLocalImage: coverage.byStatus['no-local-image'] ?? 0,
+    });
+  } catch {
+    // Telemetry is never worth failing a pass over.
+  }
+}
+
 /** Whether a pass may start right now. Never prompts for anything. */
 async function passIsAllowed(): Promise<boolean> {
   if (!features.enablePhotoTagging) return false;
@@ -216,12 +248,7 @@ export async function maybeRunTaggingPass(): Promise<TaggingPassResult | null> {
       );
 
       await setMetadata(LAST_PASS_KEY, Date.now().toString());
-      if (__DEV__) {
-        console.log(
-          `[PhotoTagging] pass complete: tagged=${result.tagged} chunks=${result.chunks} ` +
-            `stoppedBy=${result.stoppedBy}`
-        );
-      }
+      await reportPass(result);
       return result;
     } finally {
       releaseTaggingLock(lock.passId);
