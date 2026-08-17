@@ -79,7 +79,7 @@ import {
   type QuizPlayState,
   type StoredQuizAnswer,
 } from '@services/quiz/quizPlay';
-import { QuizPlayScreen } from '@screens/quiz/QuizPlayScreen';
+import { deriveOrientation, QuizPlayScreen } from '@screens/quiz/QuizPlayScreen';
 import { QuizResultsScreen } from '@screens/quiz/QuizResultsScreen';
 
 const mockEnsurePlaySession = ensurePlaySession as jest.MockedFunction<typeof ensurePlaySession>;
@@ -244,7 +244,7 @@ describe('QuizPlayScreen photo loading', () => {
 
     renderPlayScreen();
 
-    await waitFor(() => expect(screen.getByText('Photo 2 of 5')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('2 OF 5')).toBeTruthy());
     await waitFor(() =>
       expect(ExpoImage.prefetch).toHaveBeenCalledWith(
         expect.arrayContaining(['https://cdn.example/quiz/q2.jpg'])
@@ -258,9 +258,74 @@ describe('QuizPlayScreen photo loading', () => {
 
     renderPlayScreen();
 
-    await waitFor(() => expect(screen.getByText('Photo 5 of 5')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('5 OF 5')).toBeTruthy());
     const warmed = ExpoImage.prefetch.mock.calls.flatMap(([urls]: [string[]]) => urls);
     expect(warmed).toEqual([]);
+  });
+});
+
+describe('QuizPlayScreen adaptive layout', () => {
+  // The play payload carries NO orientation field, so the layout is derived
+  // from each photo's decoded dimensions (expo-image onLoad). Until they
+  // arrive the contained treatment holds so the frame never jumps.
+  describe('deriveOrientation', () => {
+    it('classifies wider-than-tall as landscape', () => {
+      expect(deriveOrientation(4032, 3024)).toBe('landscape');
+    });
+
+    it('classifies taller-than-wide and square as portrait (immersive)', () => {
+      expect(deriveOrientation(3024, 4032)).toBe('portrait');
+      expect(deriveOrientation(2048, 2048)).toBe('portrait');
+    });
+
+    it('returns null (keep the contained fallback) without real dimensions', () => {
+      expect(deriveOrientation(undefined, undefined)).toBeNull();
+      expect(deriveOrientation(0, 100)).toBeNull();
+      expect(deriveOrientation(100, 0)).toBeNull();
+      expect(deriveOrientation(Number.NaN, 100)).toBeNull();
+    });
+  });
+
+  it('goes immersive full-bleed once a portrait photo reports its dimensions', async () => {
+    mockQuizDetail(makeDetail());
+    mockEnsurePlaySession.mockResolvedValue(makePlayState([]));
+
+    renderPlayScreen();
+
+    // Before dimensions arrive: contained treatment over the scrim sheet.
+    await waitFor(() => expect(screen.getByTestId('quiz-play-photo')).toBeTruthy());
+    expect(screen.getByTestId('quiz-play-photo').props.contentFit).toBe('contain');
+    expect(screen.getByTestId('quiz-answer-scrim')).toBeTruthy();
+
+    fireEvent(screen.getByTestId('quiz-play-photo'), 'load', {
+      source: { width: 3024, height: 4032 },
+    });
+
+    // Portrait: the sharp photo extends full-screen behind the scrim sheet.
+    await waitFor(() =>
+      expect(screen.getByTestId('quiz-play-photo').props.contentFit).toBe('cover')
+    );
+    expect(screen.getByTestId('quiz-answer-scrim')).toBeTruthy();
+    expect(screen.queryByTestId('quiz-answer-solid')).toBeNull();
+  });
+
+  it('drops to a solid answer area once a landscape photo reports its dimensions', async () => {
+    mockQuizDetail(makeDetail());
+    mockEnsurePlaySession.mockResolvedValue(makePlayState([]));
+
+    renderPlayScreen();
+
+    await waitFor(() => expect(screen.getByTestId('quiz-play-photo')).toBeTruthy());
+    fireEvent(screen.getByTestId('quiz-play-photo'), 'load', {
+      source: { width: 4032, height: 3024 },
+    });
+
+    // Landscape: photo stays uncropped, answers sit below on the stage color.
+    await waitFor(() => expect(screen.getByTestId('quiz-answer-solid')).toBeTruthy());
+    expect(screen.getByTestId('quiz-play-photo').props.contentFit).toBe('contain');
+    expect(screen.queryByTestId('quiz-answer-scrim')).toBeNull();
+    // The answer surfaces still work from the solid area.
+    expect(screen.getByTestId('quiz-option-0')).toBeTruthy();
   });
 });
 
@@ -324,7 +389,7 @@ describe('QuizPlayScreen', () => {
     renderPlayScreen();
 
     await waitFor(() => expect(screen.getByTestId('quiz-play-progress')).toBeTruthy());
-    expect(screen.getByText('Photo 3 of 5')).toBeTruthy();
+    expect(screen.getByText('3 OF 5')).toBeTruthy();
     expect(screen.getByTestId('quiz-play-photo').props.source.uri).toBe(
       'https://cdn.example/quiz/q2.jpg'
     );
@@ -352,7 +417,7 @@ describe('QuizPlayScreen', () => {
     fireEvent.press(screen.getByText('Spain'));
 
     // No per-question verdict: play moves straight to the next photo.
-    await waitFor(() => expect(screen.getByText('Photo 2 of 5')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('2 OF 5')).toBeTruthy());
     expect(screen.queryByText(/Correct!/)).toBeNull();
     expect(screen.queryByText(/Not quite/)).toBeNull();
     expect(mockApiPost).toHaveBeenCalledWith(
@@ -397,7 +462,7 @@ describe('QuizPlayScreen', () => {
     expect(mockApiPost).not.toHaveBeenCalled();
 
     fireEvent.press(screen.getByText('2019'));
-    await waitFor(() => expect(screen.getByText('Photo 2 of 5')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('2 OF 5')).toBeTruthy());
     expect(mockApiPost).toHaveBeenCalledWith(
       `/quiz/${QUIZ_ID}/answer`,
       expect.objectContaining({ selected_option_index: 1, selected_year: 2019 })
@@ -421,7 +486,7 @@ describe('QuizPlayScreen', () => {
 
     const { navigation } = renderPlayScreen();
 
-    await waitFor(() => expect(screen.getByText('Photo 5 of 5')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('5 OF 5')).toBeTruthy());
     fireEvent.press(screen.getByText('France'));
 
     // The reveal happens once, at the end: the last answer flows straight
@@ -463,7 +528,7 @@ describe('QuizPlayScreen resilience (BUG-1)', () => {
     await waitFor(() => expect(screen.getByText('France')).toBeTruthy());
     fireEvent.press(screen.getByText('France'));
 
-    await waitFor(() => expect(screen.getByText('Photo 2 of 5')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('2 OF 5')).toBeTruthy());
 
     warnSpy.mockRestore();
   });
@@ -492,7 +557,7 @@ describe('QuizPlayScreen resilience (BUG-1)', () => {
     await waitFor(() => expect(screen.getByText('France')).toBeTruthy());
     fireEvent.press(screen.getByText('France'));
 
-    await waitFor(() => expect(screen.getByText('Photo 2 of 5')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('2 OF 5')).toBeTruthy());
     expect(screen.queryByTestId('quiz-play-error')).toBeNull();
   });
 
