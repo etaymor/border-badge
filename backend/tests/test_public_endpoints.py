@@ -2894,3 +2894,112 @@ def test_header_nav_anchors_are_rooted(client: TestClient) -> None:
 
 def test_blog_is_linked_from_the_footer(client: TestClient) -> None:
     assert 'href="/blog"' in client.get("/privacy").text
+
+
+# ============================================================================
+# Invite Landing Page Tests (/invite?code=...)
+# ============================================================================
+
+
+def _signed_invite_code(inviter_id: str = OTHER_USER_ID) -> str:
+    from app.core.invite_signer import generate_invite_code
+
+    return generate_invite_code(inviter_id, "friend@example.com")
+
+
+def test_invite_landing_valid_code_shows_inviter(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+) -> None:
+    """A valid code renders the landing page with the inviter's name and an
+    install CTA."""
+    code = _signed_invite_code()
+    mock_supabase_client.get.side_effect = supabase_tables(
+        pending_invite=[
+            {
+                "id": "inv-1",
+                "inviter_id": OTHER_USER_ID,
+                "invite_type": "follow",
+                "status": "pending",
+            }
+        ],
+        user_profile=[
+            {
+                "user_id": OTHER_USER_ID,
+                "username": "world_wanderer",
+                "display_name": "World Wanderer",
+                "avatar_url": "https://example.com/avatar.jpg",
+            }
+        ],
+    )
+
+    with patch("app.api.public.get_supabase_client", return_value=mock_supabase_client):
+        response = client.get(f"/invite?code={code}")
+
+    assert response.status_code == 200
+    assert "text/html" in response.headers["content-type"]
+    assert "World Wanderer" in response.text
+    assert "apps.apple.com" in response.text  # install CTA
+    # Tokenized URL: never indexed
+    assert "noindex" in response.text
+
+
+def test_invite_landing_invalid_code_renders_graceful_page(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+) -> None:
+    """Invalid codes get a friendly page with an install CTA, never a 404."""
+    with patch("app.api.public.get_supabase_client", return_value=mock_supabase_client):
+        response = client.get("/invite?code=not-a-real-code")
+
+    assert response.status_code == 200
+    assert "invalid or has expired" in response.text
+    assert "apps.apple.com" in response.text
+
+
+def test_invite_landing_without_code_renders_graceful_page(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+) -> None:
+    with patch("app.api.public.get_supabase_client", return_value=mock_supabase_client):
+        response = client.get("/invite")
+
+    assert response.status_code == 200
+    assert "apps.apple.com" in response.text
+
+
+def test_invite_landing_cancelled_invite_renders_graceful_page(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+) -> None:
+    """A validly signed code whose invite row is gone (cancelled) degrades to
+    the graceful page rather than showing the inviter."""
+    code = _signed_invite_code()
+    mock_supabase_client.get.side_effect = supabase_tables()  # no rows
+
+    with patch("app.api.public.get_supabase_client", return_value=mock_supabase_client):
+        response = client.get(f"/invite?code={code}")
+
+    assert response.status_code == 200
+    assert "invalid or has expired" in response.text
+
+
+def test_invite_landing_db_failure_degrades_gracefully(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+) -> None:
+    """A database error must not 500 the growth loop's conversion moment."""
+    code = _signed_invite_code()
+    mock_supabase_client.get.side_effect = RuntimeError("db down")
+
+    with patch("app.api.public.get_supabase_client", return_value=mock_supabase_client):
+        response = client.get(f"/invite?code={code}")
+
+    assert response.status_code == 200
+    assert "apps.apple.com" in response.text
+
+
+def test_robots_txt_disallows_invite(client: TestClient) -> None:
+    """Tokenized invite URLs are excluded from crawling."""
+    response = client.get("/robots.txt")
+    assert "Disallow: /invite" in response.text

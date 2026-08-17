@@ -1,20 +1,46 @@
 """Tests for email invite system endpoints."""
 
+import hashlib
+import hmac as hmac_mod
+import secrets
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
 
+from app.core.config import get_settings
 from app.core.db_utils import get_rpc_first_row
 from app.core.security import AuthUser, get_current_user
 from app.main import app
 from tests.conftest import (
+    OTHER_USER_ID,
     TEST_USER_ID,
     mock_auth_dependency,
+    supabase_tables,
 )
 
 # Sample invite data for tests
 SAMPLE_EMAIL = "friend@example.com"
 SAMPLE_INVITE_ID = "550e8400-e29b-41d4-a716-446655440010"
+
+
+def make_invite_code(inviter_id: str, email: str, age_days: int = 0) -> str:
+    """Build a validly signed invite code, optionally back-dated.
+
+    Mirrors generate_invite_code() but lets tests control the embedded
+    timestamp so expiry behavior can be exercised without patching clocks.
+    """
+    timestamp = int((datetime.now(UTC) - timedelta(days=age_days)).timestamp())
+    nonce = secrets.token_hex(8)
+    email_hash = hashlib.sha256(email.lower().encode()).hexdigest()[:16]
+    settings = get_settings()
+    message = f"{inviter_id}:{email_hash}:{timestamp}:{nonce}"
+    signature = hmac_mod.new(
+        settings.INVITE_SIGNING_SECRET.encode(),
+        message.encode(),
+        hashlib.sha256,
+    ).hexdigest()
+    return f"{inviter_id}:{email_hash}:{timestamp}:{nonce}:{signature}"
 
 
 # ============================================================================
@@ -542,6 +568,473 @@ def test_invite_flow_trip_tag_stores_trip_id(
         assert stored_invite is not None
         assert stored_invite.get("trip_id") == trip_id
         assert stored_invite.get("invite_type") == "trip_tag"
+    finally:
+        app.dependency_overrides.clear()
+
+
+# ============================================================================
+# Shareable Link Tests (R9: link deliverable even without email delivery)
+# ============================================================================
+
+
+def test_send_invite_returns_shareable_link_without_email_delivery(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+) -> None:
+    """An invite yields a shareable landing URL even when email sending is
+    unconfigured (Resend absent) -- the link is the primary delivery path."""
+    mock_supabase_client.rpc.return_value = [{"exists": False}]
+    mock_supabase_client.get.return_value = []
+    mock_supabase_client.post.return_value = [
+        {"id": SAMPLE_INVITE_ID, "email": SAMPLE_EMAIL, "status": "pending"}
+    ]
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with (
+            patch(
+                "app.api.invites.get_supabase_client", return_value=mock_supabase_client
+            ),
+            # Resend unconfigured: the edge function returns None. The link
+            # must still come back in the response.
+            patch(
+                "app.api.invites.send_invite_email",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+        ):
+            response = client.post(
+                "/invites",
+                headers=auth_headers,
+                json={"email": SAMPLE_EMAIL, "invite_type": "follow"},
+            )
+        assert response.status_code == 201
+        data = response.json()
+        assert data["status"] == "sent"
+        assert data["invite_url"], "invite_url missing from response"
+        assert "/invite?code=" in data["invite_url"]
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_send_invite_already_pending_returns_existing_link(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+) -> None:
+    """Re-inviting the same email surfaces the existing invite's link so the
+    user can re-share it."""
+    existing_code = make_invite_code(TEST_USER_ID, SAMPLE_EMAIL)
+    mock_supabase_client.rpc.return_value = [{"exists": False}]
+    mock_supabase_client.get.return_value = [
+        {"id": SAMPLE_INVITE_ID, "status": "pending", "invite_code": existing_code}
+    ]
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with patch(
+            "app.api.invites.get_supabase_client", return_value=mock_supabase_client
+        ):
+            response = client.post(
+                "/invites",
+                headers=auth_headers,
+                json={"email": SAMPLE_EMAIL},
+            )
+        assert response.status_code == 201
+        data = response.json()
+        assert data["status"] == "already_pending"
+        assert data["invite_url"]
+        assert "/invite?code=" in data["invite_url"]
+    finally:
+        app.dependency_overrides.clear()
+
+
+# ============================================================================
+# Redeem Invite Tests (R9: deterministic attribution via code redemption)
+# ============================================================================
+
+INVITER_PROFILE = {
+    "user_id": OTHER_USER_ID,
+    "username": "world_wanderer",
+    "display_name": "World Wanderer",
+    "avatar_url": "https://example.com/avatar.jpg",
+}
+
+
+def _pending_invite_row(
+    code: str,
+    invite_type: str = "follow",
+    status: str = "pending",
+    trip_id: str | None = None,
+) -> dict:
+    return {
+        "id": SAMPLE_INVITE_ID,
+        "inviter_id": OTHER_USER_ID,
+        "invite_type": invite_type,
+        "trip_id": trip_id,
+        "status": status,
+        "invite_code": code,
+    }
+
+
+def test_redeem_invite_requires_auth(client: TestClient) -> None:
+    response = client.post("/invites/redeem", json={"code": "anything"})
+    assert response.status_code == 403
+
+
+def test_redeem_invite_creates_follow_and_marks_accepted(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+) -> None:
+    """Redeeming a valid code creates the inviter->redeemer follow, marks the
+    invite accepted, and returns the inviter for the follow-back prompt.
+
+    The authenticated user's email (test+test@example.com) deliberately does
+    NOT match the invited address (friend@example.com) -- this is the Apple
+    private-relay scenario, where email matching at signup fails and only code
+    redemption can attribute.
+    """
+    code = make_invite_code(OTHER_USER_ID, SAMPLE_EMAIL)
+    mock_supabase_client.get.side_effect = supabase_tables(
+        pending_invite=[_pending_invite_row(code)],
+        user_profile=[INVITER_PROFILE],
+    )
+    mock_supabase_client.patch.return_value = [{"id": SAMPLE_INVITE_ID}]
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with patch(
+            "app.api.invites.get_service_supabase_client",
+            return_value=mock_supabase_client,
+        ):
+            response = client.post(
+                "/invites/redeem",
+                headers=auth_headers,
+                json={"code": code},
+            )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "redeemed"
+        assert data["inviter"]["username"] == "world_wanderer"
+        assert data["inviter"]["user_id"] == OTHER_USER_ID
+
+        # Follow: inviter follows the redeemer
+        follow_calls = [
+            call
+            for call in mock_supabase_client.post.call_args_list
+            if call.args[0] == "user_follow"
+        ]
+        assert len(follow_calls) == 1
+        follow_data = follow_calls[0].args[1]
+        assert follow_data["follower_id"] == OTHER_USER_ID
+        assert follow_data["following_id"] == TEST_USER_ID
+
+        # Accepted exactly once, guarded on status=pending
+        assert mock_supabase_client.patch.call_count == 1
+        patch_call = mock_supabase_client.patch.call_args
+        assert patch_call.args[0] == "pending_invite"
+        assert patch_call.kwargs["data"]["status"] == "accepted"
+        assert patch_call.kwargs["params"]["status"] == "eq.pending"
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_redeem_invite_retry_is_idempotent(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+) -> None:
+    """A retry after successful redemption returns success without creating a
+    second follow or re-marking the invite."""
+    code = make_invite_code(OTHER_USER_ID, SAMPLE_EMAIL)
+    mock_supabase_client.get.side_effect = supabase_tables(
+        pending_invite=[_pending_invite_row(code, status="accepted")],
+        user_profile=[INVITER_PROFILE],
+    )
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with patch(
+            "app.api.invites.get_service_supabase_client",
+            return_value=mock_supabase_client,
+        ):
+            response = client.post(
+                "/invites/redeem",
+                headers=auth_headers,
+                json={"code": code},
+            )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "already_redeemed"
+        assert data["inviter"]["username"] == "world_wanderer"
+        # No new follow, no re-marking
+        mock_supabase_client.post.assert_not_called()
+        mock_supabase_client.patch.assert_not_called()
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_redeem_invite_invalid_code_returns_400(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+) -> None:
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with patch(
+            "app.api.invites.get_service_supabase_client",
+            return_value=mock_supabase_client,
+        ):
+            response = client.post(
+                "/invites/redeem",
+                headers=auth_headers,
+                json={"code": "garbage-code"},
+            )
+        assert response.status_code == 400
+        # No side effects at all for an unverifiable code
+        mock_supabase_client.post.assert_not_called()
+        mock_supabase_client.patch.assert_not_called()
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_redeem_invite_expired_code_redeems_nothing(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+) -> None:
+    """An expired code (past invite_expiration_days) creates no follow and is
+    never marked accepted."""
+    expired_code = make_invite_code(OTHER_USER_ID, SAMPLE_EMAIL, age_days=31)
+    mock_supabase_client.get.side_effect = supabase_tables(
+        pending_invite=[_pending_invite_row(expired_code)],
+        user_profile=[INVITER_PROFILE],
+    )
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with patch(
+            "app.api.invites.get_service_supabase_client",
+            return_value=mock_supabase_client,
+        ):
+            response = client.post(
+                "/invites/redeem",
+                headers=auth_headers,
+                json={"code": expired_code},
+            )
+        assert response.status_code == 400
+        mock_supabase_client.post.assert_not_called()
+        mock_supabase_client.patch.assert_not_called()
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_redeem_invite_cancelled_invite_returns_404(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+) -> None:
+    """A validly signed code whose invite row was cancelled (deleted) redeems
+    nothing -- the inviter withdrew consent."""
+    code = make_invite_code(OTHER_USER_ID, SAMPLE_EMAIL)
+    mock_supabase_client.get.side_effect = supabase_tables()  # no rows anywhere
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with patch(
+            "app.api.invites.get_service_supabase_client",
+            return_value=mock_supabase_client,
+        ):
+            response = client.post(
+                "/invites/redeem",
+                headers=auth_headers,
+                json={"code": code},
+            )
+        assert response.status_code == 404
+        mock_supabase_client.post.assert_not_called()
+        mock_supabase_client.patch.assert_not_called()
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_redeem_invite_own_code_returns_400(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+) -> None:
+    """The inviter cannot redeem their own invite."""
+    code = make_invite_code(TEST_USER_ID, SAMPLE_EMAIL)
+    row = _pending_invite_row(code)
+    row["inviter_id"] = TEST_USER_ID
+    mock_supabase_client.get.side_effect = supabase_tables(pending_invite=[row])
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with patch(
+            "app.api.invites.get_service_supabase_client",
+            return_value=mock_supabase_client,
+        ):
+            response = client.post(
+                "/invites/redeem",
+                headers=auth_headers,
+                json={"code": code},
+            )
+        assert response.status_code == 400
+        mock_supabase_client.post.assert_not_called()
+        mock_supabase_client.patch.assert_not_called()
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_redeem_trip_tag_invite_creates_pending_tag(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+) -> None:
+    """Redeeming a trip_tag invite creates a *pending* trip tag (consent
+    workflow) plus the follow, and marks the invite accepted."""
+    trip_id = "550e8400-e29b-41d4-a716-446655440077"
+    code = make_invite_code(OTHER_USER_ID, SAMPLE_EMAIL)
+    mock_supabase_client.get.side_effect = supabase_tables(
+        pending_invite=[_pending_invite_row(code, "trip_tag", trip_id=trip_id)],
+        user_profile=[INVITER_PROFILE],
+        trip=[{"id": trip_id, "user_id": OTHER_USER_ID}],
+    )
+    mock_supabase_client.patch.return_value = [{"id": SAMPLE_INVITE_ID}]
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with patch(
+            "app.api.invites.get_service_supabase_client",
+            return_value=mock_supabase_client,
+        ):
+            response = client.post(
+                "/invites/redeem",
+                headers=auth_headers,
+                json={"code": code},
+            )
+        assert response.status_code == 200
+        assert response.json()["status"] == "redeemed"
+
+        tag_calls = [
+            call
+            for call in mock_supabase_client.post.call_args_list
+            if call.args[0] == "trip_tags"
+        ]
+        assert len(tag_calls) == 1
+        tag_data = tag_calls[0].args[1]
+        assert tag_data["trip_id"] == trip_id
+        assert tag_data["tagged_user_id"] == TEST_USER_ID
+        assert tag_data["initiated_by"] == OTHER_USER_ID
+        # Lowercase status -- the consent workflow's canonical value
+        assert tag_data["status"] == "pending"
+
+        follow_calls = [
+            call
+            for call in mock_supabase_client.post.call_args_list
+            if call.args[0] == "user_follow"
+        ]
+        assert len(follow_calls) == 1
+        assert mock_supabase_client.patch.call_count == 1
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_redeem_trip_tag_invite_deleted_trip_not_marked_accepted(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+) -> None:
+    """A trip_tag invite whose trip is gone still connects the users but does
+    not consume (mark accepted) the invite."""
+    trip_id = "550e8400-e29b-41d4-a716-446655440077"
+    code = make_invite_code(OTHER_USER_ID, SAMPLE_EMAIL)
+    mock_supabase_client.get.side_effect = supabase_tables(
+        pending_invite=[_pending_invite_row(code, "trip_tag", trip_id=trip_id)],
+        user_profile=[INVITER_PROFILE],
+        trip=[],  # deleted or missing
+    )
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with patch(
+            "app.api.invites.get_service_supabase_client",
+            return_value=mock_supabase_client,
+        ):
+            response = client.post(
+                "/invites/redeem",
+                headers=auth_headers,
+                json={"code": code},
+            )
+        assert response.status_code == 200
+        # Follow still created, no trip tag, invite left pending
+        tables_posted = [
+            call.args[0] for call in mock_supabase_client.post.call_args_list
+        ]
+        assert "user_follow" in tables_posted
+        assert "trip_tags" not in tables_posted
+        mock_supabase_client.patch.assert_not_called()
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_redeem_invite_notifies_inviter(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+) -> None:
+    """Redemption pushes an 'invite accepted' notification to the inviter."""
+    code = make_invite_code(OTHER_USER_ID, SAMPLE_EMAIL)
+    mock_supabase_client.get.side_effect = supabase_tables(
+        pending_invite=[_pending_invite_row(code)],
+        user_profile=[
+            [INVITER_PROFILE],  # inviter lookup in request path
+            [  # redeemer lookup in the notification task
+                {
+                    "user_id": TEST_USER_ID,
+                    "username": "new_traveler",
+                    "display_name": "New Traveler",
+                }
+            ],
+        ],
+        push_token=[{"token": "ExponentPushToken[abc]"}],
+    )
+    mock_supabase_client.patch.return_value = [{"id": SAMPLE_INVITE_ID}]
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with (
+            patch(
+                "app.api.invites.get_service_supabase_client",
+                return_value=mock_supabase_client,
+            ),
+            patch(
+                "app.api.invites.send_push_notification", new_callable=AsyncMock
+            ) as mock_push,
+        ):
+            response = client.post(
+                "/invites/redeem",
+                headers=auth_headers,
+                json={"code": code},
+            )
+        assert response.status_code == 200
+        mock_push.assert_awaited_once()
+        push_kwargs = mock_push.await_args.kwargs
+        assert push_kwargs["tokens"] == ["ExponentPushToken[abc]"]
+        assert "New Traveler" in push_kwargs["body"]
     finally:
         app.dependency_overrides.clear()
 

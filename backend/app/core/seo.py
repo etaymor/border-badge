@@ -421,6 +421,36 @@ STATIC_PAGE_SEO: dict[str, tuple[str, str]] = {
 }
 
 
+def build_invite_seo(inviter_name: str | None, base_url: str) -> SEOContext:
+    """SEO for the /invite landing page.
+
+    The canonical URL deliberately omits the code: invite links are tokenized,
+    per-recipient URLs and must never accumulate as distinct indexed pages.
+    The template additionally emits noindex.
+    """
+    if inviter_name:
+        title = f"{inviter_name} invited you to Atlasi"
+        description = (
+            f"{inviter_name} wants to connect on Atlasi -- track the countries"
+            " you've visited and share your trips with friends."
+        )
+    else:
+        title = "You're invited to Atlasi"
+        description = (
+            "Join Atlasi to track the countries you've visited and share your"
+            " trips with friends."
+        )
+    return SEOContext(
+        title=title,
+        description=description,
+        canonical_url=f"{base_url}/invite",
+        og_title=title,
+        og_description=description,
+        og_image=f"{base_url}{DEFAULT_OG_IMAGE_PATH}",
+        og_type="website",
+    )
+
+
 def build_static_page_seo(page: str, base_url: str) -> SEOContext:
     """SEO for /privacy, /terms and /contact.
 

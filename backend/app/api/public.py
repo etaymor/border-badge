@@ -8,7 +8,7 @@ import re
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Form, HTTPException, Path, Request, status
+from fastapi import APIRouter, Form, HTTPException, Path, Query, Request, status
 from fastapi.responses import (
     HTMLResponse,
     PlainTextResponse,
@@ -26,6 +26,7 @@ from app.core.analytics import (
 from app.core.blog import get_registry
 from app.core.config import get_settings
 from app.core.db_utils import get_rpc_first_row
+from app.core.invite_signer import verify_invite_code
 from app.core.kml import KML_MEDIA_TYPE, Placemark, build_kml
 from app.core.media import (
     AVATAR_WIDTH,
@@ -37,6 +38,7 @@ from app.core.media import (
 )
 from app.core.seo import (
     LANDING_FAQS,
+    build_invite_seo,
     build_landing_seo,
     build_landing_structured_data,
     build_list_seo,
@@ -412,6 +414,86 @@ async def view_public_profile(
         },
     )
     response.headers["Cache-Control"] = "public, max-age=300, stale-while-revalidate=60"
+    return response
+
+
+@router.get("/invite", response_class=HTMLResponse)
+@limiter.limit("60/minute")
+async def invite_landing(
+    request: Request,
+    code: str | None = Query(default=None, max_length=512),
+) -> HTMLResponse:
+    """Render the invite landing page (the invite loop's conversion moment).
+
+    A valid code shows who invited the visitor plus an install CTA; an
+    invalid, expired, or withdrawn code degrades to a generic install page.
+    This route never 404s and never 500s on backend trouble: it is the only
+    web surface an invited non-user ever sees, so a broken page dead-ends the
+    growth loop.
+    """
+    settings = get_settings()
+
+    inviter: dict[str, Any] | None = None
+    invite_type = "follow"
+
+    verified = verify_invite_code(code) if code else None
+    if verified:
+        try:
+            db = get_supabase_client()
+            # The invite row is the consent record: a validly signed code
+            # whose row was cancelled must not show the inviter.
+            invites = await db.get(
+                "pending_invite",
+                {
+                    "select": "id,inviter_id,invite_type,status",
+                    "invite_code": f"eq.{code}",
+                    "limit": 1,
+                },
+            )
+            if invites:
+                invite = invites[0]
+                invite_type = invite.get("invite_type") or "follow"
+                profiles = await db.get(
+                    "user_profile",
+                    {
+                        "select": "user_id,username,display_name,avatar_url",
+                        "user_id": f"eq.{invite['inviter_id']}",
+                        "limit": 1,
+                    },
+                )
+                if profiles:
+                    profile = profiles[0]
+                    inviter = {
+                        "username": profile.get("username"),
+                        "display_name": profile.get("display_name"),
+                        "avatar_url": _avatar_url(profile.get("avatar_url")),
+                    }
+        except Exception as e:
+            # Degrade to the generic install page rather than 500-ing the
+            # loop's conversion moment.
+            logger.warning("Invite landing lookup failed: %s", e)
+            inviter = None
+
+    inviter_name = None
+    if inviter:
+        inviter_name = inviter.get("display_name") or inviter.get("username")
+
+    seo = build_invite_seo(inviter_name, settings.base_url)
+
+    response = templates.TemplateResponse(
+        request=request,
+        name="invite_landing.html",
+        context={
+            "inviter": inviter,
+            "invite_type": invite_type,
+            "app_store_url": settings.app_store_url,
+            "google_analytics_id": settings.google_analytics_id,
+            "current_year": get_current_year(),
+            **seo_context(seo),
+        },
+    )
+    # Tokenized, per-recipient URL: never cache across visitors.
+    response.headers["Cache-Control"] = "private, no-store"
     return response
 
 
@@ -1056,6 +1138,7 @@ Allow: /t/
 Allow: /u/
 Disallow: /o/
 Disallow: /unsubscribe/
+Disallow: /invite
 
 Sitemap: {settings.base_url}/sitemap.xml
 """

@@ -1,8 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Alert } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { socialKeys } from '@hooks/queryKeys';
 import { api } from '@services/api';
+import { Share } from '@utils/share';
 
 // Types
 export interface PendingInvite {
@@ -22,6 +24,53 @@ interface InviteRequest {
 interface InviteResponse {
   status: string;
   email: string;
+  /** Public landing-page link -- the invite's primary delivery path. */
+  invite_url?: string | null;
+}
+
+export interface InviterSummary {
+  user_id: string;
+  username: string | null;
+  display_name: string | null;
+  avatar_url: string | null;
+}
+
+export interface RedeemInviteResponse {
+  status: 'redeemed' | 'already_redeemed';
+  invite_type: string;
+  inviter: InviterSummary | null;
+}
+
+// AsyncStorage key holding an invite code that arrived (via deep link, U7)
+// before the user was signed in. Consumed after signup/first launch.
+const PENDING_INVITE_CODE_KEY = 'atlasi-pending-invite-code';
+
+/**
+ * Persist an invite code until the user is authenticated and it can be
+ * redeemed. Deep-link routing (U7) calls this when the app opens from an
+ * /invite link without a session.
+ */
+export async function storePendingInviteCode(code: string): Promise<void> {
+  try {
+    await AsyncStorage.setItem(PENDING_INVITE_CODE_KEY, code);
+  } catch {
+    // Storage failures degrade to email-match attribution at signup.
+  }
+}
+
+/**
+ * Read and clear the stored invite code (consume-once semantics).
+ * Returns null when no code is pending.
+ */
+export async function consumePendingInviteCode(): Promise<string | null> {
+  try {
+    const code = await AsyncStorage.getItem(PENDING_INVITE_CODE_KEY);
+    if (!code) return null;
+    await AsyncStorage.removeItem(PENDING_INVITE_CODE_KEY);
+    return code;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -74,6 +123,18 @@ export function useSendInvite() {
       // Invalidate pending invites query
       queryClient.invalidateQueries({ queryKey: socialKeys.invites });
 
+      // Primary delivery: hand the link to the native share sheet so the
+      // inviter sends it over iMessage/WhatsApp/etc. Email (Resend) is
+      // best-effort on the backend and may not be configured at all.
+      if (data.invite_url) {
+        Share.share({
+          message: `Join me on Atlasi and track your travels: ${data.invite_url}`,
+        }).catch(() => {
+          // User dismissed or share unavailable -- the invite still exists.
+        });
+        return;
+      }
+
       if (data.status === 'already_pending') {
         Alert.alert('Already Invited', `An invite is already pending for ${data.email}`);
       } else {
@@ -84,6 +145,31 @@ export function useSendInvite() {
     onError: (error) => {
       const message = error.message || 'Failed to send invite';
       Alert.alert('Error', message);
+    },
+  });
+}
+
+/**
+ * Hook to redeem an invite code after signup or first launch from an invite
+ * link. Redemption is the deterministic attribution path (it survives Apple
+ * private-relay signups, which defeat email matching): the backend creates
+ * the inviter->me follow, marks the invite accepted, and returns the inviter
+ * so the UI can show a "〈inviter〉 invited you -- follow back" prompt.
+ */
+export function useRedeemInvite() {
+  const queryClient = useQueryClient();
+
+  return useMutation<RedeemInviteResponse, Error, string>({
+    mutationFn: async (code) => {
+      const response = await api.post<RedeemInviteResponse>('/invites/redeem', { code });
+      return response.data;
+    },
+
+    onSuccess: () => {
+      // The inviter now follows me: follower stats and the social home
+      // surface changed server-side.
+      queryClient.invalidateQueries({ queryKey: ['follows'] });
+      queryClient.invalidateQueries({ queryKey: ['social-home'] });
     },
   });
 }
