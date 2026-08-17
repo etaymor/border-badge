@@ -25,6 +25,7 @@ import { ErrorState } from '@components/ui';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { useBlockUser } from '@hooks/useBlocks';
+import { useLoadMoreOnEnd } from '@hooks/useLoadMoreOnEnd';
 import { useResponsive } from '@hooks/useResponsive';
 import type { FeedItem } from '@hooks/useSocialHome';
 import { useUserFeed, getUserFeedItems } from '@hooks/useUserFeed';
@@ -102,7 +103,7 @@ export function UserProfileScreen({ navigation, route }: Props) {
 
   const { data: profile, isLoading, error, refetch } = useUserProfile(username);
 
-  // Universal links (/u/:username, U7) provide no userId; resolve it from
+  // Universal links (/u/:username) provide no userId; resolve it from
   // the fetched profile. Hooks below no-op until it is known.
   const resolvedUserId = userId ?? profile?.user_id ?? '';
   const blockMutation = useBlockUser(resolvedUserId, username);
@@ -195,11 +196,7 @@ export function UserProfileScreen({ navigation, route }: Props) {
     [navigation]
   );
 
-  const handleLoadMore = useCallback(() => {
-    if (hasNextPage && !isFetchingNextPage) {
-      fetchNextPage();
-    }
-  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
+  const handleLoadMore = useLoadMoreOnEnd(hasNextPage, isFetchingNextPage, fetchNextPage);
 
   const renderFeedItem = useCallback(
     ({ item }: { item: FeedItem }) => (
@@ -399,18 +396,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: colors.paperBeige,
     borderRadius: 20,
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 16,
-  },
-  loadingText: {
-    fontFamily: fonts.openSans.regular,
-    fontSize: 14,
-    color: colors.stormGray,
-    fontStyle: 'italic',
   },
   errorContainer: {
     flex: 1,

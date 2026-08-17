@@ -10,6 +10,7 @@ import { fonts } from '@constants/typography';
 import { FlashList } from '@shopify/flash-list';
 import { useFollowing, getFollowListUsers, type UserSummary } from '@hooks/useFollows';
 import { usePendingInvites, useCancelInvite, type PendingInvite } from '@hooks/useInvites';
+import { useLoadMoreOnEnd } from '@hooks/useLoadMoreOnEnd';
 import type { FriendsStackScreenProps } from '@navigation/types';
 
 type Props = FriendsStackScreenProps<'FollowingList'>;
@@ -77,11 +78,7 @@ export function FollowingListScreen({ navigation }: Props) {
     navigation.goBack();
   }, [navigation]);
 
-  const handleLoadMore = useCallback(() => {
-    if (hasNextPage && !isFetchingNextPage) {
-      fetchNextPage();
-    }
-  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
+  const handleLoadMore = useLoadMoreOnEnd(hasNextPage, isFetchingNextPage, fetchNextPage);
 
   const handleUserPress = useCallback(
     (userId: string, username: string) => {
@@ -188,6 +185,45 @@ export function FollowingListScreen({ navigation }: Props) {
     </View>
   );
 
+  const renderBody = () => {
+    if (isLoading) {
+      return <UserListSkeleton />;
+    }
+    if (isError) {
+      return (
+        <ErrorState
+          title="Couldn't load following"
+          message="Something went wrong loading this list."
+          onRetry={() => refetch()}
+        />
+      );
+    }
+    if (rows.length === 0) {
+      return <View style={styles.emptyWrapper}>{ListEmpty}</View>;
+    }
+    return (
+      <FlashList
+        data={rows}
+        renderItem={renderItem}
+        keyExtractor={rowKey}
+        getItemType={(item) => item.kind}
+        ListFooterComponent={
+          isFetchingNextPage ? (
+            <View style={styles.footerLoader}>
+              <ActivityIndicator size="small" color={colors.adobeBrick} />
+            </View>
+          ) : null
+        }
+        contentContainerStyle={styles.listContent}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        onEndReached={handleLoadMore}
+        onEndReachedThreshold={0.5}
+        style={styles.sectionList}
+      />
+    );
+  };
+
   return (
     <View style={styles.container}>
       <View style={[styles.header, { paddingTop: insets.top }]}>
@@ -203,37 +239,7 @@ export function FollowingListScreen({ navigation }: Props) {
         <UserSearchBar onUserSelect={handleUserSelect} placeholder="Find fellow travelers..." />
       </View>
 
-      {isLoading ? (
-        <UserListSkeleton />
-      ) : isError ? (
-        <ErrorState
-          title="Couldn't load following"
-          message="Something went wrong loading this list."
-          onRetry={() => refetch()}
-        />
-      ) : rows.length > 0 ? (
-        <FlashList
-          data={rows}
-          renderItem={renderItem}
-          keyExtractor={rowKey}
-          getItemType={(item) => item.kind}
-          ListFooterComponent={
-            isFetchingNextPage ? (
-              <View style={styles.footerLoader}>
-                <ActivityIndicator size="small" color={colors.adobeBrick} />
-              </View>
-            ) : null
-          }
-          contentContainerStyle={styles.listContent}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-          onEndReached={handleLoadMore}
-          onEndReachedThreshold={0.5}
-          style={styles.sectionList}
-        />
-      ) : (
-        <View style={styles.emptyWrapper}>{ListEmpty}</View>
-      )}
+      {renderBody()}
     </View>
   );
 }

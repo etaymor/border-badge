@@ -21,7 +21,7 @@ interface InviteFollowBackPromptProps {
  * this closes the loop by offering the follow back.
  *
  * Presentation-only: the caller decides where it renders (inline card after
- * signup today; U7's deep-link flow reuses it on invite-link launches).
+ * signup today; the deep-link flow reuses it on invite-link launches).
  */
 export function InviteFollowBackPrompt({ inviter, onDismiss }: InviteFollowBackPromptProps) {
   const displayName = inviter.display_name || inviter.username || 'A friend';

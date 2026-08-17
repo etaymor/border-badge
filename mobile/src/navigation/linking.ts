@@ -1,5 +1,5 @@
 /**
- * Deep-link / universal-link configuration (U7).
+ * Deep-link / universal-link configuration.
  *
  * Ownership split:
  * - React Navigation `linking` owns navigable content links: /u/:username,
@@ -18,7 +18,12 @@ import { env } from '@config/env';
 import { features } from '@config/features';
 import type { RootStackParamList } from './types';
 
-/** Production web origin — matches the associated domain (applinks:atlasi.app). */
+/**
+ * Production web origin — matches the associated domain (applinks:atlasi.app).
+ * Deliberately not `env.webBaseUrl`: universal links must recognize the
+ * production origin in every build environment, while `webBaseUrl` points at
+ * a local/dev server outside production.
+ */
 export const PRODUCTION_WEB_ORIGIN = 'https://atlasi.app';
 
 /**
@@ -26,6 +31,9 @@ export const PRODUCTION_WEB_ORIGIN = 'https://atlasi.app';
  * deep-link URL. For the custom scheme the "host" is the path head
  * (atlasi://share?url=x -> "share"); for http(s) the host is dropped
  * (https://atlasi.app/u/alex -> "u/alex").
+ *
+ * Hand-rolled on purpose: custom-scheme URLs parse differently under the
+ * WHATWG URL class (host vs. path), so do not rewrite this with `new URL`.
  */
 export function getDeepLinkPath(url: string): string {
   const schemeMatch = url.match(/^([a-zA-Z][a-zA-Z0-9+.-]*):\/\//);
@@ -68,29 +76,16 @@ export function getInviteCodeFromUrl(url: string): string | null {
   if (!isInviteUrl(url)) {
     return null;
   }
-  const queryIndex = url.indexOf('?');
-  if (queryIndex === -1) {
+  try {
+    return new URL(url).searchParams.get('code');
+  } catch {
     return null;
   }
-  const query = url.slice(queryIndex + 1).split('#')[0];
-  for (const pair of query.split('&')) {
-    const eqIndex = pair.indexOf('=');
-    if (eqIndex === -1) continue;
-    if (pair.slice(0, eqIndex) === 'code') {
-      const value = pair.slice(eqIndex + 1);
-      try {
-        return decodeURIComponent(value);
-      } catch {
-        return value;
-      }
-    }
-  }
-  return null;
 }
 
 /**
  * React Navigation linking filter: keep the manual handlers' URLs out of
- * navigation so they are handled exactly once (System-Wide Impact rule).
+ * navigation so they are handled exactly once.
  */
 export function shouldHandleUrlWithNavigation(url: string): boolean {
   return !isAuthCallbackUrl(url) && !isShareExtensionUrl(url) && !isInviteUrl(url);

@@ -40,7 +40,7 @@ export interface FeedItemEntry {
 }
 
 export interface FeedItem {
-  /** Stable server-side id for this activity (U4); the feed list key. */
+  /** Stable server-side id for this activity; the feed list key. */
   activity_id: string;
   activity_type: ActivityType;
   created_at: string;

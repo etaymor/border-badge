@@ -28,13 +28,6 @@ const CONFLICT_MESSAGES: Record<string, string> = {
 };
 
 /**
- * Get a user-friendly error message for social actions.
- *
- * @param error - The error from the API call
- * @param action - The action being performed (follow, unfollow, block, unblock)
- * @returns A user-friendly error message
- */
-/**
  * True when a social endpoint answered 404. The backend returns 404 for every
  * social route while `ENABLE_SOCIAL_FEATURES` is off, so on feature-level
  * endpoints (social home, follows, blocks) this means "social is unavailable",
@@ -45,6 +38,13 @@ export function isSocialUnavailableError(error: unknown): boolean {
   return (error as AxiosError)?.response?.status === 404;
 }
 
+/**
+ * Get a user-friendly error message for social actions.
+ *
+ * @param error - The error from the API call
+ * @param action - The action being performed (follow, unfollow, block, unblock)
+ * @returns A user-friendly error message
+ */
 export function getSocialErrorMessage(error: unknown, action: string): string {
   // Check for axios error with response
   const axiosError = error as AxiosError;

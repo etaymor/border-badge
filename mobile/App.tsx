@@ -74,7 +74,7 @@ const queryPersister = createAsyncStoragePersister({
   throttleTime: 1000,
 });
 
-// Deep linking configuration lives in @navigation/linking (U7): universal
+// Deep linking configuration lives in @navigation/linking: universal
 // links (/u, /t, /l) are handled by React Navigation; share-extension, auth
 // callback, and invite URLs are filtered out for the manual handlers below.
 
@@ -148,7 +148,7 @@ export default function App() {
   const { handleNavigationReady: handleShareNavigationReady, checkAppGroupForSharedURL } =
     useShareExtensionHandler(navigationRef, session);
 
-  // Invite deep link handling (/invite?code=..., U7)
+  // Invite deep link handling (/invite?code=...)
   const { handleNavigationReady: handleInviteNavigationReady } = useInviteLinkHandler(
     navigationRef,
     session
@@ -163,7 +163,7 @@ export default function App() {
   const { isNavigationReady, initialNavigationState, handleNavigationStateChange } =
     useNavigationPersistence(session);
 
-  // Cold-start precedence (U7): when the app is launched from a universal
+  // Cold-start precedence: when the app is launched from a universal
   // link that React Navigation should handle (/u, /t, /l), the link wins
   // over restored navigation state — passing `initialState` would otherwise
   // suppress linking's initial-URL handling entirely.

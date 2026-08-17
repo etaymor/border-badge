@@ -29,7 +29,7 @@ export default {
       bundleIdentifier: 'com.atlasi.app',
       buildNumber: '1',
       usesAppleSignIn: true,
-      // Universal links (U7): iOS opens https://atlasi.app/{u,t,l,invite,share}/*
+      // Universal links: iOS opens https://atlasi.app/{u,t,l,invite,share}/*
       // in-app. The path allowlist lives in the backend-served AASA file
       // (backend/app/static/.well-known/apple-app-site-association). The
       // withShareExtension plugin sets this same entitlement; keeping it here
@@ -105,10 +105,10 @@ export default {
       },
       edgeToEdgeEnabled: true,
       package: 'com.atlasi.app',
-      // Android App Links (U7) for the same share paths as the iOS AASA.
+      // Android App Links for the same share paths as the iOS AASA.
       // autoVerify requires /.well-known/assetlinks.json on atlasi.app with
       // the release signing cert's SHA-256 fingerprint (not in this repo —
-      // see docs/plans U7 operational notes).
+      // it must be deployed on the atlasi.app web server).
       intentFilters: [
         {
           action: 'VIEW',

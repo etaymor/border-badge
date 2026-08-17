@@ -53,7 +53,7 @@ export type MainTabParamList = {
 // Friends stack (nested in tab)
 export type FriendsStackParamList = {
   FriendsHome: undefined;
-  // userId is optional: /u/:username universal links (U7) carry only the
+  // userId is optional: /u/:username universal links carry only the
   // username; the screen resolves the id from the fetched profile.
   UserProfile: { userId?: string; username: string };
   FollowersList: undefined;

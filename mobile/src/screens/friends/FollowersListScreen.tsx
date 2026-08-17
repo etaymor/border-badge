@@ -9,6 +9,7 @@ import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { FlashList } from '@shopify/flash-list';
 import { useFollowers, getFollowListUsers, type UserSummary } from '@hooks/useFollows';
+import { useLoadMoreOnEnd } from '@hooks/useLoadMoreOnEnd';
 import type { FriendsStackScreenProps } from '@navigation/types';
 
 type Props = FriendsStackScreenProps<'FollowersList'>;
@@ -24,11 +25,7 @@ export function FollowersListScreen({ navigation }: Props) {
     navigation.goBack();
   }, [navigation]);
 
-  const handleLoadMore = useCallback(() => {
-    if (hasNextPage && !isFetchingNextPage) {
-      fetchNextPage();
-    }
-  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
+  const handleLoadMore = useLoadMoreOnEnd(hasNextPage, isFetchingNextPage, fetchNextPage);
 
   const handleUserPress = useCallback(
     (userId: string, username: string) => {

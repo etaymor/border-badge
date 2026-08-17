@@ -28,6 +28,11 @@ export interface FeedItemTypeConfig {
   getHighlight: (item: FeedItem) => string | null;
   /** Optional trailing caption text (e.g. a country flag). */
   getSuffix?: (item: FeedItem) => string | null;
+  /**
+   * True when the card's main media is a bundled country illustration
+   * (bottom-aligned crop) rather than an entry photo.
+   */
+  isIllustration?: boolean;
 }
 
 const ENTRY_ICONS: Record<string, IoniconName> = {
@@ -59,6 +64,7 @@ export const feedItemConfig: Record<string, FeedItemTypeConfig> = {
     getVerb: () => 'planted a flag in',
     getHighlight: (item) => item.country?.country_name ?? null,
     getSuffix: (item) => (item.country ? getFlagEmoji(item.country.country_code) : null),
+    isIllustration: true,
   },
   entry_added: {
     getIcon: (item) => ENTRY_ICONS[item.entry?.entry_type ?? ''] ?? 'bookmark',
@@ -87,8 +93,8 @@ export function getFeedItemConfig(item: FeedItem): FeedItemTypeConfig | undefine
 /**
  * Stable key for feed lists: the server-issued activity id, independent of
  * list index, so prepending fresh items on refresh never remounts existing
- * cards. Falls back to type+timestamp for pre-U4 cached pages that were
- * persisted without an activity_id.
+ * cards. Falls back to type+timestamp for cached pages persisted before
+ * activity_id existed.
  */
 export function feedKeyExtractor(item: FeedItem): string {
   return item.activity_id ?? `${item.activity_type}-${item.created_at}`;

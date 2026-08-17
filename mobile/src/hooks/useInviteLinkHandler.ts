@@ -9,7 +9,7 @@ import { getInviteCodeFromUrl, isInviteUrl } from '@navigation/linking';
 import type { RootStackParamList } from '@navigation/types';
 
 /**
- * Manual handler for invite deep links (/invite?code=..., U7).
+ * Manual handler for invite deep links (/invite?code=...).
  *
  * These URLs are excluded from React Navigation's linking config (see the
  * filter in @navigation/linking) so this hook has exclusive ownership:

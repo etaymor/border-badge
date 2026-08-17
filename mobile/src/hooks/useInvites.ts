@@ -42,13 +42,13 @@ export interface RedeemInviteResponse {
   inviter: InviterSummary | null;
 }
 
-// AsyncStorage key holding an invite code that arrived (via deep link, U7)
+// AsyncStorage key holding an invite code that arrived (via deep link)
 // before the user was signed in. Consumed after signup/first launch.
 const PENDING_INVITE_CODE_KEY = 'atlasi-pending-invite-code';
 
 /**
  * Persist an invite code until the user is authenticated and it can be
- * redeemed. Deep-link routing (U7) calls this when the app opens from an
+ * redeemed. Deep-link routing calls this when the app opens from an
  * /invite link without a session.
  */
 export async function storePendingInviteCode(code: string): Promise<void> {
@@ -176,7 +176,7 @@ export function useRedeemInvite() {
 }
 
 /**
- * Consume-and-redeem any invite code stored by the deep-link handler (U7).
+ * Consume-and-redeem any invite code stored by the deep-link handler.
  *
  * Mounted on the Friends home surface: when a code is pending, it is
  * redeemed once and the inviter is exposed so the caller can render the

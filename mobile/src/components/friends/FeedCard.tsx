@@ -61,7 +61,7 @@ function FeedCardComponent({ item, onUserPress, onCountryPress, onEntryPress }: 
   const verb = config.getVerb(item);
   const highlight = config.getHighlight(item);
   const suffix = config.getSuffix?.(item) ?? null;
-  const isCountryIllustration = item.activity_type === 'country_visited' && !!item.country;
+  const isCountryIllustration = !!config.isIllustration && !!item.country;
 
   // Determine main image source
   const mainImageSource = isCountryIllustration

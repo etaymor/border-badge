@@ -13,14 +13,15 @@ function getWebBaseUrl(): string {
 
 /**
  * Append the share-attribution referrer (?ref=<username>) to a share URL.
- * Public pages parse and log this for share attribution (U7).
+ * Public pages parse and log this for share attribution.
  */
 function appendRef(url: string, ref?: string): string {
   if (!url || !ref) {
     return url;
   }
-  const separator = url.includes('?') ? '&' : '?';
-  return `${url}${separator}ref=${encodeURIComponent(ref)}`;
+  const parsed = new URL(url);
+  parsed.searchParams.set('ref', ref);
+  return parsed.toString();
 }
 
 /**

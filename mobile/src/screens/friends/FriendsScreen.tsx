@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
-import { useCallback, useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { ActivityIndicator, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -18,6 +18,7 @@ import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { FlashList } from '@shopify/flash-list';
 import { usePendingInviteRedemption } from '@hooks/useInvites';
+import { useLoadMoreOnEnd } from '@hooks/useLoadMoreOnEnd';
 import { useResponsive } from '@hooks/useResponsive';
 import {
   useSocialHome,
@@ -52,7 +53,7 @@ export function FriendsScreen({ navigation }: Props) {
   // On iPad, constrain feed cards to 75% width centered
   const feedCardPaddingHorizontal = isTablet ? (screenWidth * 0.25) / 2 : 0;
 
-  // Redeem any invite code stored by the deep-link handler (U7) and offer
+  // Redeem any invite code stored by the deep-link handler and offer
   // the "follow back" prompt for the inviter.
   const { inviter: inviteFollowBackInviter, dismiss: dismissInviteFollowBack } =
     usePendingInviteRedemption();
@@ -61,12 +62,21 @@ export function FriendsScreen({ navigation }: Props) {
 
   // Warm the image cache for the next few feed cards so scrolling and
   // opening details shows images instantly (expo-image memory-disk cache).
+  // The ref guards against re-prefetching the same leading URLs every time
+  // pagination or a refetch produces a new feedItems array.
+  const lastPrefetchedUrlsRef = useRef('');
   useEffect(() => {
     const urls = feedItems
       .slice(0, PREFETCH_IMAGE_COUNT)
       .map((item) => item.entry?.image_url)
       .filter((url): url is string => !!url);
-    if (urls.length > 0 && typeof Image.prefetch === 'function') {
+    const urlsKey = urls.join('\n');
+    if (
+      urls.length > 0 &&
+      urlsKey !== lastPrefetchedUrlsRef.current &&
+      typeof Image.prefetch === 'function'
+    ) {
+      lastPrefetchedUrlsRef.current = urlsKey;
       Image.prefetch(urls, { cachePolicy: 'memory-disk' });
     }
   }, [feedItems]);
@@ -123,11 +133,7 @@ export function FriendsScreen({ navigation }: Props) {
     [navigation]
   );
 
-  const handleLoadMore = useCallback(() => {
-    if (hasNextPage && !isFetchingNextPage) {
-      fetchNextPage();
-    }
-  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
+  const handleLoadMore = useLoadMoreOnEnd(hasNextPage, isFetchingNextPage, fetchNextPage);
 
   const renderFeedItem = useCallback(
     ({ item }: { item: FeedItem }) => (
@@ -243,7 +249,7 @@ export function FriendsScreen({ navigation }: Props) {
       {/* Header Title */}
       {renderHeader()}
 
-      {/* Follow-back prompt after redeeming an invite deep link (U7) */}
+      {/* Follow-back prompt after redeeming an invite deep link */}
       {inviteFollowBackInviter && (
         <View style={styles.invitePromptContainer}>
           <InviteFollowBackPrompt
