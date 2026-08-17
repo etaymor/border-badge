@@ -15,6 +15,16 @@ photo-free rule. The non-negotiables under test:
   failure -- network error, timeout, undecodable bytes, a quiz with no
   questions -- falls back to the fully synthetic type-only card, and the
   route NEVER 500s.
+- The photo is size-capped: bytes over ~10MB (declared OR actual, so a
+  missing Content-Length cannot bypass the cap) and images over a 40M-pixel
+  budget degrade to the fallback instead of being buffered/Pillow-decoded --
+  uploads are not content-validated and the route is unauthenticated.
+- A DEGRADED fallback (the quiz HAS a photo but this request could not
+  fetch/decode it) is uncacheable: no ETag, Cache-Control: no-cache. It must
+  never ship under the photo card's validator, or revalidating caches would
+  304 the type-only card into freshness forever without retrying the fetch.
+  The no-photo type-only card (no questions) keeps full caching -- it IS the
+  correct stable render there.
 - ETag is keyed on the rendered tuple (quiz id, owner name, score-to-beat,
   question count, chosen photo storage path) at render version 3; matching
   If-None-Match returns 304.
@@ -23,7 +33,8 @@ photo-free rule. The non-negotiables under test:
   revoked card.
 - Hostile display names (400 chars, RTL, control characters) render clipped
   without raising.
-- Every response is noindex; 200s cache modestly (<=60s), 404s are no-store.
+- Every response is noindex; healthy 200s cache modestly (<=60s), 404s are
+  no-store.
 - The route is rate limited more strictly than the page route (60/minute).
 """
 
@@ -37,6 +48,7 @@ import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 
+from app.api.public import _CARD_PHOTO_MAX_BYTES
 from app.core.quiz_image import _RENDER_VERSION, card_etag, render_challenge_card
 from app.main import limiter
 from tests.conftest import TEST_USER_ID, supabase_tables
@@ -332,6 +344,174 @@ def test_render_fn_falls_back_on_undecodable_photo() -> None:
     assert render_challenge_card("Maya", 7, 10, photo=b"junk") == render_challenge_card(
         "Maya", 7, 10
     )
+
+
+# ============================================================================
+# Degraded fallback caching: a failed photo must never be pinned by caches
+# ============================================================================
+
+
+def test_degraded_fallback_ships_without_the_photo_etag_and_uncacheable(
+    client: TestClient, mock_supabase_client: AsyncMock
+) -> None:
+    """When the quiz HAS a photo but the fetch fails, the type-only fallback
+    must not carry the photo card's ETag or any freshness: a revalidating
+    cache holding it would otherwise 304 the degraded card into freshness
+    forever without the fetch ever being retried. The healthy photo card and
+    the degraded render therefore differ in headers, not just bytes."""
+    healthy = _get_card(
+        client,
+        mock_supabase_client,
+        questions=[_question(1)],
+        http=_http_mock(httpx.Response(200, content=_photo_png())),
+    )
+    degraded = _get_card(
+        client,
+        mock_supabase_client,
+        questions=[_question(1)],
+        http=_http_mock(httpx.TimeoutException("storage too slow")),
+    )
+
+    assert healthy.status_code == degraded.status_code == 200
+    # The healthy photo card keeps the full caching contract.
+    assert healthy.headers.get("ETag")
+    assert healthy.headers["Cache-Control"] == "public, max-age=60"
+    # The degraded render hands out no validator and no freshness, so no
+    # future If-None-Match can ever 304 it back into freshness.
+    assert "ETag" not in degraded.headers
+    assert degraded.headers["Cache-Control"] == "no-cache"
+    assert "noindex" in degraded.headers.get("X-Robots-Tag", "")
+
+
+def test_undecodable_photo_degraded_render_is_uncacheable(
+    client: TestClient, mock_supabase_client: AsyncMock
+) -> None:
+    """Bytes that fetch fine but do not decode are the same degraded shape:
+    fallback body, no validator, no freshness."""
+    degraded = _get_card(
+        client,
+        mock_supabase_client,
+        questions=[_question(1)],
+        http=_http_mock(httpx.Response(200, content=b"not an image at all")),
+    )
+
+    assert degraded.status_code == 200
+    assert degraded.content == _type_only_card()
+    assert "ETag" not in degraded.headers
+    assert degraded.headers["Cache-Control"] == "no-cache"
+
+
+def test_degraded_render_recovers_on_the_next_request(
+    client: TestClient, mock_supabase_client: AsyncMock
+) -> None:
+    """The degraded exchange leaves a cache with nothing to revalidate with,
+    so the next request is unconditional, retries the fetch, and the photo
+    card comes back with its full caching contract."""
+    degraded = _get_card(
+        client,
+        mock_supabase_client,
+        questions=[_question(1)],
+        http=_http_mock(httpx.TimeoutException("storage too slow")),
+    )
+    assert "ETag" not in degraded.headers
+
+    recovered = _get_card(
+        client,
+        mock_supabase_client,
+        questions=[_question(1)],
+        http=_http_mock(httpx.Response(200, content=_photo_png())),
+    )
+
+    assert recovered.status_code == 200
+    assert recovered.content != _type_only_card()
+    assert recovered.headers.get("ETag")
+    assert recovered.headers["Cache-Control"] == "public, max-age=60"
+
+
+def test_no_photo_type_only_card_keeps_full_caching(
+    client: TestClient, mock_supabase_client: AsyncMock
+) -> None:
+    """A quiz with no questions has no photo to degrade from: its type-only
+    card IS the correct stable render and keeps the ETag + max-age."""
+    response = _get_card(client, mock_supabase_client, questions=[])
+
+    assert response.status_code == 200
+    assert response.headers.get("ETag")
+    assert response.headers["Cache-Control"] == "public, max-age=60"
+
+
+# ============================================================================
+# Photo size caps: oversized bytes or pixels degrade, never buffer-and-decode
+# ============================================================================
+
+
+def test_oversized_content_length_falls_back_to_type_only(
+    client: TestClient, mock_supabase_client: AsyncMock
+) -> None:
+    """A declared Content-Length over the cap is rejected outright."""
+    oversized = httpx.Response(200, content=_photo_png())
+    oversized.headers["Content-Length"] = str(_CARD_PHOTO_MAX_BYTES + 1)
+
+    response = _get_card(
+        client,
+        mock_supabase_client,
+        questions=[_question(1)],
+        http=_http_mock(oversized),
+    )
+
+    assert response.status_code == 200
+    assert response.content == _type_only_card()
+    assert "ETag" not in response.headers
+
+
+def test_oversized_body_without_content_length_falls_back(
+    client: TestClient, mock_supabase_client: AsyncMock
+) -> None:
+    """A missing Content-Length must not bypass the cap: the actual body
+    length is enforced too."""
+    oversized = httpx.Response(200, content=b"\xff" * (_CARD_PHOTO_MAX_BYTES + 1))
+    del oversized.headers["Content-Length"]
+
+    response = _get_card(
+        client,
+        mock_supabase_client,
+        questions=[_question(1)],
+        http=_http_mock(oversized),
+    )
+
+    assert response.status_code == 200
+    assert response.content == _type_only_card()
+    assert "ETag" not in response.headers
+
+
+def _over_pixel_budget_png() -> bytes:
+    """A small file whose header declares 48M pixels (over the 40M budget)."""
+    buffer = io.BytesIO()
+    Image.new("1", (8000, 6000)).save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+def test_over_pixel_budget_photo_falls_back_to_type_only(
+    client: TestClient, mock_supabase_client: AsyncMock
+) -> None:
+    """An image whose dimensions exceed the pixel budget degrades to the
+    fallback before any pixel data is decoded."""
+    response = _get_card(
+        client,
+        mock_supabase_client,
+        questions=[_question(1)],
+        http=_http_mock(httpx.Response(200, content=_over_pixel_budget_png())),
+    )
+
+    assert response.status_code == 200
+    assert response.content == _type_only_card()
+    assert "ETag" not in response.headers
+
+
+def test_render_fn_falls_back_on_over_pixel_budget_photo() -> None:
+    assert render_challenge_card(
+        "Maya", 7, 10, photo=_over_pixel_budget_png()
+    ) == render_challenge_card("Maya", 7, 10)
 
 
 # ============================================================================

@@ -26,13 +26,16 @@ Storage is a stateful in-memory stand-in for the Supabase Storage HTTP API
 tests/api/test_quiz_api.py.
 """
 
+import io
 from contextlib import contextmanager
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
+from PIL import Image
 
 from app.core.config import get_settings
 from app.core.security import AuthUser, get_current_user
@@ -142,7 +145,18 @@ def get_page(client: TestClient, db: FakeDB, slug: str, headers=None):
 
 
 def get_card(client: TestClient, db: FakeDB, slug: str, headers=None):
-    with patch("app.api.public.get_supabase_client", return_value=db):
+    # The card's photo fetch must succeed here: a failed fetch ships the
+    # DEGRADED fallback, which deliberately carries no ETag and no freshness
+    # (so caches can never pin it) -- these tests prime a validator off a
+    # healthy live card instead.
+    photo = io.BytesIO()
+    Image.new("RGB", (8, 8), (20, 160, 90)).save(photo, format="PNG")
+    http = AsyncMock()
+    http.get = AsyncMock(return_value=httpx.Response(200, content=photo.getvalue()))
+    with (
+        patch("app.api.public.get_supabase_client", return_value=db),
+        patch("app.api.public.get_http_client", return_value=http),
+    ):
         return client.get(f"/q/{slug}/card.png", headers=headers or {})
 
 

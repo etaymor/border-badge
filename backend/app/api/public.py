@@ -39,7 +39,7 @@ from app.core.media import (
     media_url,
     resize_stored_url,
 )
-from app.core.quiz_image import card_etag, render_challenge_card
+from app.core.quiz_image import card_etag, decode_card_photo, render_challenge_card
 from app.core.seo import (
     LANDING_FAQS,
     build_landing_seo,
@@ -943,6 +943,13 @@ def _etag_matches(if_none_match: str | None, etag: str) -> bool:
 # is not worth a slow unfurl: past this, the type-only fallback ships instead.
 _CARD_PHOTO_TIMEOUT_SECONDS = 2.5
 
+# Byte cap on the challenge photo. Uploads go direct-to-storage with no
+# content validation and this route is unauthenticated, so an oversized
+# object must fall back to the type-only card, not get buffered and handed
+# to Pillow. Enforced on both the declared Content-Length and the actual
+# body (a missing or lying header must not bypass the cap).
+_CARD_PHOTO_MAX_BYTES = 10 * 1024 * 1024
+
 
 async def _fetch_quiz_card_questions(
     db: SupabaseClient, quiz_id: str
@@ -970,8 +977,8 @@ async def _fetch_card_photo(storage_path: str) -> bytes | None:
     """The challenge photo's bytes from public storage, or None.
 
     Best-effort with a short timeout: any failure (network, non-200, empty
-    body) returns None so the caller falls back to the type-only render --
-    this path must never let the card route 500.
+    body, over the byte cap) returns None so the caller falls back to the
+    type-only render -- this path must never let the card route 500.
     """
     url = build_media_url(storage_path)
     if not url:
@@ -979,6 +986,11 @@ async def _fetch_card_photo(storage_path: str) -> bytes | None:
     try:
         response = await get_http_client().get(url, timeout=_CARD_PHOTO_TIMEOUT_SECONDS)
         if response.status_code != 200 or not response.content:
+            return None
+        declared = response.headers.get("content-length", "")
+        if declared.isdigit() and int(declared) > _CARD_PHOTO_MAX_BYTES:
+            return None
+        if len(response.content) > _CARD_PHOTO_MAX_BYTES:
             return None
         return response.content
     except Exception as e:
@@ -1014,7 +1026,10 @@ async def view_quiz_card_image(
     turn into a 304 that resurrects the card. The ETag covers the full
     rendered tuple (quiz id, owner name, score-to-beat, question count,
     chosen photo storage path) and nothing else -- query parameters are
-    ignored entirely.
+    ignored entirely. A degraded fallback (the quiz HAS a photo but this
+    request could not fetch/decode it) ships without that ETag and as
+    no-cache, so no revalidating cache can pin the type-only card in place
+    of the photo card.
 
     Rate limited at 30/minute -- deliberately stricter than the page's
     60/minute, since each miss is a Pillow render plus a storage fetch.
@@ -1058,10 +1073,20 @@ async def view_quiz_card_image(
     if _etag_matches(request.headers.get("if-none-match"), etag):
         return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers=headers)
 
-    # Fetched after the conditional so a revalidation never pays for storage.
-    # A transient miss serves the type-only fallback under the photo ETag for
-    # at most the 60s max-age -- accepted over a failure status.
-    photo = await _fetch_card_photo(storage_path) if storage_path else None
+    # Fetched after the conditional so a revalidation never pays for storage
+    # (correct because a response that carried this ETag was never degraded).
+    photo_bytes = await _fetch_card_photo(storage_path) if storage_path else None
+    photo_image = decode_card_photo(photo_bytes) if photo_bytes else None
+    if storage_path and photo_image is None:
+        # Degraded render: the quiz has a photo but it could not be fetched
+        # or decoded this time. It must NOT ship under the photo ETag or any
+        # freshness -- a revalidating cache holding it would otherwise 304
+        # the type-only card into freshness forever without the fetch ever
+        # being retried. No validator plus no-cache means the degraded body
+        # can never satisfy a future If-None-Match and is refetched on the
+        # next request. (When storage_path is absent entirely, the type-only
+        # card IS the correct stable render and keeps the headers above.)
+        headers = {"Cache-Control": "no-cache", "X-Robots-Tag": "noindex"}
 
     png = render_challenge_card(
         owner_name,
@@ -1069,7 +1094,7 @@ async def view_quiz_card_image(
         score_total,
         question_count=question_count,
         choice_count=choice_count,
-        photo=photo,
+        photo=photo_image,
     )
     return Response(content=png, media_type="image/png", headers=headers)
 

@@ -227,14 +227,24 @@ def _stamp_plate(
     return layer.rotate(rotation_deg, expand=True, resample=Image.Resampling.BICUBIC)
 
 
-def _decode_photo(photo: bytes) -> Image.Image | None:
+# Conservative pixel budget for the challenge photo. Uploads go direct to
+# storage with no content validation, so a decompression-bomb image must
+# degrade to the type-only card here instead of leaning on Pillow's far
+# larger (~178M-px) default limit. Checked from the header before any pixel
+# data is decoded.
+_MAX_PHOTO_PIXELS = 40_000_000
+
+
+def decode_card_photo(photo: bytes) -> Image.Image | None:
     """`photo` decoded, EXIF-upright, and cover-cropped to the canvas.
 
-    Returns None on any failure -- undecodable bytes must degrade to the
-    type-only card, never raise.
+    Returns None on any failure -- undecodable bytes and over-pixel-budget
+    dimensions must degrade to the type-only card, never raise.
     """
     try:
         with Image.open(io.BytesIO(photo)) as source:
+            if source.width * source.height > _MAX_PHOTO_PIXELS:
+                return None
             source.load()
             upright = ImageOps.exif_transpose(source)
         return ImageOps.fit(
@@ -315,21 +325,24 @@ def render_challenge_card(
     score_to_beat_total: int | None,
     question_count: int | None = None,
     choice_count: int | None = None,
-    photo: bytes | None = None,
+    photo: bytes | Image.Image | None = None,
 ) -> bytes:
     """The challenge-card PNG bytes for a shared quiz.
 
-    With `photo` bytes (fetched by the route -- this function never touches
-    the network) the card is the photo-rich poster: user photos on share
-    assets are allowed by explicit decision (2026-08-17, reversing KTD11),
-    accepting that unfurl CDNs cache them past revocation. Without a photo,
-    or when the bytes do not decode, the render falls back to the fully
-    synthetic type-only card so imagery can never take the route down.
-    Deterministic for a given input tuple.
+    With a `photo` (raw bytes, or an image the route already ran through
+    `decode_card_photo` -- this function never touches the network) the card
+    is the photo-rich poster: user photos on share assets are allowed by
+    explicit decision (2026-08-17, reversing KTD11), accepting that unfurl
+    CDNs cache them past revocation. Without a photo, or when the bytes do
+    not decode, the render falls back to the fully synthetic type-only card
+    so imagery can never take the route down. Deterministic for a given
+    input tuple.
     """
     name = sanitize_display_name(owner_name)
     if photo is not None:
-        photo_image = _decode_photo(photo)
+        photo_image = (
+            photo if isinstance(photo, Image.Image) else decode_card_photo(photo)
+        )
         if photo_image is not None:
             return _render_photo_card(
                 photo_image,
