@@ -5,15 +5,18 @@ from typing import Literal
 
 logger = logging.getLogger("analytics")
 
-# The four public quiz funnel steps. The single source of truth for the event
+# The public quiz funnel steps. The single source of truth for the event
 # vocabulary shared with app.services.quiz_funnel (which persists the
 # counters); it lives here so the persistence layer can import it without a
-# circular dependency.
+# circular dependency. Must match the quiz_funnel event CHECK constraint
+# (migrations 0060 + 0061) exactly -- test_quiz_migration.py cross-checks.
 QuizFunnelEvent = Literal[
     "page_view",
     "session_started",
     "session_completed",
     "install_cta_tap",
+    "name_submitted",
+    "score_reshared",
 ]
 
 
@@ -50,7 +53,7 @@ def log_quiz_funnel_event(event: QuizFunnelEvent, slug: str) -> None:
 
     Args:
         event: Funnel step (page_view, session_started, session_completed,
-            install_cta_tap)
+            install_cta_tap, name_submitted, score_reshared)
         slug: The quiz's share slug
     """
     logger.info(f"quiz_funnel: {event} slug={slug}")

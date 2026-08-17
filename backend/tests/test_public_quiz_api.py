@@ -1091,6 +1091,121 @@ class TestNameBinding:
 
 
 # ============================================================================
+# 5.1: reveal-first funnel events (name_submitted, score_reshared)
+# ============================================================================
+
+
+def reshare(client, db, slug, token):
+    return public(client, db, "POST", f"/q/{slug}/reshared", json={"token": token})
+
+
+class TestNameSubmittedFunnel:
+    def test_successful_bind_counts_once(self, client: TestClient) -> None:
+        db = FakeDB()
+        quiz_id, slug = shared_quiz(client, db, n=5)
+        token, _ = run_through_unnamed(client, db, slug, quiz_id)
+
+        assert post_name(client, db, slug, token, "Priya").status_code == 200
+        assert db.funnel(quiz_id).get("name_submitted") == 1
+
+        # A replayed bind 409s (bind-once) and must never double count.
+        assert post_name(client, db, slug, token, "Priya").status_code == 409
+        assert db.funnel(quiz_id).get("name_submitted") == 1
+
+    def test_rejected_bind_records_nothing(self, client: TestClient) -> None:
+        """An uncompleted session cannot bind; the failed conditional write
+        must leave the counter untouched."""
+        db = FakeDB()
+        quiz_id, slug = shared_quiz(client, db)
+        token = start_session(client, db, slug).json()["token"]
+        assert post_name(client, db, slug, token, "Priya").status_code == 409
+        assert db.funnel(quiz_id).get("name_submitted") is None
+
+    def test_name_bound_at_completion_does_not_fire(self, client: TestClient) -> None:
+        """The event measures the reveal-first 'post my score' step -- a name
+        supplied inline with /complete never went through it."""
+        db = FakeDB()
+        quiz_id, slug = shared_quiz(client, db, n=5)
+        run_through(client, db, slug, quiz_id, "Priya")
+        assert db.funnel(quiz_id).get("name_submitted") is None
+
+    def test_funnel_write_failure_never_breaks_the_bind(
+        self, client: TestClient
+    ) -> None:
+        db = FakeDB()
+        quiz_id, slug = shared_quiz(client, db, n=5)
+        token, _ = run_through_unnamed(client, db, slug, quiz_id)
+        with patch.object(db, "rpc", new=AsyncMock(side_effect=Exception("boom"))):
+            resp = post_name(client, db, slug, token, "Priya")
+        assert resp.status_code == 200
+
+
+class TestScoreResharedFunnel:
+    def test_reshare_fires_per_tap_and_returns_204(self, client: TestClient) -> None:
+        db = FakeDB()
+        quiz_id, slug = shared_quiz(client, db, n=5)
+        token, _ = run_through_unnamed(client, db, slug, quiz_id)
+
+        resp = reshare(client, db, slug, token)
+        assert resp.status_code == 204
+        assert resp.content == b""
+        assert db.funnel(quiz_id).get("score_reshared") == 1
+
+        # Like install_cta_tap, every tap counts.
+        assert reshare(client, db, slug, token).status_code == 204
+        assert db.funnel(quiz_id).get("score_reshared") == 2
+
+    def test_uncompleted_session_still_counts(self, client: TestClient) -> None:
+        """Token validity is the only gate -- resharing mid-game is odd but
+        not an error, and must not leak session state through a rejection."""
+        db = FakeDB()
+        quiz_id, slug = shared_quiz(client, db)
+        token = start_session(client, db, slug).json()["token"]
+        assert reshare(client, db, slug, token).status_code == 204
+        assert db.funnel(quiz_id).get("score_reshared") == 1
+
+    def test_unknown_token_404s_without_counting(self, client: TestClient) -> None:
+        db = FakeDB()
+        quiz_id, slug = shared_quiz(client, db)
+        assert reshare(client, db, slug, "t" * 43).status_code == 404
+        assert db.funnel(quiz_id).get("score_reshared") is None
+
+    def test_token_is_quiz_scoped(self, client: TestClient) -> None:
+        db = FakeDB()
+        quiz_a, slug_a = shared_quiz(client, db, n=5)
+        quiz_b, slug_b = shared_quiz(client, db, n=5)
+        token_a, _ = run_through_unnamed(client, db, slug_a, quiz_a)
+        assert reshare(client, db, slug_b, token_a).status_code == 404
+        assert db.funnel(quiz_b).get("score_reshared") is None
+
+    def test_owner_token_is_rejected(self, client: TestClient) -> None:
+        """Owner sessions never surface on the anonymous surface."""
+        db = FakeDB()
+        quiz_id, slug = shared_quiz(client, db)
+        owner = next(
+            s
+            for s in db.find("quiz_session", quiz_id=quiz_id)
+            if s["token"].startswith("owner-")
+        )
+        assert reshare(client, db, slug, owner["token"]).status_code == 404
+        assert db.funnel(quiz_id).get("score_reshared") is None
+
+    def test_unknown_slug_404s(self, client: TestClient) -> None:
+        db = FakeDB()
+        shared_quiz(client, db)
+        assert reshare(client, db, "deadbeef", "t" * 43).status_code == 404
+        assert db.rows("quiz_funnel") == []
+
+    def test_funnel_write_failure_still_204s(self, client: TestClient) -> None:
+        db = FakeDB()
+        quiz_id, slug = shared_quiz(client, db, n=5)
+        token, _ = run_through_unnamed(client, db, slug, quiz_id)
+        with patch.object(db, "rpc", new=AsyncMock(side_effect=Exception("boom"))):
+            resp = reshare(client, db, slug, token)
+        assert resp.status_code == 204
+
+
+# ============================================================================
 # Rate limiting
 # ============================================================================
 
@@ -1110,6 +1225,7 @@ class TestRateLimits:
             "answer_public_quiz_question",
             "complete_public_quiz_session",
             "name_public_quiz_session",
+            "reshare_public_quiz_score",
             "get_public_quiz_leaderboard",
             "quiz_install_redirect",
         ):

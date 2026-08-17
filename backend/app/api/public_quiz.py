@@ -54,6 +54,7 @@ from app.schemas.quiz import (
     PublicQuizCompleteResponse,
     PublicQuizLeaderboardResponse,
     PublicQuizNameRequest,
+    PublicQuizResharedRequest,
     PublicQuizSessionRequest,
     PublicQuizSessionResponse,
     ScoreToBeat,
@@ -419,6 +420,7 @@ async def _viewer_leaderboard(
 async def name_public_quiz_session(
     request: Request,  # Required for rate limiter
     data: PublicQuizNameRequest,
+    background_tasks: BackgroundTasks,
     slug: str = SlugPath,
 ) -> PublicQuizCompleteResponse:
     """Post the optional display name AFTER a reveal-first completion.
@@ -458,6 +460,13 @@ async def name_public_quiz_session(
             },
         )
     session = claimed[0]
+    # Funnel: name_submitted counts at the FIRST successful bind only -- this
+    # branch is exactly the conditional bind-once write that claimed it, so
+    # replays and renames (which 409 above) can never double count.
+    # Best-effort analytics, recorded off the response path.
+    background_tasks.add_task(
+        record_quiz_funnel_event, db, quiz["id"], "name_submitted", slug
+    )
 
     questions = await _get_questions(db, quiz["id"])
     leaderboard, leaderboard_full = await _viewer_leaderboard(
@@ -470,6 +479,35 @@ async def name_public_quiz_session(
         leaderboard=leaderboard,
         already_completed=True,
         leaderboard_full=leaderboard_full,
+    )
+
+
+# ============================================================================
+# POST /q/{slug}/reshared -- count a share-onward tap (funnel only)
+# ============================================================================
+
+
+@router.post("/q/{slug}/reshared", status_code=status.HTTP_204_NO_CONTENT)
+@limiter.limit("30/minute")
+async def reshare_public_quiz_score(
+    request: Request,  # Required for rate limiter
+    data: PublicQuizResharedRequest,
+    background_tasks: BackgroundTasks,
+    slug: str = SlugPath,
+) -> None:
+    """Record that a player shared their result onward. 204, no body.
+
+    Pure funnel signal: the only gate is a valid session token for THIS quiz
+    (any session state -- sharing after completion is the expected case, but
+    the endpoint is deliberately no stricter than token validity). Every tap
+    counts, mirroring install_cta_tap; the counter write is best-effort and
+    off the response path.
+    """
+    db = get_supabase_client()  # service role: quiz tables are backend-only
+    quiz = await _get_shared_quiz(db, slug)
+    await _require_public_session(db, quiz, data.token)
+    background_tasks.add_task(
+        record_quiz_funnel_event, db, quiz["id"], "score_reshared", slug
     )
 
 

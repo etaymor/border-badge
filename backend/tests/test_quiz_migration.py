@@ -17,12 +17,9 @@ from pathlib import Path
 
 import pytest
 
-MIGRATION_PATH = (
-    Path(__file__).resolve().parents[2]
-    / "supabase"
-    / "migrations"
-    / "0060_travel_photo_quiz.sql"
-)
+MIGRATIONS_DIR = Path(__file__).resolve().parents[2] / "supabase" / "migrations"
+MIGRATION_PATH = MIGRATIONS_DIR / "0060_travel_photo_quiz.sql"
+FUNNEL_MIGRATION_PATH = MIGRATIONS_DIR / "0061_quiz_funnel_reveal_events.sql"
 
 QUIZ_TABLES = [
     "quiz",
@@ -33,12 +30,25 @@ QUIZ_TABLES = [
     "quiz_daily_classification",
 ]
 
-FUNNEL_EVENTS = {
+# The four original funnel steps shipped (and applied in production) by 0060.
+FUNNEL_EVENTS_0060 = {
     "page_view",
     "session_started",
     "session_completed",
     "install_cta_tap",
 }
+
+# The CURRENT funnel vocabulary: 0060's four plus the reveal-first events
+# added by 0061 (name_submitted at the bind-once name post, score_reshared at
+# the post-completion reshare tap).
+FUNNEL_EVENTS = FUNNEL_EVENTS_0060 | {
+    "name_submitted",
+    "score_reshared",
+}
+
+# Auto-generated name Postgres gave 0060's inline CHECK; 0061 must drop and
+# re-add the constraint under this exact name.
+FUNNEL_EVENT_CONSTRAINT = "quiz_funnel_event_check"
 
 LIFECYCLE_STATES = {
     "building",
@@ -185,13 +195,16 @@ def test_funnel_counters_keyed_by_quiz_and_event(sql: str):
     ), "quiz_funnel needs PRIMARY KEY (quiz_id, event)"
 
 
-def test_funnel_event_check_lists_exactly_the_four_events(sql: str):
+def test_funnel_event_check_in_0060_lists_its_original_four_events(sql: str):
+    """0060 is APPLIED in production and therefore immutable: it must keep
+    listing exactly the four events it shipped with. New events extend the
+    constraint via 0061 (and successors), never by editing 0060."""
     match = re.search(
         r"event\s+TEXT[^,]*CHECK\s*\(\s*event\s+IN\s*\(([^)]*)\)", sql, re.IGNORECASE
     )
     assert match, "quiz_funnel.event must be TEXT with an IN (...) CHECK constraint"
     events = set(re.findall(r"'([^']+)'", match.group(1)))
-    assert events == FUNNEL_EVENTS
+    assert events == FUNNEL_EVENTS_0060
 
 
 def test_funnel_increment_function_is_an_atomic_upsert(sql: str):
@@ -367,3 +380,81 @@ def test_correct_index_is_server_side_bounded(sql: str):
         sql,
         re.IGNORECASE,
     ), "shuffled options need a server-only correct_index bounded to the 4 options"
+
+
+# ============================================================================
+# 0061: reveal-first funnel events (name_submitted, score_reshared)
+# ============================================================================
+
+
+@pytest.fixture(scope="module")
+def funnel_sql() -> str:
+    assert FUNNEL_MIGRATION_PATH.exists(), f"missing migration: {FUNNEL_MIGRATION_PATH}"
+    return FUNNEL_MIGRATION_PATH.read_text()
+
+
+def _current_funnel_event_constraint() -> set[str]:
+    """The event vocabulary the DATABASE enforces today: the LAST
+    quiz_funnel event CHECK across all migrations in apply order.
+
+    This is the tripwire that keeps code and schema in lockstep: adding a
+    future event to the code vocabulary without shipping a migration leaves
+    this set behind, and the cross-check tests below go red."""
+    current: set[str] | None = None
+    for path in sorted(MIGRATIONS_DIR.glob("[0-9][0-9][0-9][0-9]_*.sql")):
+        text = path.read_text()
+        if "quiz_funnel" not in text:
+            continue
+        for match in re.finditer(r"event\s+IN\s*\(([^)]*)\)", text, re.IGNORECASE):
+            current = set(re.findall(r"'([^']+)'", match.group(1)))
+    assert current is not None, "no migration defines the quiz_funnel event CHECK"
+    return current
+
+
+def test_0061_migration_number_is_unique():
+    numbers = [
+        int(p.name[:4]) for p in MIGRATIONS_DIR.glob("[0-9][0-9][0-9][0-9]_*.sql")
+    ]
+    assert numbers.count(61) == 1, "expected exactly one 0061 migration"
+
+
+def test_0061_wrapped_in_do_migration_block(funnel_sql: str):
+    assert "DO $migration$" in funnel_sql
+    assert "$migration$;" in funnel_sql
+
+
+def test_0061_drops_the_0060_constraint_by_name_idempotently(funnel_sql: str):
+    """0060 is applied, so its inline CHECK exists under the Postgres
+    auto-generated name. 0061 must drop it BY that name, IF EXISTS so the
+    drop-then-add pair is rerunnable."""
+    assert re.search(
+        r"ALTER TABLE public\.quiz_funnel\s+"
+        rf"DROP CONSTRAINT IF EXISTS {FUNNEL_EVENT_CONSTRAINT}",
+        funnel_sql,
+    ), f"0061 must DROP CONSTRAINT IF EXISTS {FUNNEL_EVENT_CONSTRAINT}"
+
+
+def test_0061_readds_the_constraint_under_the_same_name(funnel_sql: str):
+    """Re-adding under the SAME name keeps the drop-by-name idempotent on
+    rerun and preserves the name for any future extension migration."""
+    assert re.search(
+        r"ALTER TABLE public\.quiz_funnel\s+"
+        rf"ADD CONSTRAINT {FUNNEL_EVENT_CONSTRAINT}\s+CHECK",
+        funnel_sql,
+    ), f"0061 must ADD CONSTRAINT {FUNNEL_EVENT_CONSTRAINT} CHECK (...)"
+
+
+def test_current_constraint_lists_exactly_the_six_events():
+    assert _current_funnel_event_constraint() == FUNNEL_EVENTS
+
+
+def test_code_vocabulary_matches_the_database_constraint():
+    """The runtime event vocabulary (QuizFunnelEvent) and the DB CHECK must
+    agree exactly -- an event added to code without a migration would be
+    silently rejected by the constraint (best-effort writes swallow the
+    error), so this mismatch must fail CI instead."""
+    from typing import get_args
+
+    from app.core.analytics import QuizFunnelEvent
+
+    assert set(get_args(QuizFunnelEvent)) == _current_funnel_event_constraint()

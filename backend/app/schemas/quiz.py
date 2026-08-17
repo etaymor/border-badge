@@ -395,6 +395,12 @@ class PublicQuizNameRequest(BaseModel):
         return _validate_public_display_name(v)
 
 
+class PublicQuizResharedRequest(BaseModel):
+    """Reshare-tap report: the session token is the whole payload."""
+
+    token: str = Field(..., min_length=1, max_length=MAX_SESSION_TOKEN_LENGTH)
+
+
 class PublicLeaderboardEntry(BaseModel):
     """One aggregated leaderboard row (per canonicalized name -- AE4)."""
 
