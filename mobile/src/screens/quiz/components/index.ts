@@ -1,5 +1,6 @@
 export { GuessOption } from './GuessOption';
 export { PhotoHero } from './PhotoHero';
+export { PhotoInspector } from './PhotoInspector';
 export { PolaroidThumb, type PolaroidVerdict } from './PolaroidThumb';
 export { ProgressSegments } from './ProgressSegments';
 export { RowAction } from './RowAction';

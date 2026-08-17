@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useRef, useState, type ReactNode } from 'react';
 import {
   Animated,
   Dimensions,
@@ -12,13 +12,91 @@ import {
   Text,
   View,
   StatusBar,
+  type StyleProp,
+  type ViewStyle,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
+import Reanimated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 
 import type { MediaFile } from '@hooks/useMedia';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const DISMISS_THRESHOLD = 150;
+
+/** Pinching in past this magnification clamps rather than blowing out. */
+const MAX_ZOOM_SCALE = 4;
+/** Critically-damped-ish settle for the zoom/pan release. */
+const RELEASE_SPRING = { damping: 20, stiffness: 220 };
+
+interface PinchZoomViewProps {
+  children: ReactNode;
+  style?: StyleProp<ViewStyle>;
+  accessibilityLabel?: string;
+  testID?: string;
+}
+
+/**
+ * PinchZoomView - the app's single pinch-to-zoom surface, shared by this
+ * viewer's photo items and the quiz PhotoInspector (Unit 1.2).
+ *
+ * Instagram-style inspection: the pinch magnifies while the fingers are down
+ * (clamped 1x..MAX_ZOOM_SCALE) and a two-finger drag pans the zoomed photo;
+ * releasing springs everything back to the fitted frame. Because zoom only
+ * persists under the fingers, single-finger touches are never claimed here -
+ * they fall through to whatever the host surface does with them (this viewer's
+ * swipe-to-dismiss, the inspector's tap-to-close).
+ */
+export function PinchZoomView({ children, style, accessibilityLabel, testID }: PinchZoomViewProps) {
+  const scale = useSharedValue(1);
+  const translateX = useSharedValue(0);
+  const translateY = useSharedValue(0);
+
+  const pinch = Gesture.Pinch()
+    .onUpdate((event) => {
+      scale.value = Math.min(Math.max(event.scale, 1), MAX_ZOOM_SCALE);
+    })
+    .onEnd(() => {
+      scale.value = withSpring(1, RELEASE_SPRING);
+    });
+
+  // Two pointers only: panning happens while pinch-zoomed (fingers down), and
+  // a single-finger drag stays with the host surface.
+  const pan = Gesture.Pan()
+    .minPointers(2)
+    .onUpdate((event) => {
+      if (scale.value > 1) {
+        translateX.value = event.translationX;
+        translateY.value = event.translationY;
+      }
+    })
+    .onEnd(() => {
+      translateX.value = withSpring(0, RELEASE_SPRING);
+      translateY.value = withSpring(0, RELEASE_SPRING);
+    });
+
+  const zoomStyle = useAnimatedStyle(() => ({
+    transform: [
+      { scale: scale.value },
+      { translateX: translateX.value },
+      { translateY: translateY.value },
+    ],
+  }));
+
+  return (
+    <GestureDetector gesture={Gesture.Simultaneous(pinch, pan)}>
+      <Reanimated.View
+        style={[style, zoomStyle]}
+        accessible={true}
+        accessibilityRole="image"
+        accessibilityLabel={accessibilityLabel}
+        testID={testID}
+      >
+        {children}
+      </Reanimated.View>
+    </GestureDetector>
+  );
+}
 
 interface MediaViewerProps {
   visible: boolean;
@@ -33,58 +111,14 @@ interface MediaItemProps {
 }
 
 function MediaItem({ item }: MediaItemProps) {
-  const scale = useRef(new Animated.Value(1)).current;
-  const translateX = useRef(new Animated.Value(0)).current;
-  const translateY = useRef(new Animated.Value(0)).current;
-
-  // Simple pinch-to-zoom implementation
-  const baseScale = useRef(1);
-  const pinchScale = useRef(new Animated.Value(1)).current;
-
-  const panResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
-      onPanResponderGrant: () => {
-        baseScale.current = 1;
-      },
-      onPanResponderMove: (_, gestureState) => {
-        // Simple pan when zoomed
-        if (baseScale.current > 1) {
-          translateX.setValue(gestureState.dx);
-          translateY.setValue(gestureState.dy);
-        }
-      },
-      onPanResponderRelease: () => {
-        // Reset position
-        Animated.parallel([
-          Animated.spring(translateX, { toValue: 0, useNativeDriver: true }),
-          Animated.spring(translateY, { toValue: 0, useNativeDriver: true }),
-        ]).start();
-      },
-    })
-  ).current;
-
   return (
     <View style={styles.mediaItemContainer}>
-      <Animated.View
-        style={[
-          styles.imageContainer,
-          {
-            transform: [
-              { scale: Animated.multiply(scale, pinchScale) },
-              { translateX },
-              { translateY },
-            ],
-          },
-        ]}
-        {...panResponder.panHandlers}
-        accessible={true}
-        accessibilityRole="image"
+      <PinchZoomView
+        style={styles.imageContainer}
         accessibilityLabel="Photo. Swipe up or down to dismiss, pinch to zoom"
       >
         <Image source={{ uri: item.url }} style={styles.fullImage} resizeMode="contain" />
-      </Animated.View>
+      </PinchZoomView>
     </View>
   );
 }
@@ -174,78 +208,85 @@ export function MediaViewer({
     >
       <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
 
-      <Animated.View style={[styles.container, { opacity }]} {...panResponder.panHandlers}>
-        <Animated.View style={[styles.content, { transform: [{ translateY: dismissY }] }]}>
-          {/* Header */}
-          <SafeAreaView style={styles.header}>
-            <Pressable
-              style={styles.closeButton}
-              onPress={onClose}
-              accessibilityRole="button"
-              accessibilityLabel="Close image viewer"
-            >
-              <Ionicons name="close" size={28} color="#fff" />
-            </Pressable>
-
-            <Text
-              style={styles.counter}
-              accessibilityRole="text"
-              accessibilityLabel={`Image ${currentIndex + 1} of ${media.length}`}
-            >
-              {currentIndex + 1} / {media.length}
-            </Text>
-
-            {onDelete && (
+      {/* RN Modals mount outside the app's GestureHandlerRootView, so the
+          pinch surface needs its own root here (Android requirement). */}
+      <GestureHandlerRootView style={styles.gestureRoot}>
+        <Animated.View style={[styles.container, { opacity }]} {...panResponder.panHandlers}>
+          <Animated.View style={[styles.content, { transform: [{ translateY: dismissY }] }]}>
+            {/* Header */}
+            <SafeAreaView style={styles.header}>
               <Pressable
-                style={styles.deleteButton}
-                onPress={handleDelete}
+                style={styles.closeButton}
+                onPress={onClose}
                 accessibilityRole="button"
-                accessibilityLabel="Delete this image"
+                accessibilityLabel="Close image viewer"
               >
-                <Ionicons name="trash-outline" size={24} color="#fff" />
+                <Ionicons name="close" size={28} color="#fff" />
               </Pressable>
-            )}
-          </SafeAreaView>
 
-          {/* Image Gallery */}
-          <FlatList
-            ref={flatListRef}
-            data={media}
-            keyExtractor={(item) => item.id}
-            renderItem={renderItem}
-            horizontal
-            pagingEnabled
-            showsHorizontalScrollIndicator={false}
-            initialScrollIndex={initialIndex}
-            getItemLayout={(_, index) => ({
-              length: SCREEN_WIDTH,
-              offset: SCREEN_WIDTH * index,
-              index,
-            })}
-            onMomentumScrollEnd={handleScroll}
-          />
+              <Text
+                style={styles.counter}
+                accessibilityRole="text"
+                accessibilityLabel={`Image ${currentIndex + 1} of ${media.length}`}
+              >
+                {currentIndex + 1} / {media.length}
+              </Text>
 
-          {/* Footer with metadata */}
-          {currentMedia && (
-            <SafeAreaView style={styles.footer}>
-              {currentMedia.created_at && (
-                <Text style={styles.dateText}>
-                  {new Date(currentMedia.created_at).toLocaleDateString('en-US', {
-                    month: 'long',
-                    day: 'numeric',
-                    year: 'numeric',
-                  })}
-                </Text>
+              {onDelete && (
+                <Pressable
+                  style={styles.deleteButton}
+                  onPress={handleDelete}
+                  accessibilityRole="button"
+                  accessibilityLabel="Delete this image"
+                >
+                  <Ionicons name="trash-outline" size={24} color="#fff" />
+                </Pressable>
               )}
             </SafeAreaView>
-          )}
+
+            {/* Image Gallery */}
+            <FlatList
+              ref={flatListRef}
+              data={media}
+              keyExtractor={(item) => item.id}
+              renderItem={renderItem}
+              horizontal
+              pagingEnabled
+              showsHorizontalScrollIndicator={false}
+              initialScrollIndex={initialIndex}
+              getItemLayout={(_, index) => ({
+                length: SCREEN_WIDTH,
+                offset: SCREEN_WIDTH * index,
+                index,
+              })}
+              onMomentumScrollEnd={handleScroll}
+            />
+
+            {/* Footer with metadata */}
+            {currentMedia && (
+              <SafeAreaView style={styles.footer}>
+                {currentMedia.created_at && (
+                  <Text style={styles.dateText}>
+                    {new Date(currentMedia.created_at).toLocaleDateString('en-US', {
+                      month: 'long',
+                      day: 'numeric',
+                      year: 'numeric',
+                    })}
+                  </Text>
+                )}
+              </SafeAreaView>
+            )}
+          </Animated.View>
         </Animated.View>
-      </Animated.View>
+      </GestureHandlerRootView>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
+  gestureRoot: {
+    flex: 1,
+  },
   container: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.95)',

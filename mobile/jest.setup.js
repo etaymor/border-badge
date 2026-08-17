@@ -105,9 +105,10 @@ jest.mock(
 
 // Mock react-native-gesture-handler.
 //
-// Gesture.Pan() returns a chainable stub that records each handler it is given
-// (as `_onUpdate`, `_onEnd`, ...). Tests drive a swipe by calling those directly,
-// which is the only way to exercise a gesture without a real touch system.
+// Gesture.Pan() / Gesture.Pinch() return a chainable stub that records each
+// handler it is given (as `_onUpdate`, `_onEnd`, ...). Tests drive a swipe or a
+// pinch by calling those directly, which is the only way to exercise a gesture
+// without a real touch system.
 // `Swipeable` is retained for TripListsScreen, which still uses the legacy API.
 jest.mock('react-native-gesture-handler', () => {
   const mockReact = require('react');
@@ -121,6 +122,7 @@ jest.mock('react-native-gesture-handler', () => {
       'activeOffsetY',
       'failOffsetX',
       'failOffsetY',
+      'minPointers',
       'onBegin',
       'onStart',
       'onUpdate',
@@ -137,7 +139,11 @@ jest.mock('react-native-gesture-handler', () => {
   };
 
   return {
-    Gesture: { Pan: jest.fn(createGestureStub) },
+    Gesture: {
+      Pan: jest.fn(createGestureStub),
+      Pinch: jest.fn(createGestureStub),
+      Simultaneous: jest.fn((...gestures) => ({ gestures })),
+    },
     GestureDetector: ({ children }) => children,
     GestureHandlerRootView: mockRN.View,
     Swipeable: ({ children }) => mockReact.createElement(mockRN.View, null, children),

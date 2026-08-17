@@ -35,6 +35,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Pressable,
   StatusBar,
   StyleSheet,
   Text,
@@ -75,6 +76,7 @@ import {
   DURATION_HERO,
   DURATION_SLOW,
 } from './components/motionTokens';
+import { PhotoInspector } from './components/PhotoInspector';
 import { ProgressSegments } from './components/ProgressSegments';
 
 type Props = RootStackScreenProps<'QuizPlay'>;
@@ -175,6 +177,10 @@ export function QuizPlayScreen({ navigation, route }: Props) {
   // tracker and the answer sheet without hardcoding either.
   const [headerHeight, setHeaderHeight] = useState(0);
   const [sheetHeight, setSheetHeight] = useState(0);
+  // Tap-to-inspect (Unit 1.2). The inspector is an opaque overlay ABOVE the
+  // play interface - nothing underneath unmounts, so selection, the answer
+  // lock, and the watchdog are untouched by an open/close round-trip.
+  const [inspecting, setInspecting] = useState(false);
 
   const sessionStartedRef = useRef(false);
 
@@ -403,6 +409,9 @@ export function QuizPlayScreen({ navigation, route }: Props) {
     navigation.goBack();
   });
 
+  const handleInspectPhoto = useStableCallback(() => setInspecting(true));
+  const handleCloseInspector = useStableCallback(() => setInspecting(false));
+
   const handlePhotoLoad = useStableCallback((event: ImageLoadEventData) => {
     const next = deriveOrientation(event.source?.width, event.source?.height);
     const questionId = activeQuestion?.id;
@@ -568,7 +577,15 @@ export function QuizPlayScreen({ navigation, route }: Props) {
             />
           </Animated.View>
 
-          <View style={styles.controls} pointerEvents="box-none">
+          <View
+            style={styles.controls}
+            pointerEvents="box-none"
+            // While the inspector covers the interface, hide it from assistive
+            // tech too - it stays mounted so every bit of state survives.
+            accessibilityElementsHidden={inspecting}
+            importantForAccessibility={inspecting ? 'no-hide-descendants' : 'auto'}
+            testID="quiz-play-controls"
+          >
             <View
               style={[styles.topBar, { paddingTop: insets.top + 8 }]}
               onLayout={handleHeaderLayout}
@@ -594,7 +611,16 @@ export function QuizPlayScreen({ navigation, route }: Props) {
               </View>
             </View>
 
-            <View style={styles.controlsSpacer} pointerEvents="none" />
+            {/* The photo region between the tracker and the answers: a tap
+                here (and only here - answer taps land on the sheet below)
+                opens the full-photo inspector. */}
+            <Pressable
+              style={styles.controlsSpacer}
+              onPress={handleInspectPhoto}
+              accessibilityRole="button"
+              accessibilityLabel="View the photo full screen"
+              testID="quiz-photo-inspect"
+            />
 
             {orientation === 'landscape' ? (
               <View
@@ -617,6 +643,17 @@ export function QuizPlayScreen({ navigation, route }: Props) {
               </LinearGradient>
             )}
           </View>
+
+          {/* Tap-to-inspect overlay: the full photo on the navy stage with
+              pinch-to-zoom. Conditional on showQuestion, so completing or
+              erroring tears it down with the rest of the stage. */}
+          {inspecting && (
+            <PhotoInspector
+              uri={activeQuestion.image_url}
+              recyclingKey={activeQuestion.id}
+              onClose={handleCloseInspector}
+            />
+          )}
         </>
       )}
     </View>

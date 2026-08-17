@@ -60,6 +60,12 @@ jest.mock('expo-image', () => {
 });
 /* eslint-enable @typescript-eslint/no-require-imports */
 
+// The project reduce-motion hook, mockable per test: the inspector's fade vs.
+// plain-swap branch hangs off it. Default false matches the device default.
+jest.mock('@hooks/useReducedMotion', () => ({
+  useReducedMotion: jest.fn(() => false),
+}));
+
 jest.mock('@services/quiz/quizPlay', () => ({
   ensurePlaySession: jest.fn(),
   loadPlayState: jest.fn(),
@@ -80,6 +86,7 @@ import {
   type StoredQuizAnswer,
 } from '@services/quiz/quizPlay';
 import { getAllCountries } from '@services/countriesDb';
+import { useReducedMotion } from '@hooks/useReducedMotion';
 import { deriveOrientation, QuizPlayScreen } from '@screens/quiz/QuizPlayScreen';
 import { QuizResultsScreen } from '@screens/quiz/QuizResultsScreen';
 
@@ -88,6 +95,7 @@ const mockLoadPlayState = loadPlayState as jest.MockedFunction<typeof loadPlaySt
 const mockRecordAnswer = recordAnswer as jest.MockedFunction<typeof recordAnswer>;
 const mockLoadSwapCandidates = loadSwapCandidates as jest.MockedFunction<typeof loadSwapCandidates>;
 const mockUploadSwapPhoto = uploadSwapPhoto as jest.MockedFunction<typeof uploadSwapPhoto>;
+const mockUseReducedMotion = useReducedMotion as jest.MockedFunction<typeof useReducedMotion>;
 
 const mockApiGet = api.get as jest.Mock;
 const mockApiPost = api.post as jest.Mock;
@@ -206,6 +214,10 @@ function renderResultsScreen(results: typeof COMPLETE_RESULTS | 'none' = COMPLET
 
 beforeEach(() => {
   jest.clearAllMocks();
+  // mockReturnValue survives clearAllMocks; reset hard so one test's reduce
+  // motion never leaks into the next.
+  mockUseReducedMotion.mockReset();
+  mockUseReducedMotion.mockReturnValue(false);
   mockRecordAnswer.mockImplementation(async (state, answer) => ({
     ...state,
     answers: { ...state.answers, [answer.questionId]: answer },
@@ -578,6 +590,155 @@ describe('QuizPlayScreen resilience (BUG-1)', () => {
     render(<QuizPlayScreen navigation={navigation} route={route} />);
 
     await waitFor(() => expect(screen.getByTestId('quiz-play-error')).toBeTruthy());
+  });
+});
+
+describe('QuizPlayScreen photo inspector (Unit 1.2)', () => {
+  // Tapping the photo hides the interface behind a full-screen navy inspector
+  // with the photo aspect-fit and pinch-to-zoom; closing restores the play
+  // interface exactly as it was. The inspector is purely visual: it must never
+  // touch selection state, the answer lock, or the watchdog.
+
+  it('opens the inspector from a tap on the photo region and hides the interface', async () => {
+    mockQuizDetail(makeDetail());
+    mockEnsurePlaySession.mockResolvedValue(makePlayState([]));
+
+    renderPlayScreen();
+
+    await waitFor(() => expect(screen.getByTestId('quiz-photo-inspect')).toBeTruthy());
+    expect(screen.queryByTestId('quiz-photo-inspector')).toBeNull();
+
+    fireEvent.press(screen.getByTestId('quiz-photo-inspect'));
+
+    // The inspector shows THIS question's full photo, aspect-fit.
+    expect(screen.getByTestId('quiz-photo-inspector')).toBeTruthy();
+    const image = screen.getByTestId('quiz-photo-inspector-image');
+    expect(image.props.source.uri).toBe('https://cdn.example/quiz/q0.jpg');
+    expect(image.props.contentFit).toBe('contain');
+
+    // The play interface underneath is hidden from assistive tech while the
+    // opaque overlay covers it (nothing is unmounted, so state survives).
+    // includeHiddenElements: RNTL's default queries exclude exactly what this
+    // asserts - that the controls are now accessibility-hidden.
+    const controls = screen.getByTestId('quiz-play-controls', { includeHiddenElements: true });
+    expect(controls.props.accessibilityElementsHidden).toBe(true);
+    expect(controls.props.importantForAccessibility).toBe('no-hide-descendants');
+    // And the default query no longer surfaces the interface at all.
+    expect(screen.queryByTestId('quiz-country-prompt')).toBeNull();
+  });
+
+  it('closing restores the interface exactly as it was, without touching the game', async () => {
+    mockQuizDetail(makeDetail());
+    mockEnsurePlaySession.mockResolvedValue(makePlayState([]));
+
+    renderPlayScreen();
+
+    await waitFor(() => expect(screen.getByTestId('quiz-photo-inspect')).toBeTruthy());
+    fireEvent.press(screen.getByTestId('quiz-photo-inspect'));
+    expect(screen.getByTestId('quiz-photo-inspector')).toBeTruthy();
+
+    fireEvent.press(screen.getByTestId('quiz-photo-inspector-close'));
+
+    expect(screen.queryByTestId('quiz-photo-inspector')).toBeNull();
+    const controls = screen.getByTestId('quiz-play-controls');
+    expect(controls.props.accessibilityElementsHidden).toBe(false);
+    // Same question, same progress, and no grading traffic from inspecting.
+    expect(screen.getByText('1 OF 5')).toBeTruthy();
+    expect(screen.getByTestId('quiz-country-prompt')).toBeTruthy();
+    expect(mockApiPost).not.toHaveBeenCalled();
+  });
+
+  it('tapping the photo inside the inspector closes it too', async () => {
+    mockQuizDetail(makeDetail());
+    mockEnsurePlaySession.mockResolvedValue(makePlayState([]));
+
+    renderPlayScreen();
+
+    await waitFor(() => expect(screen.getByTestId('quiz-photo-inspect')).toBeTruthy());
+    fireEvent.press(screen.getByTestId('quiz-photo-inspect'));
+    fireEvent.press(screen.getByTestId('quiz-photo-inspector-surface'));
+
+    expect(screen.queryByTestId('quiz-photo-inspector')).toBeNull();
+  });
+
+  it('an open/close round-trip never disturbs a held answer lock', async () => {
+    mockQuizDetail(makeDetail());
+    mockEnsurePlaySession.mockResolvedValue(makePlayState([]));
+    // The answer is in flight and never settles: the lock stays held.
+    mockApiPost.mockImplementation(() => new Promise(() => {}));
+
+    renderPlayScreen();
+
+    await waitFor(() => expect(screen.getByTestId('quiz-option-0')).toBeTruthy());
+    fireEvent.press(screen.getByTestId('quiz-option-0'));
+
+    // Locked: the tapped option is acknowledged, every option disabled.
+    expect(screen.getByTestId('quiz-option-0').props.accessibilityState.selected).toBe(true);
+    expect(screen.getByTestId('quiz-option-1').props.accessibilityState.disabled).toBe(true);
+
+    fireEvent.press(screen.getByTestId('quiz-photo-inspect'));
+    expect(screen.getByTestId('quiz-photo-inspector')).toBeTruthy();
+    fireEvent.press(screen.getByTestId('quiz-photo-inspector-close'));
+
+    // The lock is exactly as it was: still acknowledged, still disabled.
+    expect(screen.getByTestId('quiz-option-0').props.accessibilityState.selected).toBe(true);
+    expect(screen.getByTestId('quiz-option-1').props.accessibilityState.disabled).toBe(true);
+  });
+
+  it('a pending country pick survives inspecting during the year question', async () => {
+    mockQuizDetail(
+      makeDetail({
+        questions: [
+          makeQuestion(0, [2018, 2019, 2020, 2021]),
+          ...[1, 2, 3, 4].map((n) => makeQuestion(n)),
+        ],
+      })
+    );
+    mockEnsurePlaySession.mockResolvedValue(makePlayState([]));
+    mockPostRoutes({
+      [`/quiz/${QUIZ_ID}/answer`]: {
+        place_correct: true,
+        year_correct: true,
+        correct_option_index: 1,
+        correct_option: 'Spain',
+        correct_year: 2019,
+        score: 1,
+      },
+    });
+
+    renderPlayScreen();
+
+    await waitFor(() => expect(screen.getByTestId('quiz-option-1')).toBeTruthy());
+    fireEvent.press(screen.getByTestId('quiz-option-1'));
+    await waitFor(() => expect(screen.getByTestId('quiz-year-prompt')).toBeTruthy());
+
+    fireEvent.press(screen.getByTestId('quiz-photo-inspect'));
+    fireEvent.press(screen.getByTestId('quiz-photo-inspector-close'));
+
+    // Still on the year question for the same photo; answering grades BOTH
+    // picks in one call - the country pick made before inspecting included.
+    expect(screen.getByTestId('quiz-year-prompt')).toBeTruthy();
+    fireEvent.press(screen.getByText('2019'));
+    await waitFor(() =>
+      expect(mockApiPost).toHaveBeenCalledWith(
+        `/quiz/${QUIZ_ID}/answer`,
+        expect.objectContaining({ selected_option_index: 1, selected_year: 2019 })
+      )
+    );
+  });
+
+  it('still opens and closes under reduce motion (plain swap)', async () => {
+    mockUseReducedMotion.mockReturnValue(true);
+    mockQuizDetail(makeDetail());
+    mockEnsurePlaySession.mockResolvedValue(makePlayState([]));
+
+    renderPlayScreen();
+
+    await waitFor(() => expect(screen.getByTestId('quiz-photo-inspect')).toBeTruthy());
+    fireEvent.press(screen.getByTestId('quiz-photo-inspect'));
+    expect(screen.getByTestId('quiz-photo-inspector')).toBeTruthy();
+    fireEvent.press(screen.getByTestId('quiz-photo-inspector-close'));
+    expect(screen.queryByTestId('quiz-photo-inspector')).toBeNull();
   });
 });
 
