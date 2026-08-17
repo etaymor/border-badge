@@ -70,6 +70,7 @@ import type { QuizAnswerResult } from '@hooks/useQuizzes';
 import type { RootStackScreenProps } from '@navigation/types';
 
 import { GuessOption } from './components/GuessOption';
+import { BOTTOM_SCRIM_COLORS } from './components/PhotoHero';
 import {
   DURATION_BASE,
   DURATION_FAST,
@@ -78,6 +79,7 @@ import {
 } from './components/motionTokens';
 import { PhotoInspector } from './components/PhotoInspector';
 import { ProgressSegments } from './components/ProgressSegments';
+import { sortQuestionsByPosition } from './questionOrder';
 
 type Props = RootStackScreenProps<'QuizPlay'>;
 
@@ -184,10 +186,7 @@ export function QuizPlayScreen({ navigation, route }: Props) {
 
   const sessionStartedRef = useRef(false);
 
-  const questions = useMemo(
-    () => (quiz ? [...quiz.questions].sort((a, b) => a.position - b.position) : []),
-    [quiz]
-  );
+  const questions = useMemo(() => (quiz ? sortQuestionsByPosition(quiz.questions) : []), [quiz]);
   const activeQuestion = questions.find((question) => question.id === activeQuestionId) ?? null;
   const activeNumber = activeQuestion
     ? questions.findIndex((question) => question.id === activeQuestion.id) + 1
@@ -422,11 +421,13 @@ export function QuizPlayScreen({ navigation, route }: Props) {
   });
 
   const handleHeaderLayout = useStableCallback((event: LayoutChangeEvent) => {
-    setHeaderHeight(event.nativeEvent.layout.height);
+    const next = event.nativeEvent.layout.height;
+    setHeaderHeight((prev) => (prev === next ? prev : next));
   });
 
   const handleSheetLayout = useStableCallback((event: LayoutChangeEvent) => {
-    setSheetHeight(event.nativeEvent.layout.height);
+    const next = event.nativeEvent.layout.height;
+    setSheetHeight((prev) => (prev === next ? prev : next));
   });
 
   const showQuestion = (phase === 'country' || phase === 'year') && activeQuestion;
@@ -634,7 +635,7 @@ export function QuizPlayScreen({ navigation, route }: Props) {
               </View>
             ) : (
               <LinearGradient
-                colors={[withAlpha(colors.midnightNavy, 0), withAlpha(colors.midnightNavy, 0.9)]}
+                colors={BOTTOM_SCRIM_COLORS}
                 style={[styles.bottomSheet, { paddingBottom: insets.bottom + 20 }]}
                 onLayout={handleSheetLayout}
                 testID="quiz-answer-scrim"

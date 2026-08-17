@@ -65,6 +65,7 @@ import { SerifScore } from './components/SerifScore';
 import { DURATION_BASE, DURATION_HERO, DURATION_SLOW } from './components/motionTokens';
 import { resultsAccent } from './sampleAssets';
 import { presentChallengeShare } from './shareChallenge';
+import { sortQuestionsByPosition } from './questionOrder';
 
 type Props = RootStackScreenProps<'QuizLeaderboard'>;
 
@@ -214,9 +215,7 @@ export function QuizLeaderboardScreen({ navigation, route }: Props) {
 
   // The hero photo: one challenge photo (the first question's, same choice as
   // the results reveal). The navy ground holds while the detail loads.
-  const firstQuestion = quiz?.questions.length
-    ? [...quiz.questions].sort((a, b) => a.position - b.position)[0]
-    : null;
+  const firstQuestion = quiz?.questions.length ? sortQuestionsByPosition(quiz.questions)[0] : null;
   const heroUri = firstQuestion?.image_url ?? null;
   const heroHeight = Math.round(windowHeight * 0.34);
 
@@ -246,7 +245,7 @@ export function QuizLeaderboardScreen({ navigation, route }: Props) {
       <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}>
         <View style={{ height: heroHeight }} testID="leaderboard-hero">
           {heroUri ? (
-            <PhotoHero uri={heroUri} scrim="bottom" style={styles.hero}>
+            <PhotoHero source={heroUri} scrim="bottom" style={styles.hero}>
               {heroContent}
             </PhotoHero>
           ) : (

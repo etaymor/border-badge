@@ -86,6 +86,7 @@ import {
   type StoredQuizAnswer,
 } from '@services/quiz/quizPlay';
 import { getAllCountries } from '@services/countriesDb';
+import { invalidateCountriesCache } from '@hooks/useCountries';
 import { useReducedMotion } from '@hooks/useReducedMotion';
 import { deriveOrientation, QuizPlayScreen } from '@screens/quiz/QuizPlayScreen';
 import { QuizResultsScreen } from '@screens/quiz/QuizResultsScreen';
@@ -820,6 +821,9 @@ describe('QuizResultsScreen', () => {
   });
 
   it('stamps reviewed rows with country artwork when the country is known', async () => {
+    // The screen reads countries through useCountries' module-level cache;
+    // reset it so this test's one-off mock is what the mount reads.
+    invalidateCountriesCache();
     (getAllCountries as jest.Mock).mockResolvedValueOnce([
       { code: 'FR', name: 'France', region: 'Europe', subregion: null, recognition: null },
     ]);
@@ -833,6 +837,10 @@ describe('QuizResultsScreen', () => {
 
     // The stamp accent is post-answer only, inside the opened review rows.
     await waitFor(() => expect(screen.getByTestId('quiz-review-stamp-0')).toBeTruthy());
+
+    // Drop the France entry from the shared cache so later mounts see the
+    // default empty countries again, as they did before this test ran.
+    invalidateCountriesCache();
   });
 
   it('forces answering a swapped-in photo before share is available', async () => {

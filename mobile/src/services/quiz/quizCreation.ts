@@ -161,7 +161,22 @@ function withPickUris(
   getPickUris: () => string[]
 ): ((progress: QuizCreationProgress) => void) | undefined {
   if (!onProgress) return undefined;
-  return (progress) => onProgress({ ...progress, pickUris: getPickUris() });
+  // Reuse the last emitted array when its contents are unchanged, so
+  // consumers comparing by reference see churn only when a pick actually
+  // lands (the getter builds a fresh array on every read).
+  let lastEmitted: string[] | null = null;
+  return (progress) => {
+    const next = getPickUris();
+    const prev = lastEmitted;
+    const pickUris =
+      prev !== null &&
+      prev.length === next.length &&
+      next.every((uri, index) => prev[index] === uri)
+        ? prev
+        : next;
+    lastEmitted = pickUris;
+    onProgress({ ...progress, pickUris });
+  };
 }
 
 /**

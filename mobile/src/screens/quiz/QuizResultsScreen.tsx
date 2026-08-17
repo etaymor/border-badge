@@ -61,9 +61,14 @@ import {
 } from '@hooks/useQuizzes';
 import { useReducedMotion } from '@hooks/useReducedMotion';
 import { useStableCallback } from '@hooks/useStableCallback';
+import { useCountries } from '@hooks/useCountries';
 import { QUIZ_MIN_PHOTOS, type GeoEligibleCandidate } from '@services/quiz/candidateSelection';
-import { getAllCountries } from '@services/countriesDb';
-import { loadPlayState, loadSwapCandidates, type QuizPlayState } from '@services/quiz/quizPlay';
+import {
+  loadPlayState,
+  loadSwapCandidates,
+  type QuizPlayState,
+  type StoredQuizAnswer,
+} from '@services/quiz/quizPlay';
 import type { RootStackScreenProps } from '@navigation/types';
 
 import { getStampImage } from '../../assets/stampImages';
@@ -79,11 +84,20 @@ import {
   DURATION_SLOW,
 } from './components/motionTokens';
 import { presentChallengeShare } from './shareChallenge';
+import { sortQuestionsByPosition } from './questionOrder';
 
 type Props = RootStackScreenProps<'QuizResults'>;
 
 /** Per-thumbnail delay so the recap populates rapidly, not all at once. */
 const THUMB_STAGGER = DURATION_FAST / 2;
+
+/** The recap thumbnail's corner verdict for a stored answer (null = unanswered). */
+function verdictFor(answer: StoredQuizAnswer | undefined): PolaroidVerdict | null {
+  if (!answer) return null;
+  if (answer.verdictUnknown) return 'unknown';
+  if (answer.placeCorrect) return 'correct';
+  return 'incorrect';
+}
 
 export function QuizResultsScreen({ navigation, route }: Props) {
   // A restored navigation state can produce a param-less route (BUG-1):
@@ -113,9 +127,15 @@ export function QuizResultsScreen({ navigation, route }: Props) {
   // Distinguishes a candidate-load failure from an empty library so the swap
   // modal can offer retry instead of the "no eligible photos" dead end.
   const [swapLoadFailed, setSwapLoadFailed] = useState(false);
-  // Country name -> ISO2, resolved from the local countries DB. Powers the
-  // small stamp accents in the opened review; absent names just skip the art.
-  const [countryCodeByName, setCountryCodeByName] = useState<Record<string, string> | null>(null);
+  // Country name -> ISO2, from the module-cached countries hook. Powers the
+  // small stamp accents in the opened review; absent names (including the
+  // pre-load window, when `countries` is still empty) just skip the art.
+  const { data: countries } = useCountries();
+  const countryCodeByName = useMemo(
+    () =>
+      Object.fromEntries(countries.map((country) => [country.name.toLowerCase(), country.code])),
+    [countries]
+  );
 
   // The local play state mirrors the seeding session's graded answers; it
   // drives the per-photo review and the "answer the swapped photo" gate.
@@ -128,23 +148,6 @@ export function QuizResultsScreen({ navigation, route }: Props) {
       cancelled = true;
     };
   }, [quizId]);
-
-  useEffect(() => {
-    let cancelled = false;
-    getAllCountries()
-      .then((countries) => {
-        if (cancelled) return;
-        setCountryCodeByName(
-          Object.fromEntries(countries.map((country) => [country.name.toLowerCase(), country.code]))
-        );
-      })
-      .catch(() => {
-        // Purely decorative lookup: on failure the review simply has no stamps.
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   // Arriving fresh from play (results present) is the reveal moment: the
   // success haptic lands as the score settles into the hero.
@@ -159,10 +162,7 @@ export function QuizResultsScreen({ navigation, route }: Props) {
     return () => clearTimeout(timer);
   }, [results, reduceMotion]);
 
-  const questions = useMemo(
-    () => (quiz ? [...quiz.questions].sort((a, b) => a.position - b.position) : []),
-    [quiz]
-  );
+  const questions = useMemo(() => (quiz ? sortQuestionsByPosition(quiz.questions) : []), [quiz]);
   // `results` is absent when arriving from My Quizzes (no fresh play-through);
   // everything below then renders from the fetched quiz detail alone.
   const state = quiz?.state ?? results?.state;
@@ -344,7 +344,7 @@ export function QuizResultsScreen({ navigation, route }: Props) {
           testID="quiz-results-hero"
         >
           {heroUri ? (
-            <PhotoHero uri={heroUri} scrim="bottom" style={styles.hero}>
+            <PhotoHero source={heroUri} scrim="bottom" style={styles.hero}>
               {heroContent}
             </PhotoHero>
           ) : (
@@ -375,14 +375,7 @@ export function QuizResultsScreen({ navigation, route }: Props) {
 
           <View style={styles.recapRow} testID="quiz-recap">
             {questions.map((question, index) => {
-              const answer = playState?.answers[question.id];
-              const verdict: PolaroidVerdict | null = answer
-                ? answer.verdictUnknown
-                  ? 'unknown'
-                  : answer.placeCorrect
-                    ? 'correct'
-                    : 'incorrect'
-                : null;
+              const verdict = verdictFor(playState?.answers[question.id]);
               return (
                 <Animated.View
                   key={question.id}
@@ -417,7 +410,7 @@ export function QuizResultsScreen({ navigation, route }: Props) {
                 const answer = playState?.answers[question.id];
                 const stampCode =
                   answer && !answer.verdictUnknown
-                    ? countryCodeByName?.[answer.correctOption.toLowerCase()]
+                    ? countryCodeByName[answer.correctOption.toLowerCase()]
                     : undefined;
                 const stamp = stampCode ? getStampImage(stampCode) : null;
                 return (

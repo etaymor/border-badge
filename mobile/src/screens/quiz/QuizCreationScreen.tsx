@@ -37,7 +37,6 @@
  */
 
 import { Image } from 'expo-image';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Linking, StatusBar, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -54,6 +53,7 @@ import {
   getLibraryFreshness,
   type LibraryFreshness,
 } from '@services/photoImport/photoLibrarySyncStatus';
+import { QUIZ_MAX_PHOTOS } from '@services/quiz/candidateSelection';
 import { loadDraftState } from '@services/quiz/quizCreation';
 import type {
   QuizCreationOutcome,
@@ -87,14 +87,6 @@ const WORKING_STATUS: Record<QuizCreationStep, string> = {
   checking: 'Finding your travel photos',
   building: 'Building your challenge',
 };
-
-/** Grid size before the first progress emission names the real game size. */
-const DEFAULT_SLOT_TOTAL = 10;
-
-const POSTER_SCRIM: [string, string] = [
-  withAlpha(colors.midnightNavy, 0),
-  withAlpha(colors.midnightNavy, 0.9),
-];
 
 /**
  * Name the rule that actually failed. The backend has always returned a
@@ -320,30 +312,18 @@ export function QuizCreationScreen({ navigation }: Props) {
       ? pickUris.length
       : progress?.total && progress.total > 0
         ? progress.total
-        : DEFAULT_SLOT_TOTAL;
+        : // Grid size before the first progress emission names the real game size.
+          QUIZ_MAX_PHOTOS;
 
   // Hero region per phase: real photos as soon as any are known, the bundled
   // intro poster for the confirm steps, a plain navy field for utility
   // states - and NEVER fake imagery while the hunt is still empty-handed.
   const posterHero = (
-    <View style={styles.heroFill}>
-      <Image
-        source={introPoster}
-        style={StyleSheet.absoluteFill}
-        contentFit="cover"
-        cachePolicy="memory-disk"
-        transition={150}
-      />
-      <LinearGradient
-        colors={POSTER_SCRIM}
-        locations={[0.4, 1]}
-        style={StyleSheet.absoluteFill}
-        pointerEvents="none"
-      />
+    <PhotoHero source={introPoster} scrim="bottom" style={styles.heroFill}>
       <View style={styles.heroFooter}>
         <Text style={styles.heroEyebrow}>Guess Where</Text>
       </View>
-    </View>
+    </PhotoHero>
   );
 
   const neutralHero = (
@@ -356,7 +336,7 @@ export function QuizCreationScreen({ navigation }: Props) {
   if (phase === 'working') {
     hero = lastPickUri ? (
       <PhotoHero
-        uri={lastPickUri}
+        source={lastPickUri}
         scrim="bottom"
         style={styles.heroFill}
         testID="quiz-working-hero"
@@ -372,7 +352,7 @@ export function QuizCreationScreen({ navigation }: Props) {
   } else if (phase === 'resume-draft') {
     hero = draftHeroUri ? (
       <PhotoHero
-        uri={draftHeroUri}
+        source={draftHeroUri}
         scrim="bottom"
         style={styles.heroFill}
         testID="quiz-draft-hero"
@@ -382,7 +362,7 @@ export function QuizCreationScreen({ navigation }: Props) {
     );
   } else if (phase === 'interrupted') {
     hero = lastPickUri ? (
-      <PhotoHero uri={lastPickUri} scrim="bottom" style={styles.heroFill} />
+      <PhotoHero source={lastPickUri} scrim="bottom" style={styles.heroFill} />
     ) : (
       posterHero
     );

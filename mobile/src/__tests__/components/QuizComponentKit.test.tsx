@@ -50,7 +50,7 @@ describe('VerdictMark', () => {
 describe('PhotoHero', () => {
   it('renders children above the photo and scrim', () => {
     render(
-      <PhotoHero uri="https://cdn.example/photo.jpg" testID="photo-hero">
+      <PhotoHero source="https://cdn.example/photo.jpg" testID="photo-hero">
         <Text>Overlaid title</Text>
       </PhotoHero>
     );
@@ -60,7 +60,7 @@ describe('PhotoHero', () => {
   });
 
   it('renders without children', () => {
-    render(<PhotoHero uri="https://cdn.example/photo.jpg" scrim="full" testID="photo-hero" />);
+    render(<PhotoHero source="https://cdn.example/photo.jpg" scrim="full" testID="photo-hero" />);
 
     expect(screen.getByTestId('photo-hero')).toBeTruthy();
   });

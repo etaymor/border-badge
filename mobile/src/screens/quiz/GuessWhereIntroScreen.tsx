@@ -15,7 +15,7 @@
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useVideoPlayer, VideoView } from 'expo-video';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Image, StatusBar, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeIn } from 'react-native-reanimated';
@@ -77,12 +77,21 @@ function IntroVideoBackground({
     }
   }, [paused, player]);
 
+  // The focus listener reads the latest paused value through this ref (synced
+  // in an effect - React-Compiler-safe), so the listeners below are added and
+  // removed only on navigation/player identity changes, not on every pause
+  // toggle.
+  const pausedRef = useRef(paused);
+  useEffect(() => {
+    pausedRef.current = paused;
+  }, [paused]);
+
   // Release the decoder on blur, restore on focus (mirrors WelcomeCarouselScreen).
   useEffect(() => {
     const unsubscribeFocus = navigation.addListener('focus', () => {
       try {
         player.replace(introVideo);
-        if (!paused) player.play();
+        if (!pausedRef.current) player.play();
       } catch {
         // Native player may be released
       }
@@ -98,7 +107,7 @@ function IntroVideoBackground({
       unsubscribeFocus();
       unsubscribeBlur();
     };
-  }, [navigation, player, paused]);
+  }, [navigation, player]);
 
   return (
     <VideoView
