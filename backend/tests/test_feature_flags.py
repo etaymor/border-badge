@@ -97,6 +97,87 @@ class TestSocialFeaturesDisabled:
         response = client.get("/notifications")
         assert response.status_code == 404
 
+    def test_trip_tags_returns_404_when_disabled(self):
+        """Test /trip-tags endpoints return 404 when social features disabled."""
+        from app import main
+
+        client = TestClient(main.app)
+        response = client.get("/trip-tags/pending")
+        assert response.status_code == 404
+
+
+class TestDevelopmentEnvDoesNotAutoEnable:
+    """ENV=development alone must never expose social routes (plan U3/R2).
+
+    A previous dev convenience auto-registered social routers whenever
+    ENV was 'development' (outside pytest). ENV defaults to 'development',
+    so any deployment that forgot to set ENV would silently expose every
+    social endpoint with the flag off. ENABLE_SOCIAL_FEATURES is now the
+    only gate.
+    """
+
+    @pytest.fixture(autouse=True)
+    def reload_app_dev_env_without_flag(self):
+        """Reload app with ENV=development, flag off, outside pytest context."""
+        original_flag = os.environ.get("ENABLE_SOCIAL_FEATURES")
+        original_env = os.environ.get("ENV")
+        original_pytest_marker = os.environ.get("PYTEST_CURRENT_TEST")
+
+        os.environ["ENABLE_SOCIAL_FEATURES"] = "false"
+        os.environ["ENV"] = "development"
+        # Simulate a deployed (non-pytest) process: the removed dev fallback
+        # keyed off PYTEST_CURRENT_TEST, so clearing it proves the fallback
+        # is gone rather than merely inhibited by the test context.
+        os.environ.pop("PYTEST_CURRENT_TEST", None)
+
+        from app.core import config
+
+        importlib.reload(config)
+
+        from app import api
+
+        importlib.reload(api)
+
+        from app import main
+
+        importlib.reload(main)
+
+        yield
+
+        for key, value in (
+            ("ENABLE_SOCIAL_FEATURES", original_flag),
+            ("ENV", original_env),
+            ("PYTEST_CURRENT_TEST", original_pytest_marker),
+        ):
+            if value is not None:
+                os.environ[key] = value
+            elif key in os.environ:
+                del os.environ[key]
+
+        importlib.reload(config)
+        importlib.reload(api)
+        importlib.reload(main)
+
+    def test_social_routes_404_in_development_without_flag(self):
+        """Social endpoints 404 in ENV=development unless the flag is set."""
+        from app import main
+
+        client = TestClient(main.app)
+        assert client.get("/users/search", params={"q": "test"}).status_code == 404
+        assert client.get("/feed").status_code == 404
+        assert client.get("/follows/followers").status_code == 404
+        assert client.get("/blocks").status_code == 404
+        assert client.get("/trip-tags/pending").status_code == 404
+
+    def test_non_social_routes_still_work_in_development(self):
+        """Non-social routes are unaffected by the missing flag."""
+        from app import main
+
+        client = TestClient(main.app)
+        assert client.get("/").status_code == 200
+        # 403 = route exists, needs auth (404 would mean it vanished)
+        assert client.get("/profile").status_code == 403
+
 
 class TestNonSocialRoutesAlwaysWork:
     """Test that non-social routes work regardless of feature flag."""

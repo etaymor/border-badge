@@ -3,7 +3,14 @@
 import logging
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query, Request, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    HTTPException,
+    Query,
+    Request,
+    status,
+)
 
 from app.api.trips_helpers import format_daterange, trip_from_row
 from app.api.utils import get_token_from_request
@@ -201,10 +208,15 @@ async def create_trip(
     request: Request,
     data: TripCreate,
     user: CurrentUser,
+    background_tasks: BackgroundTasks,
 ) -> TripWithTags:
     """Create a new trip.
 
-    Optionally tag other users who will receive pending invitations.
+    Optionally tag other users who will receive pending invitations. Tagged
+    users must exist and must not have a block in either direction with the
+    caller; invalid targets are skipped (the trip itself is still created).
+    Notifications are sent as background tasks only after the tag insert
+    succeeds.
     """
     token = get_token_from_request(request)
     db = get_supabase_client(user_token=token)
@@ -240,28 +252,63 @@ async def create_trip(
 
     # Create trip tags for tagged users
     if data.tagged_user_ids:
+        # Deduplicate and drop self-tags, preserving order
+        candidate_ids: list[str] = []
         for tagged_user_id in data.tagged_user_ids:
-            if str(tagged_user_id) == user.id:
-                continue  # Don't tag yourself
+            tagged_id_str = str(tagged_user_id)
+            if tagged_id_str != str(user.id) and tagged_id_str not in candidate_ids:
+                candidate_ids.append(tagged_id_str)
 
-            # Send notification (returns notification_id for future use)
-            notification_id = await send_trip_tag_notification(
-                trip_id=trip.id,
-                trip_name=trip.name,
-                initiator_id=user.id,
-                tagged_user_id=tagged_user_id,
+        # Target-existence check in one query
+        existing_profiles = await db.get(
+            "user_profile",
+            {
+                "select": "user_id",
+                "user_id": in_list(candidate_ids),
+            },
+        )
+        existing_ids = {p["user_id"] for p in existing_profiles or []}
+
+        # Bidirectional block check via SECURITY DEFINER RPC (a JWT-scoped
+        # user_block query cannot see "someone blocked me" rows under RLS).
+        # Nonexistent and blocked targets are skipped, not errors: the trip
+        # itself is already created, and skipping keeps blocks unobservable.
+        taggable_ids: list[str] = []
+        for tagged_id_str in candidate_ids:
+            if tagged_id_str not in existing_ids:
+                continue
+            blocked = await db.rpc(
+                "is_blocked_bidirectional", {"p_user_id": tagged_id_str}
             )
+            if blocked:
+                continue
+            taggable_ids.append(tagged_id_str)
 
-            tag_data = {
-                "trip_id": str(trip.id),
-                "tagged_user_id": str(tagged_user_id),
-                "status": TripTagStatus.PENDING.value,
-                "initiated_by": user.id,
-                "notification_id": notification_id,
-            }
-            tag_rows = await db.post("trip_tags", tag_data)
-            if tag_rows:
-                tags.append(TripTag(**tag_rows[0]))
+        if taggable_ids:
+            # Batch insert: one call for the whole tag list. Notifications go
+            # out as background tasks only after the insert succeeds.
+            tag_rows = await db.post(
+                "trip_tags",
+                [
+                    {
+                        "trip_id": str(trip.id),
+                        "tagged_user_id": tagged_id_str,
+                        "status": TripTagStatus.PENDING.value,
+                        "initiated_by": user.id,
+                        "notification_id": None,
+                    }
+                    for tagged_id_str in taggable_ids
+                ],
+            )
+            for tag_row in tag_rows or []:
+                tags.append(TripTag(**tag_row))
+                background_tasks.add_task(
+                    send_trip_tag_notification,
+                    trip_id=trip.id,
+                    trip_name=trip.name,
+                    initiator_id=user.id,
+                    tagged_user_id=tag_row["tagged_user_id"],
+                )
 
     return TripWithTags(**trip.model_dump(), tags=tags)
 

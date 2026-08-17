@@ -299,11 +299,21 @@ def test_trip_tag_consent_full_workflow(
         [pending_tag],  # First call: get pending trip_tags
         [initiator_profile],  # Second call: get initiator's user_profile
     ]
+    # Service client answers the two block-filter queries (no blocks)
+    service_client = AsyncMock()
+    service_client.get.return_value = []
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
-        with patch(
-            "app.api.trip_tags.get_supabase_client", return_value=mock_supabase_client
+        with (
+            patch(
+                "app.api.trip_tags.get_supabase_client",
+                return_value=mock_supabase_client,
+            ),
+            patch(
+                "app.api.trip_tags.get_service_supabase_client",
+                return_value=service_client,
+            ),
         ):
             pending_response = client.get("/trip-tags/pending", headers=auth_headers)
         assert pending_response.status_code == 200
@@ -353,23 +363,14 @@ def test_email_lookup_hides_blocked_users(
     mock_user: AuthUser,
     auth_headers: dict[str, str],
 ) -> None:
-    """Test that email lookup returns null for blocked users."""
-    lookup_result = [
-        {
-            "user_id": OTHER_USER_ID,
-            "username": "hiddenuser",
-            "avatar_url": None,
-        }
-    ]
+    """Test that email lookup returns null for blocked users.
 
+    Block exclusion lives in the lookup_user_by_email_excluding_blocked
+    SECURITY DEFINER RPC (migration 0089): a blocked pair produces zero rows,
+    indistinguishable from "no such user".
+    """
     mock_supabase_client.rpc.side_effect = [
-        lookup_result,  # Email lookup finds user
-        [{"user_id": OTHER_USER_ID, "count": 0}],  # Country count (for timing)
-    ]
-    # Block checks now use 2 separate queries for safety (avoids SQL injection in 'or' filter)
-    mock_supabase_client.get.side_effect = [
-        [{"id": "block-id"}],  # Block check 1: current user blocked target
-        [],  # Block check 2: target blocked current user (not needed for this test)
+        [],  # RPC returns no rows for a blocked pair (either direction)
     ]
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
@@ -391,5 +392,9 @@ def test_email_lookup_hides_blocked_users(
         assert response.status_code == 200
         # Should return null to hide blocked user
         assert response.json() is None
+        # The requester id is passed so the RPC can check both directions
+        rpc_call = mock_supabase_client.rpc.call_args
+        assert rpc_call[0][0] == "lookup_user_by_email_excluding_blocked"
+        assert rpc_call[0][1]["p_requester_id"] == mock_user.id
     finally:
         app.dependency_overrides.clear()

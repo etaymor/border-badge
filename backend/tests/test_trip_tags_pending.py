@@ -70,11 +70,21 @@ def test_pending_trip_tags_returns_tags_for_user(
         [pending_tag_with_trip],
         [initiator_profile],
     ]
+    # Service client answers the two block-filter queries (no blocks)
+    service_client = AsyncMock()
+    service_client.get.return_value = []
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
-        with patch(
-            "app.api.trip_tags.get_supabase_client", return_value=mock_supabase_client
+        with (
+            patch(
+                "app.api.trip_tags.get_supabase_client",
+                return_value=mock_supabase_client,
+            ),
+            patch(
+                "app.api.trip_tags.get_service_supabase_client",
+                return_value=service_client,
+            ),
         ):
             response = client.get("/trip-tags/pending", headers=auth_headers)
         assert response.status_code == 200

@@ -107,11 +107,13 @@ def test_search_users_by_prefix(
         "avatar_url": "https://example.com/avatar.jpg",
     }
 
+    mock_supabase_client.rpc.side_effect = [
+        [sample_profile],  # search_users_excluding_blocked results
+        [{"user_id": OTHER_USER_ID, "count": 25}],  # Country counts
+    ]
     mock_supabase_client.get.side_effect = [
-        [sample_profile],  # Search results
         [{"following_id": OTHER_USER_ID}],  # Following check
     ]
-    mock_supabase_client.rpc.return_value = [{"user_id": OTHER_USER_ID, "count": 25}]
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
@@ -131,15 +133,15 @@ def test_search_users_by_prefix(
         app.dependency_overrides.clear()
 
 
-def test_search_users_excludes_self(
+def test_search_users_delegates_block_exclusion_to_rpc(
     client: TestClient,
     mock_supabase_client: AsyncMock,
     mock_user: AuthUser,
     auth_headers: dict[str, str],
 ) -> None:
-    """Test that search results exclude the current user."""
-    # Return current user in search - should be filtered out by the query
-    mock_supabase_client.get.return_value = []
+    """Search runs through the SECURITY DEFINER RPC that excludes the caller
+    and blocked pairs (both directions) in SQL, not through a raw table read."""
+    mock_supabase_client.rpc.return_value = []
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
@@ -150,9 +152,13 @@ def test_search_users_excludes_self(
                 "/users/search", headers=auth_headers, params={"q": "test"}
             )
         assert response.status_code == 200
-        # Verify the query excluded the current user
-        call_args = mock_supabase_client.get.call_args_list[0]
-        assert f"neq.{mock_user.id}" in str(call_args)
+        assert response.json() == []
+        # The block/self exclusion lives in the RPC (migration 0089)
+        rpc_call = mock_supabase_client.rpc.call_args_list[0]
+        assert rpc_call[0][0] == "search_users_excluding_blocked"
+        assert rpc_call[0][1] == {"p_query": "test", "p_limit": 10}
+        # No direct user_profile read for search results
+        mock_supabase_client.get.assert_not_called()
     finally:
         app.dependency_overrides.clear()
 
@@ -164,7 +170,7 @@ def test_search_users_empty_results(
     auth_headers: dict[str, str],
 ) -> None:
     """Test search with no matching users."""
-    mock_supabase_client.get.return_value = []
+    mock_supabase_client.rpc.return_value = []
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
@@ -230,13 +236,10 @@ def test_email_lookup_found(
     ]
 
     mock_supabase_client.rpc.side_effect = [
-        lookup_result,  # Email lookup RPC
+        lookup_result,  # Email lookup RPC (block exclusion happens in SQL)
         [{"user_id": OTHER_USER_ID, "count": 10}],  # Country count
     ]
-    # Block checks now use 2 separate queries for safety (avoids SQL injection in 'or' filter)
     mock_supabase_client.get.side_effect = [
-        [],  # Block check 1: current user blocked target - no block
-        [],  # Block check 2: target blocked current user - no block
         [],  # Not following
     ]
 
@@ -261,6 +264,14 @@ def test_email_lookup_found(
         assert data["username"] == "founduser"
         assert data["country_count"] == 10
         assert data["is_following"] is False
+        # The lookup delegates self/block exclusion to the SQL RPC and passes
+        # the requester id explicitly (service-role call has no auth.uid()).
+        rpc_call = mock_supabase_client.rpc.call_args_list[0]
+        assert rpc_call[0][0] == "lookup_user_by_email_excluding_blocked"
+        assert rpc_call[0][1] == {
+            "email_to_lookup": "found@example.com",
+            "p_requester_id": TEST_USER_ID,
+        }
     finally:
         app.dependency_overrides.clear()
 
@@ -271,12 +282,14 @@ def test_email_lookup_not_found(
     mock_user: AuthUser,
     auth_headers: dict[str, str],
 ) -> None:
-    """Test email lookup when user is not found (with timing protection)."""
+    """Email lookup misses return null.
+
+    The RPC returns zero rows for "no such user", "that's you", AND "blocked
+    in either direction", so the response shape cannot leak which one it was.
+    """
     mock_supabase_client.rpc.side_effect = [
-        [],  # Email lookup returns empty
-        [{"user_id": TEST_USER_ID, "count": 0}],  # Dummy query for timing
+        [],  # Email lookup RPC: no visible match
     ]
-    mock_supabase_client.get.return_value = []  # Dummy follow check
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
@@ -296,6 +309,9 @@ def test_email_lookup_not_found(
             )
         assert response.status_code == 200
         assert response.json() is None
+        # Not-found short-circuits: the single RPC is the only database call
+        assert mock_supabase_client.rpc.call_count == 1
+        mock_supabase_client.get.assert_not_called()
     finally:
         app.dependency_overrides.clear()
 

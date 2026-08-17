@@ -1,8 +1,5 @@
 """API route handlers."""
 
-import logging
-import os
-
 from fastapi import APIRouter
 
 from app.api import (
@@ -37,11 +34,9 @@ from app.api import (
 from app.core.config import get_settings
 
 router = APIRouter()
-logger = logging.getLogger(__name__)
 
 # Get settings at module load time for conditional router registration
 _settings = get_settings()
-_is_pytest_context = bool(os.environ.get("PYTEST_CURRENT_TEST"))
 
 # Public routes first so unauthenticated landing/list/trip pages resolve before
 # authenticated API routers.
@@ -71,23 +66,12 @@ router.include_router(
 router.include_router(webhooks.router, prefix="/webhooks", tags=["webhooks"])
 router.include_router(ad_events.router, tags=["ad-events"])
 
-# In development we automatically enable social routes even if the flag is disabled
-# to prevent confusing 404s during local testing.
-_social_routes_enabled = _settings.enable_social_features
-if (
-    not _social_routes_enabled
-    and _settings.env == "development"
-    and not _is_pytest_context
-):
-    logger.warning(
-        "ENABLE_SOCIAL_FEATURES is false but development environment detected. "
-        "Automatically registering social routes for local testing."
-    )
-    _social_routes_enabled = True
-
-
-# Social routes are registered when the flag (or dev fallback) enables them.
-if _social_routes_enabled:
+# Social routes are registered ONLY when ENABLE_SOCIAL_FEATURES is explicitly
+# enabled. There is deliberately no ENV=development fallback: a deployed
+# environment that leaves ENV at its "development" default would otherwise
+# silently expose every social route with the flag off (plan U3/R2). Local
+# testing must set ENABLE_SOCIAL_FEATURES=true in backend/.env.
+if _settings.enable_social_features:
     router.include_router(trip_tags.router, prefix="/trip-tags", tags=["trip_tags"])
     router.include_router(stats.router, prefix="/stats", tags=["stats"])
     router.include_router(users.router, prefix="/users", tags=["users"])

@@ -164,6 +164,10 @@ async def search_users(
     Results exclude:
     - The current user
     - Users blocked by or blocking the current user
+
+    The exclusion runs inside the search_users_excluding_blocked SECURITY
+    DEFINER RPC (migration 0089): a JWT-scoped user_block query cannot see
+    "someone blocked me" rows because of RLS, so the filter must live in SQL.
     """
     token = get_token_from_request(request)
     db = get_supabase_client(user_token=token)
@@ -177,17 +181,12 @@ async def search_users(
         logger.debug(f"Invalid search query rejected: {q}")
         return []
 
-    # Search by username prefix (case-insensitive).
-    # Note: q_safe is pre-validated against USERNAME_PATTERN above, stripping wildcards.
-    # The ilike operator with alphanumeric input is safe from SQL injection.
-    rows = await db.get(
-        "user_profile",
-        {
-            "select": "id,user_id,username,avatar_url",
-            "username": f"ilike.{q_safe}%",
-            "user_id": f"neq.{user.id}",
-            "limit": limit,
-        },
+    # Search by username prefix (case-insensitive), excluding the caller and
+    # blocked pairs in both directions. The RPC identifies the caller via
+    # auth.uid() from the forwarded JWT.
+    rows = await db.rpc(
+        "search_users_excluding_blocked",
+        {"p_query": q_safe, "p_limit": limit},
     )
 
     logger.info(f"User search results: {len(rows) if rows else 0} rows")
@@ -242,13 +241,15 @@ async def lookup_user_by_email(
     """
     Look up a user by exact email match.
 
-    Returns user info if found, None if not found.
-    Rate limited to 10 requests/minute to prevent email enumeration abuse.
+    Returns user info if found, None if not found. The response shape is
+    identical for "no such user", "that's you", and "blocked in either
+    direction": null. Rate limiting (10 requests/minute) is the enumeration
+    defense; response timing is NOT constant and is not claimed to be.
 
-    This endpoint requires authentication and uses service role to query
-    the auth.users table (which is not directly accessible to users).
-
-    Note: Uses constant-time response pattern to prevent timing-based enumeration.
+    This endpoint requires authentication and uses the service role to query
+    the auth.users table (which is not directly accessible to users). The
+    self/block exclusion runs inside the lookup_user_by_email_excluding_blocked
+    SECURITY DEFINER RPC (migration 0089), which sees both block directions.
     """
     # Validate email format
     if "@" not in email or "." not in email.split("@")[-1]:
@@ -257,55 +258,24 @@ async def lookup_user_by_email(
     # Use service client to call the RPC (requires service role)
     service_db = get_service_supabase_client()
 
-    # Look up user profile by email
+    # Look up user profile by email; the RPC returns zero rows for the
+    # requester themselves and for blocked pairs (either direction).
     result = await service_db.rpc(
-        "lookup_user_by_email",
-        {"email_to_lookup": email.strip().lower()},
+        "lookup_user_by_email_excluding_blocked",
+        {
+            "email_to_lookup": email.strip().lower(),
+            "p_requester_id": str(user.id),
+        },
     )
 
-    # Get user's DB client for subsequent queries
-    token = get_token_from_request(request)
-    db = get_supabase_client(user_token=token)
-
-    # Perform dummy queries when user not found to maintain constant timing
-    # This prevents attackers from determining user existence via response time
     if not result:
-        # Execute dummy queries to match the timing of a successful lookup
-        await db.rpc("get_user_country_counts", {"user_ids": [user.id]})
-        await db.get(
-            "user_follow",
-            {"select": "id", "follower_id": f"eq.{user.id}", "limit": 1},
-        )
         return None
 
     profile = result[0]
 
-    # Don't return the current user
-    if profile["user_id"] == user.id:
-        return None
-
-    # Check if blocked (bidirectional)
-    # Use separate queries to avoid string interpolation in 'or' filter (safer pattern)
-    block_check_1 = await db.get(
-        "user_block",
-        {
-            "select": "id",
-            "blocker_id": f"eq.{user.id}",
-            "blocked_id": f"eq.{profile['user_id']}",
-        },
-    )
-    block_check_2 = await db.get(
-        "user_block",
-        {
-            "select": "id",
-            "blocker_id": f"eq.{profile['user_id']}",
-            "blocked_id": f"eq.{user.id}",
-        },
-    )
-
-    if block_check_1 or block_check_2:
-        # Return None to not reveal that the user exists
-        return None
+    # Get user's DB client for subsequent queries
+    token = get_token_from_request(request)
+    db = get_supabase_client(user_token=token)
 
     # Get country count
     country_count_result = await db.rpc(

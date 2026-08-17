@@ -1,5 +1,6 @@
 """Trip tag endpoints for consent workflow and friend tagging."""
 
+import asyncio
 import logging
 from datetime import UTC, datetime
 from uuid import UUID
@@ -12,7 +13,7 @@ from app.core.edge_functions import send_push_notification
 from app.core.notifications import send_trip_tag_notification
 from app.core.security import CurrentUser
 from app.db.postgrest import in_list
-from app.db.session import get_supabase_client
+from app.db.session import get_service_supabase_client, get_supabase_client
 from app.main import limiter
 from app.schemas.trips import (
     PendingTripTagCount,
@@ -37,7 +38,10 @@ async def get_pending_trip_tags(
 ) -> list[PendingTripTagDetail]:
     """Get pending trip tag invitations for the current user.
 
-    Returns tags where the current user has been invited but hasn't responded yet.
+    Returns tags where the current user has been invited but hasn't responded
+    yet. Tags initiated by users with a block in either direction are
+    filtered out (block_user_full clears pending tags at block time; this
+    read-side filter also covers rows created before that migration).
     """
     token = get_token_from_request(request)
     db = get_supabase_client(user_token=token)
@@ -67,20 +71,49 @@ async def get_pending_trip_tags(
         {tag["initiated_by"] for tag in tags if tag.get("initiated_by")}
     )
     initiator_map: dict[str, dict] = {}
+    blocked_initiator_ids: set[str] = set()
 
     if initiator_ids:
-        initiators = await db.get(
-            "user_profile",
-            {
-                "select": "user_id,username,avatar_url",
-                "user_id": in_list([str(uid) for uid in initiator_ids]),
-            },
+        initiator_id_list = in_list([str(uid) for uid in initiator_ids])
+        # Block filtering needs the service client: RLS hides "someone
+        # blocked me" user_block rows from the blocked party's JWT.
+        service_db = get_service_supabase_client()
+        initiators, blocks_out, blocks_in = await asyncio.gather(
+            db.get(
+                "user_profile",
+                {
+                    "select": "user_id,username,avatar_url",
+                    "user_id": initiator_id_list,
+                },
+            ),
+            service_db.get(
+                "user_block",
+                {
+                    "select": "blocked_id",
+                    "blocker_id": f"eq.{user.id}",
+                    "blocked_id": initiator_id_list,
+                },
+            ),
+            service_db.get(
+                "user_block",
+                {
+                    "select": "blocker_id",
+                    "blocked_id": f"eq.{user.id}",
+                    "blocker_id": initiator_id_list,
+                },
+            ),
         )
         if initiators:
             initiator_map = {p["user_id"]: p for p in initiators}
+        blocked_initiator_ids = {row["blocked_id"] for row in blocks_out or []} | {
+            row["blocker_id"] for row in blocks_in or []
+        }
 
     results = []
     for tag in tags:
+        # Hide tags from users with a block in either direction
+        if tag.get("initiated_by") in blocked_initiator_ids:
+            continue
         # Validate required fields exist
         tag_id = tag.get("id")
         trip_id = tag.get("trip_id")
@@ -333,10 +366,14 @@ async def add_trip_tag(
     trip_id: UUID,
     tagged_user_id: UUID,
     user: CurrentUser,
+    background_tasks: BackgroundTasks,
 ) -> TripTag:
     """Add a tag to an existing trip (owner only).
 
-    Creates a pending tag invitation for the specified user.
+    Creates a pending tag invitation for the specified user. The target must
+    exist and must not have a block in either direction with the caller
+    (both cases return 404 so a block never reveals user existence). The
+    notification is sent as a background task only after the insert succeeds.
     """
     token = get_token_from_request(request)
     db = get_supabase_client(user_token=token)
@@ -352,6 +389,33 @@ async def add_trip_tag(
             detail="Cannot tag yourself",
         )
 
+    # Target must exist. user_profile is readable by any authenticated user.
+    target = await db.get(
+        "user_profile",
+        {
+            "select": "user_id",
+            "user_id": f"eq.{tagged_user_id}",
+            "limit": 1,
+        },
+    )
+    if not target:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
+        )
+
+    # Bidirectional block check via SECURITY DEFINER RPC (a JWT-scoped
+    # user_block query cannot see "someone blocked me" rows under RLS).
+    # 404, not 403: a block must not reveal that the user exists.
+    blocked = await db.rpc(
+        "is_blocked_bidirectional", {"p_user_id": str(tagged_user_id)}
+    )
+    if blocked:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
+        )
+
     # Check if tag already exists
     existing_tags = await db.get(
         "trip_tags",
@@ -363,21 +427,13 @@ async def add_trip_tag(
             detail="User is already tagged on this trip",
         )
 
-    # Send notification
-    notification_id = await send_trip_tag_notification(
-        trip_id=trip_id,
-        trip_name=trip["name"],
-        initiator_id=user.id,
-        tagged_user_id=tagged_user_id,
-    )
-
-    # Create the tag
+    # Create the tag FIRST; notify only after the insert succeeds.
     tag_data = {
         "trip_id": str(trip_id),
         "tagged_user_id": str(tagged_user_id),
         "status": TripTagStatus.PENDING.value,
         "initiated_by": user.id,
-        "notification_id": notification_id,
+        "notification_id": None,
     }
     tag_rows = await db.post("trip_tags", tag_data)
     if not tag_rows:
@@ -386,7 +442,67 @@ async def add_trip_tag(
             detail="Failed to create tag",
         )
 
+    background_tasks.add_task(
+        send_trip_tag_notification,
+        trip_id=trip_id,
+        trip_name=trip["name"],
+        initiator_id=user.id,
+        tagged_user_id=tagged_user_id,
+    )
+
     return TripTag(**tag_rows[0])
+
+
+@router.delete("/{trip_id}/tag", status_code=status.HTTP_204_NO_CONTENT)
+@limiter.limit("20/minute")
+async def withdraw_trip_tag(
+    request: Request,
+    trip_id: UUID,
+    user: CurrentUser,
+) -> None:
+    """Withdraw the current user's own tag from a trip (tagged user only).
+
+    Consent is revocable (plan Q3): the tagged user may remove their own tag
+    at any status - decline handles the pending case, and this endpoint also
+    covers tags that were already approved. Deleting the tag removes the trip
+    from the tagged user's profile view and from the owner's tag list.
+    """
+    token = get_token_from_request(request)
+    db = get_supabase_client(user_token=token)
+
+    # The tagged user can SELECT their own tag under RLS; this both finds the
+    # row and proves it belongs to the caller.
+    tags = await db.get(
+        "trip_tags",
+        {
+            "select": "id",
+            "trip_id": f"eq.{trip_id}",
+            "tagged_user_id": f"eq.{user.id}",
+        },
+    )
+    if not tags:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Tag not found",
+        )
+
+    # RLS only grants DELETE on trip_tags to the trip owner, so a JWT-scoped
+    # delete by the tagged user would silently no-op. The SELECT above
+    # authorized the withdrawal (the row is the caller's own tag); execute it
+    # with the service client, still scoped to the caller's tagged_user_id.
+    service_db = get_service_supabase_client()
+    deleted = await service_db.delete(
+        "trip_tags",
+        {
+            "id": f"eq.{tags[0]['id']}",
+            "tagged_user_id": f"eq.{user.id}",
+        },
+    )
+    if not deleted:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Tag not found",
+        )
 
 
 @router.delete(

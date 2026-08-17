@@ -1,5 +1,6 @@
 """Pytest configuration and fixtures."""
 
+import os
 import time
 from collections.abc import Callable
 from typing import Any
@@ -9,9 +10,16 @@ import jwt
 import pytest
 from fastapi.testclient import TestClient
 
-from app.core.config import get_settings
-from app.core.security import AuthUser
-from app.main import app
+# Social routers are registered at import time and ONLY when
+# ENABLE_SOCIAL_FEATURES is explicitly enabled (there is no dev fallback;
+# see app/api/__init__.py). Enable it before app.main is imported so the
+# social endpoint suites exercise registered routes. test_feature_flags
+# overrides this per-test and reloads the app to cover the disabled path.
+os.environ.setdefault("ENABLE_SOCIAL_FEATURES", "true")
+
+from app.core.config import get_settings  # noqa: E402
+from app.core.security import AuthUser  # noqa: E402
+from app.main import app  # noqa: E402
 
 # Valid UUIDs for test fixtures
 TEST_USER_ID = "550e8400-e29b-41d4-a716-446655440000"
