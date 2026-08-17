@@ -81,6 +81,7 @@
   var progressEl = document.getElementById('quiz-progress');
   var progressTrackEl = document.getElementById('quiz-progress-track');
   var photoEl = document.getElementById('quiz-photo');
+  var photoToggle = document.getElementById('quiz-photo-toggle');
   var photoBackdropEl = document.getElementById('quiz-photo-backdrop');
   var optionsEl = document.getElementById('quiz-options');
   var startButton = document.getElementById('quiz-start');
@@ -145,6 +146,22 @@
     Array.prototype.forEach.call(progressTrackEl.children, function (seg, i) {
       seg.classList.toggle('is-filled', i < count);
     });
+  }
+
+  // --- Photo inspection ----------------------------------------------------
+  // Tapping the photo hides the stage chrome for an aspect-fit look at the
+  // print (pinch zoom stays native via touch-action). A pure class toggle:
+  // answer state is never touched, and Escape also closes it.
+  function isInspecting() {
+    return (
+      !!questionStage && questionStage.classList.contains('quiz-stage--inspect')
+    );
+  }
+
+  function setInspecting(on) {
+    if (!questionStage || !photoToggle) return;
+    questionStage.classList.toggle('quiz-stage--inspect', on);
+    photoToggle.setAttribute('aria-pressed', on ? 'true' : 'false');
   }
 
   // --- API -----------------------------------------------------------------
@@ -222,11 +239,12 @@
     var question = questions[index];
     showView('question');
     clearError();
+    setInspecting(false); // a fresh print always deals in with its chrome
     ensureProgressTrack();
     fillProgress(index);
 
-    progressEl.textContent =
-      'Photo ' + (index + 1) + ' of ' + questions.length;
+    // Rendered "3 OF 10" (the label style uppercases it).
+    progressEl.textContent = index + 1 + ' of ' + questions.length;
     photoEl.src = question.image_url;
     if (photoBackdropEl) photoBackdropEl.src = question.image_url;
 
@@ -262,8 +280,9 @@
 
   function submitAnswer(question, optionIndex, button) {
     setOptionsDisabled(true);
-    // Neutral acknowledgment only: a gold ring on the tapped option. The
-    // verdict is counted silently; nothing right/wrong shows until the end.
+    // Neutral acknowledgment only: the tapped option presses to solid navy.
+    // The verdict is counted silently; nothing right/wrong shows until the
+    // end.
     button.classList.add('is-picked');
     api('/answer', {
       token: token,
@@ -321,7 +340,7 @@
     var scoreEl = document.getElementById('quiz-result-score');
     var compareEl = document.getElementById('quiz-result-compare');
 
-    scoreEl.textContent = results.score + '/' + results.total;
+    scoreEl.textContent = results.score + ' / ' + results.total;
 
     var owner = config.owner_name || 'Your friend';
     var toBeat = results.score_to_beat;
@@ -443,6 +462,15 @@
 
   // --- Wiring --------------------------------------------------------------
   startButton.addEventListener('click', startSession);
+  if (photoToggle) {
+    photoToggle.addEventListener('click', function () {
+      setInspecting(!isInspecting());
+    });
+    // Escape restores the interface (focus never moves, so nothing traps).
+    document.addEventListener('keydown', function (event) {
+      if (event.key === 'Escape' && isInspecting()) setInspecting(false);
+    });
+  }
   if (nameForm) {
     nameForm.addEventListener('submit', function (event) {
       event.preventDefault();

@@ -1,6 +1,6 @@
 /* ==============================================
    Atlasi Public Pages - Compiled CSS
-   Generated: 2026-08-17T18:37:00.254Z
+   Generated: 2026-08-17T18:44:59.452Z
    DO NOT EDIT - This file is auto-generated from src/
    ============================================== */
 
@@ -3470,11 +3470,74 @@ body:has(.quiz-view--stage:not([hidden])) .header .cta-button {
   filter: drop-shadow(0 10px 30px rgba(11, 20, 28, 0.55));
 }
 
+/* The photo doubles as the inspector toggle: an unchromed button filling the
+   frame, so the img's max-height still resolves against a definite height. */
+.quiz-photo-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: zoom-in;
+  /* Native pinch zoom stays available on the photo - no gesture math. */
+  touch-action: pinch-zoom;
+}
+
+.quiz-photo-toggle:focus-visible {
+  outline: 2px solid var(--color-sunset-gold);
+  outline-offset: 4px;
+}
+
+/* --- Photo inspection (chrome-hidden aspect-fit view) --------------------
+   Tapping the photo hides the interface and lets the print fill the navy
+   stage, still contained (never cropped). Purely a class toggle from
+   quiz-play.js; answer state is untouched. */
+
+.quiz-stage--inspect .quiz-stage-top,
+.quiz-stage--inspect .quiz-stage-bottom {
+  opacity: 0;
+  visibility: hidden; /* unclickable + unfocusable while hidden */
+}
+
+.quiz-stage--inspect .quiz-photo-frame {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  padding: 16px;
+}
+
+.quiz-stage--inspect .quiz-photo-toggle {
+  cursor: zoom-out;
+}
+
+/* The floating header is interface too - it fades with the rest. */
+body:has(.quiz-stage--inspect) .header {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+body:has(#quiz-root) .header {
+  transition:
+    opacity 0.25s ease,
+    visibility 0.25s;
+}
+
 /* Stage chrome sits above backdrop + scrim. */
 .quiz-stage-top,
 .quiz-stage-bottom,
 .quiz-intro-body {
   position: relative;
+}
+
+.quiz-stage-top,
+.quiz-stage-bottom {
+  transition:
+    opacity 0.25s ease,
+    visibility 0.25s;
 }
 
 .quiz-stage-top {
@@ -3519,38 +3582,50 @@ body:has(.quiz-view--stage:not([hidden])) .header .cta-button {
   margin: 0 auto;
 }
 
+/* The question leads in serif (Playfair, cream); the script line above it
+   is demoted to a small handwritten accent. */
+.quiz-stage-bottom .quiz-script {
+  font-size: 1.3rem;
+  margin: 0 0 2px;
+}
+
 .quiz-prompt {
-  font-family: var(--font-family-hand);
-  font-size: 1.65rem;
-  line-height: 1.1;
-  color: var(--color-sunset-gold);
+  font-family: var(--font-family-title);
+  font-weight: 700;
+  font-size: clamp(1.4rem, 5.5vw, 1.75rem);
+  line-height: 1.12;
+  color: var(--color-warm-cream);
   text-align: center;
+  text-wrap: balance;
+  text-shadow: 0 2px 16px rgba(11, 20, 28, 0.45);
   margin: 0 0 14px;
 }
 
 .quiz-options {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 10px;
+  gap: 9px;
 }
 
+/* Compact warm-cream answer cards. The tapped state is a solid midnight
+   press - a neutral acknowledgment, never a verdict. */
 .quiz-option {
   font: inherit;
   font-weight: 600;
-  font-size: 0.98rem;
+  font-size: 1rem;
   text-align: center;
-  padding: 14px 12px;
+  padding: 12px 14px;
   border-radius: 14px;
-  border: 1.5px solid rgba(253, 246, 237, 0.4);
-  background: rgba(23, 42, 58, 0.55);
-  color: var(--color-warm-cream);
+  border: 1.5px solid rgba(23, 42, 58, 0.14);
+  background: var(--color-warm-cream);
+  color: var(--color-midnight-navy);
   cursor: pointer;
-  min-height: 54px; /* comfortable thumb target */
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  min-height: 48px; /* comfortable thumb target */
+  box-shadow: 0 4px 14px rgba(11, 20, 28, 0.25);
   transition:
     border-color 0.15s ease,
     background-color 0.15s ease,
+    color 0.15s ease,
     transform 0.15s var(--ease-out-back);
 }
 
@@ -3569,13 +3644,13 @@ body:has(.quiz-view--stage:not([hidden])) .header .cta-button {
   opacity: 0.75;
 }
 
-/* Neutral acknowledgment only - the tapped option glows gold. Right or
-   wrong is never revealed mid-run; the score lands once, at the end. */
+/* Neutral acknowledgment only - the tapped option presses to solid navy.
+   Right or wrong is never revealed mid-run; the score lands once, at the
+   end. */
 .quiz-option.is-picked {
-  border-color: var(--color-sunset-gold);
-  border-width: 2px;
-  background: rgba(23, 42, 58, 0.8);
-  box-shadow: 0 0 0 3px rgba(255, 198, 54, 0.25);
+  border-color: var(--color-midnight-navy);
+  background: var(--color-midnight-navy);
+  color: var(--color-warm-cream);
   opacity: 1;
 }
 
@@ -3674,14 +3749,14 @@ body:has(.quiz-view--stage:not([hidden])) .header .cta-button {
   max-width: 40ch;
 }
 
-/* Score-to-beat as a passport-stamp plate. */
+/* Score-to-beat plate: a clean gold-framed hero (the tilted passport-stamp
+   plate is retired app-wide). */
 .quiz-plate {
   display: inline-block;
-  border: 3px solid rgba(255, 198, 54, 0.85);
+  border: 2px solid rgba(255, 198, 54, 0.85);
   border-radius: 16px;
   padding: 10px 26px 14px;
   margin: 0 0 22px;
-  transform: rotate(-2deg);
   color: var(--color-warm-cream);
 }
 
@@ -3823,52 +3898,61 @@ body:has(.quiz-view--stage:not([hidden])) .header .cta-button {
   outline-offset: 4px;
 }
 
-/* --- Results: the stamp lands -------------------------------------------- */
+/* --- Results: the score lands as a serif hero -----------------------------
+   Matches the app's "Your Score to Beat" treatment: large Playfair numerals
+   with a gold underline accent. No plate, no tilt, no medals. */
 
 .quiz-result-plate {
   display: inline-block;
-  border: 3px solid rgba(193, 84, 62, 0.85);
-  border-radius: 18px;
-  padding: 12px 30px 16px;
+  padding: 6px 0 0;
   margin: 6px 0 16px;
-  transform: rotate(-2deg);
-  box-shadow: var(--shadow-stamp);
 }
 
-/* base.css's stampIn lands at rotate(0), which would erase the plate's tilt
-   under fill-mode both - this press lands on the plate's own -2deg. */
-@keyframes quizStampIn {
+/* A short gold rule under the numerals - the hero's only ornament. */
+.quiz-result-plate::after {
+  content: '';
+  display: block;
+  width: 56px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--color-sunset-gold);
+  margin: 14px auto 0;
+}
+
+@keyframes quizScoreLand {
   0% {
-    transform: scale(1.8) rotate(4deg);
+    transform: scale(1.5);
     opacity: 0;
   }
 
   60% {
-    transform: scale(0.96) rotate(-2.5deg);
+    transform: scale(0.97);
     opacity: 1;
   }
 
   100% {
-    transform: scale(1) rotate(-2deg);
+    transform: scale(1);
     opacity: 1;
   }
 }
 
 #quiz-results:not([hidden]) .quiz-result-plate {
-  animation: quizStampIn 0.45s var(--ease-out-back) both;
+  animation: quizScoreLand 0.45s var(--ease-out-back) both;
   animation-delay: 0.15s;
 }
 
 .quiz-result-plate .quiz-plate-label {
-  color: var(--color-adobe-brick);
+  color: var(--color-accent-butter);
+  letter-spacing: 0.2em;
+  margin-bottom: 6px;
 }
 
 .quiz-result-score {
   font-family: var(--font-family-title);
   font-weight: 800;
-  font-size: 3.4rem;
+  font-size: clamp(3.6rem, 15vw, 4.4rem);
   line-height: 1;
-  color: var(--color-adobe-brick);
+  color: var(--color-text-main);
   margin: 0;
 }
 
@@ -4005,14 +4089,12 @@ body:has(.quiz-view--stage:not([hidden])) .header .cta-button {
     animation: none;
   }
 
-  /* Without the press animation the plate still needs its resting tilt. */
-  #quiz-results:not([hidden]) .quiz-result-plate {
-    transform: rotate(-2deg);
-  }
-
   .quiz-option,
   .quiz-button,
-  .quiz-progress-seg {
+  .quiz-progress-seg,
+  .quiz-stage-top,
+  .quiz-stage-bottom,
+  body:has(#quiz-root) .header {
     transition: none;
   }
 }

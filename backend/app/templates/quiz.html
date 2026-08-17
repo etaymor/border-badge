@@ -103,16 +103,29 @@
       <p class="quiz-progress" id="quiz-progress"></p>
       <div class="quiz-progress-track" id="quiz-progress-track" aria-hidden="true"></div>
     </div>
+    {# The photo is also the inspector toggle: tapping it hides the stage
+       chrome for an aspect-fit look (pinch-zoomable via touch-action);
+       tapping again -- or Escape -- restores the interface. A real button,
+       so it is keyboard-operable and announces its pressed state. #}
     <div class="quiz-photo-frame">
-      <img
-        class="quiz-photo"
-        id="quiz-photo"
-        alt="A travel photo. Which country was it taken in?"
-        decoding="async"
-      />
+      <button
+        class="quiz-photo-toggle"
+        id="quiz-photo-toggle"
+        type="button"
+        aria-pressed="false"
+        aria-label="Inspect the photo"
+      >
+        <img
+          class="quiz-photo"
+          id="quiz-photo"
+          alt="A travel photo. Which country was it taken in?"
+          decoding="async"
+        />
+      </button>
     </div>
     <div class="quiz-stage-bottom">
-      <p class="quiz-prompt">where was this taken?</p>
+      <p class="quiz-script quiz-prompt-accent">can you guess where?</p>
+      <h2 class="quiz-prompt">Where in the world was this?</h2>
       <div class="quiz-options" id="quiz-options"></div>
     </div>
   </section>

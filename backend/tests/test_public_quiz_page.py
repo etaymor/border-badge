@@ -396,6 +396,54 @@ def test_results_view_share_button_precedes_install_cta(
 
 
 # ============================================================================
+# Question stage design (4.2): serif prompt, progress label, photo inspector
+# ============================================================================
+
+
+def test_question_stage_leads_with_the_serif_question(
+    client: TestClient, mock_supabase_client: AsyncMock
+) -> None:
+    """Design elevation (4.2): the question stage asks in Playfair serif
+    ('Where in the world was this?'); the old handwritten-only prompt is
+    demoted to an accent line, not the question itself."""
+    response = _get_quiz_page(client, mock_supabase_client)
+    html = response.text
+
+    assert "Where in the world was this?" in html
+    assert "where was this taken?" not in html
+
+
+def test_question_stage_progress_label_sits_above_the_track(
+    client: TestClient, mock_supabase_client: AsyncMock
+) -> None:
+    """The '3 OF 10' progress label renders above the segmented bar."""
+    response = _get_quiz_page(client, mock_supabase_client)
+    html = response.text
+
+    assert 'id="quiz-progress"' in html
+    assert 'id="quiz-progress-track"' in html
+    assert html.index('id="quiz-progress"') < html.index('id="quiz-progress-track"')
+
+
+def test_question_photo_lives_inside_the_inspector_toggle(
+    client: TestClient, mock_supabase_client: AsyncMock
+) -> None:
+    """Tapping the photo opens a chrome-hidden inspection view (4.2). The
+    toggle is a real button (keyboard-operable, aria-pressed) wrapping the
+    photo, so inspection never competes with the answer buttons."""
+    response = _get_quiz_page(client, mock_supabase_client)
+    html = response.text
+
+    toggle_match = re.search(r'<button[^>]*id="quiz-photo-toggle"[^>]*>', html)
+    assert toggle_match, "question stage is missing the photo inspector toggle"
+    toggle = toggle_match.group(0)
+    assert 'type="button"' in toggle
+    assert 'aria-pressed="false"' in toggle
+    # The sharp photo sits inside the toggle, so a tap on it IS the toggle.
+    assert toggle_match.start() < html.index('id="quiz-photo"')
+
+
+# ============================================================================
 # Discovery surfaces: sitemap and robots
 # ============================================================================
 
