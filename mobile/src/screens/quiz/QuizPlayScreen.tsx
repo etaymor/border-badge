@@ -186,6 +186,13 @@ export function QuizPlayScreen({ navigation, route }: Props) {
 
   const sessionStartedRef = useRef(false);
 
+  // An inspector left open through the post-answer hold must not survive the
+  // handover: without this it would silently re-render with the NEXT photo
+  // (mirrors the web guard in quiz-play.js renderQuestion).
+  useEffect(() => {
+    setInspecting(false);
+  }, [activeQuestionId]);
+
   const questions = useMemo(() => (quiz ? sortQuestionsByPosition(quiz.questions) : []), [quiz]);
   const activeQuestion = questions.find((question) => question.id === activeQuestionId) ?? null;
   const activeNumber = activeQuestion

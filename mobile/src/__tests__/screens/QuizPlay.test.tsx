@@ -728,6 +728,37 @@ describe('QuizPlayScreen photo inspector (Unit 1.2)', () => {
     );
   });
 
+  it('closes an inspector opened during the acknowledgment hold once the question advances', async () => {
+    mockQuizDetail(makeDetail());
+    mockEnsurePlaySession.mockResolvedValue(makePlayState([]));
+    mockPostRoutes({
+      [`/quiz/${QUIZ_ID}/answer`]: {
+        place_correct: true,
+        year_correct: null,
+        correct_option_index: 0,
+        correct_option: 'France',
+        correct_year: null,
+        score: 1,
+      },
+    });
+
+    renderPlayScreen();
+
+    await waitFor(() => expect(screen.getByTestId('quiz-option-0')).toBeTruthy());
+    fireEvent.press(screen.getByTestId('quiz-option-0'));
+
+    // The tapped option holds its acknowledgment while the advance is pending;
+    // the photo tap region is still live, so the inspector can open mid-hold.
+    expect(screen.getByTestId('quiz-option-0').props.accessibilityState.selected).toBe(true);
+    fireEvent.press(screen.getByTestId('quiz-photo-inspect'));
+    expect(screen.getByTestId('quiz-photo-inspector')).toBeTruthy();
+
+    // The hold elapses and the next question mounts: the inspector must not
+    // survive the handover and silently show the next photo.
+    await waitFor(() => expect(screen.getByText('2 OF 5')).toBeTruthy(), { timeout: 3000 });
+    expect(screen.queryByTestId('quiz-photo-inspector')).toBeNull();
+  });
+
   it('still opens and closes under reduce motion (plain swap)', async () => {
     mockUseReducedMotion.mockReturnValue(true);
     mockQuizDetail(makeDetail());
