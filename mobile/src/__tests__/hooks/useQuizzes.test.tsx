@@ -90,6 +90,9 @@ jest.mock('@services/countriesDb', () => ({
       recognition: null,
     }))
   ),
+  // No home country set: these fixtures assert candidate ORDER, and a home
+  // country would legitimately push its photos to the back of the spread.
+  getHomeCountry: jest.fn().mockResolvedValue(null),
 }));
 
 jest.mock(
@@ -423,6 +426,8 @@ describe('useQuizzes', () => {
         status: 'thin-library',
         eligibleCount: 4,
         hasGeoCandidates: true,
+        // The decline names the rule that failed, so the screen can too.
+        dominantReason: 'people_present',
       });
       // KTD7: the decline deletes the server draft.
       expect(mockedApi.delete).toHaveBeenCalledWith('/quiz/quiz-1');
@@ -528,6 +533,7 @@ describe('useQuizzes', () => {
         status: 'thin-library',
         eligibleCount: 4,
         hasGeoCandidates: true,
+        dominantReason: 'people',
       });
       expect(mockedApi.delete).toHaveBeenCalledWith('/quiz/quiz-1');
       expect(eligibilityCalls).toBe(2);

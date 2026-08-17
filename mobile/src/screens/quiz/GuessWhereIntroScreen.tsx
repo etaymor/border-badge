@@ -121,7 +121,7 @@ export function GuessWhereIntroScreen({ navigation }: Props) {
           onPress={handleCreate}
           testID="guess-where-intro-create"
         />
-        <Button title="Maybe later" variant="ghost" onPress={handleBack} />
+        <Button title="Maybe later" variant="ghost" onDark onPress={handleBack} />
       </View>
     </View>
   );

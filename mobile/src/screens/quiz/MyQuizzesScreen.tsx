@@ -30,6 +30,8 @@ import {
 import { useStableCallback } from '@hooks/useStableCallback';
 import type { RootStackScreenProps } from '@navigation/types';
 
+import { RowAction } from './components';
+
 /* eslint-disable @typescript-eslint/no-require-imports */
 const polaroidsIllustration = require('../../../assets/illustations/polaroids-illustration.png');
 /* eslint-enable @typescript-eslint/no-require-imports */
@@ -160,40 +162,24 @@ function QuizRow({ quiz, navigation }: QuizRowProps) {
       )}
       <View style={styles.rowActions}>
         {quiz.state === 'building' && (
-          <Button
-            title="Resume"
-            variant="ghost"
-            onPress={handleResume}
-            testID={`quiz-resume-${quiz.id}`}
-          />
+          <RowAction title="Resume" onPress={handleResume} testID={`quiz-resume-${quiz.id}`} />
         )}
         {quiz.state === 'awaiting_owner_play' && (
-          <Button
-            title="Play Now"
-            variant="ghost"
-            onPress={handlePlay}
-            testID={`quiz-play-${quiz.id}`}
-          />
+          <RowAction title="Play Now" onPress={handlePlay} testID={`quiz-play-${quiz.id}`} />
         )}
         {quiz.state === 'playable' && (
-          <Button
-            title="Share"
-            variant="ghost"
-            onPress={handleShare}
-            testID={`quiz-share-${quiz.id}`}
-          />
+          <RowAction title="Share" onPress={handleShare} testID={`quiz-share-${quiz.id}`} />
         )}
         {quiz.state === 'shared' && (
           <>
-            <Button
+            <RowAction
               title="Leaderboard"
-              variant="ghost"
               onPress={handleLeaderboard}
               testID={`quiz-leaderboard-${quiz.id}`}
             />
-            <Button
+            <RowAction
               title="Revoke"
-              variant="ghost"
+              tone="destructive"
               onPress={handleRevoke}
               loading={revokeMutation.isPending}
               testID={`quiz-revoke-${quiz.id}`}
@@ -201,9 +187,9 @@ function QuizRow({ quiz, navigation }: QuizRowProps) {
           </>
         )}
         {deletable && (
-          <Button
+          <RowAction
             title="Delete"
-            variant="ghost"
+            tone="destructive"
             onPress={handleDelete}
             loading={deleteMutation.isPending}
             testID={`quiz-delete-${quiz.id}`}
@@ -234,10 +220,6 @@ export function MyQuizzesScreen({ navigation }: Props) {
       <ScrollView contentContainerStyle={styles.content}>
         <Text style={styles.eyebrow}>Guess Where</Text>
         <Text style={styles.heading}>Your Challenges</Text>
-        <Text style={styles.body}>
-          Challenge friends with your travel photos - build as many as you like from different
-          trips.
-        </Text>
         <Button title="New Challenge" onPress={handleCreate} testID="quiz-create-new" />
         <Button
           title="How It Works"
@@ -261,10 +243,7 @@ export function MyQuizzesScreen({ navigation }: Props) {
           <View style={styles.emptyState} testID="quiz-list-empty">
             <Image source={polaroidsIllustration} style={styles.emptyIllustration} />
             <Text style={styles.emptyTitle}>No challenges yet</Text>
-            <Text style={styles.body}>
-              Build one from your travel photos and see if your friends can guess where you have
-              been.
-            </Text>
+            <Text style={styles.body}>See if your friends can guess where you have been.</Text>
           </View>
         ) : (
           quizzes.map((quiz) => <QuizRow key={quiz.id} quiz={quiz} navigation={navigation} />)

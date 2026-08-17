@@ -8,8 +8,14 @@
  * - Hidden entries stay visible to the owner, marked "Hidden"; visible ones
  *   offer a hide action that hides every session behind the entry (the
  *   public board drops it on its next read).
+ * - Sharing again lives here too: a leaderboard is where an owner decides the
+ *   challenge needs more players, and until now the only share affordance was
+ *   on the results screen, reachable only before the challenge was shared.
+ *   The link already exists at this point, so this re-presents it rather than
+ *   minting anything.
  */
 
+import * as Haptics from 'expo-haptics';
 import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { Button } from '@components/ui/Button';
@@ -18,13 +24,16 @@ import { colors, withAlpha } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import {
   useHideQuizSessions,
+  useQuiz,
   useQuizLeaderboard,
   type QuizOwnerLeaderboardEntry,
 } from '@hooks/useQuizzes';
 import { useStableCallback } from '@hooks/useStableCallback';
 import type { RootStackScreenProps } from '@navigation/types';
 
+import { RowAction } from './components/RowAction';
 import { StampScorePlate } from './components/StampScorePlate';
+import { presentChallengeShare } from './shareChallenge';
 
 type Props = RootStackScreenProps<'QuizLeaderboard'>;
 
@@ -32,6 +41,7 @@ export function QuizLeaderboardScreen({ navigation, route }: Props) {
   const { quizId } = route.params;
 
   const { data, isLoading, isError, refetch } = useQuizLeaderboard(quizId);
+  const { data: quiz } = useQuiz(quizId);
   const hideMutation = useHideQuizSessions(quizId);
 
   const handleHide = useStableCallback((entry: QuizOwnerLeaderboardEntry) => {
@@ -63,6 +73,25 @@ export function QuizLeaderboardScreen({ navigation, route }: Props) {
 
   const entries = data?.leaderboard ?? [];
   const scoreToBeat = data?.score_to_beat ?? null;
+  // Re-sharing needs the minted link and the score for the invitation text.
+  // Both exist by the time a challenge has a leaderboard; if the detail has
+  // not loaded yet the action simply is not offered.
+  const shareUrl = quiz?.share_url ?? null;
+  const canShare = !!shareUrl && !!scoreToBeat;
+
+  const handleShare = useStableCallback(async () => {
+    if (!shareUrl || !scoreToBeat) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+    try {
+      await presentChallengeShare(shareUrl, scoreToBeat);
+    } catch (error) {
+      console.warn(
+        '[QuizLeaderboard] Share failed:',
+        error instanceof Error ? error.message : error
+      );
+      Alert.alert('Error', 'Could not open the share sheet. Please try again.');
+    }
+  });
 
   return (
     <Screen>
@@ -78,6 +107,10 @@ export function QuizLeaderboardScreen({ navigation, route }: Props) {
             size="small"
             testID="leaderboard-score-to-beat"
           />
+        )}
+
+        {canShare && (
+          <Button title="Share Challenge" onPress={handleShare} testID="leaderboard-share" />
         )}
 
         {isLoading ? (
@@ -122,9 +155,8 @@ export function QuizLeaderboardScreen({ navigation, route }: Props) {
                   Hidden
                 </Text>
               ) : (
-                <Button
+                <RowAction
                   title="Hide"
-                  variant="ghost"
                   onPress={() => handleHide(entry)}
                   testID={`leaderboard-hide-${index}`}
                 />

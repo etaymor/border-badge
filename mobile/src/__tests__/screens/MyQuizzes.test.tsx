@@ -559,4 +559,57 @@ describe('QuizLeaderboardScreen', () => {
     await waitFor(() => expect(screen.getByTestId('leaderboard-empty')).toBeTruthy());
     expect(screen.queryByTestId('leaderboard-error')).toBeNull();
   });
+
+  // Sharing used to exist only on the results screen, which is unreachable
+  // once a challenge is shared - so an owner watching their leaderboard had no
+  // way to invite anyone else.
+  it('re-shares the existing link from the leaderboard', async () => {
+    const shareSpy = jest
+      .spyOn(ShareModule.Share, 'share')
+      .mockResolvedValue({ action: 'sharedAction' } as never);
+    mockGetRoutes({
+      '/quiz/quiz-1/leaderboard': makeBoard(),
+      '/quiz/quiz-1': {
+        id: 'quiz-1',
+        state: 'shared',
+        questions: [],
+        score_to_beat: { correct: 3, total: 5 },
+        slug: 'abc123',
+        share_url: 'https://border.badge/q/abc123',
+      },
+    });
+
+    renderLeaderboard();
+
+    await waitFor(() => expect(screen.getByTestId('leaderboard-share')).toBeTruthy());
+    fireEvent.press(screen.getByTestId('leaderboard-share'));
+
+    await waitFor(() => expect(shareSpy).toHaveBeenCalled());
+    const content = shareSpy.mock.calls[0][0] as { message: string; url?: string };
+    // Q10: the link travels in its own slot, never buried in the message.
+    expect(content.url).toBe('https://border.badge/q/abc123');
+    expect(content.message).toContain('3 of 5');
+    // Re-sharing presents the minted link; it never mints another one.
+    expect(mockApiPost).not.toHaveBeenCalledWith('/quiz/quiz-1/share');
+    shareSpy.mockRestore();
+  });
+
+  it('offers no share action until the challenge has a link', async () => {
+    mockGetRoutes({
+      '/quiz/quiz-1/leaderboard': makeBoard(),
+      '/quiz/quiz-1': {
+        id: 'quiz-1',
+        state: 'playable',
+        questions: [],
+        score_to_beat: { correct: 3, total: 5 },
+        slug: null,
+        share_url: null,
+      },
+    });
+
+    renderLeaderboard();
+
+    await waitFor(() => expect(screen.getByTestId('leaderboard-score-to-beat')).toBeTruthy());
+    expect(screen.queryByTestId('leaderboard-share')).toBeNull();
+  });
 });

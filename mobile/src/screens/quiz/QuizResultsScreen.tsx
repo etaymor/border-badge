@@ -22,13 +22,16 @@
  */
 
 import * as Haptics from 'expo-haptics';
+// expo-image, not react-native's Image: the swap picker shows up to
+// SWAP_CANDIDATE_LIMIT (30) camera-roll ORIGINALS as 100pt thumbnails, and RN
+// decodes each at its full 12MP source resolution regardless of display size.
+// expo-image downsamples to the view and bounds its own cache.
+import { Image } from 'expo-image';
 import { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  Image,
   Modal,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -52,10 +55,11 @@ import { useReducedMotion } from '@hooks/useReducedMotion';
 import { useStableCallback } from '@hooks/useStableCallback';
 import { QUIZ_MIN_PHOTOS, type GeoEligibleCandidate } from '@services/quiz/candidateSelection';
 import { loadPlayState, loadSwapCandidates, type QuizPlayState } from '@services/quiz/quizPlay';
-import { Share } from '@utils/share';
 import type { RootStackScreenProps } from '@navigation/types';
 
 import { PolaroidThumb, type PolaroidVerdict } from './components/PolaroidThumb';
+import { RowAction } from './components/RowAction';
+import { presentChallengeShare } from './shareChallenge';
 import { StampScorePlate } from './components/StampScorePlate';
 
 type Props = RootStackScreenProps<'QuizResults'>;
@@ -181,19 +185,7 @@ export function QuizResultsScreen({ navigation, route }: Props) {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
     try {
       const shared = await shareMutation.mutateAsync();
-      const message =
-        `I scored ${scoreToBeat.correct} of ${scoreToBeat.total} on my Guess Where ` +
-        `challenge - my own travel photos. Think you know the world better? Beat my score.`;
-      if (Platform.OS === 'ios') {
-        // The challenge link is its own activity item (Q10): destinations
-        // unfurl it into a rich preview instead of finding a raw URL glued
-        // into a sentence.
-        await Share.share({ message, url: shared.share_url });
-      } else {
-        // Android's Share.share has no url slot; the link rides on its own
-        // line at the end of the message.
-        await Share.share({ message: `${message}\n${shared.share_url}` });
-      }
+      await presentChallengeShare(shared.share_url, scoreToBeat);
     } catch (error) {
       console.warn('[QuizResults] Share failed:', error instanceof Error ? error.message : error);
       // Surface the failure (e.g. a 409 QUIZ_OWNER_ANSWERS_INCOMPLETE after a
@@ -276,9 +268,7 @@ export function QuizResultsScreen({ navigation, route }: Props) {
           animateInDelay={200}
           testID="quiz-score-to-beat"
         />
-        <Text style={styles.body}>
-          Friends who play your challenge will try to beat this country score.
-        </Text>
+        <Text style={styles.body}>Friends will try to beat it.</Text>
 
         {results && results.memory_total > 0 && (
           <View style={styles.memoryCard} testID="quiz-memory-score">
@@ -334,16 +324,15 @@ export function QuizResultsScreen({ navigation, route }: Props) {
                 )}
                 {editable && (
                   <View style={styles.reviewActions}>
-                    <Button
+                    <RowAction
                       title="Swap"
-                      variant="ghost"
                       onPress={() => openSwapPicker(question.id)}
                       testID={`quiz-swap-${question.position}`}
                     />
                     {canRemove && (
-                      <Button
+                      <RowAction
                         title="Remove"
-                        variant="ghost"
+                        tone="destructive"
                         onPress={() => handleRemove(question.id)}
                         testID={`quiz-remove-${question.position}`}
                       />
@@ -358,8 +347,7 @@ export function QuizResultsScreen({ navigation, route }: Props) {
         <View style={styles.footer}>
           {state === 'revoked' ? (
             <Text style={styles.revokedNote} testID="quiz-revoked-note">
-              Link revoked. Friends can no longer open this challenge, and its photos are removed
-              from our servers.
+              Link revoked. The photos are gone from our servers.
             </Text>
           ) : needsAnswers ? (
             <Button title="Answer New Photo" onPress={handleAnswerNew} testID="quiz-answer-new" />
@@ -374,7 +362,7 @@ export function QuizResultsScreen({ navigation, route }: Props) {
           {state === 'shared' && (
             <Button
               title="Revoke Link"
-              variant="ghost"
+              variant="destructive"
               onPress={handleRevoke}
               loading={revokeMutation.isPending}
               testID="quiz-revoke"
@@ -388,10 +376,7 @@ export function QuizResultsScreen({ navigation, route }: Props) {
         <Screen>
           <View style={styles.pickerContainer} testID="quiz-swap-picker">
             <Text style={styles.sectionTitle}>Pick a Replacement Photo</Text>
-            <Text style={styles.body}>
-              Choose another geotagged travel photo. You will answer its country and year before the
-              challenge can be shared.
-            </Text>
+            <Text style={styles.body}>You will answer it before the challenge can be shared.</Text>
             {swapLoadFailed ? (
               <View style={styles.pickerError} testID="quiz-swap-error">
                 <Text style={styles.body}>
@@ -417,7 +402,9 @@ export function QuizResultsScreen({ navigation, route }: Props) {
                     <Image
                       source={{ uri: candidate.uri }}
                       style={styles.candidateThumb}
-                      resizeMode="cover"
+                      contentFit="cover"
+                      recyclingKey={candidate.id}
+                      cachePolicy="memory-disk"
                     />
                   </Pressable>
                 ))}

@@ -63,11 +63,41 @@ type ScreenPhase =
   | 'service-error'
   | 'interrupted';
 
+// The `checking` counter is PHOTOS FOUND against the game size, not images
+// checked: the hunt keeps drawing batches until the game is full, so a
+// per-batch counter restarted at zero over and over.
 const STEP_LABELS: Record<QuizCreationStep, string> = {
   scanning: 'Checking for new photos',
   checking: 'Reading the scenery',
   building: 'Dealing your challenge',
 };
+
+/**
+ * Name the rule that actually failed. The backend has always returned a
+ * per-image rejection reason; until it was surfaced here, every decline read
+ * "too few passed those checks" whether the photos had people in them, were
+ * indoors, or the vision service returned nothing at all.
+ */
+function thinLibraryReason(outcome: QuizCreationOutcome | null): string {
+  if (outcome?.status !== 'thin-library' || !outcome.hasGeoCandidates) {
+    return 'We could not find geotagged travel photos in your library.';
+  }
+  switch (outcome.dominantReason) {
+    case 'people_present':
+      return 'Most of the ones we checked had people in them.';
+    case 'indoor':
+      return 'Most of the ones we checked were taken indoors.';
+    case 'category_not_allowed':
+      return 'Most of the ones we checked were not scenery or landmarks.';
+    case 'prepare_failed':
+      return 'Most of the ones we checked could not be opened - they may still be in iCloud.';
+    case 'unclassifiable':
+    case 'service_error':
+      return 'We could not read most of the ones we checked. Try again in a moment.';
+    default:
+      return 'We found travel photos, but too few passed those checks.';
+  }
+}
 
 function formatSyncedAgo(lastSuccessAt: number | null): string | null {
   if (!lastSuccessAt) return null;
@@ -111,7 +141,12 @@ export function QuizCreationScreen({ navigation }: Props) {
     setOutcome(result);
     switch (result.status) {
       case 'created':
-        navigation.navigate('QuizPlay', { quizId: result.quizId });
+        // REPLACE, not navigate: the wizard is done. Left on the stack, backing
+        // out of play landed the player on this screen's finished loading
+        // state instead of where they started. Replacing also makes plain
+        // goBack() correct from every entry point (My Challenges keeps its
+        // place in the stack; the wizard does not).
+        navigation.replace('QuizPlay', { quizId: result.quizId });
         break;
       case 'thin-library':
         setPhase('thin-library');
@@ -252,8 +287,7 @@ export function QuizCreationScreen({ navigation }: Props) {
             <Text style={styles.eyebrow}>Guess Where</Text>
             <Text style={styles.title}>New Challenge</Text>
             <Text style={styles.body}>
-              We pick 5-10 geotagged photos from your trips, you play them once to set the score to
-              beat, then the challenge is ready to share.
+              5-10 photos from your trips. Play once to set the score, then share.
             </Text>
             <Text style={styles.freshnessLine} testID="quiz-freshness-line">
               {freshnessLine}
@@ -271,7 +305,7 @@ export function QuizCreationScreen({ navigation }: Props) {
               {draftUploadCounts
                 ? `${draftUploadCounts.uploaded} of ${draftUploadCounts.total} photos already made it up. `
                 : ''}
-              Resuming only uploads the rest - your picks are saved.
+              Your picks are saved.
             </Text>
             <Button title="Resume" onPress={startCreation} testID="quiz-resume-start" />
             <Button title="Finish Later" variant="ghost" onPress={handleBack} />
@@ -281,10 +315,9 @@ export function QuizCreationScreen({ navigation }: Props) {
         {phase === 'permission-request' && (
           <View style={styles.centered} testID="quiz-permission-request">
             <Text style={styles.title}>Your Photos, Their Guesses</Text>
-            <Text style={styles.body}>
-              A challenge is built from your own travel photos. Allow photo access so we can find
-              geotagged shots from your trips. We check your photos on your device to pick the
-              eligible ones, then upload copies of just those photos to build your challenge.
+            <Text style={styles.body}>A challenge is built from your own travel photos.</Text>
+            <Text style={styles.hint}>
+              We read them on your device and upload only the ones your challenge uses.
             </Text>
             <Button title="Allow Photo Access" onPress={handleRequestPermission} />
             <Button title="Not Now" variant="ghost" onPress={handleBack} />
@@ -294,10 +327,7 @@ export function QuizCreationScreen({ navigation }: Props) {
         {phase === 'permission-denied' && (
           <View style={styles.centered} testID="quiz-permission-denied">
             <Text style={styles.title}>Photo Access Needed</Text>
-            <Text style={styles.body}>
-              The challenge is built from your own travel photos, so it needs photo library access.
-              Enable it in Settings, then come back to build your challenge.
-            </Text>
+            <Text style={styles.body}>Turn on photo access in Settings, then come back.</Text>
             <Button title="Open Settings" onPress={handleOpenSettings} />
             <Button title="Back" variant="ghost" onPress={handleBack} />
           </View>
@@ -339,8 +369,9 @@ export function QuizCreationScreen({ navigation }: Props) {
               })}
             </View>
             <Text style={styles.hint}>
-              This usually takes under a minute. Your photos stay private until you share the
-              challenge.
+              {progress?.step === 'checking'
+                ? 'Searching your library for photos worth guessing.'
+                : 'Usually under a minute.'}
             </Text>
             <Button title="Cancel" variant="ghost" onPress={handleCancel} />
           </View>
@@ -351,27 +382,25 @@ export function QuizCreationScreen({ navigation }: Props) {
             <View style={styles.centered} testID="quiz-thin-limited">
               <Text style={styles.title}>Limited Photo Access</Text>
               <Text style={styles.body}>
-                Border Badge can only see the photos you selected, and that was not enough to build
-                a challenge. Allow access to more of your library - especially geotagged outdoor
-                shots from your trips - and try again.
+                We can only see the photos you selected, and that was not enough.
+              </Text>
+              <Text style={styles.hint}>
+                Allow more of your library - especially outdoor shots from your trips.
               </Text>
               <Button title="Allow More Photos" onPress={handleOpenSettings} />
-              <Button title="Try Again" variant="secondary" onPress={startCreation} />
+              <Button title="Try Again" variant="outline" onPress={startCreation} />
               <Button title="Back" variant="ghost" onPress={handleBack} />
             </View>
           ) : (
             <View style={styles.centered} testID="quiz-thin-library">
               <Text style={styles.title}>Not Enough Photos Yet</Text>
               <Text style={styles.body}>
-                A challenge needs at least 5 photos that are geotagged, outdoors, and show scenery
-                or landmarks without people.
-                {outcome?.status === 'thin-library' && outcome.hasGeoCandidates
-                  ? ' We found travel photos, but too few passed those checks.'
-                  : ' We could not find geotagged travel photos in your library.'}
-                {'\n\n'}
-                Take a few outdoor shots on your next trip with location enabled, then try again.
+                A challenge needs 5 photos that are geotagged, outdoors, and people-free.
               </Text>
-              <Button title="Try Again" variant="secondary" onPress={startCreation} />
+              <Text style={styles.hint} testID="quiz-thin-reason">
+                {thinLibraryReason(outcome)}
+              </Text>
+              <Button title="Try Again" onPress={startCreation} />
               <Button title="Back" variant="ghost" onPress={handleBack} />
             </View>
           ))}
@@ -380,8 +409,7 @@ export function QuizCreationScreen({ navigation }: Props) {
           <View style={styles.centered} testID="quiz-service-error">
             <Text style={styles.title}>Something Went Wrong</Text>
             <Text style={styles.body}>
-              We could not check your photos right now. This is a temporary problem on our side or
-              with your connection - your library is fine. Please try again.
+              We could not check your photos right now. Your library is fine.
             </Text>
             <Button title="Retry" onPress={startCreation} />
             <Button title="Back" variant="ghost" onPress={handleBack} />
@@ -393,9 +421,9 @@ export function QuizCreationScreen({ navigation }: Props) {
             <Text style={styles.title}>Upload Interrupted</Text>
             <Text style={styles.body}>
               {outcome?.status === 'interrupted'
-                ? `${outcome.uploadedCount} of ${outcome.totalCount} photos made it before the connection dropped. `
+                ? `${outcome.uploadedCount} of ${outcome.totalCount} photos made it up. `
                 : ''}
-              Your progress is saved - resuming will only upload the remaining photos.
+              Resuming picks up where it stopped.
             </Text>
             <Button title="Resume" onPress={startCreation} />
             <Button title="Finish Later" variant="ghost" onPress={handleBack} />

@@ -136,7 +136,10 @@ describe('QuizCreationScreen', () => {
 
     fireEvent.press(screen.getByTestId('quiz-build-start'));
     await waitFor(() => expect(mockMutate).toHaveBeenCalledTimes(1));
-    expect(mockNavigation.navigate).toHaveBeenCalledWith('QuizPlay', { quizId: 'quiz-1' });
+    // REPLACE, not navigate: the wizard has done its job, and leaving it on the
+    // stack meant backing out of play landed on the creation loading screen.
+    expect(mockNavigation.replace).toHaveBeenCalledWith('QuizPlay', { quizId: 'quiz-1' });
+    expect(mockNavigation.navigate).not.toHaveBeenCalledWith('QuizPlay', { quizId: 'quiz-1' });
   });
 
   it('announces a ready library on the intro when the cache is fresh (Q5)', async () => {

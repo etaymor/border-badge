@@ -9,7 +9,7 @@ import {
   Text,
 } from 'react-native';
 
-import { colors } from '@constants/colors';
+import { colors, withAlpha } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { useAnimatedPress } from '@hooks/useAnimatedPress';
 
@@ -21,6 +21,11 @@ interface ButtonProps {
   variant?: ButtonVariant;
   disabled?: boolean;
   loading?: boolean;
+  /**
+   * Set on dark surfaces (the Guess Where photo stage, image overlays) so the
+   * transparent variants read in cream instead of navy.
+   */
+  onDark?: boolean;
   style?: ViewStyle;
   textStyle?: TextStyle;
   testID?: string;
@@ -32,6 +37,7 @@ export function Button({
   variant = 'primary',
   disabled = false,
   loading = false,
+  onDark = false,
   style,
   textStyle,
   testID,
@@ -88,7 +94,7 @@ export function Button({
       ]}
     >
       <Pressable
-        style={[styles.base, styles[variant], style]}
+        style={[styles.base, styles[variant], onDark && darkStyles[variant], style]}
         onPress={onPress}
         onPressIn={pressHandlers.onPressIn}
         onPressOut={pressHandlers.onPressOut}
@@ -99,7 +105,13 @@ export function Button({
       >
         {loading ? (
           <ActivityIndicator
-            color={variant === 'primary' ? colors.cloudWhite : colors.primary}
+            color={
+              variant === 'primary'
+                ? colors.midnightNavy
+                : onDark
+                  ? colors.warmCream
+                  : colors.textSecondary
+            }
             size="small"
           />
         ) : (
@@ -107,6 +119,7 @@ export function Button({
             style={[
               styles.text,
               styles[`${variant}Text` as keyof typeof styles],
+              onDark && darkStyles[`${variant}Text` as keyof typeof darkStyles],
               isDisabled && styles.disabledText,
               textStyle,
             ]}
@@ -142,7 +155,7 @@ const styles = StyleSheet.create({
   outline: {
     backgroundColor: 'transparent',
     borderWidth: 1,
-    borderColor: colors.primary,
+    borderColor: colors.midnightNavyBorder,
   },
   ghost: {
     backgroundColor: 'transparent',
@@ -165,15 +178,42 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
   },
   outlineText: {
-    color: colors.primary,
+    color: colors.textPrimary,
   },
   ghostText: {
-    color: colors.primary,
+    color: colors.textSecondary,
   },
   destructiveText: {
     color: colors.adobeBrick,
   },
   disabledText: {
     color: colors.textTertiary,
+  },
+});
+
+// Overrides for the transparent variants on dark surfaces. Keyed by variant so
+// `styles[variant]` and `darkStyles[variant]` stay in lockstep.
+const darkStyles = StyleSheet.create({
+  primary: {},
+  primaryText: {},
+  secondary: {
+    backgroundColor: withAlpha(colors.warmCream, 0.14),
+  },
+  secondaryText: {
+    color: colors.warmCream,
+  },
+  outline: {
+    borderColor: withAlpha(colors.warmCream, 0.35),
+  },
+  outlineText: {
+    color: colors.warmCream,
+  },
+  ghost: {},
+  ghostText: {
+    color: withAlpha(colors.warmCream, 0.75),
+  },
+  destructive: {},
+  destructiveText: {
+    color: colors.dustyCoral,
   },
 });
