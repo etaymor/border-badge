@@ -13,10 +13,11 @@
       "@utils/*": ["src/utils/*"],
       "@config/*": ["src/config/*"],
       "@navigation/*": ["src/navigation/*"],
-      "@constants/*": ["src/constants/*"]
+      "@constants/*": ["src/constants/*"],
+      "@modules/*": ["modules/*"]
     },
     "types": ["node", "jest"]
   },
-  "include": ["src/**/*", "App.tsx"],
+  "include": ["src/**/*", "modules/**/*", "App.tsx"],
   "exclude": ["node_modules", "e2e/**/*"]
 }
