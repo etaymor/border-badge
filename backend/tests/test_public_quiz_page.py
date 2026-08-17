@@ -356,6 +356,46 @@ def test_owner_display_name_with_markup_is_escaped(
 
 
 # ============================================================================
+# Reveal-first results: post-my-score module + share, no name gate
+# ============================================================================
+
+
+def test_results_view_has_post_my_score_module_and_no_name_gate(
+    client: TestClient, mock_supabase_client: AsyncMock
+) -> None:
+    """Reveal-first (4.1): the score shows without signing; the name became an
+    optional post-my-score module on the results card, and the old name-gate
+    view ("sign the logbook" -> "Reveal my score") is gone."""
+    response = _get_quiz_page(client, mock_supabase_client)
+    html = response.text
+
+    # The inline module lives on the results card.
+    assert 'id="quiz-postscore"' in html
+    assert "Add your name to the leaderboard" in html
+    assert "Post My Score" in html
+    assert 'id="quiz-name-form"' in html
+
+    # The gate view is gone.
+    assert 'id="quiz-name"' not in html
+    assert "Reveal my score" not in html
+
+
+def test_results_view_share_button_precedes_install_cta(
+    client: TestClient, mock_supabase_client: AsyncMock
+) -> None:
+    """Share My Score is the primary friend action after the reveal and must
+    come before the Get Atlasi install CTA."""
+    response = _get_quiz_page(client, mock_supabase_client)
+    html = response.text
+
+    assert 'id="quiz-share"' in html
+    assert "Share My Score" in html
+    assert html.index('id="quiz-share"') < html.index(
+        'data-track-location="quiz_results"'
+    )
+
+
+# ============================================================================
 # Discovery surfaces: sitemap and robots
 # ============================================================================
 

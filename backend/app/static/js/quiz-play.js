@@ -11,23 +11,33 @@
  *      never SHOWN mid-run. The tapped option gets a neutral gold
  *      acknowledgment and the game moves on; the score lands once, on the
  *      results view (mirrors the in-app Q8 decision).
- *   2. Strict CSP: no inline handlers, no inline styles. All state changes
+ *   2. Reveal-first (4.1): the last answer completes the session WITHOUT a
+ *      name and the results land immediately. Signing the logbook is an
+ *      optional post-my-score module on the results card, backed by the
+ *      bind-once POST /q/{slug}/name endpoint.
+ *   3. Strict CSP: no inline handlers, no inline styles. All state changes
  *      are class/hidden toggles; all dynamic text lands via textContent
  *      (display names are user-controlled and must never touch innerHTML).
- *   3. Refresh mid-run resumes: the session token lives in sessionStorage
+ *   4. Refresh mid-run resumes: the session token lives in sessionStorage
  *      keyed by slug, and POST /q/{slug}/session echoes back what that
- *      session already answered.
- *   4. A 404/410 from any call means the challenge was revoked (or never
+ *      session already answered. A completed-but-unnamed session resumes to
+ *      results with the post-my-score module open; a named one resumes with
+ *      it hidden (the snapshot's display_name decides).
+ *   5. A 404/410 from any call means the challenge was revoked (or never
  *      shared): the game surrenders to the "gone" view, mid-run included.
  *
  * API contract (implemented server-side in app/api/public_quiz.py):
  *   POST /q/{slug}/session  {token?} -> {token, answered: [{question_id,
- *        selected_option_index, correct, correct_country}], completed, score?}
+ *        selected_option_index, correct, correct_country}], completed,
+ *        score?, display_name: string|null}
  *   POST /q/{slug}/answer   {token, question_id, selected_option_index}
  *        -> {correct, correct_country, answered_count}
- *   POST /q/{slug}/complete {token, display_name} -> {score, total,
+ *   POST /q/{slug}/complete {token} -> {score, total,
  *        score_to_beat: {correct, total}|null, leaderboard: [{display_name,
- *        best_score, attempts, is_you}], already_completed}
+ *        best_score, attempts, is_you}], already_completed, leaderboard_full}
+ *   POST /q/{slug}/name     {token, display_name} -> same shape as complete
+ *        with the freshly bound name's row flagged is_you; 409
+ *        QUIZ_NAME_ALREADY_SET on a rename attempt (bind-once).
  */
 (function () {
   'use strict';
@@ -50,6 +60,10 @@
   var slug = config.slug;
   var apiBase = '/q/' + encodeURIComponent(slug);
   var tokenKey = 'atlasi-quiz-token:' + slug;
+  // A stored name means "this session POSTED its name to the leaderboard"
+  // (written only after a successful /name call - completion no longer
+  // takes a name at all). The server snapshot's display_name remains the
+  // authority on resume; this key is just the local echo of it.
   var nameKey = 'atlasi-quiz-name:' + slug;
 
   var reducedMotion =
@@ -60,7 +74,6 @@
   var views = {
     intro: document.getElementById('quiz-intro'),
     question: document.getElementById('quiz-question'),
-    name: document.getElementById('quiz-name'),
     results: document.getElementById('quiz-results'),
     gone: document.getElementById('quiz-gone'),
   };
@@ -71,9 +84,10 @@
   var photoBackdropEl = document.getElementById('quiz-photo-backdrop');
   var optionsEl = document.getElementById('quiz-options');
   var startButton = document.getElementById('quiz-start');
+  var postScoreEl = document.getElementById('quiz-postscore');
   var nameForm = document.getElementById('quiz-name-form');
   var nameInput = document.getElementById('quiz-display-name');
-  var nameScoreEl = document.getElementById('quiz-name-score');
+  var shareButton = document.getElementById('quiz-share');
   var errorEl = document.getElementById('quiz-error');
 
   function showView(name) {
@@ -96,6 +110,7 @@
   var token = null;
   var index = 0; // next question to show
   var score = 0; // count of correct answers so far (revealed only at the end)
+  var lastResults = null; // the latest complete/name response, for sharing
 
   function storedToken() {
     try {
@@ -157,6 +172,10 @@
     });
   }
 
+  function errorCode(err) {
+    return (err && err.detail && err.detail.detail && err.detail.detail.code) || null;
+  }
+
   // --- Session -------------------------------------------------------------
   function startSession() {
     clearError();
@@ -176,24 +195,12 @@
         }).length;
         index = answered.length;
 
-        if (session.completed) {
-          // A finished session refreshed back in: replay completion to fetch
-          // the leaderboard (idempotent server-side).
-          var storedName = null;
-          try {
-            storedName = window.sessionStorage.getItem(nameKey);
-          } catch (err) {
-            /* fall through to the name form */
-          }
-          if (storedName) {
-            complete(storedName);
-          } else {
-            showNameEntry();
-          }
-          return;
-        }
-        if (index >= questions.length) {
-          showNameEntry();
+        if (session.completed || index >= questions.length) {
+          // A finished session refreshed back in: replay completion
+          // (idempotent server-side) to fetch the score and board. The
+          // snapshot's display_name decides whether the post-my-score
+          // module reopens (unnamed) or stays hidden (already posted).
+          complete(!session.display_name);
           return;
         }
         renderQuestion();
@@ -288,37 +295,31 @@
   function advance() {
     index += 1;
     if (index >= questions.length) {
-      showNameEntry();
+      // Reveal-first: complete immediately, no name required. The fresh
+      // completion is by definition unnamed, so the module opens.
+      complete(true);
     } else {
       renderQuestion();
     }
   }
 
-  // --- Completion ----------------------------------------------------------
-  function showNameEntry() {
-    showView('name');
-    // The score stays sealed until the results view (Q8: one reveal).
-    nameScoreEl.textContent = 'Your score is stamped and waiting.';
-    nameInput.focus();
-  }
-
-  function complete(displayName) {
-    api('/complete', { token: token, display_name: displayName })
+  // --- Completion (reveal-first) -------------------------------------------
+  function complete(showPostScore) {
+    api('/complete', { token: token })
       .then(function (results) {
-        store(nameKey, displayName);
-        renderResults(results);
+        renderResults(results, showPostScore);
       })
       .catch(handleFailure);
   }
 
-  function renderResults(results) {
+  function renderResults(results, showPostScore) {
+    lastResults = results;
     showView('results');
     clearError();
 
     var headline = document.getElementById('quiz-result-headline');
     var scoreEl = document.getElementById('quiz-result-score');
     var compareEl = document.getElementById('quiz-result-compare');
-    var listEl = document.getElementById('quiz-leaderboard-list');
 
     scoreEl.textContent = results.score + '/' + results.total;
 
@@ -339,6 +340,12 @@
       compareEl.textContent = '';
     }
 
+    if (postScoreEl) postScoreEl.hidden = !showPostScore;
+    renderLeaderboard(results);
+  }
+
+  function renderLeaderboard(results) {
+    var listEl = document.getElementById('quiz-leaderboard-list');
     listEl.textContent = '';
     (results.leaderboard || []).forEach(function (row) {
       var item = document.createElement('li');
@@ -362,14 +369,91 @@
     });
   }
 
+  // --- Post my score (optional, bind-once) ---------------------------------
+  function postName(displayName) {
+    clearError();
+    api('/name', { token: token, display_name: displayName })
+      .then(function (results) {
+        store(nameKey, displayName);
+        if (postScoreEl) postScoreEl.hidden = true;
+        // The response is complete-shaped with the fresh name's row flagged
+        // is_you: re-rendering splices the player in with the highlight.
+        lastResults = results;
+        renderLeaderboard(results);
+      })
+      .catch(function (err) {
+        if (err && err.handled) return;
+        if (errorCode(err) === 'QUIZ_NAME_ALREADY_SET') {
+          // Bind-once raced (another tab posted first): the board already
+          // has this session's name - just put the module away.
+          if (postScoreEl) postScoreEl.hidden = true;
+          return;
+        }
+        if (err && err.status === 422) {
+          showError('That name did not work - try letters and numbers.');
+          return;
+        }
+        handleFailure(err);
+      });
+  }
+
+  // --- Share My Score ------------------------------------------------------
+  var shareResetTimer = null;
+
+  function shareText() {
+    var challenge = config.owner_name
+      ? config.owner_name + "'s challenge"
+      : 'this challenge';
+    return (
+      'I scored ' +
+      lastResults.score +
+      '/' +
+      lastResults.total +
+      ' on ' +
+      challenge +
+      ' — can you beat me?'
+    );
+  }
+
+  function confirmCopied() {
+    if (!shareButton) return;
+    shareButton.textContent = 'Copied to clipboard';
+    if (shareResetTimer) window.clearTimeout(shareResetTimer);
+    shareResetTimer = window.setTimeout(function () {
+      shareButton.textContent = 'Share My Score';
+    }, 2000);
+  }
+
+  function shareScore() {
+    if (!lastResults) return;
+    var text = shareText();
+    var url = window.location.origin + apiBase;
+    if (navigator.share) {
+      navigator.share({ text: text, url: url }).catch(function () {
+        /* user dismissed the sheet: not an error */
+      });
+      return;
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text + ' ' + url).then(confirmCopied, function () {
+        showError('Could not copy the share message.');
+      });
+    }
+  }
+
   // --- Wiring --------------------------------------------------------------
   startButton.addEventListener('click', startSession);
-  nameForm.addEventListener('submit', function (event) {
-    event.preventDefault();
-    var displayName = nameInput.value.trim();
-    if (!displayName) return;
-    complete(displayName);
-  });
+  if (nameForm) {
+    nameForm.addEventListener('submit', function (event) {
+      event.preventDefault();
+      var displayName = nameInput.value.trim();
+      if (!displayName) return;
+      postName(displayName);
+    });
+  }
+  if (shareButton) {
+    shareButton.addEventListener('click', shareScore);
+  }
 
   // A refresh mid-run resumes without another tap on Play.
   if (storedToken()) {

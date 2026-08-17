@@ -5,7 +5,7 @@
    Two modes, one template:
      mode == "play": the shared challenge. Intro and question views run on a
        full-viewport dark photo stage (the photo, blurred, is its own
-       backdrop); name entry and results return to the warm-cream card. The
+       backdrop); the reveal-first results return to the warm-cream card. The
        game itself runs in static, nonce'd JS (quiz-play.js) against the JSON
        data island below; the server-rendered HTML carries only the intro so
        the page is meaningful before (and without) hydration.
@@ -117,32 +117,11 @@
     </div>
   </section>
 
-  {# --- Sign the logbook (display-name entry) -----------------------------
-     The score stays sealed until the results view: sign first, then the
-     stamp lands (Q8: one reveal, at the very end). #}
-  <section class="quiz-card quiz-view" id="quiz-name" hidden>
-    <p class="quiz-script">sign the logbook</p>
-    <h2 class="quiz-title-small">That's all {{ question_count }}</h2>
-    <p class="quiz-copy" id="quiz-name-score"></p>
-    <form id="quiz-name-form" class="quiz-name-form">
-      <label class="quiz-label" for="quiz-display-name">Your name, for the leaderboard</label>
-      <input
-        class="quiz-input"
-        id="quiz-display-name"
-        name="display_name"
-        type="text"
-        minlength="2"
-        maxlength="50"
-        autocomplete="nickname"
-        required
-      />
-      <button class="quiz-button quiz-button-primary" type="submit">
-        Reveal my score
-      </button>
-    </form>
-  </section>
-
-  {# --- Results + leaderboard + install CTA (R12) ------------------------ #}
+  {# --- Results + leaderboard + install CTA (R12) ------------------------
+     Reveal-first (4.1): the score and comparison land immediately after the
+     last answer -- no name gate. Signing the logbook is now an OPTIONAL
+     post-my-score module inline on this card; quiz-play.js hides it once a
+     name is bound to the session. #}
   <section class="quiz-card quiz-view" id="quiz-results" hidden>
     <p class="quiz-eyebrow">Results</p>
     <h2 class="quiz-title-small" id="quiz-result-headline"></h2>
@@ -151,9 +130,37 @@
       <p class="quiz-result-score" id="quiz-result-score"></p>
     </div>
     <p class="quiz-result-compare" id="quiz-result-compare"></p>
+    <div class="quiz-postscore" id="quiz-postscore" hidden>
+      <p class="quiz-script">sign the logbook</p>
+      <h3 class="quiz-title-small">Add your name to the leaderboard</h3>
+      <form id="quiz-name-form" class="quiz-name-form">
+        <label class="quiz-label" for="quiz-display-name">Your first name</label>
+        <input
+          class="quiz-input"
+          id="quiz-display-name"
+          name="display_name"
+          type="text"
+          minlength="2"
+          maxlength="50"
+          autocomplete="given-name"
+          required
+        />
+        <button class="quiz-button quiz-button-primary" type="submit">
+          Post My Score
+        </button>
+      </form>
+    </div>
     <div class="quiz-leaderboard">
       <h3 class="quiz-leaderboard-title">Leaderboard</h3>
       <ol class="quiz-leaderboard-list" id="quiz-leaderboard-list"></ol>
+    </div>
+    {# The primary friend action after the reveal: send the score onward.
+       navigator.share where supported; quiz-play.js falls back to a
+       clipboard copy with a brief confirmation on this button. #}
+    <div class="quiz-share">
+      <button class="quiz-button quiz-button-primary" id="quiz-share" type="button">
+        Share My Score
+      </button>
     </div>
     <div class="quiz-install">
       <p class="quiz-copy">

@@ -4,9 +4,10 @@
    The recipient's whole first impression of Atlasi. Design language:
    "prints from the field" - the photo is the stage. Intro and play run on a
    full-viewport dark stage (the photo, blurred, is its own backdrop; the
-   sharp image sits contained on top so nothing is cropped). Name entry and
+   sharp image sits contained on top so nothing is cropped). The reveal-first
    results return to the warm-cream field-guide ground, where the score lands
-   as a passport-stamp press (stampIn, base.css).
+   as a passport-stamp press (stampIn, base.css) and signing the logbook is
+   an optional post-my-score module.
 
    Mobile-web-first: opened from a shared link on a phone; widens gracefully.
    Everything is scoped under .quiz-page.
@@ -430,7 +431,15 @@ body:has(.quiz-view--stage:not([hidden])) .header .cta-button {
   color: var(--color-adobe-brick);
 }
 
-/* --- Name entry: sign the logbook --------------------------------------- */
+/* --- Post my score: the optional logbook signature (reveal-first) --------
+   Lives inline on the results card between the reveal and the leaderboard;
+   quiz-play.js hides it once the session's name is bound. */
+
+.quiz-postscore {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--color-dusty-beige);
+}
 
 .quiz-name-form {
   display: grid;
@@ -584,6 +593,12 @@ body:has(.quiz-view--stage:not([hidden])) .header .cta-button {
   font-weight: 700;
   color: var(--color-text-main);
   white-space: nowrap;
+}
+
+/* Share My Score: the primary friend action after the reveal, ahead of the
+   install CTA. */
+.quiz-share {
+  margin: 0 0 24px;
 }
 
 .quiz-install {
