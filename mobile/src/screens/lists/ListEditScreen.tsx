@@ -35,6 +35,7 @@ import {
   getPublicListUrl,
   ListDetail,
 } from '@hooks/useLists';
+import { useProfile } from '@hooks/useProfile';
 
 type Props = TripsStackScreenProps<'ListEdit'>;
 
@@ -84,6 +85,7 @@ export function ListEditScreen({ route, navigation }: Props) {
   const insets = useSafeAreaInsets();
 
   const { data: list, isLoading: listLoading } = useList(listId);
+  const { data: profile } = useProfile();
   const { data: entries, isLoading: _entriesLoading } = useEntries(tripId);
   const updateList = useUpdateList();
   const updateListEntries = useUpdateListEntries();
@@ -106,7 +108,11 @@ export function ListEditScreen({ route, navigation }: Props) {
     }
   }, [list]);
 
-  const shareUrl = useMemo(() => (list ? getPublicListUrl(list.slug) : ''), [list]);
+  // ref=<username>: share attribution logged by the public page (U7)
+  const shareUrl = useMemo(
+    () => (list ? getPublicListUrl(list.slug, profile?.username) : ''),
+    [list, profile?.username]
+  );
 
   // Check if anything changed
   const hasChanges = useMemo(() => {

@@ -1,5 +1,5 @@
 import { useCallback, useEffect } from 'react';
-import { LogBox } from 'react-native';
+import { Linking, LogBox } from 'react-native';
 import { enableFreeze } from 'react-native-screens';
 
 // Suspend off-screen native screens from re-rendering. Must run once at module
@@ -39,10 +39,12 @@ import { ResponsiveProvider } from '@contexts/ResponsiveContext';
 import { useAppStateTracking } from '@hooks/useAppStateTracking';
 import { useAuthSession } from '@hooks/useAuthSession';
 import { useCountriesSync } from '@hooks/useCountriesSync';
+import { useInviteLinkHandler } from '@hooks/useInviteLinkHandler';
 import { useNavigationPersistence } from '@hooks/useNavigationPersistence';
 import { useShareExtensionHandler } from '@hooks/useShareExtensionHandler';
 import { socialKeys } from '@hooks/queryKeys';
 import { fetchSocialHomePage, SOCIAL_HOME_DEFAULT_LIMIT } from '@hooks/useSocialHome';
+import { linking, shouldHandleUrlWithNavigation } from '@navigation/linking';
 import { RootNavigator } from '@navigation/RootNavigator';
 import type { RootStackParamList } from '@navigation/types';
 import { queryClient } from './src/queryClient';
@@ -72,32 +74,9 @@ const queryPersister = createAsyncStoragePersister({
   throttleTime: 1000,
 });
 
-/**
- * Deep linking configuration for the app.
- * Handles atlasi:// URLs from the Share Extension.
- */
-const linking = {
-  prefixes: ['atlasi://'],
-  config: {
-    screens: {
-      Main: {
-        screens: {
-          Passport: {
-            screens: {
-              ShareCapture: {
-                path: 'share',
-                parse: {
-                  url: (value: string) => decodeURIComponent(value),
-                },
-              },
-              CountryDetail: 'country/:countryId',
-            },
-          },
-        },
-      },
-    },
-  },
-};
+// Deep linking configuration lives in @navigation/linking (U7): universal
+// links (/u, /t, /l) are handled by React Navigation; share-extension, auth
+// callback, and invite URLs are filtered out for the manual handlers below.
 
 // Initialize analytics, RevenueCat, and sync API URL to App Group for Share Extension
 function useAppInitialization() {
@@ -166,14 +145,40 @@ export default function App() {
   const { isAppReady } = useAuthSession();
 
   // Share extension deep link handling
-  const { handleNavigationReady, checkAppGroupForSharedURL } = useShareExtensionHandler(
+  const { handleNavigationReady: handleShareNavigationReady, checkAppGroupForSharedURL } =
+    useShareExtensionHandler(navigationRef, session);
+
+  // Invite deep link handling (/invite?code=..., U7)
+  const { handleNavigationReady: handleInviteNavigationReady } = useInviteLinkHandler(
     navigationRef,
     session
   );
 
+  const handleNavigationReady = useCallback(() => {
+    handleShareNavigationReady();
+    handleInviteNavigationReady();
+  }, [handleShareNavigationReady, handleInviteNavigationReady]);
+
   // Navigation state persistence
   const { isNavigationReady, initialNavigationState, handleNavigationStateChange } =
     useNavigationPersistence(session);
+
+  // Cold-start precedence (U7): when the app is launched from a universal
+  // link that React Navigation should handle (/u, /t, /l), the link wins
+  // over restored navigation state — passing `initialState` would otherwise
+  // suppress linking's initial-URL handling entirely.
+  const [initialUrlChecked, setInitialUrlChecked] = useState(false);
+  const [linkingOwnsInitialUrl, setLinkingOwnsInitialUrl] = useState(false);
+  useEffect(() => {
+    Linking.getInitialURL()
+      .then((url) => {
+        setLinkingOwnsInitialUrl(!!url && shouldHandleUrlWithNavigation(url));
+        setInitialUrlChecked(true);
+      })
+      .catch(() => {
+        setInitialUrlChecked(true);
+      });
+  }, []);
 
   // App foreground/background tracking
   useAppStateTracking(session, checkAppGroupForSharedURL, homeCountry);
@@ -197,7 +202,7 @@ export default function App() {
     });
   }, []);
 
-  if (!fontsLoaded || !isNavigationReady) {
+  if (!fontsLoaded || !isNavigationReady || !initialUrlChecked) {
     return null;
   }
 
@@ -216,7 +221,7 @@ export default function App() {
             <NavigationContainer
               ref={navigationRef}
               linking={linking}
-              initialState={initialNavigationState}
+              initialState={linkingOwnsInitialUrl ? undefined : initialNavigationState}
               onStateChange={handleNavigationStateChange}
               onReady={handleNavigationReady}
             >

@@ -13,6 +13,32 @@
           {
             "/": "/share/*",
             "comment": "Handle share paths"
+          },
+          {
+            "/": "/t/*/map.kml",
+            "exclude": true,
+            "comment": "KML map downloads stay in the browser"
+          },
+          {
+            "/": "/l/*/map.kml",
+            "exclude": true,
+            "comment": "KML map downloads stay in the browser"
+          },
+          {
+            "/": "/u/*",
+            "comment": "Public profile pages open in-app"
+          },
+          {
+            "/": "/t/*",
+            "comment": "Shared trip pages open in-app"
+          },
+          {
+            "/": "/l/*",
+            "comment": "Shared list pages open in-app"
+          },
+          {
+            "/": "/invite",
+            "comment": "Invite links open in-app (code stored for redemption)"
           }
         ]
       }

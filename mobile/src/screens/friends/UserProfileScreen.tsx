@@ -101,9 +101,18 @@ export function UserProfileScreen({ navigation, route }: Props) {
   const feedCardPaddingHorizontal = isTablet ? (screenWidth * 0.25) / 2 : 0;
 
   const { data: profile, isLoading, error, refetch } = useUserProfile(username);
-  const blockMutation = useBlockUser(userId, username);
 
-  const { data: feedData, isFetchingNextPage, hasNextPage, fetchNextPage } = useUserFeed(userId);
+  // Universal links (/u/:username, U7) provide no userId; resolve it from
+  // the fetched profile. Hooks below no-op until it is known.
+  const resolvedUserId = userId ?? profile?.user_id ?? '';
+  const blockMutation = useBlockUser(resolvedUserId, username);
+
+  const {
+    data: feedData,
+    isFetchingNextPage,
+    hasNextPage,
+    fetchNextPage,
+  } = useUserFeed(resolvedUserId);
 
   const feedItems = useMemo(() => getUserFeedItems(feedData), [feedData]);
 

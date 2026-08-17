@@ -332,7 +332,8 @@ export function ProfileSettingsScreen({ navigation }: Props) {
   const handleShareProfile = useCallback(async () => {
     if (!profile?.username) return;
 
-    const profileUrl = getPublicProfileUrl(profile.username);
+    // ref=<username>: share attribution logged by the public page (U7)
+    const profileUrl = getPublicProfileUrl(profile.username, profile.username);
     if (!profileUrl) {
       if (__DEV__) {
         console.warn('EXPO_PUBLIC_WEB_BASE_URL not configured');

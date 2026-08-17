@@ -13,7 +13,6 @@ import {
   Animated,
   Modal,
   Pressable,
-  Share,
   StyleSheet,
   TouchableOpacity,
   useWindowDimensions,
@@ -23,10 +22,12 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ViewShot from 'react-native-view-shot';
 
 import { ErrorBoundary, Text } from '@components/ui';
+import { env } from '@config/env';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { Analytics } from '@services/analytics';
 import { logger } from '@utils/logger';
+import { Share } from '@utils/share';
 
 import {
   OnboardingShareCard,
@@ -133,7 +134,12 @@ function OnboardingShareOverlayComponent({
       if (uri) {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
         Analytics.sharePassport();
-        await Share.share({ url: uri });
+        // Onboarding runs pre-account: link to the site (no username for a
+        // profile URL / ?ref= attribution yet) alongside the card image (U7).
+        await Share.share({
+          url: uri,
+          message: `I'm tracking my travels with Atlasi: ${env.webBaseUrl}`,
+        });
       }
     } catch (error) {
       logger.error('Share failed:', error);

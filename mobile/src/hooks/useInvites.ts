@@ -1,3 +1,4 @@
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -168,10 +169,56 @@ export function useRedeemInvite() {
     onSuccess: () => {
       // The inviter now follows me: follower stats and the social home
       // surface changed server-side.
-      queryClient.invalidateQueries({ queryKey: ['follows'] });
-      queryClient.invalidateQueries({ queryKey: ['social-home'] });
+      queryClient.invalidateQueries({ queryKey: socialKeys.follows });
+      queryClient.invalidateQueries({ queryKey: socialKeys.socialHome });
     },
   });
+}
+
+/**
+ * Consume-and-redeem any invite code stored by the deep-link handler (U7).
+ *
+ * Mounted on the Friends home surface: when a code is pending, it is
+ * redeemed once and the inviter is exposed so the caller can render the
+ * "〈inviter〉 invited you — follow back" prompt (InviteFollowBackPrompt).
+ * A failed redemption re-stores the code so a transient network error does
+ * not burn the attribution.
+ */
+export function usePendingInviteRedemption() {
+  const [inviter, setInviter] = useState<InviterSummary | null>(null);
+  const redeemMutation = useRedeemInvite();
+  const attemptedRef = useRef(false);
+
+  const { mutate: redeem } = redeemMutation;
+
+  useEffect(() => {
+    if (attemptedRef.current) {
+      return;
+    }
+    attemptedRef.current = true;
+
+    void (async () => {
+      const code = await consumePendingInviteCode();
+      if (!code) {
+        return;
+      }
+      redeem(code, {
+        onSuccess: (data) => {
+          if (data.inviter) {
+            setInviter(data.inviter);
+          }
+        },
+        onError: () => {
+          // Keep the code for a later retry (next mount).
+          void storePendingInviteCode(code);
+        },
+      });
+    })();
+  }, [redeem]);
+
+  const dismiss = useCallback(() => setInviter(null), []);
+
+  return { inviter, dismiss };
 }
 
 /**

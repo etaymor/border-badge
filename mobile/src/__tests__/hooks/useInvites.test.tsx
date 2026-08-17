@@ -8,7 +8,7 @@
  */
 
 import React from 'react';
-import { renderHook, waitFor } from '@testing-library/react-native';
+import { act, renderHook, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -16,6 +16,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   useRedeemInvite,
   useSendInvite,
+  usePendingInviteRedemption,
   storePendingInviteCode,
   consumePendingInviteCode,
   RedeemInviteResponse,
@@ -132,6 +133,69 @@ describe('useInvites', () => {
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
       expect(mockedShare).not.toHaveBeenCalled();
       expect(alertSpy).toHaveBeenCalled();
+    });
+  });
+
+  describe('usePendingInviteRedemption (deep-link redemption, U7)', () => {
+    it('consumes a stored code, redeems it, and exposes the inviter', async () => {
+      const mockedStorage = AsyncStorage as jest.Mocked<typeof AsyncStorage>;
+      (mockedStorage.getItem as jest.Mock).mockResolvedValue('deep-link-code');
+      mockedApi.post.mockResolvedValue({ data: mockRedeemResponse });
+
+      const { result } = renderHook(() => usePendingInviteRedemption(), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      await waitFor(() => expect(result.current.inviter?.username).toBe('world_wanderer'));
+      expect(mockedApi.post).toHaveBeenCalledWith('/invites/redeem', {
+        code: 'deep-link-code',
+      });
+      // Consume-once semantics: the stored code was cleared.
+      expect(mockedStorage.removeItem).toHaveBeenCalled();
+    });
+
+    it('does nothing when no code is pending', async () => {
+      const mockedStorage = AsyncStorage as jest.Mocked<typeof AsyncStorage>;
+      (mockedStorage.getItem as jest.Mock).mockResolvedValue(null);
+
+      const { result } = renderHook(() => usePendingInviteRedemption(), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      // Let the async consume settle.
+      await waitFor(() => expect(mockedStorage.getItem).toHaveBeenCalled());
+      expect(mockedApi.post).not.toHaveBeenCalled();
+      expect(result.current.inviter).toBeNull();
+    });
+
+    it('re-stores the code when redemption fails so attribution survives retries', async () => {
+      const mockedStorage = AsyncStorage as jest.Mocked<typeof AsyncStorage>;
+      (mockedStorage.getItem as jest.Mock).mockResolvedValue('flaky-code');
+      mockedApi.post.mockRejectedValue(new Error('network down'));
+
+      renderHook(() => usePendingInviteRedemption(), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      await waitFor(() =>
+        expect(mockedStorage.setItem).toHaveBeenCalledWith(expect.any(String), 'flaky-code')
+      );
+    });
+
+    it('dismiss clears the inviter', async () => {
+      const mockedStorage = AsyncStorage as jest.Mocked<typeof AsyncStorage>;
+      (mockedStorage.getItem as jest.Mock).mockResolvedValue('deep-link-code');
+      mockedApi.post.mockResolvedValue({ data: mockRedeemResponse });
+
+      const { result } = renderHook(() => usePendingInviteRedemption(), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      await waitFor(() => expect(result.current.inviter).not.toBeNull());
+      act(() => {
+        result.current.dismiss();
+      });
+      await waitFor(() => expect(result.current.inviter).toBeNull());
     });
   });
 

@@ -30,17 +30,23 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-def build_invite_url(invite_code: str | None) -> str | None:
+def build_invite_url(invite_code: str | None, ref: str | None = None) -> str | None:
     """Public landing-page URL for an invite code.
 
     This link is the invite's primary delivery path: the app hands it to the
     native share sheet, and the optional Resend email carries the same URL.
     A missing email provider therefore never silently drops the invite.
+
+    ``ref`` carries the inviter's username so the landing page logs share
+    attribution (U7) alongside the code's deterministic attribution.
     """
     if not invite_code:
         return None
     base_url = get_settings().base_url.rstrip("/")
-    return f"{base_url}/invite?code={quote(invite_code)}"
+    url = f"{base_url}/invite?code={quote(invite_code)}"
+    if ref:
+        url += f"&ref={quote(ref)}"
+    return url
 
 
 @router.post("", status_code=201)
@@ -84,6 +90,23 @@ async def send_invite(
             detail="Unable to send invite. Please try a different email or search by username.",
         )
 
+    # Fetch inviter's display name/username up front: the name personalizes the
+    # email and the username rides on the invite URL as ?ref= attribution.
+    inviter_profile = await db.get(
+        "user_profile",
+        {
+            "select": "display_name,username",
+            "user_id": f"eq.{user.id}",
+        },
+    )
+    inviter_name = "Someone"
+    inviter_username: str | None = None
+    if inviter_profile:
+        inviter_username = inviter_profile[0].get("username")
+        inviter_name = (
+            inviter_profile[0].get("display_name") or inviter_username or "Someone"
+        )
+
     # Check if we already have a pending invite for this email from this user
     existing_invite = await db.get(
         "pending_invite",
@@ -100,7 +123,9 @@ async def send_invite(
         return InviteResponse(
             status="already_pending",
             email=email_lower,
-            invite_url=build_invite_url(existing_invite[0].get("invite_code")),
+            invite_url=build_invite_url(
+                existing_invite[0].get("invite_code"), ref=inviter_username
+            ),
         )
 
     # Generate secure invite code
@@ -118,23 +143,6 @@ async def send_invite(
             "status": "pending",
         },
     )
-
-    # Fetch inviter's display name before sending to background task
-    # to avoid database queries in background tasks
-    inviter_profile = await db.get(
-        "user_profile",
-        {
-            "select": "display_name,username",
-            "user_id": f"eq.{user.id}",
-        },
-    )
-    inviter_name = "Someone"
-    if inviter_profile:
-        inviter_name = (
-            inviter_profile[0].get("display_name")
-            or inviter_profile[0].get("username")
-            or "Someone"
-        )
 
     async def send_email_notification() -> None:
         try:
@@ -161,7 +169,7 @@ async def send_invite(
     return InviteResponse(
         status="sent",
         email=email_lower,
-        invite_url=build_invite_url(invite_code),
+        invite_url=build_invite_url(invite_code, ref=inviter_username),
     )
 
 

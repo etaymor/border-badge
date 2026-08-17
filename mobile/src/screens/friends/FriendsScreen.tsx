@@ -10,12 +10,14 @@ import {
   FeedSkeleton,
   FriendsStatsGrid,
   FriendsStatsSkeleton,
+  InviteFollowBackPrompt,
   UserSearchBar,
 } from '@components/friends';
 import { ErrorState, NotificationBell } from '@components/ui';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { FlashList } from '@shopify/flash-list';
+import { usePendingInviteRedemption } from '@hooks/useInvites';
 import { useResponsive } from '@hooks/useResponsive';
 import {
   useSocialHome,
@@ -49,6 +51,11 @@ export function FriendsScreen({ navigation }: Props) {
 
   // On iPad, constrain feed cards to 75% width centered
   const feedCardPaddingHorizontal = isTablet ? (screenWidth * 0.25) / 2 : 0;
+
+  // Redeem any invite code stored by the deep-link handler (U7) and offer
+  // the "follow back" prompt for the inviter.
+  const { inviter: inviteFollowBackInviter, dismiss: dismissInviteFollowBack } =
+    usePendingInviteRedemption();
 
   const feedItems = useMemo(() => getSocialFeedItems(socialData), [socialData]);
 
@@ -236,6 +243,16 @@ export function FriendsScreen({ navigation }: Props) {
       {/* Header Title */}
       {renderHeader()}
 
+      {/* Follow-back prompt after redeeming an invite deep link (U7) */}
+      {inviteFollowBackInviter && (
+        <View style={styles.invitePromptContainer}>
+          <InviteFollowBackPrompt
+            inviter={inviteFollowBackInviter}
+            onDismiss={dismissInviteFollowBack}
+          />
+        </View>
+      )}
+
       {/* User search - outside FlatList so dropdown can overlay empty state */}
       <View style={styles.userSearchContainer}>
         <UserSearchBar onUserSelect={handleUserSelect} placeholder="Find fellow travelers..." />
@@ -322,6 +339,10 @@ const styles = StyleSheet.create({
     color: colors.stormGray,
     textAlign: 'center',
     lineHeight: 22,
+  },
+  invitePromptContainer: {
+    paddingHorizontal: 16,
+    paddingTop: 12,
   },
   userSearchContainer: {
     paddingHorizontal: 16,

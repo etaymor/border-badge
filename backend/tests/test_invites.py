@@ -538,11 +538,11 @@ def test_invite_flow_trip_tag_stores_trip_id(
             }
         ]
 
-    # Mock trip ownership check
     mock_supabase_client.rpc.return_value = [{"exists": False}]
     mock_supabase_client.get.side_effect = [
+        # Inviter profile (fetched first: name for email, username for ?ref=)
+        [{"display_name": "Test User", "username": "test_user"}],
         [],  # No existing invite
-        [{"id": trip_id, "user_id": TEST_USER_ID}],  # Trip exists and user owns it
     ]
     mock_supabase_client.post.side_effect = capture_post_call
 

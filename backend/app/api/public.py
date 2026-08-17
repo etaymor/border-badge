@@ -18,10 +18,12 @@ from fastapi.responses import (
 
 from app.api.utils import get_flag_emoji
 from app.core.analytics import (
+    log_invite_viewed,
     log_landing_viewed,
     log_list_viewed,
     log_profile_viewed,
     log_trip_viewed,
+    sanitize_ref,
 )
 from app.core.blog import get_registry
 from app.core.config import get_settings
@@ -319,7 +321,9 @@ async def view_public_profile(
 
     profile = profiles[0]
     user_id = profile["user_id"]
-    log_profile_viewed(profile["username"])
+    log_profile_viewed(
+        profile["username"], ref=sanitize_ref(request.query_params.get("ref"))
+    )
 
     # Fetch all data in parallel using RPC for stats aggregation
     # The RPC returns country/continent/subregion counts plus follower/following counts
@@ -432,6 +436,7 @@ async def invite_landing(
     growth loop.
     """
     settings = get_settings()
+    log_invite_viewed(ref=sanitize_ref(request.query_params.get("ref")))
 
     inviter: dict[str, Any] | None = None
     invite_type = "follow"
@@ -524,7 +529,7 @@ async def view_public_list(
         )
 
     lst = lists[0]
-    log_list_viewed(slug)
+    log_list_viewed(slug, ref=sanitize_ref(request.query_params.get("ref")))
 
     # Fetch entries with details including media
     entry_rows = await db.get(
@@ -675,7 +680,7 @@ async def view_public_trip(
         )
 
     trip = trips[0]
-    log_trip_viewed(slug)
+    log_trip_viewed(slug, ref=sanitize_ref(request.query_params.get("ref")))
 
     # Fetch entries with details including media and link/place data for redirects
     entry_rows = await db.get(

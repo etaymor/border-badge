@@ -19,6 +19,7 @@ import { GlassBackButton } from '@components/ui';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { ListSummary, getPublicListUrl, useDeleteList, useTripLists } from '@hooks/useLists';
+import { useProfile } from '@hooks/useProfile';
 import { TripTag, TripTagUser, useTrip } from '@hooks/useTrips';
 import type { TripsStackScreenProps } from '@navigation/types';
 import { Analytics } from '@services/analytics';
@@ -119,6 +120,7 @@ export function TripListsScreen({ route, navigation }: Props) {
   const currentUserId = useAuthStore((state) => state.session?.user.id);
   const { data: lists, isLoading, refetch } = useTripLists(tripId);
   const { data: trip } = useTrip(tripId);
+  const { data: profile } = useProfile();
   const deleteList = useDeleteList();
 
   const handleCreateNew = useCallback(() => {
@@ -132,22 +134,26 @@ export function TripListsScreen({ route, navigation }: Props) {
     [navigation, tripId, tripName]
   );
 
-  const handleShare = useCallback(async (list: ListSummary) => {
-    const shareUrl = getPublicListUrl(list.slug);
-    try {
-      Analytics.shareList(list.id);
-      // On iOS, only pass URL so "Copy" action copies just the link
-      // Messaging apps will still receive the URL and users can add their own text
-      // On Android, we need to use message since url is not well-supported
-      await Share.share(
-        Platform.OS === 'ios'
-          ? { url: shareUrl }
-          : { message: `Check out my list "${list.name}": ${shareUrl}` }
-      );
-    } catch (error) {
-      console.error('Share error:', error);
-    }
-  }, []);
+  const handleShare = useCallback(
+    async (list: ListSummary) => {
+      // ref=<username>: share attribution logged by the public page (U7)
+      const shareUrl = getPublicListUrl(list.slug, profile?.username);
+      try {
+        Analytics.shareList(list.id);
+        // On iOS, only pass URL so "Copy" action copies just the link
+        // Messaging apps will still receive the URL and users can add their own text
+        // On Android, we need to use message since url is not well-supported
+        await Share.share(
+          Platform.OS === 'ios'
+            ? { url: shareUrl }
+            : { message: `Check out my list "${list.name}": ${shareUrl}` }
+        );
+      } catch (error) {
+        console.error('Share error:', error);
+      }
+    },
+    [profile?.username]
+  );
 
   const handleDelete = useCallback(
     (list: ListSummary) => {

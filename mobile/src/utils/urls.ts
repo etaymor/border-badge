@@ -12,40 +12,55 @@ function getWebBaseUrl(): string {
 }
 
 /**
+ * Append the share-attribution referrer (?ref=<username>) to a share URL.
+ * Public pages parse and log this for share attribution (U7).
+ */
+function appendRef(url: string, ref?: string): string {
+  if (!url || !ref) {
+    return url;
+  }
+  const separator = url.includes('?') ? '&' : '?';
+  return `${url}${separator}ref=${encodeURIComponent(ref)}`;
+}
+
+/**
  * Get public share URL for a user profile.
  * @param username - The username to link to
+ * @param ref - Optional sharing user's username for attribution
  * @returns Full URL to the public profile page, or empty string if not configured
  */
-export function getPublicProfileUrl(username: string): string {
+export function getPublicProfileUrl(username: string, ref?: string): string {
   const baseUrl = getWebBaseUrl();
   if (!baseUrl || !username) {
     return '';
   }
-  return `${baseUrl}/u/${username}`;
+  return appendRef(`${baseUrl}/u/${username}`, ref);
 }
 
 /**
  * Get public share URL for a list.
  * @param slug - The list's share slug
+ * @param ref - Optional sharing user's username for attribution
  * @returns Full URL to the public list page, or empty string if not configured
  */
-export function getPublicListUrl(slug: string): string {
+export function getPublicListUrl(slug: string, ref?: string): string {
   const baseUrl = getWebBaseUrl();
   if (!baseUrl || !slug) {
     return '';
   }
-  return `${baseUrl}/l/${slug}`;
+  return appendRef(`${baseUrl}/l/${slug}`, ref);
 }
 
 /**
  * Get public share URL for a trip.
  * @param shareSlug - The trip's share slug
+ * @param ref - Optional sharing user's username for attribution
  * @returns Full URL to the public trip page, or empty string if not configured
  */
-export function getPublicTripUrl(shareSlug: string): string {
+export function getPublicTripUrl(shareSlug: string, ref?: string): string {
   const baseUrl = getWebBaseUrl();
   if (!baseUrl || !shareSlug) {
     return '';
   }
-  return `${baseUrl}/t/${shareSlug}`;
+  return appendRef(`${baseUrl}/t/${shareSlug}`, ref);
 }
