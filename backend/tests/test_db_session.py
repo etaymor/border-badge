@@ -65,6 +65,34 @@ class _DummyRPCClient:
         return self.response
 
 
+def test_handle_http_error_does_not_leak_postgrest_detail(monkeypatch) -> None:
+    """Client-facing detail must be generic; PostgREST specifics go to logs only."""
+    import httpx
+    from fastapi import HTTPException
+
+    dummy = DummySettings()
+    monkeypatch.setattr("app.db.session.get_settings", lambda: dummy)
+    client = SupabaseClient()
+
+    secret_detail = 'invalid input syntax for type uuid: "boom" in table user_follow'
+    response = httpx.Response(
+        400,
+        json={"message": secret_detail, "code": "22P02"},
+        request=httpx.Request("POST", "https://example.supabase.co/rest/v1/rpc/x"),
+    )
+    error = httpx.HTTPStatusError(
+        "Bad Request", request=response.request, response=response
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        client._handle_http_error(error)
+
+    assert exc_info.value.status_code == 400
+    assert secret_detail not in str(exc_info.value.detail)
+    assert "22P02" not in str(exc_info.value.detail)
+    assert "user_follow" not in str(exc_info.value.detail)
+
+
 @pytest.mark.asyncio
 async def test_rpc_invokes_function_with_payload(monkeypatch) -> None:
     """Ensure RPC helper posts to function endpoint with provided params."""

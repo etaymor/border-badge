@@ -71,3 +71,6 @@ indent-style = "space"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+markers = [
+    "sql: SQL-layer tests that require SUPABASE_DB_URL pointing at a migrated database",
+]

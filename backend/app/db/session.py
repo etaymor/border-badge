@@ -52,25 +52,28 @@ class SupabaseClient:
         return f"{self.base_url}/rest/v1"
 
     def _handle_http_error(self, e: httpx.HTTPStatusError) -> None:
-        """Convert httpx HTTP errors to FastAPI HTTPException."""
+        """Convert httpx HTTP errors to FastAPI HTTPException.
+
+        The specifics (PostgREST message, code, raw body) are logged server-side
+        only; the client receives a generic detail so internal schema/query
+        information is never forwarded in API responses.
+        """
         import logging
 
         logger = logging.getLogger(__name__)
 
-        # Try to extract error message from response
+        # Log the specifics server-side for debugging
         try:
             error_body = e.response.json()
-            error_detail = error_body.get("message", e.response.text[:200])
             logger.error(f"Supabase HTTP error {e.response.status_code}: {error_body}")
         except Exception:
-            error_detail = e.response.text[:200] if e.response.text else "Unknown error"
             logger.error(
                 f"Supabase HTTP error {e.response.status_code}: {e.response.text[:500]}"
             )
 
         raise HTTPException(
             status_code=e.response.status_code,
-            detail=f"Database error: {error_detail}",
+            detail="Database error",
         )
 
     def _handle_request_error(self, e: httpx.RequestError) -> None:

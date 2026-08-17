@@ -2,6 +2,7 @@
 
 import logging
 from datetime import datetime
+from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, Request
 
@@ -22,13 +23,14 @@ logger = logging.getLogger(__name__)
 
 
 def _parse_cursor(cursor: str | None) -> tuple[datetime | None, str | None]:
-    """Parse compound cursor into (created_at, item_id).
+    """Parse compound cursor into (created_at, activity_id).
 
-    Cursor format: "2024-01-01T00:00:00|uuid" or just "2024-01-01T00:00:00" for backward compat.
+    Cursor format: "2024-01-01T00:00:00|uuid" or just "2024-01-01T00:00:00" for
+    backward compat (old timestamp-only cursors fall back to timestamp-only
+    pagination in the RPCs, which may duplicate items at timestamp ties).
 
-    Note on backward compatibility: Old timestamp-only cursors may cause duplicate items
-    if multiple items share the same timestamp. New compound cursors (timestamp|id) avoid
-    this by using secondary sort on item_id. Clients should update to use new cursor format.
+    The id half must be a valid UUID; the RPCs take it as a UUID parameter, so
+    validating here turns garbage cursors into a 400 instead of a DB error.
     """
     if not cursor:
         return None, None
@@ -45,24 +47,26 @@ def _parse_cursor(cursor: str | None) -> tuple[datetime | None, str | None]:
     try:
         parts = cursor.split("|", 1)
         before_time = datetime.fromisoformat(parts[0])
-        # Extract item_id if present. Convert empty/whitespace to None for robustness.
-        # Backward compatibility: old timestamp-only cursors have no "|" delimiter,
-        # so they return None for before_id and pagination falls back to timestamp-only.
-        before_id = (parts[1].strip() or None) if len(parts) > 1 else None
+        # Extract activity_id if present. Convert empty/whitespace to None for
+        # robustness. Backward compatibility: old timestamp-only cursors have no
+        # "|" delimiter, so they return None for before_id and pagination falls
+        # back to timestamp-only.
+        raw_id = (parts[1].strip() or None) if len(parts) > 1 else None
+        before_id = str(UUID(raw_id)) if raw_id is not None else None
         return before_time, before_id
     except ValueError as e:
         raise HTTPException(status_code=400, detail="Invalid cursor format") from e
 
 
 def _build_cursor(row: dict) -> str:
-    """Build compound cursor from the last item."""
+    """Build compound cursor "created_at|activity_id" from the last item."""
     created_at = row["created_at"]
     if isinstance(created_at, str):
         created_at = datetime.fromisoformat(created_at)
-    item_id = row.get("item_id")
-    if item_id:
-        return f"{created_at.isoformat()}|{item_id}"
-    # Backward compatibility: when there's no item_id, return timestamp-only cursor
+    activity_id = row.get("activity_id")
+    if activity_id:
+        return f"{created_at.isoformat()}|{activity_id}"
+    # Backward compatibility: when there's no activity_id, return timestamp-only
     return created_at.isoformat()
 
 
@@ -102,6 +106,7 @@ def _build_feed_items(rows: list[dict]) -> list[FeedItem]:
 
         items.append(
             FeedItem(
+                activity_id=row["activity_id"],
                 activity_type=ActivityType(row["activity_type"]),
                 created_at=row["created_at"],
                 user=feed_user,
@@ -116,7 +121,7 @@ def _build_feed_items(rows: list[dict]) -> list[FeedItem]:
 @limiter.limit("60/minute")
 async def get_user_feed(
     request: Request,
-    user_id: str,
+    user_id: UUID,
     user: CurrentUser,
     before: str | None = Query(
         default=None, description="Cursor for pagination (timestamp|id)"
@@ -133,8 +138,8 @@ async def get_user_feed(
     token = get_token_from_request(request)
     db = get_supabase_client(user_token=token)
 
-    # Parse compound cursor
-    before_time, _ = _parse_cursor(before)
+    # Parse compound cursor (same tuple semantics as the home feed)
+    before_time, before_id = _parse_cursor(before)
 
     result = await db.rpc(
         "get_user_activity_feed",
@@ -143,6 +148,7 @@ async def get_user_feed(
             "p_target_user_id": str(user_id),
             "p_before": before_time.isoformat() if before_time else None,
             "p_limit": limit,
+            "p_before_id": before_id,
         },
     )
 
@@ -190,7 +196,7 @@ async def get_feed(
     db = get_supabase_client(user_token=token)
 
     # Parse compound cursor
-    before_time, _ = _parse_cursor(before)
+    before_time, before_id = _parse_cursor(before)
 
     # Call the database function
     logger.debug(f"Fetching feed for user={user.id}, limit={limit}, before={before}")
@@ -200,6 +206,7 @@ async def get_feed(
             "p_user_id": str(user.id),
             "p_before": before_time.isoformat() if before_time else None,
             "p_limit": limit,
+            "p_before_id": before_id,
         },
     )
     logger.debug(

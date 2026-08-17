@@ -3,6 +3,8 @@
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, patch
 
+import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from app.api.feed import _build_cursor, _parse_cursor
@@ -13,6 +15,8 @@ from tests.conftest import (
     TEST_USER_ID,
     mock_auth_dependency,
 )
+
+SAMPLE_ACTIVITY_ID = "9f8b7c6d-5e4f-4a3b-9c2d-1e0f9a8b7c6d"
 
 
 # Sample feed data for tests - must match the expected database row format
@@ -26,9 +30,11 @@ def make_feed_row(
     entry_type: str | None = None,
     location_name: str | None = None,
     entry_image_url: str | None = None,
+    activity_id: str = SAMPLE_ACTIVITY_ID,
 ) -> dict:
     """Create a sample feed row matching the database function output."""
     return {
+        "activity_id": activity_id,
         "user_id": OTHER_USER_ID,
         "username": "traveler",
         "avatar_url": None,
@@ -172,6 +178,87 @@ def test_get_feed_before_cursor_trailing_pipe_does_not_pass_empty_string(
         assert call is not None
         payload = call.args[1]
         assert payload["p_before"] == "2024-01-01T00:00:00+00:00"
+        assert payload["p_before_id"] is None
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_get_feed_compound_cursor_forwards_before_id(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+) -> None:
+    """A compound 'timestamp|uuid' cursor must forward p_before_id to the RPC."""
+    mock_supabase_client.rpc.return_value = [make_feed_row("country_visited")]
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with patch(
+            "app.api.feed.get_supabase_client", return_value=mock_supabase_client
+        ):
+            response = client.get(
+                f"/feed?before=2024-01-01T00:00:00Z|{SAMPLE_ACTIVITY_ID}",
+                headers=auth_headers,
+            )
+        assert response.status_code == 200
+
+        call = mock_supabase_client.rpc.await_args
+        assert call is not None
+        payload = call.args[1]
+        assert payload["p_before"] == "2024-01-01T00:00:00+00:00"
+        assert payload["p_before_id"] == SAMPLE_ACTIVITY_ID
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_get_user_feed_compound_cursor_forwards_before_id(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+) -> None:
+    """The profile feed uses the same compound cursor semantics as the home feed."""
+    mock_supabase_client.rpc.return_value = [make_feed_row("country_visited")]
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with patch(
+            "app.api.feed.get_supabase_client", return_value=mock_supabase_client
+        ):
+            response = client.get(
+                f"/feed/user/{OTHER_USER_ID}"
+                f"?before=2024-01-01T00:00:00Z|{SAMPLE_ACTIVITY_ID}",
+                headers=auth_headers,
+            )
+        assert response.status_code == 200
+
+        call = mock_supabase_client.rpc.await_args
+        assert call is not None
+        payload = call.args[1]
+        assert payload["p_before"] == "2024-01-01T00:00:00+00:00"
+        assert payload["p_before_id"] == SAMPLE_ACTIVITY_ID
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_get_feed_invalid_before_id_returns_400(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+) -> None:
+    """A cursor whose id half is not a UUID is rejected before hitting the DB."""
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with patch(
+            "app.api.feed.get_supabase_client", return_value=mock_supabase_client
+        ):
+            response = client.get(
+                "/feed?before=2024-01-01T00:00:00Z|not-a-uuid", headers=auth_headers
+            )
+        assert response.status_code == 400
+        mock_supabase_client.rpc.assert_not_awaited()
     finally:
         app.dependency_overrides.clear()
 
@@ -413,8 +500,87 @@ def test_get_user_feed_with_pagination(
         app.dependency_overrides.clear()
 
 
+def test_get_user_feed_garbage_user_id_returns_422(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+) -> None:
+    """A non-UUID user_id path param must be a validation error, not a DB 500."""
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with patch(
+            "app.api.feed.get_supabase_client", return_value=mock_supabase_client
+        ):
+            response = client.get("/feed/user/not-a-uuid", headers=auth_headers)
+        assert response.status_code == 422
+        mock_supabase_client.rpc.assert_not_awaited()
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_feed_items_include_activity_id(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+) -> None:
+    """Every feed item exposes the stable activity_id from the RPC row set."""
+    mock_supabase_client.rpc.return_value = [make_feed_row("country_visited")]
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with patch(
+            "app.api.feed.get_supabase_client", return_value=mock_supabase_client
+        ):
+            response = client.get("/feed", headers=auth_headers)
+        assert response.status_code == 200
+        item = response.json()["items"][0]
+        assert item["activity_id"] == SAMPLE_ACTIVITY_ID
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_next_cursor_is_compound_when_rows_have_activity_id(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+) -> None:
+    """next_cursor carries 'timestamp|activity_id' built from the last page item."""
+    last_activity_id = "0e1d2c3b-4a59-4687-b1c2-d3e4f5a6b7c8"
+    mock_supabase_client.rpc.return_value = [
+        make_feed_row("country_visited", activity_id=SAMPLE_ACTIVITY_ID),
+        make_feed_row("country_visited", activity_id=last_activity_id),
+        make_feed_row("country_visited"),
+    ]
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with patch(
+            "app.api.feed.get_supabase_client", return_value=mock_supabase_client
+        ):
+            response = client.get("/feed?limit=2", headers=auth_headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert data["has_more"] is True
+        assert data["next_cursor"] == f"2024-01-01T12:00:00+00:00|{last_activity_id}"
+
+        # Round-trip: the emitted cursor parses back to the same tuple
+        before_time, before_id = _parse_cursor(data["next_cursor"])
+        assert before_time == datetime(2024, 1, 1, 12, 0, tzinfo=UTC)
+        assert before_id == last_activity_id
+    finally:
+        app.dependency_overrides.clear()
+
+
+# ============================================================================
+# Cursor Helper Tests
+# ============================================================================
+
+
 def test_parse_cursor_timestamp_only_is_backward_compatible() -> None:
-    """Cursor without item_id should parse to (timestamp, None)."""
+    """Cursor without activity_id should parse to (timestamp, None)."""
     before_time, before_id = _parse_cursor("2024-01-01T00:00:00Z")
     assert before_time is not None
     assert before_id is None
@@ -427,16 +593,37 @@ def test_parse_cursor_trailing_pipe_treats_empty_id_as_none() -> None:
     assert before_id is None
 
 
-def test_build_cursor_omits_pipe_when_item_id_missing() -> None:
-    """When the row has no item_id, we emit timestamp-only cursor (no trailing '|')."""
+def test_parse_cursor_rejects_non_uuid_id() -> None:
+    """Cursor id halves must be UUIDs; anything else is a 400."""
+    with pytest.raises(HTTPException) as exc_info:
+        _parse_cursor("2024-01-01T00:00:00Z|garbage")
+    assert exc_info.value.status_code == 400
+
+
+def test_build_cursor_omits_pipe_when_activity_id_missing() -> None:
+    """When the row has no activity_id, we emit a timestamp-only cursor."""
     cursor = _build_cursor({"created_at": datetime(2024, 1, 1, 12, 0, tzinfo=UTC)})
     assert cursor == "2024-01-01T12:00:00+00:00"
     assert "|" not in cursor
 
 
-def test_build_cursor_includes_pipe_when_item_id_present() -> None:
-    """When the row has an item_id, we emit compound cursor 'timestamp|item_id'."""
+def test_build_cursor_includes_pipe_when_activity_id_present() -> None:
+    """When the row has an activity_id, we emit 'timestamp|activity_id'."""
     cursor = _build_cursor(
-        {"created_at": datetime(2024, 1, 1, 12, 0, tzinfo=UTC), "item_id": "abc"}
+        {
+            "created_at": datetime(2024, 1, 1, 12, 0, tzinfo=UTC),
+            "activity_id": SAMPLE_ACTIVITY_ID,
+        }
     )
-    assert cursor == "2024-01-01T12:00:00+00:00|abc"
+    assert cursor == f"2024-01-01T12:00:00+00:00|{SAMPLE_ACTIVITY_ID}"
+
+
+def test_cursor_round_trip_encode_parse() -> None:
+    """_parse_cursor(_build_cursor(row)) reproduces the (timestamp, id) tuple."""
+    row = {
+        "created_at": datetime(2024, 6, 15, 8, 30, 45, tzinfo=UTC),
+        "activity_id": SAMPLE_ACTIVITY_ID,
+    }
+    before_time, before_id = _parse_cursor(_build_cursor(row))
+    assert before_time == row["created_at"]
+    assert before_id == SAMPLE_ACTIVITY_ID

@@ -29,6 +29,7 @@ def make_feed_row(
 ) -> dict:
     """Create a sample feed row matching the database function output."""
     return {
+        "activity_id": "9f8b7c6d-5e4f-4a3b-9c2d-1e0f9a8b7c6d",
         "user_id": user_id,
         "username": "traveler",
         "avatar_url": None,

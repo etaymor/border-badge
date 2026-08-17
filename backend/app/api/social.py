@@ -81,7 +81,8 @@ async def get_social_home(
     token = get_token_from_request(request)
     db = get_supabase_client(user_token=token)
 
-    before_time, _ = _parse_cursor(before)
+    # Compound cursor: same (created_at, activity_id) tuple as /feed
+    before_time, before_id = _parse_cursor(before)
     before_iso: str | None = (
         before_time.isoformat() if isinstance(before_time, datetime) else None
     )
@@ -94,6 +95,7 @@ async def get_social_home(
             "p_user_id": str(user.id),
             "p_before": before_iso,
             "p_limit": limit,
+            "p_before_id": before_id,
         },
     )
 
