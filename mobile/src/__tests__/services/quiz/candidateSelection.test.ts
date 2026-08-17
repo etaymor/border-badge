@@ -10,9 +10,13 @@ import {
   BORDER_PROBE_DELTA_DEG,
   FIRST_BATCH_MAX,
   QUIZ_MAX_PHOTOS,
+  RESAMPLE_BATCH_MAX,
+  RESAMPLE_BATCH_MIN,
   isBorderAmbiguous,
+  nextResampleSize,
   orderByCountrySpread,
   pickQuizPhotos,
+  prepareCandidatePool,
   resolveCandidateCountry,
   selectEligibilityBatch,
   type CountryCoderFn,
@@ -126,6 +130,73 @@ describe('isBorderAmbiguous', () => {
     expect(isBorderAmbiguous(photo as QuizPhotoCandidate & { countryCode: string }, coder)).toBe(
       true
     );
+  });
+});
+
+describe('nextResampleSize', () => {
+  it('asks for more when the gate is rejecting almost everything', () => {
+    // 4% pass rate, 8 photos still wanted: ~200 images. Capped, but the cap is
+    // what makes a long hunt ~6 requests instead of ~13.
+    expect(nextResampleSize(8, 100, 4)).toBe(RESAMPLE_BATCH_MAX);
+  });
+
+  it('asks for little when nearly everything passes', () => {
+    expect(nextResampleSize(2, 50, 45)).toBe(RESAMPLE_BATCH_MIN);
+  });
+
+  it('never divides by a zero pass rate', () => {
+    // Nothing at all has passed yet: the floor is what stops this becoming
+    // an infinite batch.
+    expect(nextResampleSize(10, 70, 0)).toBe(RESAMPLE_BATCH_MAX);
+  });
+
+  it('stays within bounds before any verdict exists', () => {
+    const size = nextResampleSize(10, 0, 0);
+    expect(size).toBeGreaterThanOrEqual(RESAMPLE_BATCH_MIN);
+    expect(size).toBeLessThanOrEqual(RESAMPLE_BATCH_MAX);
+  });
+});
+
+describe('prepareCandidatePool', () => {
+  it('produces the same batch as letting selectEligibilityBatch prepare', () => {
+    // The hoist is a performance change only: a creation that prepares once
+    // and draws many batches must pick exactly what the old per-call
+    // preparation picked.
+    const pool = [
+      ...Array.from({ length: 20 }, () => makePhoto({ countryCode: 'FR' })),
+      ...Array.from({ length: 20 }, () => makePhoto({ countryCode: 'IT' })),
+      ...Array.from({ length: 5 }, () => makePhoto({ countryCode: 'XX' })),
+      ...Array.from({ length: 5 }, () => makePhoto({ countryCode: null })),
+    ];
+
+    const inline = selectEligibilityBatch({
+      pool,
+      validCodes: VALID_CODES,
+      coder: neutralCoder,
+      limit: 12,
+    });
+    const hoisted = selectEligibilityBatch({
+      pool: prepareCandidatePool(pool, VALID_CODES),
+      validCodes: VALID_CODES,
+      prepared: true,
+      coder: neutralCoder,
+      limit: 12,
+    });
+
+    expect(hoisted.map((c) => c.id)).toEqual(inline.map((c) => c.id));
+  });
+
+  it('drops no-fix and unmapped photos once, up front', () => {
+    const pool = [
+      ...Array.from({ length: 3 }, () => makePhoto({ countryCode: 'FR' })),
+      makePhoto({ countryCode: null }),
+      makePhoto({ countryCode: 'XX' }),
+    ];
+
+    const prepared = prepareCandidatePool(pool, VALID_CODES);
+
+    expect(prepared).toHaveLength(3);
+    expect(prepared.every((c) => c.countryCode === 'FR')).toBe(true);
   });
 });
 
@@ -303,8 +374,17 @@ describe('pickQuizPhotos', () => {
   });
 
   it('prefers fresh photos over previously used ones (KTD12)', () => {
-    const fresh = Array.from({ length: 5 }, () => makePhoto({ countryCode: 'FR' }));
-    const used = Array.from({ length: 8 }, () => makePhoto({ countryCode: 'FR' }));
+    // Explicit distinct days: freshness is the thing under test, and the
+    // shared makePhoto clock puts photos an hour apart, so where the run
+    // happens to straddle UTC midnight would otherwise decide how many the
+    // day-diversity pass admits.
+    const day = (index: number) => Date.UTC(2024, 0, 1 + index, 12);
+    const fresh = Array.from({ length: 5 }, (_, index) =>
+      makePhoto({ countryCode: 'FR', creationTime: day(index) })
+    );
+    const used = Array.from({ length: 8 }, (_, index) =>
+      makePhoto({ countryCode: 'FR', creationTime: day(5 + index) })
+    );
     const usedAssetIds = new Set(used.map((p) => p.id));
 
     const picks = pickQuizPhotos(
@@ -536,5 +616,267 @@ describe('day and country-year diversity (game variety)', () => {
       .slice(0, 4)
       .map((p) => new Date(p.creationTime).toISOString().slice(0, 10));
     expect(new Set(firstFourDays).size).toBe(4);
+  });
+});
+
+describe('time spread (never newest-first)', () => {
+  const DAY_MS = 24 * 3_600_000;
+  const NOON = Date.UTC(2019, 0, 1, 12, 0, 0);
+
+  /** One country photographed on `days` consecutive days, oldest to newest. */
+  function makeRun(countryCode: string, days: number): QuizPhotoCandidate[] {
+    return Array.from({ length: days }, (_, index) =>
+      makePhoto({
+        countryCode,
+        creationTime: NOON + index * DAY_MS,
+        latitude: 41.0 + index * 0.4,
+        longitude: 12.0 + index * 0.4,
+      })
+    );
+  }
+
+  it('reaches the oldest photos before exhausting the recent ones', () => {
+    // 200 days in one country: a newest-first batch of 10 would never leave
+    // the final week, spending the whole vision budget on one recent trip.
+    const pool = makeRun('FR', 200);
+
+    const batch = selectEligibilityBatch({
+      pool,
+      validCodes: VALID_CODES,
+      coder: neutralCoder,
+      limit: 10,
+    });
+
+    const times = batch.map((candidate) => candidate.creationTime);
+    const oldest = NOON;
+    const newest = NOON + 199 * DAY_MS;
+    expect(times).toContain(oldest);
+    expect(times).toContain(newest);
+    // The sample straddles the whole range rather than clustering at one end.
+    const span = Math.max(...times) - Math.min(...times);
+    expect(span).toBe(newest - oldest);
+  });
+
+  it('takes a day from each visit before taking a second day from any', () => {
+    // Three separate visits to one country, years apart, 5 days each.
+    const YEAR_MS = 365 * DAY_MS;
+    const pool = [0, 1, 2].flatMap((visit) =>
+      Array.from({ length: 5 }, (_, index) =>
+        makePhoto({
+          countryCode: 'JP',
+          creationTime: NOON + visit * 2 * YEAR_MS + index * DAY_MS,
+          latitude: 36.0 + index * 0.3,
+          longitude: 138.0 + index * 0.3,
+        })
+      )
+    );
+
+    const batch = selectEligibilityBatch({
+      pool,
+      validCodes: VALID_CODES,
+      coder: neutralCoder,
+      limit: 3,
+    });
+
+    // Bucket by visit: all three trips represented, none twice.
+    const visits = batch.map((candidate) =>
+      Math.round((candidate.creationTime - NOON) / (2 * YEAR_MS))
+    );
+    expect(new Set(visits).size).toBe(3);
+  });
+
+  it('is deterministic across identical runs', () => {
+    const pool = makeRun('IT', 40);
+    const options = { pool, validCodes: VALID_CODES, coder: neutralCoder, limit: 12 };
+
+    const first = selectEligibilityBatch(options).map((candidate) => candidate.id);
+    const second = selectEligibilityBatch(options).map((candidate) => candidate.id);
+
+    expect(first).toEqual(second);
+  });
+});
+
+describe('on-device tag tiering', () => {
+  /**
+   * Build a multi-country, multi-day pool that exercises every ordering rule
+   * (country round-robin, day spread, within-day order) at once.
+   */
+  function makeTieredPool(): GeoEligibleCandidate[] {
+    const DAY_MS = 24 * 60 * 60 * 1000;
+    // Anchor at 06:00 UTC so the per-shot hour offsets below stay inside one
+    // UTC day - photoDayKey buckets on UTC days, and a fixture that straddles
+    // midnight would be testing the day boundary rather than the tiering.
+    const base = Date.UTC(2023, 5, 15, 6, 0, 0);
+    const pool: GeoEligibleCandidate[] = [];
+    for (const [countryIndex, code] of ['FR', 'IT', 'JP'].entries()) {
+      for (let day = 0; day < 4; day++) {
+        for (let shot = 0; shot < 3; shot++) {
+          pool.push({
+            id: `${code}-${day}-${shot}`,
+            uri: `file:///${code}-${day}-${shot}.jpg`,
+            creationTime: base + countryIndex * 30 * DAY_MS + day * DAY_MS + shot * 3_600_000,
+            latitude: 48.85,
+            longitude: 2.35,
+            countryCode: code,
+          });
+        }
+      }
+    }
+    return pool;
+  }
+
+  const tierOf = (id: string, tier: 'likely' | 'marginal' | 'unknown') => tier;
+
+  it('orders an untagged pool exactly as it did before tagging existed', () => {
+    // THE regression lock. Tagging must be invisible until tags exist: every
+    // candidate falls in the default tier, the tier split collapses to one
+    // non-empty bucket, and all qualityScores tie under a stable sort.
+    const pool = makeTieredPool();
+
+    const ordered = orderByCountrySpread(pool).map((c) => c.id);
+
+    // Recompute the pre-tagging expectation independently: within each country,
+    // days visited in bisection order, each day's Nth photo before any day's
+    // (N+1)th, countries interleaved. Captured here as an explicit snapshot so a
+    // future ordering change cannot silently pass by also changing the helper.
+    expect(ordered).toEqual([
+      'FR-0-0',
+      'IT-0-0',
+      'JP-0-0',
+      'FR-3-0',
+      'IT-3-0',
+      'JP-3-0',
+      'FR-1-0',
+      'IT-1-0',
+      'JP-1-0',
+      'FR-2-0',
+      'IT-2-0',
+      'JP-2-0',
+      'FR-0-1',
+      'IT-0-1',
+      'JP-0-1',
+      'FR-3-1',
+      'IT-3-1',
+      'JP-3-1',
+      'FR-1-1',
+      'IT-1-1',
+      'JP-1-1',
+      'FR-2-1',
+      'IT-2-1',
+      'JP-2-1',
+      'FR-0-2',
+      'IT-0-2',
+      'JP-0-2',
+      'FR-3-2',
+      'IT-3-2',
+      'JP-3-2',
+      'FR-1-2',
+      'IT-1-2',
+      'JP-1-2',
+      'FR-2-2',
+      'IT-2-2',
+      'JP-2-2',
+    ]);
+  });
+
+  it('is unchanged when every candidate carries the same tier', () => {
+    const untagged = orderByCountrySpread(makeTieredPool()).map((c) => c.id);
+
+    const uniformlyTagged = makeTieredPool().map((candidate) => ({
+      ...candidate,
+      tier: tierOf(candidate.id, 'marginal'),
+    }));
+
+    expect(orderByCountrySpread(uniformlyTagged).map((c) => c.id)).toEqual(untagged);
+  });
+
+  it('classifies likely photos before unknown before marginal', () => {
+    const pool = makeTieredPool().map((candidate) => {
+      const day = Number(candidate.id.split('-')[1]);
+      const tier = day === 0 ? 'marginal' : day === 1 ? 'likely' : 'unknown';
+      return { ...candidate, tier: tierOf(candidate.id, tier) };
+    });
+
+    const ordered = orderByCountrySpread(pool);
+    const tierSequence = ordered.map((c) => c.tier);
+
+    const firstUnknown = tierSequence.indexOf('unknown');
+    const lastLikely = tierSequence.lastIndexOf('likely');
+    const firstMarginal = tierSequence.indexOf('marginal');
+    const lastUnknown = tierSequence.lastIndexOf('unknown');
+
+    expect(lastLikely).toBeLessThan(firstUnknown);
+    expect(lastUnknown).toBeLessThan(firstMarginal);
+  });
+
+  it('keeps freshness ahead of quality: a used likely photo still ranks after a fresh marginal one', () => {
+    // KTD12 must survive tiering. A stunning photo already spent on another
+    // challenge is still a repeat, and repeats are the thing players notice.
+    const pool = makeTieredPool().map((candidate) => ({
+      ...candidate,
+      tier: tierOf(candidate.id, candidate.countryCode === 'FR' ? 'likely' : 'marginal'),
+    }));
+    const usedAssetIds = new Set(pool.filter((c) => c.countryCode === 'FR').map((c) => c.id));
+
+    const ordered = orderByCountrySpread(pool, usedAssetIds);
+    const firstUsedIndex = ordered.findIndex((c) => usedAssetIds.has(c.id));
+
+    expect(firstUsedIndex).toBe(pool.length - usedAssetIds.size);
+  });
+
+  it('promotes the highest-quality photo to be its day representative', () => {
+    const DAY_MS = 24 * 60 * 60 * 1000;
+    const base = Date.UTC(2023, 5, 15, 6, 0, 0);
+    const signals = (qualityScore: number) => ({
+      peopleProminence: 0,
+      outdoorScore: 1,
+      categoryGuess: 'scenery' as const,
+      utilityLikely: false,
+      qualityScore,
+    });
+    // One day, three shots: chronologically first is the WORST of the three.
+    const pool: GeoEligibleCandidate[] = [
+      { qualityScore: -0.5, offset: 0 },
+      { qualityScore: 0.9, offset: 1 },
+      { qualityScore: 0.2, offset: 2 },
+    ].map((spec, index) => ({
+      id: `shot-${index}`,
+      uri: `file:///shot-${index}.jpg`,
+      creationTime: base + spec.offset * 3_600_000,
+      latitude: 48.85,
+      longitude: 2.35,
+      countryCode: 'FR',
+      tags: signals(spec.qualityScore),
+    }));
+    // A second day so the round-robin actually has a representative to pick.
+    pool.push({
+      id: 'other-day',
+      uri: 'file:///other-day.jpg',
+      creationTime: base + 5 * DAY_MS,
+      latitude: 48.85,
+      longitude: 2.35,
+      countryCode: 'FR',
+      tags: signals(0),
+    });
+
+    const ordered = orderByCountrySpread(pool).map((c) => c.id);
+
+    // shot-1 (best) represents its day, not shot-0 (earliest).
+    expect(ordered[0]).toBe('shot-1');
+    expect(ordered.indexOf('shot-2')).toBeLessThan(ordered.indexOf('shot-0'));
+  });
+
+  it('leaves within-day order untouched when no candidate has tags', () => {
+    const base = Date.UTC(2023, 5, 15, 6, 0, 0);
+    const pool: GeoEligibleCandidate[] = [0, 1, 2].map((index) => ({
+      id: `shot-${index}`,
+      uri: `file:///shot-${index}.jpg`,
+      creationTime: base + index * 3_600_000,
+      latitude: 48.85,
+      longitude: 2.35,
+      countryCode: 'FR',
+    }));
+
+    expect(orderByCountrySpread(pool).map((c) => c.id)).toEqual(['shot-0', 'shot-1', 'shot-2']);
   });
 });

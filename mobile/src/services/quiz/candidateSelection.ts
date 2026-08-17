@@ -9,8 +9,9 @@
  *   +/-BORDER_PROBE_DELTA_DEG around the coordinate resolves to more than one
  *   country (border-ambiguous ground truth).
  * - KTD3: sampling budget. Candidates are stratified by country (round-robin,
- *   newest first within a country) so a single photo-dense country cannot
- *   monopolize the vision budget.
+ *   then day-spread across that country's whole history) so neither a single
+ *   photo-dense country nor a single recent trip monopolizes the vision
+ *   budget.
  * - KTD12/R17: freshness. Asset ids already used by the owner's existing
  *   quizzes sort strictly after every fresh candidate, so repeats only happen
  *   once the fresh pool is exhausted.
@@ -24,6 +25,9 @@
 import { haversine } from '@services/photoImport/photoClustering';
 
 import type { CachedPhoto } from '@services/photoImport/types';
+
+import { DEFAULT_TIER, TIER_ORDER } from './tagSignals';
+import type { PrefilterTier, TagSignals } from './tagSignals';
 
 /** country-coder's iso1A2Code call shape (the subset we use). */
 export type CountryCoderFn = (
@@ -41,6 +45,15 @@ export interface QuizPhotoCandidate {
   longitude: number;
   /** Precomputed country code from the photo cache; null = no fix. */
   countryCode: string | null;
+  /**
+   * On-device Vision signals, attached by the caller when available. Absent for
+   * untagged photos, on Android, and in builds without the native module -- in
+   * all of which cases ordering must be exactly what it was before tagging
+   * existed. See `tagSignals.ts`.
+   */
+  tags?: TagSignals;
+  /** Pre-computed tier for `tags`; absent means `DEFAULT_TIER`. */
+  tier?: PrefilterTier;
 }
 
 /** A candidate that passed the geo gate; countryCode is resolved and valid. */
@@ -163,10 +176,43 @@ export type CandidateCountryResolution =
 
 /** First vision batch cap (matches the server's per-request image cap). */
 export const FIRST_BATCH_MAX = 50;
-/** Single resample pass cap (KTD3). */
-export const RESAMPLE_BATCH_MAX = 20;
-/** Client-side mirror of the server's ~70-image per-draft budget (KTD3). */
-export const CLASSIFICATION_BUDGET_PER_QUIZ = 70;
+/** Resample pass bounds; the size between them is chosen per pass (KTD3). */
+export const RESAMPLE_BATCH_MIN = 20;
+export const RESAMPLE_BATCH_MAX = 50;
+/**
+ * Client-side mirror of the server's per-draft budget (KTD3). MUST equal
+ * `quiz_classification_budget_per_quiz` - a client that believes it has more
+ * budget than the server just walks into a 429 it could have avoided.
+ */
+export const CLASSIFICATION_BUDGET_PER_QUIZ = 300;
+
+/**
+ * Assumed pass rate before the gate has told us anything, and the floor used
+ * once it has. The floor matters more than the guess: a pass rate of 0 (every
+ * photo so far rejected) must not divide into an infinite batch.
+ */
+const ASSUMED_PASS_RATE = 0.2;
+const MIN_ASSUMED_PASS_RATE = 0.05;
+
+/**
+ * How many images the next resample pass should ask for.
+ *
+ * Sized by the pass rate observed so far, because the two libraries this has
+ * to serve want opposite things. One where nearly everything passes should
+ * draw small batches and stop as soon as the game is full; one where ~5%
+ * passes needs ~200 more images, and asking for those 20 at a time turns a
+ * creation into ten round trips. Scaling by the observed rate lets the same
+ * budget be spent in ~6 requests instead of ~13 - well inside the endpoint's
+ * 30/hour limit either way, but far less waiting.
+ *
+ * Callers still clamp the result by the remaining budget; this only decides
+ * how much is worth asking for.
+ */
+export function nextResampleSize(needed: number, sent: number, eligible: number): number {
+  const rate = sent > 0 ? Math.max(eligible / sent, MIN_ASSUMED_PASS_RATE) : ASSUMED_PASS_RATE;
+  const wanted = Math.ceil(Math.max(needed, 0) / rate);
+  return Math.min(RESAMPLE_BATCH_MAX, Math.max(RESAMPLE_BATCH_MIN, wanted));
+}
 /** Quiz size bounds (mirror the backend finalize bounds). */
 export const QUIZ_MIN_PHOTOS = 5;
 export const QUIZ_MAX_PHOTOS = 10;
@@ -223,14 +269,53 @@ export function resolveCandidateCountry(
 }
 
 /**
- * Order one country's candidates by DAY spread: newest first, but each
- * distinct day's first photo comes before any day's second photo. Same-day
- * repeats therefore enter a capped batch only sparingly - after every day
- * has had its turn - instead of one busy day monopolizing the country's
- * slots.
+ * Visit `length` positions in maximum-spread order: both ends first, then the
+ * midpoint of each remaining gap, recursively (0, n-1, mid, quarters, ...).
+ *
+ * Deterministic, so retries and tests behave identically - the reason this is
+ * a bisection rather than a shuffle.
+ */
+function spreadIndices(length: number): number[] {
+  if (length <= 2) return Array.from({ length }, (_, index) => index);
+  const ordered: number[] = [];
+  const seen = new Set<number>();
+  const visit = (index: number) => {
+    if (!seen.has(index)) {
+      seen.add(index);
+      ordered.push(index);
+    }
+  };
+  visit(0);
+  visit(length - 1);
+  const gaps: Array<[number, number]> = [[0, length - 1]];
+  while (gaps.length > 0) {
+    const [low, high] = gaps.shift()!;
+    if (high - low < 2) continue;
+    const middle = Math.floor((low + high) / 2);
+    visit(middle);
+    gaps.push([low, middle], [middle, high]);
+  }
+  return ordered;
+}
+
+/**
+ * Order one country's candidates by DAY spread, across the WHOLE history of
+ * that country rather than starting from the most recent day.
+ *
+ * Two rules, in order:
+ * 1. Days are visited in maximum-spread order (oldest, newest, then the gaps),
+ *    so a country visited three times contributes a day from each visit before
+ *    it contributes a second day from any of them.
+ * 2. Each day's first photo comes before any day's second photo, so one busy
+ *    day cannot monopolize the country's slots.
+ *
+ * Deliberately NOT newest-first: the vision budget only reaches ~70 photos, and
+ * taking the newest days first spent all of them on whichever trip happened
+ * most recently - or, worse, on the everyday photos taken since. Spreading
+ * across the years is what makes the sample look like a travel archive.
  */
 function orderByDaySpread(list: GeoEligibleCandidate[]): GeoEligibleCandidate[] {
-  const sorted = [...list].sort((a, b) => b.creationTime - a.creationTime);
+  const sorted = [...list].sort((a, b) => a.creationTime - b.creationTime);
   const byDay = new Map<string, GeoEligibleCandidate[]>();
   for (const candidate of sorted) {
     const key = photoDayKey(candidate);
@@ -241,7 +326,18 @@ function orderByDaySpread(list: GeoEligibleCandidate[]): GeoEligibleCandidate[] 
       byDay.set(key, [candidate]);
     }
   }
-  const days = [...byDay.values()];
+  // Within a day, best photo first. Rule 2 above means each day's FIRST photo is
+  // its representative in the round-robin, so this is the cheapest available
+  // "better photos" lever: same days, same counts, better picture from each.
+  //
+  // Array.prototype.sort is stable, and untagged candidates all score 0, so a
+  // pool with no tags comes out in exactly the chronological order it went in.
+  for (const day of byDay.values()) {
+    day.sort((a, b) => (b.tags?.qualityScore ?? 0) - (a.tags?.qualityScore ?? 0));
+  }
+  // Chronological (insertion order follows `sorted`), then spread.
+  const chronologicalDays = [...byDay.values()];
+  const days = spreadIndices(chronologicalDays.length).map((index) => chronologicalDays[index]);
   const ordered: GeoEligibleCandidate[] = [];
   for (let index = 0; ordered.length < sorted.length; index++) {
     for (const day of days) {
@@ -252,10 +348,11 @@ function orderByDaySpread(list: GeoEligibleCandidate[]): GeoEligibleCandidate[] 
 }
 
 /**
- * Round-robin candidates across countries, day-spread newest-first within a
- * country. Country order within each cycle is deterministic (largest pool
- * first, then code) so tests and retries behave identically. Yields lazily
- * so consumers that stop at a limit never materialize the full interleaving.
+ * Round-robin candidates across countries, day-spread across each country's
+ * whole history. Country order within each cycle is deterministic (largest
+ * pool first, then code) so tests and retries behave identically. Yields
+ * lazily so consumers that stop at a limit never materialize the full
+ * interleaving.
  */
 function* roundRobinByCountry(candidates: GeoEligibleCandidate[]): Generator<GeoEligibleCandidate> {
   const byCountry = new Map<string, GeoEligibleCandidate[]>();
@@ -293,7 +390,15 @@ function* roundRobinByCountry(candidates: GeoEligibleCandidate[]): Generator<Geo
  * 2. fresh photos in deprioritized countries
  * 3. previously used photos in preferred countries (KTD12: only after ALL fresh)
  * 4. previously used photos in deprioritized countries
- * Each segment is independently round-robined across countries.
+ *
+ * Within each segment, candidates are further split by on-device quality tier
+ * (`likely` before `unknown` before `marginal`) and each tier is independently
+ * round-robined across countries. Freshness outranks quality deliberately: a
+ * gorgeous photo already used in another challenge is still a repeat.
+ *
+ * When nothing is tagged, every candidate lands in the single default tier, so
+ * the tier split collapses and the output is byte-identical to the ordering
+ * before tagging existed. `candidateSelection.test.ts` locks that down.
  */
 function* iterateCountrySpread(
   candidates: GeoEligibleCandidate[],
@@ -312,7 +417,10 @@ function* iterateCountrySpread(
     segments[usedOffset + deprioritizedOffset].push(candidate);
   }
   for (const segment of segments) {
-    yield* roundRobinByCountry(segment);
+    for (const tier of TIER_ORDER) {
+      const inTier = segment.filter((candidate) => (candidate.tier ?? DEFAULT_TIER) === tier);
+      if (inTier.length > 0) yield* roundRobinByCountry(inTier);
+    }
   }
 }
 
@@ -336,11 +444,44 @@ export function orderByCountrySpread(
   return ordered;
 }
 
+/**
+ * The half of batch selection that costs O(library): the cheap geo gate over
+ * every cached photo, then the near-duplicate collapse (a sort plus a windowed
+ * scan).
+ *
+ * Split out so a creation pays it ONCE. Neither step depends on which photos
+ * have already been classified or which countries the current pass wants, so
+ * repeating it per resample was pure waste - invisible at two passes, a
+ * multi-second stall on a large library once the hunt runs seven or more.
+ */
+export function prepareCandidatePool(
+  pool: QuizPhotoCandidate[],
+  validCodes: Set<string>
+): GeoEligibleCandidate[] {
+  const cheapEligible: GeoEligibleCandidate[] = [];
+  for (const photo of pool) {
+    // Cached verdicts are authoritative: null means the scan already coded
+    // this photo as no-fix/ocean - do not spend coder work re-checking it.
+    const code = photo.countryCode;
+    if (!code || !validCodes.has(code)) continue;
+    cheapEligible.push({ ...photo, countryCode: code });
+  }
+  // Burst frames must not each spend a vision-budget slot (BUG-2): collapse
+  // near-duplicates before any batch is ordered and capped.
+  return collapseNearDuplicates(cheapEligible);
+}
+
 export interface SelectEligibilityBatchOptions {
-  /** All cached photos not yet ruled out (may include null country codes). */
+  /**
+   * Candidates to draw from. Either raw cached photos (prepared internally) or
+   * the output of `prepareCandidatePool`, which is what a multi-pass creation
+   * should pass so the O(library) work happens once.
+   */
   pool: QuizPhotoCandidate[];
   /** Codes present in the app's country table (KTD2 mapping check). */
   validCodes: Set<string>;
+  /** Set when `pool` is already the output of `prepareCandidatePool`. */
+  prepared?: boolean;
   /** Injected lazy country coder (border probe). */
   coder: CountryCoderFn;
   /** Batch cap: FIRST_BATCH_MAX or RESAMPLE_BATCH_MAX (KTD3). */
@@ -356,34 +497,34 @@ export interface SelectEligibilityBatchOptions {
 /**
  * Select the next batch of photos to send through the vision eligibility gate.
  *
- * Cheap checks (cached code present + mapped) run over the whole pool; the
- * 4-point border probe only runs while walking the ordered list, so coder
- * work is bounded by ~limit + rejected candidates rather than the library
- * size.
+ * The O(library) half (geo gate + near-duplicate collapse) is
+ * `prepareCandidatePool`; pass its output with `prepared: true` to skip it.
+ * What remains is lazy: `excludeIds` is a Set lookup during the walk and the
+ * 4-point border probe only runs on candidates actually reached, so a pass
+ * costs ~limit rather than the library size.
  */
 export function selectEligibilityBatch(
   options: SelectEligibilityBatchOptions
 ): GeoEligibleCandidate[] {
-  const { pool, validCodes, coder, limit, usedAssetIds, excludeIds, deprioritizedCountries } =
-    options;
+  const {
+    pool,
+    validCodes,
+    prepared,
+    coder,
+    limit,
+    usedAssetIds,
+    excludeIds,
+    deprioritizedCountries,
+  } = options;
 
-  const cheapEligible: GeoEligibleCandidate[] = [];
-  for (const photo of pool) {
-    if (excludeIds?.has(photo.id)) continue;
-    // Cached verdicts are authoritative: null means the scan already coded
-    // this photo as no-fix/ocean - do not spend coder work re-checking it.
-    const code = photo.countryCode;
-    if (!code || !validCodes.has(code)) continue;
-    cheapEligible.push({ ...photo, countryCode: code });
-  }
+  const collapsed = prepared
+    ? (pool as GeoEligibleCandidate[])
+    : prepareCandidatePool(pool, validCodes);
 
-  // Burst frames must not each spend a vision-budget slot (BUG-2): collapse
-  // near-duplicates before the batch is ordered and capped.
-  const collapsed = collapseNearDuplicates(cheapEligible);
-
-  // Walk the spread ordering lazily: border-ambiguous candidates are skipped
-  // and replaced by the next in line, so this may consume more than `limit`
-  // ordered entries - but never materializes the full interleaving.
+  // Walk the spread ordering lazily: already-classified and border-ambiguous
+  // candidates are skipped and replaced by the next in line, so this may
+  // consume more than `limit` ordered entries - but never materializes the
+  // full interleaving.
   const batch: GeoEligibleCandidate[] = [];
   for (const candidate of iterateCountrySpread(
     collapsed,
@@ -391,6 +532,7 @@ export function selectEligibilityBatch(
     deprioritizedCountries ?? new Set()
   )) {
     if (batch.length >= limit) break;
+    if (excludeIds?.has(candidate.id)) continue;
     if (isBorderAmbiguous(candidate, coder)) continue;
     batch.push(candidate);
   }
