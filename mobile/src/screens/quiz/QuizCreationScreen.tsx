@@ -9,10 +9,18 @@
  * repeat creations no longer feel as heavy as the first.
  *
  * The service keeps sole ownership of sequencing: one createQuiz.mutate call
- * drives refresh + classify + build exactly as before, and the rendered step
- * list follows ACTUAL progress events - the pre-flight only chooses the
- * initial list, so a fresh->stale race between pre-flight and mutate cannot
+ * drives refresh + classify + build exactly as before, and the rendered
+ * status follows ACTUAL progress events - the pre-flight only chooses the
+ * initial step, so a fresh->stale race between pre-flight and mutate cannot
  * desync the UI.
+ *
+ * Every phase shares one layout shell: a hero region up top (the most recent
+ * find during the build, the intro poster before it, a plain navy field for
+ * the utility states) over a warm-cream sheet that carries the copy and
+ * actions. During the working phase the sheet renders the live build: a
+ * serif found-counter, a gold progress bar, and a slot grid where each find
+ * lands as a crisp thumbnail over a neutral placeholder - photos the user
+ * recognizes, not a frozen spinner, across the up-to-90-second wait.
  *
  * Owns every state of the creation flow:
  * - intro (freshness-aware confirm) and resume-draft confirm (pre-flighted
@@ -28,15 +36,19 @@
  * On success navigates to QuizPlay for the owner play-through.
  */
 
+import { Image } from 'expo-image';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Linking, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Linking, StatusBar, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Animated, { FadeIn } from 'react-native-reanimated';
 
 import { Button } from '@components/ui/Button';
-import { Screen } from '@components/ui/Screen';
 import { colors, withAlpha } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { usePhotoPermissionStatus } from '@hooks/usePhotoPermissions';
 import { useCreateQuiz } from '@hooks/useQuizzes';
+import { useReducedMotion } from '@hooks/useReducedMotion';
 import { useStableCallback } from '@hooks/useStableCallback';
 import {
   getLibraryFreshness,
@@ -49,6 +61,10 @@ import type {
   QuizCreationStep,
 } from '@services/quiz/quizCreation';
 import type { RootStackScreenProps } from '@navigation/types';
+
+import { PhotoHero } from './components/PhotoHero';
+import { DURATION_BASE } from './components/motionTokens';
+import { introPoster } from './sampleAssets';
 
 type Props = RootStackScreenProps<'QuizCreation'>;
 
@@ -66,11 +82,19 @@ type ScreenPhase =
 // The `checking` counter is PHOTOS FOUND against the game size, not images
 // checked: the hunt keeps drawing batches until the game is full, so a
 // per-batch counter restarted at zero over and over.
-const STEP_LABELS: Record<QuizCreationStep, string> = {
+const WORKING_STATUS: Record<QuizCreationStep, string> = {
   scanning: 'Checking for new photos',
-  checking: 'Reading the scenery',
-  building: 'Dealing your challenge',
+  checking: 'Finding your travel photos',
+  building: 'Building your challenge',
 };
+
+/** Grid size before the first progress emission names the real game size. */
+const DEFAULT_SLOT_TOTAL = 10;
+
+const POSTER_SCRIM: [string, string] = [
+  withAlpha(colors.midnightNavy, 0),
+  withAlpha(colors.midnightNavy, 0.9),
+];
 
 /**
  * Name the rule that actually failed. The backend has always returned a
@@ -107,7 +131,23 @@ function formatSyncedAgo(lastSuccessAt: number | null): string | null {
   return `synced ${hours} ${hours === 1 ? 'hour' : 'hours'} ago`;
 }
 
+/**
+ * A neutral slot placeholder: paper-beige fill with a minimal image-outline
+ * mark drawn from plain views (rounded frame, a small sun, a peak). Never a
+ * blurred or faded photo - unfound slots stay honestly empty.
+ */
+function SlotPlaceholderMark() {
+  return (
+    <View style={styles.slotMarkFrame}>
+      <View style={styles.slotMarkSun} />
+      <View style={styles.slotMarkPeak} />
+    </View>
+  );
+}
+
 export function QuizCreationScreen({ navigation }: Props) {
+  const insets = useSafeAreaInsets();
+  const reduceMotion = useReducedMotion();
   const {
     status: permissionStatus,
     isLoading: permissionLoading,
@@ -119,18 +159,11 @@ export function QuizCreationScreen({ navigation }: Props) {
   const [progress, setProgress] = useState<QuizCreationProgress | null>(null);
   const [outcome, setOutcome] = useState<QuizCreationOutcome | null>(null);
   const [freshness, setFreshness] = useState<LibraryFreshness | null>(null);
+  const [draftHeroUri, setDraftHeroUri] = useState<string | null>(null);
   const [draftUploadCounts, setDraftUploadCounts] = useState<{
     uploaded: number;
     total: number;
   } | null>(null);
-  // Steps the wizard shows: the pre-flight picks the initial list, and a
-  // real 'scanning' progress event re-adds the step if the pre-flight was
-  // optimistic (fresh->stale race).
-  const [visibleSteps, setVisibleSteps] = useState<QuizCreationStep[]>([
-    'scanning',
-    'checking',
-    'building',
-  ]);
 
   const abortRef = useRef<AbortController | null>(null);
   const preflightRef = useRef(false);
@@ -165,17 +198,12 @@ export function QuizCreationScreen({ navigation }: Props) {
 
   const handleProgress = useStableCallback((update: QuizCreationProgress) => {
     setProgress(update);
-    // The service is the truth: if a scan actually runs, the step exists.
-    if (update.step === 'scanning') {
-      setVisibleSteps((steps) => (steps.includes('scanning') ? steps : ['scanning', ...steps]));
-    }
   });
 
   const startCreation = useStableCallback(() => {
     setPhase('working');
     setOutcome(null);
     const scanExpected = !freshness?.fresh;
-    setVisibleSteps(scanExpected ? ['scanning', 'checking', 'building'] : ['checking', 'building']);
     setProgress({ step: scanExpected ? 'scanning' : 'checking' });
     const controller = new AbortController();
     abortRef.current = controller;
@@ -219,6 +247,7 @@ export function QuizCreationScreen({ navigation }: Props) {
           uploaded: draft.picks.filter((pick) => pick.uploaded).length,
           total: draft.picks.length,
         });
+        setDraftHeroUri(draft.picks[0]?.uri ?? null);
         setPhase('resume-draft');
       } else if (permissionStatus === 'granted' || permissionStatus === 'limited') {
         setPhase('intro');
@@ -273,18 +302,111 @@ export function QuizCreationScreen({ navigation }: Props) {
         }.`
     : 'We will check your library for new photos first.';
 
-  return (
-    <Screen>
-      <View style={styles.container}>
-        {phase === 'checking-permission' && (
-          <View style={styles.centered} testID="quiz-permission-loading">
-            <ActivityIndicator size="large" color={colors.sunsetGold} />
-          </View>
-        )}
+  // Live build state (service contract: pickUris = eligible picks in found
+  // order; hero = the most recent one; absent on scanning emissions).
+  const step: QuizCreationStep = progress?.step ?? 'checking';
+  const pickUris = progress?.pickUris ?? [];
+  const lastPickUri = pickUris.length > 0 ? pickUris[pickUris.length - 1] : null;
+  const showCounter =
+    progress?.current !== undefined && progress?.total !== undefined && progress.total > 0;
+  const barFraction =
+    progress?.total && progress.total > 0 && progress.current !== undefined
+      ? Math.min(1, Math.max(0, progress.current / progress.total))
+      : 0;
+  // Hunting fills the game-size grid; the upload stage's grid IS the final
+  // pick list, so no pending placeholders linger once the hunt is over.
+  const slotTotal =
+    step === 'building'
+      ? pickUris.length
+      : progress?.total && progress.total > 0
+        ? progress.total
+        : DEFAULT_SLOT_TOTAL;
 
+  // Hero region per phase: real photos as soon as any are known, the bundled
+  // intro poster for the confirm steps, a plain navy field for utility
+  // states - and NEVER fake imagery while the hunt is still empty-handed.
+  const posterHero = (
+    <View style={styles.heroFill}>
+      <Image
+        source={introPoster}
+        style={StyleSheet.absoluteFill}
+        contentFit="cover"
+        cachePolicy="memory-disk"
+        transition={150}
+      />
+      <LinearGradient
+        colors={POSTER_SCRIM}
+        locations={[0.4, 1]}
+        style={StyleSheet.absoluteFill}
+        pointerEvents="none"
+      />
+      <View style={styles.heroFooter}>
+        <Text style={styles.heroEyebrow}>Guess Where</Text>
+      </View>
+    </View>
+  );
+
+  const neutralHero = (
+    <View style={[styles.heroNeutral, { paddingTop: insets.top }]}>
+      <Text style={styles.heroEyebrow}>Guess Where</Text>
+    </View>
+  );
+
+  let hero = neutralHero;
+  if (phase === 'working') {
+    hero = lastPickUri ? (
+      <PhotoHero
+        uri={lastPickUri}
+        scrim="bottom"
+        style={styles.heroFill}
+        testID="quiz-working-hero"
+      />
+    ) : (
+      <View style={[styles.heroNeutral, { paddingTop: insets.top }]} testID="quiz-hero-empty">
+        <Text style={styles.heroEyebrow}>Guess Where</Text>
+        <Text style={styles.heroNeutralCopy}>{WORKING_STATUS[step]}</Text>
+      </View>
+    );
+  } else if (phase === 'intro') {
+    hero = posterHero;
+  } else if (phase === 'resume-draft') {
+    hero = draftHeroUri ? (
+      <PhotoHero
+        uri={draftHeroUri}
+        scrim="bottom"
+        style={styles.heroFill}
+        testID="quiz-draft-hero"
+      />
+    ) : (
+      posterHero
+    );
+  } else if (phase === 'interrupted') {
+    hero = lastPickUri ? (
+      <PhotoHero uri={lastPickUri} scrim="bottom" style={styles.heroFill} />
+    ) : (
+      posterHero
+    );
+  }
+
+  if (phase === 'checking-permission') {
+    return (
+      <View style={styles.stage}>
+        <StatusBar barStyle="light-content" />
+        <View style={styles.heroNeutral} testID="quiz-permission-loading">
+          <ActivityIndicator size="large" color={colors.sunsetGold} />
+        </View>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.stage}>
+      <StatusBar barStyle="light-content" />
+      <View style={styles.heroRegion}>{hero}</View>
+
+      <View style={[styles.sheet, { paddingBottom: insets.bottom + 20 }]}>
         {phase === 'intro' && (
-          <View style={styles.centered} testID="quiz-intro-step">
-            <Text style={styles.eyebrow}>Guess Where</Text>
+          <View style={styles.sheetContent} testID="quiz-intro-step">
             <Text style={styles.title}>New Challenge</Text>
             <Text style={styles.body}>
               5-10 photos from your trips. Play once to set the score, then share.
@@ -298,8 +420,7 @@ export function QuizCreationScreen({ navigation }: Props) {
         )}
 
         {phase === 'resume-draft' && (
-          <View style={styles.centered} testID="quiz-resume-draft">
-            <Text style={styles.eyebrow}>Guess Where</Text>
+          <View style={styles.sheetContent} testID="quiz-resume-draft">
             <Text style={styles.title}>An Unfinished Challenge</Text>
             <Text style={styles.body}>
               {draftUploadCounts
@@ -313,7 +434,7 @@ export function QuizCreationScreen({ navigation }: Props) {
         )}
 
         {phase === 'permission-request' && (
-          <View style={styles.centered} testID="quiz-permission-request">
+          <View style={styles.sheetContent} testID="quiz-permission-request">
             <Text style={styles.title}>Your Photos, Their Guesses</Text>
             <Text style={styles.body}>A challenge is built from your own travel photos.</Text>
             <Text style={styles.hint}>
@@ -325,7 +446,7 @@ export function QuizCreationScreen({ navigation }: Props) {
         )}
 
         {phase === 'permission-denied' && (
-          <View style={styles.centered} testID="quiz-permission-denied">
+          <View style={styles.sheetContent} testID="quiz-permission-denied">
             <Text style={styles.title}>Photo Access Needed</Text>
             <Text style={styles.body}>Turn on photo access in Settings, then come back.</Text>
             <Button title="Open Settings" onPress={handleOpenSettings} />
@@ -334,44 +455,60 @@ export function QuizCreationScreen({ navigation }: Props) {
         )}
 
         {phase === 'working' && (
-          <View style={styles.centered} testID="quiz-progress">
+          <View style={styles.sheetContent} testID="quiz-progress">
             <Text style={styles.title}>Building Your Challenge</Text>
-            <View style={styles.steps}>
-              {visibleSteps.map((step) => {
-                const activeIndex = visibleSteps.indexOf(progress?.step ?? visibleSteps[0]);
-                const stepIndex = visibleSteps.indexOf(step);
-                const state =
-                  stepIndex < activeIndex
-                    ? 'done'
-                    : stepIndex === activeIndex
-                      ? 'active'
-                      : 'pending';
+            <Text style={styles.statusLine} testID="quiz-working-status">
+              {WORKING_STATUS[step]}
+            </Text>
+
+            {showCounter && (
+              <Text style={styles.counter} testID="quiz-found-counter">
+                {progress?.current}
+                <Text style={styles.counterOf}> of </Text>
+                {progress?.total}
+              </Text>
+            )}
+
+            <View style={styles.barTrack} testID="quiz-progress-track">
+              <View style={[styles.barFill, { width: `${barFraction * 100}%` }]} />
+            </View>
+
+            <View style={styles.slotGrid}>
+              {Array.from({ length: slotTotal }, (_, index) => {
+                const uri = pickUris[index];
                 return (
-                  <View key={step} style={styles.stepRow}>
-                    <View style={styles.stepMarker}>
-                      {state === 'active' ? (
-                        <ActivityIndicator size="small" color={colors.sunsetGold} />
-                      ) : (
-                        <Text style={styles.stepMarkDone}>{state === 'done' ? 'Done' : ''}</Text>
-                      )}
+                  <View key={index} style={styles.slotWrapper}>
+                    <View style={styles.slot}>
+                      <View
+                        style={styles.slotPlaceholder}
+                        testID={uri ? undefined : `quiz-slot-empty-${index}`}
+                      >
+                        <SlotPlaceholderMark />
+                      </View>
+                      {uri ? (
+                        // The warm-cream layer mounts with the photo: the slot
+                        // brightens for a beat while the thumbnail fades in.
+                        <Animated.View
+                          entering={reduceMotion ? undefined : FadeIn.duration(DURATION_BASE)}
+                          style={styles.slotPhotoLayer}
+                        >
+                          <Image
+                            source={{ uri }}
+                            style={styles.slotPhoto}
+                            contentFit="cover"
+                            cachePolicy="memory-disk"
+                            testID={`quiz-slot-photo-${index}`}
+                          />
+                        </Animated.View>
+                      ) : null}
                     </View>
-                    <Text style={state === 'pending' ? styles.stepLabelPending : styles.stepLabel}>
-                      {STEP_LABELS[step]}
-                      {state === 'active' &&
-                      progress?.current !== undefined &&
-                      progress?.total !== undefined &&
-                      progress.total > 0
-                        ? `  ${progress.current} / ${progress.total}`
-                        : ''}
-                    </Text>
                   </View>
                 );
               })}
             </View>
-            <Text style={styles.hint}>
-              {progress?.step === 'checking'
-                ? 'Searching your library for photos worth guessing.'
-                : 'Usually under a minute.'}
+
+            <Text style={styles.privacyLine} testID="quiz-privacy-line">
+              Your photos stay private until you share the challenge.
             </Text>
             <Button title="Cancel" variant="ghost" onPress={handleCancel} />
           </View>
@@ -379,7 +516,7 @@ export function QuizCreationScreen({ navigation }: Props) {
 
         {phase === 'thin-library' &&
           (limitedAccess ? (
-            <View style={styles.centered} testID="quiz-thin-limited">
+            <View style={styles.sheetContent} testID="quiz-thin-limited">
               <Text style={styles.title}>Limited Photo Access</Text>
               <Text style={styles.body}>
                 We can only see the photos you selected, and that was not enough.
@@ -392,7 +529,7 @@ export function QuizCreationScreen({ navigation }: Props) {
               <Button title="Back" variant="ghost" onPress={handleBack} />
             </View>
           ) : (
-            <View style={styles.centered} testID="quiz-thin-library">
+            <View style={styles.sheetContent} testID="quiz-thin-library">
               <Text style={styles.title}>Not Enough Photos Yet</Text>
               <Text style={styles.body}>
                 A challenge needs 5 photos that are geotagged, outdoors, and people-free.
@@ -406,7 +543,7 @@ export function QuizCreationScreen({ navigation }: Props) {
           ))}
 
         {phase === 'service-error' && (
-          <View style={styles.centered} testID="quiz-service-error">
+          <View style={styles.sheetContent} testID="quiz-service-error">
             <Text style={styles.title}>Something Went Wrong</Text>
             <Text style={styles.body}>
               We could not check your photos right now. Your library is fine.
@@ -417,7 +554,7 @@ export function QuizCreationScreen({ navigation }: Props) {
         )}
 
         {phase === 'interrupted' && (
-          <View style={styles.centered} testID="quiz-interrupted">
+          <View style={styles.sheetContent} testID="quiz-interrupted">
             <Text style={styles.title}>Upload Interrupted</Text>
             <Text style={styles.body}>
               {outcome?.status === 'interrupted'
@@ -430,27 +567,65 @@ export function QuizCreationScreen({ navigation }: Props) {
           </View>
         )}
       </View>
-    </Screen>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  stage: {
     flex: 1,
-    paddingHorizontal: 24,
+    backgroundColor: colors.midnightNavy,
   },
-  centered: {
+  heroRegion: {
     flex: 1,
+    minHeight: 200,
+  },
+  heroFill: {
+    flex: 1,
+    backgroundColor: colors.midnightNavy,
+    overflow: 'hidden',
+  },
+  heroNeutral: {
+    flex: 1,
+    backgroundColor: colors.midnightNavy,
+    alignItems: 'center',
     justifyContent: 'center',
-    gap: 16,
+    gap: 12,
+    paddingHorizontal: 32,
+    // Keep centered content clear of the sheet's rounded overlap.
+    paddingBottom: 24,
   },
-  eyebrow: {
+  heroFooter: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    paddingBottom: 44,
+  },
+  heroEyebrow: {
     fontFamily: fonts.body.bold,
     fontSize: 12,
     letterSpacing: 2,
     textTransform: 'uppercase',
-    color: colors.mossGreen,
+    color: colors.sunsetGold,
     textAlign: 'center',
+  },
+  heroNeutralCopy: {
+    fontFamily: fonts.body.regular,
+    fontSize: 15,
+    lineHeight: 22,
+    color: withAlpha(colors.warmCream, 0.85),
+    textAlign: 'center',
+  },
+  sheet: {
+    backgroundColor: colors.warmCream,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    marginTop: -24,
+    paddingTop: 28,
+    paddingHorizontal: 24,
+  },
+  sheetContent: {
+    gap: 14,
   },
   title: {
     fontFamily: fonts.playfair.bold,
@@ -472,33 +647,102 @@ const styles = StyleSheet.create({
     color: withAlpha(colors.midnightNavy, 0.6),
     textAlign: 'center',
   },
-  steps: {
-    gap: 16,
-    paddingVertical: 8,
-  },
-  stepRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  stepMarker: {
-    width: 44,
-    alignItems: 'flex-start',
-  },
-  stepMarkDone: {
-    fontFamily: fonts.body.semiBold,
-    fontSize: 13,
-    color: colors.mossGreen,
-  },
-  stepLabel: {
-    fontFamily: fonts.body.semiBold,
-    fontSize: 16,
-    color: colors.textPrimary,
-  },
-  stepLabelPending: {
+  statusLine: {
     fontFamily: fonts.body.regular,
-    fontSize: 16,
-    color: colors.textTertiary,
+    fontSize: 15,
+    lineHeight: 22,
+    color: colors.textSecondary,
+    textAlign: 'center',
+    marginTop: -6,
+  },
+  counter: {
+    fontFamily: fonts.playfair.bold,
+    fontSize: 40,
+    lineHeight: 48,
+    color: colors.textPrimary,
+    textAlign: 'center',
+  },
+  counterOf: {
+    fontFamily: fonts.playfair.regular,
+    fontSize: 22,
+    color: colors.stormGray,
+  },
+  barTrack: {
+    height: 3,
+    borderRadius: 1.5,
+    backgroundColor: colors.paperBeige,
+    overflow: 'hidden',
+  },
+  barFill: {
+    height: '100%',
+    borderRadius: 1.5,
+    backgroundColor: colors.sunsetGold,
+  },
+  slotGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginHorizontal: -3,
+  },
+  slotWrapper: {
+    width: '20%',
+    aspectRatio: 1,
+    padding: 3,
+  },
+  slot: {
+    flex: 1,
+    borderRadius: 8,
+    overflow: 'hidden',
+    backgroundColor: colors.paperBeige,
+  },
+  slotPlaceholder: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: colors.paperBeige,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  slotMarkFrame: {
+    width: 28,
+    height: 28,
+    borderWidth: 1.5,
+    borderColor: withAlpha(colors.stormGray, 0.4),
+    borderRadius: 6,
+    overflow: 'hidden',
+  },
+  slotMarkSun: {
+    position: 'absolute',
+    top: 5,
+    left: 5,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: withAlpha(colors.stormGray, 0.4),
+  },
+  slotMarkPeak: {
+    position: 'absolute',
+    bottom: -1,
+    right: 3,
+    width: 0,
+    height: 0,
+    borderLeftWidth: 9,
+    borderRightWidth: 9,
+    borderBottomWidth: 11,
+    borderLeftColor: colors.transparent,
+    borderRightColor: colors.transparent,
+    borderBottomColor: withAlpha(colors.stormGray, 0.35),
+  },
+  slotPhotoLayer: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: colors.warmCream,
+  },
+  slotPhoto: {
+    flex: 1,
+  },
+  privacyLine: {
+    fontFamily: fonts.body.regular,
+    fontSize: 13,
+    lineHeight: 19,
+    color: colors.stormGray,
+    textAlign: 'center',
   },
   hint: {
     fontFamily: fonts.body.regular,

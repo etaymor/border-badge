@@ -12,18 +12,35 @@
  *   thin-library decline
  * - interrupted upload renders resume/abandon
  * - success navigates toward owner play (QuizPlay seam)
+ * - the working phase renders the live build: hero of the latest find, the
+ *   serif found-counter, the slot grid (photos + neutral placeholders), the
+ *   privacy line, and the upload stage keeps every thumbnail visible
  */
 
-import { fireEvent, render, screen, waitFor } from '../utils/testUtils';
+import { act, fireEvent, render, screen, waitFor } from '../utils/testUtils';
 import { createMockNavigation } from '../utils/mockFactories';
 
+import { Image as ExpoImage } from 'expo-image';
 import { QuizCreationScreen } from '@screens/quiz/QuizCreationScreen';
-import type { QuizCreationOutcome } from '@services/quiz/quizCreation';
+import type { QuizCreationOutcome, QuizCreationProgress } from '@services/quiz/quizCreation';
 import type { RootStackScreenProps } from '@navigation/types';
 
 // ---------------------------------------------------------------------------
 // Mocks
 // ---------------------------------------------------------------------------
+
+// expo-image rendered as a plain RN Image so testIDs land on a host component
+// and `props.source.uri` stays assertable (same approach as QuizPlay tests).
+/* eslint-disable @typescript-eslint/no-require-imports -- jest.mock factories are hoisted above imports */
+jest.mock('expo-image', () => {
+  const React = require('react');
+  const { Image: RNImage } = require('react-native');
+  const MockImage = (props: Record<string, unknown>) => React.createElement(RNImage, props);
+  MockImage.prefetch = jest.fn(() => Promise.resolve(true));
+  MockImage.clearMemoryCache = jest.fn(() => Promise.resolve(true));
+  return { Image: MockImage };
+});
+/* eslint-enable @typescript-eslint/no-require-imports */
 
 const mockPermission = {
   status: 'granted' as 'undetermined' | 'granted' | 'limited' | 'denied',
@@ -36,14 +53,26 @@ jest.mock('@hooks/usePhotoPermissions', () => ({
 }));
 
 let mockOutcome: QuizCreationOutcome = { status: 'created', quizId: 'quiz-1', photoCount: 6 };
+// When true the mutation never resolves, holding the screen in the working
+// phase so the live-progress UI can be driven via `emitProgress`.
+let mockHoldWorking = false;
+let capturedOnProgress: ((update: QuizCreationProgress) => void) | undefined;
 const mockMutate = jest.fn(
   (
-    _options: unknown,
+    options: { onProgress?: (update: QuizCreationProgress) => void },
     callbacks?: { onSuccess?: (outcome: QuizCreationOutcome) => void; onError?: () => void }
   ) => {
+    capturedOnProgress = options?.onProgress;
+    if (mockHoldWorking) return;
     callbacks?.onSuccess?.(mockOutcome);
   }
 );
+
+function emitProgress(update: QuizCreationProgress) {
+  act(() => {
+    capturedOnProgress?.(update);
+  });
+}
 jest.mock('@hooks/useQuizzes', () => ({
   useCreateQuiz: () => ({ mutate: mockMutate, isPending: false }),
 }));
@@ -103,6 +132,8 @@ describe('QuizCreationScreen', () => {
     mockPermission.status = 'granted';
     mockPermission.isLoading = false;
     mockOutcome = { status: 'created', quizId: 'quiz-1', photoCount: 6 };
+    mockHoldWorking = false;
+    capturedOnProgress = undefined;
     mockLoadDraftState.mockResolvedValue(null);
     mockGetLibraryFreshness.mockResolvedValue(freshFreshness());
   });
@@ -217,6 +248,88 @@ describe('QuizCreationScreen', () => {
     // Retry restarts the creation flow.
     fireEvent.press(screen.getByText('Retry'));
     expect(mockMutate).toHaveBeenCalledTimes(2);
+  });
+
+  describe('working phase (live build)', () => {
+    const picks = [
+      'file:///photos/pick-0.jpg',
+      'file:///photos/pick-1.jpg',
+      'file:///photos/pick-2.jpg',
+    ];
+
+    async function startHeld() {
+      mockHoldWorking = true;
+      await renderScreen();
+      await startFromIntro();
+      await waitFor(() => expect(screen.getByTestId('quiz-progress')).toBeTruthy());
+    }
+
+    it('renders the counter, found thumbnails, placeholders, and privacy line while hunting', async () => {
+      await startHeld();
+      emitProgress({ step: 'checking', current: 3, total: 10, pickUris: picks });
+
+      expect(screen.getByText('Building Your Challenge')).toBeTruthy();
+      expect(screen.getByText('Finding your travel photos')).toBeTruthy();
+      expect(screen.getByTestId('quiz-found-counter')).toBeTruthy();
+      expect(screen.getByText('3 of 10')).toBeTruthy();
+
+      // Found slots carry the crisp thumbnails, in found order.
+      expect(screen.getByTestId('quiz-slot-photo-0').props.source.uri).toBe(picks[0]);
+      expect(screen.getByTestId('quiz-slot-photo-2').props.source.uri).toBe(picks[2]);
+      // The remaining slots are neutral placeholders, never faded photos.
+      expect(screen.getByTestId('quiz-slot-empty-3')).toBeTruthy();
+      expect(screen.getByTestId('quiz-slot-empty-9')).toBeTruthy();
+      expect(screen.queryByTestId('quiz-slot-empty-2')).toBeNull();
+      expect(screen.queryByTestId('quiz-slot-photo-3')).toBeNull();
+
+      expect(
+        screen.getByText('Your photos stay private until you share the challenge.')
+      ).toBeTruthy();
+    });
+
+    it('shows the most recent find as the hero photo', async () => {
+      await startHeld();
+      emitProgress({ step: 'checking', current: 3, total: 10, pickUris: picks });
+
+      expect(screen.getByTestId('quiz-working-hero')).toBeTruthy();
+      expect(screen.queryByTestId('quiz-hero-empty')).toBeNull();
+      // The hero image (no slot testID) renders the LAST found pick.
+      const heroImage = screen
+        .UNSAFE_getAllByType(ExpoImage)
+        .find((node) => node.props.source?.uri === picks[2] && !node.props.testID);
+      expect(heroImage).toBeTruthy();
+    });
+
+    it('renders a neutral navy field before any photo is found - no fake imagery', async () => {
+      await startHeld();
+      emitProgress({ step: 'checking', current: 0, total: 10, pickUris: [] });
+
+      expect(screen.getByTestId('quiz-hero-empty')).toBeTruthy();
+      expect(screen.queryByTestId('quiz-working-hero')).toBeNull();
+      expect(screen.queryByTestId('quiz-slot-photo-0')).toBeNull();
+      expect(screen.getByText('0 of 10')).toBeTruthy();
+    });
+
+    it('keeps thumbnails through the upload stage and says Building your challenge', async () => {
+      await startHeld();
+      emitProgress({ step: 'checking', current: 3, total: 10, pickUris: picks });
+      emitProgress({ step: 'building', current: 1, total: 3, pickUris: picks });
+
+      expect(screen.getByText('Building your challenge')).toBeTruthy();
+      expect(screen.getByText('1 of 3')).toBeTruthy();
+      expect(screen.getByTestId('quiz-slot-photo-0').props.source.uri).toBe(picks[0]);
+      expect(screen.getByTestId('quiz-slot-photo-2').props.source.uri).toBe(picks[2]);
+      // The final pick list is the whole grid now - no pending placeholders.
+      expect(screen.queryByTestId('quiz-slot-empty-3')).toBeNull();
+    });
+
+    it('keeps the cancel affordance live during the build', async () => {
+      await startHeld();
+      emitProgress({ step: 'checking', current: 2, total: 10, pickUris: picks.slice(0, 2) });
+
+      fireEvent.press(screen.getByText('Cancel'));
+      expect(mockNavigation.goBack).toHaveBeenCalled();
+    });
   });
 
   it('renders resume/abandon on an interrupted upload', async () => {
