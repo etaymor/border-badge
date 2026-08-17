@@ -14,7 +14,8 @@
  * entry point sits at the top.
  */
 
-import { ActivityIndicator, Alert, Image, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Image } from 'expo-image';
+import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { Button } from '@components/ui/Button';
 import { Screen } from '@components/ui/Screen';
@@ -31,10 +32,8 @@ import { useStableCallback } from '@hooks/useStableCallback';
 import type { RootStackScreenProps } from '@navigation/types';
 
 import { RowAction } from './components';
-
-/* eslint-disable @typescript-eslint/no-require-imports */
-const polaroidsIllustration = require('../../../assets/illustations/polaroids-illustration.png');
-/* eslint-enable @typescript-eslint/no-require-imports */
+import { DURATION_FAST } from './components/motionTokens';
+import { guessWhereMark } from './sampleAssets';
 
 type Props = RootStackScreenProps<'MyQuizzes'>;
 
@@ -135,66 +134,81 @@ function QuizRow({ quiz, navigation }: QuizRowProps) {
 
   return (
     <View style={styles.row} testID={`quiz-row-${quiz.id}`}>
-      <View style={styles.rowHeader}>
-        <Text style={styles.rowTitle}>
-          {createdAt ? `Challenge from ${createdAt}` : 'Challenge'}
-        </Text>
-        <View style={[styles.statePill, { backgroundColor: pill.bg }]}>
-          <Text
-            style={[styles.statePillText, { color: pill.text }]}
-            testID={`quiz-state-${quiz.id}`}
-          >
-            {STATE_LABELS[quiz.state] ?? quiz.state}
-          </Text>
-        </View>
-      </View>
-      {(photoCount || quiz.score_to_beat) && (
-        <Text style={styles.rowMeta}>
-          {[
-            photoCount,
-            quiz.score_to_beat
-              ? `Score to beat: ${quiz.score_to_beat.correct} of ${quiz.score_to_beat.total}`
-              : null,
-          ]
-            .filter(Boolean)
-            .join(' - ')}
-        </Text>
+      {quiz.cover_image_url ? (
+        <Image
+          source={{ uri: quiz.cover_image_url }}
+          style={styles.rowThumb}
+          contentFit="cover"
+          cachePolicy="memory-disk"
+          transition={DURATION_FAST}
+          testID={`quiz-cover-${quiz.id}`}
+        />
+      ) : (
+        // A draft with no photos yet keeps the frame so rows stay aligned.
+        <View style={[styles.rowThumb, styles.rowThumbEmpty]} />
       )}
-      <View style={styles.rowActions}>
-        {quiz.state === 'building' && (
-          <RowAction title="Resume" onPress={handleResume} testID={`quiz-resume-${quiz.id}`} />
+      <View style={styles.rowBody}>
+        <View style={styles.rowHeader}>
+          <Text style={styles.rowTitle}>
+            {createdAt ? `Challenge from ${createdAt}` : 'Challenge'}
+          </Text>
+          <View style={[styles.statePill, { backgroundColor: pill.bg }]}>
+            <Text
+              style={[styles.statePillText, { color: pill.text }]}
+              testID={`quiz-state-${quiz.id}`}
+            >
+              {STATE_LABELS[quiz.state] ?? quiz.state}
+            </Text>
+          </View>
+        </View>
+        {(photoCount || quiz.score_to_beat) && (
+          <Text style={styles.rowMeta}>
+            {[
+              photoCount,
+              quiz.score_to_beat
+                ? `Score to beat: ${quiz.score_to_beat.correct} of ${quiz.score_to_beat.total}`
+                : null,
+            ]
+              .filter(Boolean)
+              .join(' - ')}
+          </Text>
         )}
-        {quiz.state === 'awaiting_owner_play' && (
-          <RowAction title="Play Now" onPress={handlePlay} testID={`quiz-play-${quiz.id}`} />
-        )}
-        {quiz.state === 'playable' && (
-          <RowAction title="Share" onPress={handleShare} testID={`quiz-share-${quiz.id}`} />
-        )}
-        {quiz.state === 'shared' && (
-          <>
+        <View style={styles.rowActions}>
+          {quiz.state === 'building' && (
+            <RowAction title="Resume" onPress={handleResume} testID={`quiz-resume-${quiz.id}`} />
+          )}
+          {quiz.state === 'awaiting_owner_play' && (
+            <RowAction title="Play Now" onPress={handlePlay} testID={`quiz-play-${quiz.id}`} />
+          )}
+          {quiz.state === 'playable' && (
+            <RowAction title="Share" onPress={handleShare} testID={`quiz-share-${quiz.id}`} />
+          )}
+          {quiz.state === 'shared' && (
+            <>
+              <RowAction
+                title="Leaderboard"
+                onPress={handleLeaderboard}
+                testID={`quiz-leaderboard-${quiz.id}`}
+              />
+              <RowAction
+                title="Revoke"
+                tone="destructive"
+                onPress={handleRevoke}
+                loading={revokeMutation.isPending}
+                testID={`quiz-revoke-${quiz.id}`}
+              />
+            </>
+          )}
+          {deletable && (
             <RowAction
-              title="Leaderboard"
-              onPress={handleLeaderboard}
-              testID={`quiz-leaderboard-${quiz.id}`}
-            />
-            <RowAction
-              title="Revoke"
+              title="Delete"
               tone="destructive"
-              onPress={handleRevoke}
-              loading={revokeMutation.isPending}
-              testID={`quiz-revoke-${quiz.id}`}
+              onPress={handleDelete}
+              loading={deleteMutation.isPending}
+              testID={`quiz-delete-${quiz.id}`}
             />
-          </>
-        )}
-        {deletable && (
-          <RowAction
-            title="Delete"
-            tone="destructive"
-            onPress={handleDelete}
-            loading={deleteMutation.isPending}
-            testID={`quiz-delete-${quiz.id}`}
-          />
-        )}
+          )}
+        </View>
       </View>
     </View>
   );
@@ -241,7 +255,12 @@ export function MyQuizzesScreen({ navigation }: Props) {
           </View>
         ) : !quizzes || quizzes.length === 0 ? (
           <View style={styles.emptyState} testID="quiz-list-empty">
-            <Image source={polaroidsIllustration} style={styles.emptyIllustration} />
+            <Image
+              source={guessWhereMark}
+              style={styles.emptyIllustration}
+              contentFit="contain"
+              testID="quiz-empty-mark"
+            />
             <Text style={styles.emptyTitle}>No challenges yet</Text>
             <Text style={styles.body}>See if your friends can guess where you have been.</Text>
           </View>
@@ -297,7 +316,6 @@ const styles = StyleSheet.create({
   emptyIllustration: {
     width: 140,
     height: 140,
-    resizeMode: 'contain',
   },
   emptyTitle: {
     fontFamily: fonts.playfair.bold,
@@ -305,15 +323,29 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
   },
   row: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
     backgroundColor: colors.backgroundCard,
     borderRadius: 20,
     padding: 16,
-    gap: 6,
     shadowColor: colors.midnightNavy,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.06,
     shadowRadius: 8,
     elevation: 2,
+  },
+  rowThumb: {
+    width: 64,
+    height: 64,
+    borderRadius: 12,
+  },
+  rowThumbEmpty: {
+    backgroundColor: withAlpha(colors.midnightNavy, 0.08),
+  },
+  rowBody: {
+    flex: 1,
+    gap: 6,
   },
   rowHeader: {
     flexDirection: 'row',

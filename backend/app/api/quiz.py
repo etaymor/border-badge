@@ -131,14 +131,23 @@ async def list_quizzes(user: CurrentUser) -> QuizListResponse:
     rows = await db.get("quiz", {"owner_id": f"eq.{user.id}"})
     rows.sort(key=lambda r: str(r.get("created_at") or ""), reverse=True)
 
+    # One batched question fetch for every quiz on the list (never per-quiz):
+    # the count, plus the first question's storage path for the row thumbnail.
     counts: dict[str, int] = {}
+    cover_paths: dict[str, tuple[int, str]] = {}  # quiz_id -> (position, path)
     if rows:
         ids = ",".join(str(r["id"]) for r in rows)
         questions = await db.get(
-            "quiz_question", {"quiz_id": f"in.({ids})", "select": "id,quiz_id"}
+            "quiz_question",
+            {"quiz_id": f"in.({ids})", "select": "quiz_id,position,storage_path"},
         )
         for q in questions:
-            counts[str(q["quiz_id"])] = counts.get(str(q["quiz_id"]), 0) + 1
+            qid = str(q["quiz_id"])
+            counts[qid] = counts.get(qid, 0) + 1
+            path = q.get("storage_path")
+            position = q.get("position") or 0
+            if path and (qid not in cover_paths or position < cover_paths[qid][0]):
+                cover_paths[qid] = (position, path)
 
     summaries: list[QuizSummary] = []
     for r in rows:
@@ -148,6 +157,7 @@ async def list_quizzes(user: CurrentUser) -> QuizListResponse:
                 correct=r["score_to_beat_correct"], total=r["score_to_beat_total"]
             )
         slug = r.get("slug") if r.get("state") == "shared" else None
+        cover = cover_paths.get(str(r["id"]))
         summaries.append(
             QuizSummary(
                 id=r["id"],
@@ -155,6 +165,9 @@ async def list_quizzes(user: CurrentUser) -> QuizListResponse:
                 slug=slug,
                 share_url=_share_url(slug) if slug else None,
                 score_to_beat=score_to_beat,
+                # Same public-bucket URL the play payloads serve (see
+                # _sanitize_question); None while a draft has no questions.
+                cover_image_url=build_media_url(cover[1]) if cover else None,
                 question_count=counts.get(str(r["id"]), 0),
                 created_at=str(r["created_at"]),
                 revoked_at=r.get("revoked_at"),

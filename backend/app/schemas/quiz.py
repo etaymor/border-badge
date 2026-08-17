@@ -414,7 +414,9 @@ class QuizSummary(BaseModel):
 
     `slug`/`share_url` are served only while the quiz is 'shared' (a revoked
     slug serves nothing publicly). `question_count` stands in for content the
-    list never needs to load.
+    list never needs to load. `cover_image_url` is the first question's public
+    image URL (the same URL the play payloads serve), None while a draft has
+    no questions yet.
     """
 
     id: UUID
@@ -422,6 +424,7 @@ class QuizSummary(BaseModel):
     slug: str | None = None
     share_url: str | None = None
     score_to_beat: ScoreToBeat | None = None
+    cover_image_url: str | None = None
     question_count: int
     created_at: str
     revoked_at: str | None = None

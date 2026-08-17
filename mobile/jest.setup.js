@@ -44,6 +44,10 @@ jest.mock(
       FadeInDown: {
         duration: () => ({ delay: () => ({}) }),
       },
+      // Layout transition builder used for leaderboard rank displacement.
+      LinearTransition: {
+        duration: () => ({}),
+      },
       // Real useSharedValue returns the SAME object across renders. Returning a
       // fresh one each time would hide recycling bugs (a stale offset written by
       // a previous render would appear to "reset" on its own), so mirror the real

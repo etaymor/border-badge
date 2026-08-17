@@ -16,7 +16,7 @@
  *   or revokes
  */
 
-import { fireEvent, render, screen, waitFor, within } from '../utils/testUtils';
+import { act, fireEvent, render, screen, waitFor, within } from '../utils/testUtils';
 import { createMockNavigation } from '../utils/mockFactories';
 
 // Access the mock Alert from global (set in jest.setup.js).
@@ -76,6 +76,7 @@ function makeSummary(overrides?: Partial<QuizSummary>): QuizSummary {
     slug: null,
     share_url: null,
     score_to_beat: null,
+    cover_image_url: null,
     question_count: 0,
     created_at: '2026-08-01T00:00:00+00:00',
     revoked_at: null,
@@ -331,6 +332,37 @@ describe('MyQuizzesScreen', () => {
     expect(navigation.navigate).toHaveBeenLastCalledWith('QuizCreation');
   });
 
+  it('renders a cover thumbnail only for rows that serve one', async () => {
+    mockGetRoutes({
+      '/quiz': {
+        quizzes: [
+          makeSummary({
+            id: 'q-cover',
+            state: 'shared',
+            question_count: 5,
+            cover_image_url: 'https://cdn.example.com/cover.jpg',
+          }),
+          makeSummary({ id: 'q-bare', state: 'building' }),
+        ],
+      },
+    });
+
+    renderList();
+
+    await waitFor(() => expect(screen.getByTestId('quiz-row-q-cover')).toBeTruthy());
+    expect(screen.getByTestId('quiz-cover-q-cover')).toBeTruthy();
+    expect(screen.queryByTestId('quiz-cover-q-bare')).toBeNull();
+  });
+
+  it('shows the compass mark on the empty state', async () => {
+    mockGetRoutes({ '/quiz': { quizzes: [] } });
+
+    renderList();
+
+    await waitFor(() => expect(screen.getByTestId('quiz-list-empty')).toBeTruthy());
+    expect(screen.getByTestId('quiz-empty-mark')).toBeTruthy();
+  });
+
   it('deletes a draft after confirmation and refreshes the list', async () => {
     let deleted = false;
     mockGetRoutes({
@@ -464,25 +496,113 @@ describe('MyQuizzesScreen', () => {
 });
 
 describe('QuizLeaderboardScreen', () => {
-  it('shows best score per name with attempt counts under the pinned score-to-beat (AE4)', async () => {
+  it('shows one row per name with only rank, name, and best score (AE4)', async () => {
     mockGetRoutes({ '/quiz/quiz-1/leaderboard': makeBoard() });
 
     renderLeaderboard();
 
     await waitFor(() => expect(screen.getByTestId('leaderboard-score-to-beat')).toBeTruthy());
+    // The creator benchmark is the small serif score, not the stamp plate.
     const pinned = screen.getByTestId('leaderboard-score-to-beat');
     expect(within(pinned).getByText('3')).toBeTruthy();
-    expect(within(pinned).getByText('/5')).toBeTruthy();
+    expect(within(pinned).getByText('5')).toBeTruthy();
+    expect(screen.queryByText('Your score to beat')).toBeNull();
 
-    // One row per name: best score, attempt count.
+    // One row per name: rank numeral, name, score. No attempt counts.
     const maya = screen.getByTestId('leaderboard-entry-1');
+    expect(within(maya).getByText('2')).toBeTruthy();
     expect(within(maya).getByText('Maya')).toBeTruthy();
-    expect(within(maya).getByText('4 of 5')).toBeTruthy();
-    expect(within(maya).getByText('2 tries')).toBeTruthy();
+    expect(within(maya).getByText('4 / 5')).toBeTruthy();
     const sam = screen.getByTestId('leaderboard-entry-2');
+    expect(within(sam).getByText('3')).toBeTruthy();
     expect(within(sam).getByText('Sam')).toBeTruthy();
-    expect(within(sam).getByText('3 of 5')).toBeTruthy();
-    expect(within(sam).getByText('1 try')).toBeTruthy();
+    expect(within(sam).getByText('3 / 5')).toBeTruthy();
+    expect(screen.queryByText('2 tries')).toBeNull();
+    expect(screen.queryByText('1 try')).toBeNull();
+  });
+
+  it('stages the hero photo with the owner benchmark line', async () => {
+    mockGetRoutes({
+      '/quiz/quiz-1/leaderboard': makeBoard(),
+      '/quiz/quiz-1': {
+        id: 'quiz-1',
+        state: 'shared',
+        questions: [
+          {
+            id: 'qq-2',
+            position: 2,
+            image_url: 'https://cdn.example.com/photo-2.jpg',
+            options: [],
+          },
+          {
+            id: 'qq-1',
+            position: 1,
+            image_url: 'https://cdn.example.com/photo-1.jpg',
+            options: [],
+          },
+        ],
+        score_to_beat: { correct: 3, total: 5 },
+        slug: 'abc123',
+        share_url: 'https://border.badge/q/abc123',
+      },
+      '/profile': {
+        id: 'user-1',
+        email: 'owner@example.com',
+        display_name: 'Emerson',
+        tracking_preference: 'both',
+        created_at: '2026-01-01T00:00:00+00:00',
+        updated_at: '2026-01-01T00:00:00+00:00',
+      },
+    });
+
+    renderLeaderboard();
+
+    await waitFor(() => expect(screen.getByTestId('leaderboard-hero')).toBeTruthy());
+    // The owner's name carries the support line and the benchmark.
+    await waitFor(() => expect(screen.getByText("Who knows Emerson's world best?")).toBeTruthy());
+    const pinned = screen.getByTestId('leaderboard-score-to-beat');
+    expect(within(pinned).getByText('Emerson')).toBeTruthy();
+    expect(within(pinned).getByText('3')).toBeTruthy();
+    expect(within(pinned).getByText('5')).toBeTruthy();
+  });
+
+  it('highlights a newly arrived entry, but never on the initial board', async () => {
+    let boardGets = 0;
+    mockGetRoutes({
+      '/quiz/quiz-1/leaderboard': () => {
+        boardGets += 1;
+        if (boardGets === 1) return makeBoard();
+        return makeBoard({
+          leaderboard: [
+            {
+              display_name: 'Zoe',
+              best_score: 5,
+              attempts: 1,
+              hidden: false,
+              session_ids: ['s9'],
+            },
+            ...makeBoard().leaderboard,
+          ],
+        });
+      },
+    });
+
+    const props = leaderboardProps('quiz-1');
+    const { queryClient } = render(<QuizLeaderboardScreen {...props} />);
+
+    await waitFor(() => expect(screen.getByTestId('leaderboard-entry-0')).toBeTruthy());
+    // The initial board is never treated as "just arrived".
+    expect(screen.queryByTestId('leaderboard-fresh-0')).toBeNull();
+
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: ['quizzes', 'quiz-1', 'leaderboard'] });
+    });
+
+    await waitFor(() => expect(screen.getByText('Zoe')).toBeTruthy());
+    // Only the new arrival gets the pale-gold wash.
+    expect(screen.getByTestId('leaderboard-fresh-0')).toBeTruthy();
+    expect(screen.queryByTestId('leaderboard-fresh-1')).toBeNull();
+    expect(screen.queryByTestId('leaderboard-fresh-2')).toBeNull();
   });
 
   it('marks hidden entries instead of removing them from the owner view', async () => {
@@ -527,7 +647,7 @@ describe('QuizLeaderboardScreen', () => {
     await waitFor(() => expect(boardGets).toBe(2));
   });
 
-  it('shows the empty state when nobody has played yet', async () => {
+  it('shows the empty state with the small trophy accent when nobody has played yet', async () => {
     mockGetRoutes({
       '/quiz/quiz-1/leaderboard': makeBoard({ leaderboard: [] }),
     });
@@ -535,6 +655,7 @@ describe('QuizLeaderboardScreen', () => {
     renderLeaderboard();
 
     await waitFor(() => expect(screen.getByTestId('leaderboard-empty')).toBeTruthy());
+    expect(screen.getByTestId('leaderboard-empty-trophy')).toBeTruthy();
   });
 
   it('shows a retryable error state when the leaderboard fails to load', async () => {

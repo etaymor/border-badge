@@ -61,6 +61,8 @@ export interface QuizSummary {
   slug?: string | null;
   share_url?: string | null;
   score_to_beat?: QuizScoreToBeat | null;
+  /** Public URL of the first question's photo; null while a draft has none. */
+  cover_image_url?: string | null;
   question_count: number;
   created_at: string;
   revoked_at?: string | null;
