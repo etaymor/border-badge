@@ -14,7 +14,14 @@ import {
 import { FlashList } from '@shopify/flash-list';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { FeedCard, FollowButton, UserAvatar } from '@components/friends';
+import {
+  FeedCard,
+  feedKeyExtractor,
+  FollowButton,
+  UserAvatar,
+  UserProfileSkeleton,
+} from '@components/friends';
+import { ErrorState } from '@components/ui';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { useBlockUser } from '@hooks/useBlocks';
@@ -93,7 +100,7 @@ export function UserProfileScreen({ navigation, route }: Props) {
   // On iPad, constrain feed cards to 75% width centered
   const feedCardPaddingHorizontal = isTablet ? (screenWidth * 0.25) / 2 : 0;
 
-  const { data: profile, isLoading, error } = useUserProfile(username);
+  const { data: profile, isLoading, error, refetch } = useUserProfile(username);
   const blockMutation = useBlockUser(userId, username);
 
   const { data: feedData, isFetchingNextPage, hasNextPage, fetchNextPage } = useUserFeed(userId);
@@ -203,15 +210,14 @@ export function UserProfileScreen({ navigation, route }: Props) {
           </TouchableOpacity>
           <View style={styles.headerRight} />
         </View>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={colors.adobeBrick} />
-          <Text style={styles.loadingText}>Finding traveler...</Text>
-        </View>
+        <UserProfileSkeleton />
       </View>
     );
   }
 
   if (error || !profile) {
+    const isNotFound =
+      (error as { response?: { status?: number } } | null)?.response?.status === 404;
     return (
       <View style={styles.container}>
         <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
@@ -220,15 +226,23 @@ export function UserProfileScreen({ navigation, route }: Props) {
           </TouchableOpacity>
           <View style={styles.headerRight} />
         </View>
-        <View style={styles.errorContainer}>
-          <View style={styles.errorIconContainer}>
-            <Ionicons name="compass-outline" size={48} color={colors.dustyCoral} />
+        {isNotFound ? (
+          <View style={styles.errorContainer}>
+            <View style={styles.errorIconContainer}>
+              <Ionicons name="compass-outline" size={48} color={colors.dustyCoral} />
+            </View>
+            <Text style={styles.errorTitle}>Trail gone cold</Text>
+            <Text style={styles.errorSubtitle}>
+              This traveler may have moved on,{'\n'}or perhaps they prefer solitude
+            </Text>
           </View>
-          <Text style={styles.errorTitle}>Trail gone cold</Text>
-          <Text style={styles.errorSubtitle}>
-            This traveler may have moved on,{'\n'}or perhaps they prefer solitude
-          </Text>
-        </View>
+        ) : (
+          <ErrorState
+            title="Couldn't load this traveler"
+            message="Something went wrong loading their profile."
+            onRetry={() => refetch()}
+          />
+        )}
       </View>
     );
   }
@@ -250,7 +264,7 @@ export function UserProfileScreen({ navigation, route }: Props) {
       <FlashList
         data={feedItems}
         renderItem={renderFeedItem}
-        keyExtractor={(item, index) => `${item.activity_type}-${item.created_at}-${index}`}
+        keyExtractor={feedKeyExtractor}
         ListHeaderComponent={
           <>
             {/* Avatar and Identity */}

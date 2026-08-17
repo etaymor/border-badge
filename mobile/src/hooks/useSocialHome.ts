@@ -9,7 +9,15 @@ import { api } from '@services/api';
 // Feed types — the social-home feed is the app's one feed surface.
 // ---------------------------------------------------------------------------
 
-export type ActivityType = 'country_visited' | 'entry_added';
+/** Activity types this build knows how to render. */
+export type KnownActivityType = 'country_visited' | 'entry_added' | 'trip_updated';
+
+/**
+ * Wire-compat rule: the server may ship activity types this build does not
+ * know about. Renderers must default-skip unknown values, so the type admits
+ * arbitrary strings while keeping autocomplete for the known ones.
+ */
+export type ActivityType = KnownActivityType | (string & {});
 
 export interface FeedItemUser {
   user_id: string;
@@ -32,6 +40,8 @@ export interface FeedItemEntry {
 }
 
 export interface FeedItem {
+  /** Stable server-side id for this activity (U4); the feed list key. */
+  activity_id: string;
   activity_type: ActivityType;
   created_at: string;
   user: FeedItemUser;

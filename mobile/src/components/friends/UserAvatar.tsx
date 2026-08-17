@@ -1,5 +1,6 @@
+import { Image } from 'expo-image';
 import React from 'react';
-import { Image, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
@@ -19,6 +20,10 @@ export function UserAvatar({ avatarUrl, username, size = 48, showRing = false }:
   const avatarContent = avatarUrl ? (
     <Image
       source={{ uri: avatarUrl }}
+      recyclingKey={avatarUrl}
+      cachePolicy="memory-disk"
+      transition={100}
+      contentFit="cover"
       style={[
         styles.avatar,
         {

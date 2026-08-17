@@ -1,13 +1,15 @@
 import { Ionicons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
 import React, { memo, useCallback } from 'react';
-import { Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Animated, Pressable, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 import { getCountryImage } from '../../assets/countryImages';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
+import { useAnimatedPress, AnimatedPressPresets } from '@hooks/useAnimatedPress';
 import type { FeedItem } from '@hooks/useSocialHome';
-import { getFlagEmoji } from '@utils/flags';
 
+import { getFeedItemConfig, feedKeyExtractor } from './feedItemConfig';
 import { UserAvatar } from './UserAvatar';
 
 interface FeedCardProps {
@@ -17,7 +19,24 @@ interface FeedCardProps {
   onEntryPress?: (entryId: string) => void;
 }
 
+function formatTimeAgo(dateString: string): string {
+  const date = new Date(dateString);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
+
+  if (diffMins < 1) return 'Just now';
+  if (diffMins < 60) return `${diffMins}m`;
+  if (diffHours < 24) return `${diffHours}h`;
+  if (diffDays < 7) return `${diffDays}d`;
+  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
 function FeedCardComponent({ item, onUserPress, onCountryPress, onEntryPress }: FeedCardProps) {
+  const { scaleValue, pressHandlers } = useAnimatedPress(AnimatedPressPresets.subtle);
+
   const handleUserPress = useCallback(() => {
     onUserPress?.(item.user.user_id, item.user.username);
   }, [item.user, onUserPress]);
@@ -30,158 +49,92 @@ function FeedCardComponent({ item, onUserPress, onCountryPress, onEntryPress }: 
     }
   }, [item, onCountryPress, onEntryPress]);
 
-  const formatTimeAgo = (dateString: string): string => {
-    const date = new Date(dateString);
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMs / 3600000);
-    const diffDays = Math.floor(diffMs / 86400000);
+  // Wire-compat rule: unknown activity types render nothing (default-skip).
+  const config = getFeedItemConfig(item);
+  if (!config) {
+    return null;
+  }
 
-    if (diffMins < 1) return 'Just now';
-    if (diffMins < 60) return `${diffMins}m`;
-    if (diffHours < 24) return `${diffHours}h`;
-    if (diffDays < 7) return `${diffDays}d`;
-    return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-  };
-
-  const getActivityIcon = (): keyof typeof Ionicons.glyphMap => {
-    if (item.activity_type === 'country_visited') return 'flag';
-    switch (item.entry?.entry_type) {
-      case 'food':
-        return 'restaurant';
-      case 'place':
-        return 'location';
-      case 'stay':
-        return 'bed';
-      case 'experience':
-        return 'star';
-      default:
-        return 'bookmark';
-    }
-  };
-
-  const getActivityColor = (): string => {
-    if (item.activity_type === 'country_visited') return colors.adobeBrick;
-    switch (item.entry?.entry_type) {
-      case 'food':
-        return colors.sunsetGold;
-      case 'place':
-        return colors.primary;
-      case 'stay':
-        return '#5856D6';
-      case 'experience':
-        return colors.mossGreen;
-      default:
-        return colors.stormGray;
-    }
-  };
+  const activityColor = config.getColor(item);
+  const activityIcon = config.getIcon(item);
+  const badgeLabel = config.getBadgeLabel(item);
+  const verb = config.getVerb(item);
+  const highlight = config.getHighlight(item);
+  const suffix = config.getSuffix?.(item) ?? null;
+  const isCountryIllustration = item.activity_type === 'country_visited' && !!item.country;
 
   // Determine main image source
-  const mainImageSource =
-    item.activity_type === 'country_visited' && item.country
-      ? getCountryImage(item.country.country_code)
-      : item.entry?.image_url
-        ? { uri: item.entry.image_url }
-        : null;
+  const mainImageSource = isCountryIllustration
+    ? getCountryImage(item.country!.country_code)
+    : item.entry?.image_url
+      ? { uri: item.entry.image_url }
+      : null;
 
-  const activityColor = getActivityColor();
-  const activityIcon = getActivityIcon();
+  return (
+    <View style={styles.container}>
+      {/* Header */}
+      <View style={styles.header}>
+        <Pressable style={styles.userInfo} onPress={handleUserPress}>
+          <UserAvatar avatarUrl={item.user.avatar_url} username={item.user.username} size={36} />
+          <View style={styles.headerTexts}>
+            <Text style={styles.headerUsername}>{item.user.username}</Text>
+            <Text style={styles.timestamp}>{formatTimeAgo(item.created_at)}</Text>
+          </View>
+        </Pressable>
+      </View>
 
-  const renderContent = () => {
-    if (item.activity_type === 'country_visited' && item.country) {
-      return (
+      {/* Main Content Media */}
+      <Animated.View style={{ transform: [{ scale: scaleValue }] }}>
+        <TouchableOpacity
+          activeOpacity={0.9}
+          onPress={handleContentPress}
+          style={styles.mediaContainer}
+          {...pressHandlers}
+        >
+          {mainImageSource ? (
+            <View style={styles.imageWrapper}>
+              <Image
+                source={mainImageSource}
+                recyclingKey={feedKeyExtractor(item)}
+                cachePolicy="memory-disk"
+                transition={150}
+                contentFit="cover"
+                style={[styles.mainImage, isCountryIllustration && styles.countryIllustration]}
+              />
+            </View>
+          ) : (
+            <View style={[styles.placeholderMedia, { backgroundColor: `${activityColor}10` }]}>
+              <Ionicons name={activityIcon} size={48} color={activityColor} />
+            </View>
+          )}
+
+          {/* Activity Type Badge - Overlay on Image */}
+          <View style={[styles.activityBadgeOverlay, { backgroundColor: colors.cloudWhite }]}>
+            <Ionicons name={activityIcon} size={12} color={activityColor} />
+            <Text style={[styles.activityBadgeText, { color: activityColor }]}>{badgeLabel}</Text>
+          </View>
+        </TouchableOpacity>
+      </Animated.View>
+
+      {/* Caption & Details */}
+      <View style={styles.content}>
         <View style={styles.captionContainer}>
           <Text style={styles.captionText}>
             <Text style={styles.usernameText}>{item.user.username}</Text>
-            <Text style={styles.actionText}> planted a flag in </Text>
-            <Text style={styles.highlightText}>{item.country.country_name}</Text>
-            <Text> {getFlagEmoji(item.country.country_code)}</Text>
+            <Text style={styles.actionText}> {verb}</Text>
+            {highlight ? <Text style={styles.highlightText}> {highlight}</Text> : null}
+            {suffix ? <Text> {suffix}</Text> : null}
           </Text>
-        </View>
-      );
-    }
-
-    if (item.entry) {
-      const typeLabel =
-        {
-          food: 'discovered',
-          place: 'explored',
-          stay: 'stayed at',
-          experience: 'experienced',
-        }[item.entry.entry_type] || 'added';
-
-      return (
-        <View style={styles.captionContainer}>
-          <Text style={styles.captionText}>
-            <Text style={styles.usernameText}>{item.user.username}</Text>
-            <Text style={styles.actionText}> {typeLabel} </Text>
-            <Text style={styles.highlightText}>{item.entry.entry_name}</Text>
-          </Text>
-          {item.entry.location_name && (
+          {item.entry?.location_name ? (
             <View style={styles.locationTag}>
               <Ionicons name="location-sharp" size={12} color={colors.stormGray} />
               <Text style={styles.locationTagText} numberOfLines={1}>
                 {item.entry.location_name}
               </Text>
             </View>
-          )}
+          ) : null}
         </View>
-      );
-    }
-
-    return null;
-  };
-
-  return (
-    <View style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.userInfo} onPress={handleUserPress}>
-          <UserAvatar avatarUrl={item.user.avatar_url} username={item.user.username} size={36} />
-          <View style={styles.headerTexts}>
-            <Text style={styles.headerUsername}>{item.user.username}</Text>
-            <Text style={styles.timestamp}>{formatTimeAgo(item.created_at)}</Text>
-          </View>
-        </TouchableOpacity>
       </View>
-
-      {/* Main Content Media */}
-      <TouchableOpacity
-        activeOpacity={0.9}
-        onPress={handleContentPress}
-        style={styles.mediaContainer}
-      >
-        {mainImageSource ? (
-          <View style={styles.imageWrapper}>
-            <Image
-              source={mainImageSource}
-              style={[
-                styles.mainImage,
-                item.activity_type === 'country_visited' && styles.countryIllustration,
-              ]}
-              resizeMode={item.activity_type === 'country_visited' ? 'cover' : 'cover'}
-            />
-          </View>
-        ) : (
-          <View style={[styles.placeholderMedia, { backgroundColor: `${activityColor}10` }]}>
-            <Ionicons name={activityIcon} size={48} color={activityColor} />
-          </View>
-        )}
-
-        {/* Activity Type Badge - Overlay on Image */}
-        <View style={[styles.activityBadgeOverlay, { backgroundColor: colors.cloudWhite }]}>
-          <Ionicons name={activityIcon} size={12} color={activityColor} />
-          <Text style={[styles.activityBadgeText, { color: activityColor }]}>
-            {item.activity_type === 'country_visited'
-              ? 'Travel'
-              : item.entry?.entry_type || 'Update'}
-          </Text>
-        </View>
-      </TouchableOpacity>
-
-      {/* Caption & Details */}
-      <View style={styles.content}>{renderContent()}</View>
     </View>
   );
 }
@@ -279,9 +232,7 @@ const styles = StyleSheet.create({
   content: {
     paddingHorizontal: 16,
   },
-  captionContainer: {
-    // marginBottom: 6, // Removed margin as it's the last item
-  },
+  captionContainer: {},
   captionText: {
     fontFamily: fonts.openSans.regular,
     fontSize: 15, // Slightly larger for readability

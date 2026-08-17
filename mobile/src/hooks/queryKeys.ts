@@ -12,10 +12,14 @@ export const socialKeys = {
   following: ['follows', 'following'] as const,
   followingPage: (limit: number, offset: number) =>
     ['follows', 'following', { limit, offset }] as const,
+  /** Infinite offset-paged following list (one cache for all pages). */
+  followingInfinite: (limit: number) => ['follows', 'following', 'infinite', { limit }] as const,
   /** Users following the current user (all pages). */
   followers: ['follows', 'followers'] as const,
   followersPage: (limit: number, offset: number) =>
     ['follows', 'followers', { limit, offset }] as const,
+  /** Infinite offset-paged followers list (one cache for all pages). */
+  followersInfinite: (limit: number) => ['follows', 'followers', 'infinite', { limit }] as const,
 
   /** Combined social-home payload (feed + stats + ranking + pending badge). */
   socialHome: ['social-home'] as const,

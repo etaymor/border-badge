@@ -1,10 +1,11 @@
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   FlatList,
+  Pressable,
   StyleSheet,
   Text,
   TextInput,
@@ -38,23 +39,11 @@ export function UserSearchBar({
     action: 'follow' | 'unfollow';
   } | null>(null);
 
-  // Ref to track blur timeout for cleanup
-  const blurTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
   // keepPreviousData in the hook keeps the last results visible while the
   // next query fetches, so no local mirror state is needed.
   const { data: users, isFetching } = useUserSearch(query, {
     enabled: query.length >= 2,
   });
-
-  // Cleanup blur timeout on unmount
-  useEffect(() => {
-    return () => {
-      if (blurTimeoutRef.current) {
-        clearTimeout(blurTimeoutRef.current);
-      }
-    };
-  }, []);
 
   useEffect(() => {
     if (!recentFollow) return;
@@ -121,13 +110,11 @@ export function UserSearchBar({
               autoCapitalize="none"
               autoCorrect={false}
               onFocus={() => setIsFocused(true)}
-              onBlur={() => {
-                // Clear any existing timeout before setting a new one
-                if (blurTimeoutRef.current) {
-                  clearTimeout(blurTimeoutRef.current);
-                }
-                blurTimeoutRef.current = setTimeout(() => setIsFocused(false), 200);
-              }}
+              // No delayed hide: taps on result rows are delivered before any
+              // blur because the dropdown and host lists use
+              // keyboardShouldPersistTaps="handled", so the old 200ms timeout
+              // race is gone.
+              onBlur={() => setIsFocused(false)}
             />
             {isFetching && <ActivityIndicator size="small" color={colors.adobeBrick} />}
             {query.length > 0 && !isFetching && (
@@ -166,10 +153,9 @@ export function UserSearchBar({
               keyExtractor={(item) => item.id}
               keyboardShouldPersistTaps="handled"
               renderItem={({ item }) => (
-                <TouchableOpacity
-                  style={styles.userRow}
+                <Pressable
+                  style={({ pressed }) => [styles.userRow, pressed && styles.userRowPressed]}
                   onPress={() => handleUserPress(item.id, item.username)}
-                  activeOpacity={0.7}
                 >
                   <UserAvatar avatarUrl={item.avatar_url} username={item.username} size={44} />
                   <View style={styles.userInfo}>
@@ -188,7 +174,7 @@ export function UserSearchBar({
                     size="small"
                     onFollowChange={(next) => handleFollowStateChange(item.username, next)}
                   />
-                </TouchableOpacity>
+                </Pressable>
               )}
             />
           ) : showInviteOption ? (
@@ -297,6 +283,9 @@ const styles = StyleSheet.create({
     padding: 14,
     borderBottomWidth: 1,
     borderBottomColor: colors.paperBeige,
+  },
+  userRowPressed: {
+    backgroundColor: colors.paperBeige,
   },
   userInfo: {
     flex: 1,

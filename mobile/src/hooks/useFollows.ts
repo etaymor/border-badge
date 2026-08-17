@@ -1,5 +1,5 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { QueryClient, QueryKey } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import type { InfiniteData, QueryClient, QueryKey } from '@tanstack/react-query';
 import { Alert } from 'react-native';
 
 import { socialKeys } from '@hooks/queryKeys';
@@ -36,42 +36,58 @@ interface FollowMutationContext {
   previousSearches: Array<[QueryKey, UserSearchResult[] | undefined]>;
 }
 
-/**
- * Hook to get list of users the current user is following.
- */
-export function useFollowing(options?: { limit?: number; offset?: number }) {
-  const limit = options?.limit ?? 20;
-  const offset = options?.offset ?? 0;
+/** Page size for follower/following lists. */
+export const FOLLOW_LIST_PAGE_SIZE = 20;
 
-  return useQuery<UserSummary[]>({
-    queryKey: socialKeys.followingPage(limit, offset),
-    queryFn: async () => {
-      const response = await api.get<UserSummary[]>('/follows/following', {
+export type FollowListInfiniteData = InfiniteData<UserSummary[], unknown>;
+
+function useFollowListInfinite(
+  endpoint: '/follows/following' | '/follows/followers',
+  queryKey: readonly unknown[],
+  limit: number
+) {
+  return useInfiniteQuery<UserSummary[]>({
+    queryKey,
+    queryFn: async ({ pageParam }) => {
+      const offset = (pageParam as number) ?? 0;
+      const response = await api.get<UserSummary[]>(endpoint, {
         params: { limit, offset },
       });
       return response.data;
     },
+    initialPageParam: 0,
+    // A short page means the server ran out of rows; otherwise the next
+    // offset is however many rows we have loaded so far.
+    getNextPageParam: (lastPage, allPages) =>
+      lastPage.length < limit
+        ? undefined
+        : allPages.reduce((count, page) => count + page.length, 0),
     staleTime: 1000 * 60, // 1 minute
   });
 }
 
 /**
- * Hook to get list of users following the current user.
+ * Hook to get the full list of users the current user is following,
+ * paginated via infinite offset pages (no hard cap).
  */
-export function useFollowers(options?: { limit?: number; offset?: number }) {
-  const limit = options?.limit ?? 20;
-  const offset = options?.offset ?? 0;
+export function useFollowing(options?: { limit?: number }) {
+  const limit = options?.limit ?? FOLLOW_LIST_PAGE_SIZE;
+  return useFollowListInfinite('/follows/following', socialKeys.followingInfinite(limit), limit);
+}
 
-  return useQuery<UserSummary[]>({
-    queryKey: socialKeys.followersPage(limit, offset),
-    queryFn: async () => {
-      const response = await api.get<UserSummary[]>('/follows/followers', {
-        params: { limit, offset },
-      });
-      return response.data;
-    },
-    staleTime: 1000 * 60, // 1 minute
-  });
+/**
+ * Hook to get the full list of users following the current user,
+ * paginated via infinite offset pages (no hard cap).
+ */
+export function useFollowers(options?: { limit?: number }) {
+  const limit = options?.limit ?? FOLLOW_LIST_PAGE_SIZE;
+  return useFollowListInfinite('/follows/followers', socialKeys.followersInfinite(limit), limit);
+}
+
+/** Flatten an infinite follow-list result into a single array of users. */
+export function getFollowListUsers(data: FollowListInfiniteData | undefined): UserSummary[] {
+  if (!data?.pages) return [];
+  return data.pages.flat();
 }
 
 /**

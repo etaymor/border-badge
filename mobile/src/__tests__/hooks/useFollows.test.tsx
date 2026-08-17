@@ -2,8 +2,8 @@
  * Tests for useFollows hooks.
  *
  * Covers:
- * - useFollowing: fetching list of followed users
- * - useFollowers: fetching list of followers
+ * - useFollowing: infinite offset-paged list of followed users
+ * - useFollowers: infinite offset-paged list of followers (no 20-item cap)
  * - useFollowUser: following a user with surgical optimistic cache updates
  * - useUnfollowUser: unfollowing a user with surgical optimistic cache updates
  */
@@ -13,7 +13,13 @@ import { renderHook, act, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Alert } from 'react-native';
 
-import { useFollowing, useFollowers, useFollowUser, useUnfollowUser } from '@hooks/useFollows';
+import {
+  useFollowing,
+  useFollowers,
+  useFollowUser,
+  useUnfollowUser,
+  getFollowListUsers,
+} from '@hooks/useFollows';
 import type { SocialHomeInfiniteData } from '@hooks/useSocialHome';
 import type { UserProfile } from '@hooks/useUserProfile';
 import type { UserSearchResult } from '@hooks/useUserSearch';
@@ -141,7 +147,7 @@ describe('useFollows', () => {
   // ============ useFollowing Tests ============
 
   describe('useFollowing', () => {
-    it('fetches following list successfully', async () => {
+    it('fetches the first page and flattens it', async () => {
       mockedApi.get.mockResolvedValue({ data: [mockUser] });
 
       const { result } = renderHook(() => useFollowing(), {
@@ -150,23 +156,25 @@ describe('useFollows', () => {
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-      expect(result.current.data).toEqual([mockUser]);
+      expect(getFollowListUsers(result.current.data)).toEqual([mockUser]);
       expect(mockedApi.get).toHaveBeenCalledWith('/follows/following', {
         params: { limit: 20, offset: 0 },
       });
+      // A short page (< limit) means there is nothing more to load.
+      expect(result.current.hasNextPage).toBe(false);
     });
 
-    it('supports pagination options', async () => {
+    it('supports a custom page size', async () => {
       mockedApi.get.mockResolvedValue({ data: [] });
 
-      const { result } = renderHook(() => useFollowing({ limit: 10, offset: 20 }), {
+      const { result } = renderHook(() => useFollowing({ limit: 10 }), {
         wrapper: createWrapper(queryClient),
       });
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
       expect(mockedApi.get).toHaveBeenCalledWith('/follows/following', {
-        params: { limit: 10, offset: 20 },
+        params: { limit: 10, offset: 0 },
       });
     });
   });
@@ -183,10 +191,57 @@ describe('useFollows', () => {
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-      expect(result.current.data).toEqual([mockUser]);
+      expect(getFollowListUsers(result.current.data)).toEqual([mockUser]);
       expect(mockedApi.get).toHaveBeenCalledWith('/follows/followers', {
         params: { limit: 20, offset: 0 },
       });
+    });
+
+    it('pages through all 45 followers in pages of 20 with no cap', async () => {
+      const makeFollower = (i: number) => ({
+        ...mockUser,
+        id: `follower-${i}`,
+        user_id: `follower-${i}`,
+        username: `traveler_${i}`,
+      });
+      const allFollowers = Array.from({ length: 45 }, (_, i) => makeFollower(i));
+
+      mockedApi.get.mockImplementation((_url, config) => {
+        const { limit, offset } = (config as { params: { limit: number; offset: number } }).params;
+        return Promise.resolve({ data: allFollowers.slice(offset, offset + limit) });
+      });
+
+      const { result } = renderHook(() => useFollowers(), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+      expect(getFollowListUsers(result.current.data)).toHaveLength(20);
+      expect(result.current.hasNextPage).toBe(true);
+
+      await act(async () => {
+        await result.current.fetchNextPage();
+      });
+      await waitFor(() => expect(getFollowListUsers(result.current.data)).toHaveLength(40));
+      expect(result.current.hasNextPage).toBe(true);
+
+      await act(async () => {
+        await result.current.fetchNextPage();
+      });
+      await waitFor(() => expect(getFollowListUsers(result.current.data)).toHaveLength(45));
+
+      // The final short page (5 < 20) ends pagination.
+      expect(result.current.hasNextPage).toBe(false);
+
+      // Pages were requested at offsets 0, 20, 40.
+      const offsets = mockedApi.get.mock.calls.map(
+        ([, config]) => (config as { params: { offset: number } }).params.offset
+      );
+      expect(offsets).toEqual([0, 20, 40]);
+
+      // Every follower arrived exactly once, in order.
+      const usernames = getFollowListUsers(result.current.data).map((u) => u.username);
+      expect(usernames).toEqual(allFollowers.map((u) => u.username));
     });
   });
 

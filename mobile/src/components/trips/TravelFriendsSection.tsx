@@ -23,7 +23,7 @@ import { colors } from '@constants/colors';
 import { GLASS_CONFIG, liquidGlass } from '@constants/glass';
 import { fonts } from '@constants/typography';
 import { useDebounce } from '@hooks/useDebounce';
-import { useFollowing } from '@hooks/useFollows';
+import { useFollowing, getFollowListUsers } from '@hooks/useFollows';
 import { useUserLookupByEmail } from '@hooks/useUserLookupByEmail';
 import type { UserSearchResult } from '@hooks/useUserSearch';
 
@@ -78,7 +78,8 @@ export function TravelFriendsSection({
   const isCompleteEmail = EMAIL_REGEX.test(search.trim());
 
   // Fetch followed users (only people you follow can be tagged on trips)
-  const { data: following = [], isLoading: loadingFollowing } = useFollowing({ limit: 100 });
+  const { data: followingData, isLoading: loadingFollowing } = useFollowing({ limit: 100 });
+  const following = useMemo(() => getFollowListUsers(followingData), [followingData]);
 
   // Look up user by email when complete email is entered (for inviting non-users)
   const { data: emailUser, isLoading: emailLoading } = useUserLookupByEmail(search.trim(), {

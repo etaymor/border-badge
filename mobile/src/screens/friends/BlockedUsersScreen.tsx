@@ -1,20 +1,14 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useQueryClient } from '@tanstack/react-query';
 import { useCallback } from 'react';
-import {
-  ActivityIndicator,
-  Alert,
-  FlatList,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import { ActivityIndicator, Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { UserAvatar } from '@components/friends';
+import { UserAvatar, UserListSkeleton } from '@components/friends';
+import { ErrorState } from '@components/ui';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
+import { FlashList } from '@shopify/flash-list';
 import { socialKeys } from '@hooks/queryKeys';
 import { useBlockedUsers, useUnblockUser, type BlockedUser } from '@hooks/useBlocks';
 import type { FriendsStackScreenProps } from '@navigation/types';
@@ -69,7 +63,7 @@ function BlockedUserRow({ user, onRefetch }: { user: BlockedUser; onRefetch: () 
 export function BlockedUsersScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
   const queryClient = useQueryClient();
-  const { data: blockedUsers, isLoading, refetch } = useBlockedUsers();
+  const { data: blockedUsers, isLoading, isError, refetch } = useBlockedUsers();
 
   const handleBack = useCallback(() => {
     navigation.goBack();
@@ -127,10 +121,7 @@ export function BlockedUsersScreen({ navigation }: Props) {
           </View>
           <View style={styles.headerRight} />
         </View>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={colors.adobeBrick} />
-          <Text style={styles.loadingText}>Checking blocked list...</Text>
-        </View>
+        <UserListSkeleton />
       </View>
     );
   }
@@ -148,15 +139,23 @@ export function BlockedUsersScreen({ navigation }: Props) {
         <View style={styles.headerRight} />
       </View>
 
-      <FlatList
-        data={blockedUsers ?? []}
-        renderItem={renderItem}
-        keyExtractor={keyExtractor}
-        ListHeaderComponent={ListHeader}
-        ListEmptyComponent={ListEmpty}
-        contentContainerStyle={styles.listContent}
-        showsVerticalScrollIndicator={false}
-      />
+      {isError ? (
+        <ErrorState
+          title="Couldn't load blocked travelers"
+          message="Something went wrong loading this list."
+          onRetry={() => refetch()}
+        />
+      ) : (
+        <FlashList
+          data={blockedUsers ?? []}
+          renderItem={renderItem}
+          keyExtractor={keyExtractor}
+          ListHeaderComponent={ListHeader}
+          ListEmptyComponent={ListEmpty}
+          contentContainerStyle={styles.listContent}
+          showsVerticalScrollIndicator={false}
+        />
+      )}
     </View>
   );
 }
@@ -199,18 +198,6 @@ const styles = StyleSheet.create({
   },
   headerRight: {
     width: 40,
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 16,
-  },
-  loadingText: {
-    fontFamily: fonts.openSans.regular,
-    fontSize: 14,
-    color: colors.stormGray,
-    fontStyle: 'italic',
   },
   listContent: {
     paddingBottom: 100,

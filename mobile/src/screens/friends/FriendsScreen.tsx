@@ -1,10 +1,18 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useCallback, useMemo } from 'react';
+import { Image } from 'expo-image';
+import { useCallback, useEffect, useMemo } from 'react';
 import { ActivityIndicator, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { FeedCard, FriendsStatsGrid, UserSearchBar } from '@components/friends';
-import { NotificationBell } from '@components/ui';
+import {
+  FeedCard,
+  feedKeyExtractor,
+  FeedSkeleton,
+  FriendsStatsGrid,
+  FriendsStatsSkeleton,
+  UserSearchBar,
+} from '@components/friends';
+import { ErrorState, NotificationBell } from '@components/ui';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { FlashList } from '@shopify/flash-list';
@@ -18,6 +26,10 @@ import {
   type FeedItem,
 } from '@hooks/useSocialHome';
 import type { FriendsStackScreenProps } from '@navigation/types';
+import { isSocialUnavailableError } from '@utils/socialErrors';
+
+/** How many upcoming feed images to warm into the disk cache. */
+const PREFETCH_IMAGE_COUNT = 10;
 
 type Props = FriendsStackScreenProps<'FriendsHome'>;
 
@@ -26,6 +38,8 @@ export function FriendsScreen({ navigation }: Props) {
   const {
     data: socialData,
     isLoading,
+    isError,
+    error,
     isRefetching,
     isFetchingNextPage,
     hasNextPage,
@@ -37,6 +51,18 @@ export function FriendsScreen({ navigation }: Props) {
   const feedCardPaddingHorizontal = isTablet ? (screenWidth * 0.25) / 2 : 0;
 
   const feedItems = useMemo(() => getSocialFeedItems(socialData), [socialData]);
+
+  // Warm the image cache for the next few feed cards so scrolling and
+  // opening details shows images instantly (expo-image memory-disk cache).
+  useEffect(() => {
+    const urls = feedItems
+      .slice(0, PREFETCH_IMAGE_COUNT)
+      .map((item) => item.entry?.image_url)
+      .filter((url): url is string => !!url);
+    if (urls.length > 0 && typeof Image.prefetch === 'function') {
+      Image.prefetch(urls, { cachePolicy: 'memory-disk' });
+    }
+  }, [feedItems]);
   const followStats = useMemo(() => getSocialHomeStats(socialData), [socialData]);
   const friendsRanking = useMemo(() => getSocialHomeRanking(socialData), [socialData]);
   const pendingTagCount = getSocialPendingTagCount(socialData);
@@ -154,22 +180,53 @@ export function FriendsScreen({ navigation }: Props) {
     [isFetchingNextPage]
   );
 
+  const renderHeader = () => (
+    <View style={styles.headerContainer}>
+      <View style={styles.headerRow}>
+        <View style={styles.headerSpacer} />
+        <Text style={styles.headerTitle}>My Friends</Text>
+        <View style={styles.headerRight}>
+          <NotificationBell count={pendingTagCount} onPress={handleNotificationsPress} />
+        </View>
+      </View>
+    </View>
+  );
+
   if (isLoading) {
     return (
       <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
-        <View style={styles.headerContainer}>
-          <View style={styles.headerRow}>
-            <View style={styles.headerSpacer} />
-            <Text style={styles.headerTitle}>My Friends</Text>
-            <View style={styles.headerRight}>
-              <NotificationBell count={pendingTagCount} onPress={handleNotificationsPress} />
+        {renderHeader()}
+        <FriendsStatsSkeleton />
+        <FeedSkeleton />
+      </SafeAreaView>
+    );
+  }
+
+  if (isError && !socialData) {
+    if (isSocialUnavailableError(error)) {
+      return (
+        <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+          {renderHeader()}
+          <View style={styles.unavailableContainer}>
+            <View style={styles.unavailableIconContainer}>
+              <Ionicons name="cloud-offline-outline" size={48} color={colors.dustyCoral} />
             </View>
+            <Text style={styles.unavailableTitle}>Social is taking a break</Text>
+            <Text style={styles.unavailableSubtitle}>
+              Friend features aren&apos;t available right now.{'\n'}Check back soon.
+            </Text>
           </View>
-        </View>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={colors.adobeBrick} />
-          <Text style={styles.loadingText}>Loading feed...</Text>
-        </View>
+        </SafeAreaView>
+      );
+    }
+    return (
+      <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+        {renderHeader()}
+        <ErrorState
+          title="Couldn't load your feed"
+          message="Something went wrong loading your friends' adventures."
+          onRetry={() => refetch()}
+        />
       </SafeAreaView>
     );
   }
@@ -177,15 +234,7 @@ export function FriendsScreen({ navigation }: Props) {
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       {/* Header Title */}
-      <View style={styles.headerContainer}>
-        <View style={styles.headerRow}>
-          <View style={styles.headerSpacer} />
-          <Text style={styles.headerTitle}>My Friends</Text>
-          <View style={styles.headerRight}>
-            <NotificationBell count={pendingTagCount} onPress={handleNotificationsPress} />
-          </View>
-        </View>
-      </View>
+      {renderHeader()}
 
       {/* User search - outside FlatList so dropdown can overlay empty state */}
       <View style={styles.userSearchContainer}>
@@ -195,12 +244,13 @@ export function FriendsScreen({ navigation }: Props) {
       <FlashList
         data={feedItems}
         renderItem={renderFeedItem}
-        keyExtractor={(item, index) => `${item.activity_type}-${item.created_at}-${index}`}
+        keyExtractor={feedKeyExtractor}
         ListHeaderComponent={ListHeader}
         ListEmptyComponent={ListEmpty}
         ListFooterComponent={ListFooter}
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
         onEndReached={handleLoadMore}
         onEndReachedThreshold={0.5}
         refreshControl={
@@ -245,16 +295,33 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
     letterSpacing: -0.5,
   },
-  loadingContainer: {
+  unavailableContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    gap: 12,
+    paddingHorizontal: 40,
   },
-  loadingText: {
+  unavailableIconContainer: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: colors.paperBeige,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  unavailableTitle: {
+    fontFamily: fonts.playfair.bold,
+    fontSize: 22,
+    color: colors.midnightNavy,
+    marginBottom: 8,
+  },
+  unavailableSubtitle: {
     fontFamily: fonts.openSans.regular,
-    fontSize: 14,
+    fontSize: 15,
     color: colors.stormGray,
+    textAlign: 'center',
+    lineHeight: 22,
   },
   userSearchContainer: {
     paddingHorizontal: 16,

@@ -1,30 +1,34 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useCallback, useMemo } from 'react';
-import {
-  ActivityIndicator,
-  FlatList,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { UserAvatar, UserSearchBar } from '@components/friends';
+import { UserAvatar, UserListSkeleton, UserSearchBar } from '@components/friends';
+import { ErrorState } from '@components/ui';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
-import { useFollowers, type UserSummary } from '@hooks/useFollows';
+import { FlashList } from '@shopify/flash-list';
+import { useFollowers, getFollowListUsers, type UserSummary } from '@hooks/useFollows';
 import type { FriendsStackScreenProps } from '@navigation/types';
 
 type Props = FriendsStackScreenProps<'FollowersList'>;
 
 export function FollowersListScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
-  const { data: followers, isLoading } = useFollowers();
+  const { data, isLoading, isError, refetch, hasNextPage, isFetchingNextPage, fetchNextPage } =
+    useFollowers();
+
+  const followers = useMemo(() => getFollowListUsers(data), [data]);
 
   const handleBack = useCallback(() => {
     navigation.goBack();
   }, [navigation]);
+
+  const handleLoadMore = useCallback(() => {
+    if (hasNextPage && !isFetchingNextPage) {
+      fetchNextPage();
+    }
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   const handleUserPress = useCallback(
     (userId: string, username: string) => {
@@ -56,13 +60,23 @@ export function FollowersListScreen({ navigation }: Props) {
 
   const ListHeader = useMemo(
     () =>
-      followers && followers.length > 0 ? (
+      followers.length > 0 ? (
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Followers</Text>
           <View style={styles.sectionLine} />
         </View>
       ) : null,
     [followers]
+  );
+
+  const ListFooter = useMemo(
+    () =>
+      isFetchingNextPage ? (
+        <View style={styles.footerLoader}>
+          <ActivityIndicator size="small" color={colors.adobeBrick} />
+        </View>
+      ) : null,
+    [isFetchingNextPage]
   );
 
   const ListEmpty = (
@@ -93,18 +107,26 @@ export function FollowersListScreen({ navigation }: Props) {
       </View>
 
       {isLoading ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={colors.adobeBrick} />
-        </View>
+        <UserListSkeleton />
+      ) : isError ? (
+        <ErrorState
+          title="Couldn't load followers"
+          message="Something went wrong loading this list."
+          onRetry={() => refetch()}
+        />
       ) : (
-        <FlatList
-          data={followers ?? []}
+        <FlashList
+          data={followers}
           renderItem={renderItem}
           keyExtractor={(item) => item.id}
           ListHeaderComponent={ListHeader}
           ListEmptyComponent={ListEmpty}
+          ListFooterComponent={ListFooter}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          onEndReached={handleLoadMore}
+          onEndReachedThreshold={0.5}
           style={styles.flatList}
         />
       )}
@@ -140,9 +162,8 @@ const styles = StyleSheet.create({
   headerRight: {
     width: 40,
   },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
+  footerLoader: {
+    paddingVertical: 20,
     alignItems: 'center',
   },
   searchContainer: {

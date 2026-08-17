@@ -1,58 +1,73 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useCallback, useMemo } from 'react';
-import {
-  ActivityIndicator,
-  Alert,
-  SectionList,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import { ActivityIndicator, Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { UserAvatar, UserSearchBar } from '@components/friends';
+import { UserAvatar, UserListSkeleton, UserSearchBar } from '@components/friends';
+import { ErrorState } from '@components/ui';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
-import { useFollowing, type UserSummary } from '@hooks/useFollows';
+import { FlashList } from '@shopify/flash-list';
+import { useFollowing, getFollowListUsers, type UserSummary } from '@hooks/useFollows';
 import { usePendingInvites, useCancelInvite, type PendingInvite } from '@hooks/useInvites';
 import type { FriendsStackScreenProps } from '@navigation/types';
 
 type Props = FriendsStackScreenProps<'FollowingList'>;
 
-type SectionItem = UserSummary | PendingInvite;
-type Section = { title: string; data: SectionItem[]; type: 'pending' | 'following' };
+/** Flat row model for the FlashList (section headers are rows too). */
+type Row =
+  | { kind: 'header'; key: string; title: string }
+  | { kind: 'pending'; invite: PendingInvite }
+  | { kind: 'user'; user: UserSummary };
+
+function rowKey(row: Row): string {
+  switch (row.kind) {
+    case 'header':
+      return row.key;
+    case 'pending':
+      return `pending-${row.invite.id}`;
+    case 'user':
+      return row.user.id;
+  }
+}
 
 export function FollowingListScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
-  const { data: following, isLoading: isLoadingFollowing } = useFollowing();
+  const {
+    data: followingData,
+    isLoading: isLoadingFollowing,
+    isError,
+    refetch,
+    hasNextPage,
+    isFetchingNextPage,
+    fetchNextPage,
+  } = useFollowing();
   const { data: pendingInvites, isLoading: isLoadingInvites } = usePendingInvites();
   const cancelInviteMutation = useCancelInvite();
 
   const isLoading = isLoadingFollowing || isLoadingInvites;
+  const following = useMemo(() => getFollowListUsers(followingData), [followingData]);
 
   const followInvites = useMemo(
     () => pendingInvites?.filter((inv) => inv.invite_type === 'follow') ?? [],
     [pendingInvites]
   );
 
-  const sections: Section[] = useMemo(() => {
-    const result: Section[] = [];
+  const rows: Row[] = useMemo(() => {
+    const result: Row[] = [];
 
     if (followInvites.length > 0) {
-      result.push({
-        title: 'Pending Invites',
-        data: followInvites,
-        type: 'pending',
-      });
+      result.push({ kind: 'header', key: 'header-pending', title: 'Pending Invites' });
+      for (const invite of followInvites) {
+        result.push({ kind: 'pending', invite });
+      }
     }
 
-    if (following && following.length > 0) {
-      result.push({
-        title: 'Following',
-        data: following,
-        type: 'following',
-      });
+    if (following.length > 0) {
+      result.push({ kind: 'header', key: 'header-following', title: 'Following' });
+      for (const user of following) {
+        result.push({ kind: 'user', user });
+      }
     }
 
     return result;
@@ -61,6 +76,12 @@ export function FollowingListScreen({ navigation }: Props) {
   const handleBack = useCallback(() => {
     navigation.goBack();
   }, [navigation]);
+
+  const handleLoadMore = useCallback(() => {
+    if (hasNextPage && !isFetchingNextPage) {
+      fetchNextPage();
+    }
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   const handleUserPress = useCallback(
     (userId: string, username: string) => {
@@ -130,23 +151,22 @@ export function FollowingListScreen({ navigation }: Props) {
   );
 
   const renderItem = useCallback(
-    ({ item, section }: { item: SectionItem; section: Section }) => {
-      if (section.type === 'pending') {
-        return renderPendingItem(item as PendingInvite);
+    ({ item }: { item: Row }) => {
+      switch (item.kind) {
+        case 'header':
+          return (
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>{item.title}</Text>
+              <View style={styles.sectionLine} />
+            </View>
+          );
+        case 'pending':
+          return renderPendingItem(item.invite);
+        case 'user':
+          return renderFollowingItem(item.user);
       }
-      return renderFollowingItem(item as UserSummary);
     },
     [renderPendingItem, renderFollowingItem]
-  );
-
-  const renderSectionHeader = useCallback(
-    ({ section }: { section: Section }) => (
-      <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>{section.title}</Text>
-        <View style={styles.sectionLine} />
-      </View>
-    ),
-    []
   );
 
   const handleUserSelect = useCallback(
@@ -184,18 +204,31 @@ export function FollowingListScreen({ navigation }: Props) {
       </View>
 
       {isLoading ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={colors.adobeBrick} />
-        </View>
-      ) : sections.length > 0 ? (
-        <SectionList
-          sections={sections}
+        <UserListSkeleton />
+      ) : isError ? (
+        <ErrorState
+          title="Couldn't load following"
+          message="Something went wrong loading this list."
+          onRetry={() => refetch()}
+        />
+      ) : rows.length > 0 ? (
+        <FlashList
+          data={rows}
           renderItem={renderItem}
-          renderSectionHeader={renderSectionHeader}
-          keyExtractor={(item) => ('email' in item ? item.email : item.id)}
+          keyExtractor={rowKey}
+          getItemType={(item) => item.kind}
+          ListFooterComponent={
+            isFetchingNextPage ? (
+              <View style={styles.footerLoader}>
+                <ActivityIndicator size="small" color={colors.adobeBrick} />
+              </View>
+            ) : null
+          }
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
-          stickySectionHeadersEnabled={false}
+          keyboardShouldPersistTaps="handled"
+          onEndReached={handleLoadMore}
+          onEndReachedThreshold={0.5}
           style={styles.sectionList}
         />
       ) : (
@@ -233,9 +266,8 @@ const styles = StyleSheet.create({
   headerRight: {
     width: 40,
   },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
+  footerLoader: {
+    paddingVertical: 20,
     alignItems: 'center',
   },
   searchContainer: {

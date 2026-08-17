@@ -1,10 +1,11 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import React, { useCallback } from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Animated, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
+import { useAnimatedPress, AnimatedPressPresets } from '@hooks/useAnimatedPress';
 import { useFollowUser, useUnfollowUser } from '@hooks/useFollows';
 
 interface FollowButtonProps {
@@ -29,6 +30,7 @@ export function FollowButton({
 }: FollowButtonProps) {
   const followMutation = useFollowUser(userId, username);
   const unfollowMutation = useUnfollowUser(userId, username);
+  const { scaleValue, pressHandlers } = useAnimatedPress(AnimatedPressPresets.default);
 
   const isPending = followMutation.isPending || unfollowMutation.isPending;
 
@@ -52,32 +54,38 @@ export function FollowButton({
 
   if (isFollowing) {
     return (
-      <TouchableOpacity
-        style={[styles.followingButton, isSmall && styles.smallButton]}
-        onPress={handlePress}
-        disabled={isPending}
-        activeOpacity={0.7}
-      >
-        <View style={styles.followingContent}>
-          <Ionicons name="checkmark-circle" size={isSmall ? 14 : 16} color={colors.mossGreen} />
-          <Text style={[styles.followingText, isSmall && styles.smallText]}>Following</Text>
-        </View>
-      </TouchableOpacity>
+      <Animated.View style={{ transform: [{ scale: scaleValue }] }}>
+        <TouchableOpacity
+          style={[styles.followingButton, isSmall && styles.smallButton]}
+          onPress={handlePress}
+          disabled={isPending}
+          activeOpacity={0.7}
+          {...pressHandlers}
+        >
+          <View style={styles.followingContent}>
+            <Ionicons name="checkmark-circle" size={isSmall ? 14 : 16} color={colors.mossGreen} />
+            <Text style={[styles.followingText, isSmall && styles.smallText]}>Following</Text>
+          </View>
+        </TouchableOpacity>
+      </Animated.View>
     );
   }
 
   return (
-    <TouchableOpacity
-      style={[styles.followButton, isSmall && styles.smallButton]}
-      onPress={handlePress}
-      disabled={isPending}
-      activeOpacity={0.8}
-    >
-      <View style={styles.followContent}>
-        <Ionicons name="add" size={isSmall ? 14 : 16} color={colors.cloudWhite} />
-        <Text style={[styles.followText, isSmall && styles.smallText]}>Follow</Text>
-      </View>
-    </TouchableOpacity>
+    <Animated.View style={{ transform: [{ scale: scaleValue }] }}>
+      <TouchableOpacity
+        style={[styles.followButton, isSmall && styles.smallButton]}
+        onPress={handlePress}
+        disabled={isPending}
+        activeOpacity={0.8}
+        {...pressHandlers}
+      >
+        <View style={styles.followContent}>
+          <Ionicons name="add" size={isSmall ? 14 : 16} color={colors.cloudWhite} />
+          <Text style={[styles.followText, isSmall && styles.smallText]}>Follow</Text>
+        </View>
+      </TouchableOpacity>
+    </Animated.View>
   );
 }
 

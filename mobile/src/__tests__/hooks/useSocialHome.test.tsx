@@ -21,6 +21,7 @@ jest.mock('@services/api', () => ({
 }));
 
 const mockFeedItem: FeedItem = {
+  activity_id: 'activity-1',
   activity_type: 'country_visited',
   created_at: '2024-01-15T10:00:00Z',
   user: {

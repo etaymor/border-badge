@@ -55,6 +55,7 @@ function seedBlockedUserContent(client: QueryClient) {
         feed: {
           items: [
             {
+              activity_id: 'activity-1',
               activity_type: 'country_visited',
               created_at: '2024-01-01T00:00:00Z',
               user: { user_id: OTHER_USER_ID, username: OTHER_USERNAME, avatar_url: null },

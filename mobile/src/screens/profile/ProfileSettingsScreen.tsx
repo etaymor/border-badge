@@ -144,6 +144,11 @@ export function ProfileSettingsScreen({ navigation }: Props) {
     navigation.goBack();
   }, [navigation]);
 
+  const handleOpenBlockedUsers = useCallback(() => {
+    // BlockedUsersScreen lives in the Friends stack; hop tabs to reach it.
+    navigation.navigate('Friends', { screen: 'BlockedUsers' });
+  }, [navigation]);
+
   const handleStartEditing = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setEditedName(profile?.display_name ?? '');
@@ -640,6 +645,27 @@ export function ProfileSettingsScreen({ navigation }: Props) {
           onOpenPhotoInfoModal={handleOpenPhotoInfoModal}
         />
 
+        {features.enableSocial ? (
+          <View style={styles.blockedTravelersSection}>
+            <Pressable
+              onPress={handleOpenBlockedUsers}
+              style={({ pressed }) => [
+                styles.blockedTravelersRow,
+                pressed && styles.blockedTravelersRowPressed,
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel="Blocked travelers"
+              testID="blocked-travelers-row"
+            >
+              <View style={styles.blockedTravelersLabelGroup}>
+                <Ionicons name="shield-outline" size={18} color={colors.midnightNavy} />
+                <Text style={styles.blockedTravelersLabel}>Blocked Travelers</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={colors.stormGray} />
+            </Pressable>
+          </View>
+        ) : null}
+
         <View style={styles.contactSupportSection}>
           <Pressable
             onPress={() => Linking.openURL('mailto:support@atlasi.app')}
@@ -806,5 +832,34 @@ const styles = StyleSheet.create({
   },
   contactSupportTextSmall: {
     fontSize: 14,
+  },
+  blockedTravelersSection: {
+    paddingTop: 16,
+    paddingHorizontal: 24,
+  },
+  blockedTravelersRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.paperBeige,
+    backgroundColor: colors.cloudWhite,
+  },
+  blockedTravelersRowPressed: {
+    opacity: 0.7,
+    backgroundColor: 'rgba(26, 26, 46, 0.05)',
+  },
+  blockedTravelersLabelGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  blockedTravelersLabel: {
+    fontFamily: fonts.openSans.semiBold,
+    fontSize: 16,
+    color: colors.midnightNavy,
   },
 });
