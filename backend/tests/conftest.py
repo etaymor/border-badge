@@ -1,7 +1,7 @@
 """Pytest configuration and fixtures."""
 
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from typing import Any
 from unittest.mock import AsyncMock
 
@@ -48,6 +48,31 @@ def disable_persistent_places_cache(monkeypatch) -> None:
         "app.services.place_matcher.persistent_cache._persistent_cache_enabled",
         lambda: False,
     )
+
+
+@pytest.fixture(autouse=True)
+def reset_places_rate_limit_state(monkeypatch) -> Iterator[None]:
+    """Neutralize U3 retry backoff and the shared circuit breaker in unit tests.
+
+    Two hazards, both process-wide rather than per-test. The retry backoff would
+    make every rate-limit test wait out a real (jittered) sleep, and the circuit
+    breaker's 429 window is a module-level singleton, so a test that deliberately
+    sustains rate limits would leave the breaker open for the *next* test's
+    outbound calls.
+
+    Tests that assert on the backoff schedule itself patch `_sleep` again
+    locally (the later monkeypatch wins) or call `compute_backoff_delay`
+    directly.
+    """
+    from app.services.place_matcher import rate_limit
+
+    async def _no_sleep(_delay: float) -> None:
+        return None
+
+    monkeypatch.setattr(rate_limit, "_sleep", _no_sleep)
+    rate_limit.rate_limit_breaker.reset()
+    yield
+    rate_limit.rate_limit_breaker.reset()
 
 
 @pytest.fixture(autouse=True)

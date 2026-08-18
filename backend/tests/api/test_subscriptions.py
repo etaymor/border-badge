@@ -276,8 +276,11 @@ def test_increment_photo_import_usage(
         data = response.json()
         assert data["status"] == "incremented"
         assert data["new_count"] == 1
+        # The consuming trip is passed through even when the client omits it,
+        # so the RPC signature is the same on every call (U16).
         mock_supabase_client.rpc.assert_called_once_with(
-            "increment_photo_import_usage", {"p_user_id": mock_user.id}
+            "increment_photo_import_usage",
+            {"p_user_id": mock_user.id, "p_trip_id": None},
         )
     finally:
         app.dependency_overrides.clear()

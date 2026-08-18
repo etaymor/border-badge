@@ -136,7 +136,11 @@ export function SwipeToSkipCard({
   });
 
   return (
-    <View style={localStyles.container}>
+    // R28: rows do NOT announce. A large import resolves dozens of rows within a
+    // second or two, and a live region on each one would flood a screen reader
+    // with overlapping announcements. The progress header is the single
+    // announcing surface; the cards stay readable on focus, just not automatic.
+    <View style={localStyles.container} accessibilityLiveRegion="none">
       <Animated.View style={[localStyles.skipPanel, panelStyle]} pointerEvents="none">
         <Ionicons name="close-circle" size={28} color={colors.white} />
         <Text style={localStyles.skipText}>Skip</Text>

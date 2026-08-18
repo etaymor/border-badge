@@ -95,10 +95,11 @@ export function PhotoImportScreen({ navigation, route }: Props) {
     selectedTripId,
     clusterDisplays,
     manualSearchCluster,
-    suggestPlacesMutation,
+    suggestionDispatch,
     cachedSuggestions,
     fetchingSuggestions,
     retryingClusterIds,
+    bulkRetryPreparingCount,
     lastImportTime,
     isIncremental,
     isSaving,
@@ -109,6 +110,7 @@ export function PhotoImportScreen({ navigation, route }: Props) {
     uploadingClusterIds,
     isPremium,
     canImportPhotos,
+    isExemptTrip,
     startScan,
     cancelScan,
     selectCandidate,
@@ -120,12 +122,15 @@ export function PhotoImportScreen({ navigation, route }: Props) {
     handleSplitCluster,
     handleAddEntryForCluster,
     retryFailedClusters,
+    retryAllFailedClusters,
     handleManualSelect,
     handleCreateTrip,
     backToCandidates,
     switchCandidate,
     closeManualSearch,
     cancelUpload,
+    markClustersViewed,
+    trackDeparture,
   } = usePhotoImportWorkflow({
     filterCountryCode,
     tripId,
@@ -162,6 +167,17 @@ export function PhotoImportScreen({ navigation, route }: Props) {
     [retryFailedClusters]
   );
 
+  // Retry EVERY retry-eligible failed cluster in one action (U9/R15). Unlike the
+  // per-card retry this DOES take a dispatch owner slot and runs through the
+  // controller's bounded pool, so the status row shows it as in progress and the
+  // burst cap is respected (KTD7/KTD12/KTD15).
+  const handleRetryAllClusters = useCallback(
+    (clusterIds: string[]) => {
+      void retryAllFailedClusters(clusterIds);
+    },
+    [retryAllFailedClusters]
+  );
+
   // Wrap handleManualSelect so the override (pencil) path honors the photos
   // the user deselected in the gallery before opening manual search.
   const handleManualSelectWithExclusions = useCallback(
@@ -182,6 +198,12 @@ export function PhotoImportScreen({ navigation, route }: Props) {
   // Handle back navigation with potential review trigger
   const handleBackNavigation = useCallback(
     (action: 'candidates' | 'goBack') => {
+      // U11: the ad conversion rides the SAME first-confirmation-plus-departure
+      // signal as the review prompt below, instead of waiting for every cluster
+      // to be confirmed, rejected or hidden. Fired before the review modal can
+      // hold up the navigation, and idempotent per lifetime.
+      trackDeparture();
+
       if (hasConfirmedPlaceRef.current && checkEligibility('first_photo_import')) {
         if (startReviewFlow('first_photo_import')) {
           setPendingBackAction(action);
@@ -196,7 +218,7 @@ export function PhotoImportScreen({ navigation, route }: Props) {
         navigation.goBack();
       }
     },
-    [checkEligibility, startReviewFlow, backToCandidates, navigation]
+    [checkEligibility, startReviewFlow, backToCandidates, navigation, trackDeparture]
   );
 
   // Complete pending back navigation after review modal closes
@@ -274,14 +296,14 @@ export function PhotoImportScreen({ navigation, route }: Props) {
         onCreateTrip={handleCreateTrip}
         index={index}
         selectedTripId={rememberedTripId}
-        isLoadingSuggestions={suggestPlacesMutation.isPending}
+        isLoadingSuggestions={suggestionDispatch.isDispatching}
       />
     ),
     [
       handleSelectTripForCandidate,
       handleCreateTrip,
       rememberedTripId,
-      suggestPlacesMutation.isPending,
+      suggestionDispatch.isDispatching,
     ]
   );
 
@@ -289,7 +311,7 @@ export function PhotoImportScreen({ navigation, route }: Props) {
   const clusterItems = useClusterItems({
     selectedCandidate,
     clusterDisplays,
-    suggestPlacesMutation,
+    suggestionDispatch,
     cachedSuggestions,
     dismissedClusterIdsInternal,
     fetchingSuggestions,
@@ -464,11 +486,15 @@ export function PhotoImportScreen({ navigation, route }: Props) {
           selectedCountryName={selectedCountryName}
           isPremium={isPremium}
           canImportPhotos={canImportPhotos}
+          isExemptTrip={isExemptTrip}
           fetchingSuggestions={fetchingSuggestions}
-          suggestionsProgress={suggestPlacesMutation.progress ?? null}
+          isPaused={suggestionDispatch.isPaused}
+          preparingRetryCount={bulkRetryPreparingCount}
           clusterItems={clusterItems}
           renderClusterItem={renderClusterItem}
           onUpgrade={() => rootNavigation.navigate('PaywallModal', { feature: 'photoImport' })}
+          onRetryAllFailed={handleRetryAllClusters}
+          onClustersViewed={markClustersViewed}
         />
       )}
 

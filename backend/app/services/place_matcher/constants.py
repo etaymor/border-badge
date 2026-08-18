@@ -4,8 +4,54 @@ from enum import Enum
 
 from app.services.photo_vision.constants import VISION_TO_PLACE_TYPES
 
-# Concurrency limit for parallel Places API calls
+# Concurrency limit for parallel Places API calls made by ONE request. Also the
+# fallback default for the `places_max_concurrent_requests` setting (U7): an
+# older/partial settings object degrades to today's behaviour, never to an
+# unbounded fan-out.
 MAX_CONCURRENT_PLACES_REQUESTS = 5
+
+# ============================================================================
+# Outbound concurrency bounds (U7)
+# ============================================================================
+
+# PER-PROCESS ceiling on concurrent outbound Google Places calls, shared by
+# every in-flight request. NOTE: per *process*. Adding a uvicorn worker or a
+# replica multiplies this ceiling (and the route's request-rate limit) by the
+# worker count -- the two scale together, so a capacity change has to be
+# reasoned about as one number, not two.
+#
+# Sizing (KTD9). The per-request search and enrichment semaphores run as
+# SEQUENTIAL PHASES, not nested: enrichment executes at the top level of the
+# cluster-processing flow after the per-cluster gather completes, outside any
+# semaphore block. Peak outbound concurrency is therefore
+# MAX_CONCURRENT_PLACES_REQUESTS (5) per request, and roughly 15 at the planned
+# client concurrency of 3 -- not 25. This ceiling is set at that figure so the
+# planned client shape is served without queueing, while a fourth or fifth
+# concurrent request queues instead of multiplying the fan-out.
+#
+# Two neighbours constrain it:
+#   * U4's private Places pool holds PLACES_MAX_CONNECTIONS = 20 connections.
+#     Staying below that keeps pool exhaustion (a header-less 503) rare, so
+#     raising this above ~15 means raising the pool first.
+#   * The rate-limit circuit breaker trips at RATE_LIMIT_BREAKER_THRESHOLD (8)
+#     upstream 429s in a 10s window. A ceiling above that keeps the breaker
+#     reachable inside a single saturated wave; a ceiling below 8 would make it
+#     structurally untrippable.
+MAX_CONCURRENT_PLACES_REQUESTS_PROCESS = 15
+
+# How long a caller may wait for a process-wide slot before giving up.
+#
+# THE THIRD BUDGET. A cluster's clock is composed of three independent
+# allowances: this slot wait, the retry-backoff share
+# (RETRY_BUDGET_FRACTION_OF_CLUSTER_TIMEOUT of the cluster timeout), and the
+# per-cluster timeout itself. The slot wait is deliberately short and fails
+# FAST and RETRYABLE (SlotUnavailableError -> the cluster is reported as failed
+# and the client may retry it) rather than letting a starved cluster spend its
+# whole 15s budget queuing and surface as an indistinguishable timeout.
+#
+# 2.0s matches PLACES_POOL_TIMEOUT_SECONDS: both bound a purely LOCAL
+# saturation wait, so neither queue can silently dominate the other.
+PLACES_SLOT_WAIT_CEILING_SECONDS = 2.0
 
 # Maximum length for place names/addresses (defense against absurdly long strings)
 MAX_PLACE_NAME_LENGTH = 200
@@ -26,6 +72,56 @@ SEARCH_RADII_METERS = [
 MAX_PLACES_PER_SEARCH = 10
 MAX_SUGGESTIONS_PER_CLUSTER = 3  # Top 3 by distance
 # Note: Timeout is configurable via PLACES_API_TIMEOUT_SECONDS env var (see config.py)
+
+
+# ============================================================================
+# Retry / rate-limit resilience (U3)
+# ============================================================================
+
+# Google's own retry guidance for the Places API: 0.1s initial, doubling, 5s
+# ceiling. Three attempts total (the first plus two retries) keeps the worst
+# case bounded well inside a cluster's budget.
+GOOGLE_RETRY_MAX_ATTEMPTS = 3
+GOOGLE_RETRY_INITIAL_DELAY_SECONDS = 0.1
+GOOGLE_RETRY_MAX_DELAY_SECONDS = 5.0
+# Jitter is NOT in Google's guidance, but synchronized retries across
+# concurrently rate-limited clusters are exactly the pattern that guidance
+# warns about. Each delay is spread over +/- 50% of its nominal value.
+GOOGLE_RETRY_JITTER_RATIO = 0.5
+
+# THE BUDGET SPLIT: retry backoff and the per-cluster timeout are one budget,
+# not two. Sleeping between retries may consume at most this fraction of
+# `places_cluster_timeout_seconds` across ALL of a cluster's calls (40% => 6s
+# of the default 15s), leaving the majority of the budget for outbound work.
+RETRY_BUDGET_FRACTION_OF_CLUSTER_TIMEOUT = 0.4
+# Fallback used only when settings carry no usable per-cluster timeout; mirrors
+# the `places_cluster_timeout_seconds` default in app.core.config.
+DEFAULT_CLUSTER_TIMEOUT_SECONDS = 15.0
+
+# THE REQUEST-LEVEL CEILING. The per-cluster timeout bounds ONE CLUSTER, not one
+# request, and the two are far apart: the per-cluster clock deliberately starts
+# after the semaphore is acquired, so queue time is charged to nobody. With
+# MAX_CLUSTERS_PER_REQUEST = 25 clusters against a per-request share of 5, the
+# Nearby phase alone runs 5 sequential WAVES -- up to 5 x 15s = 75s before the
+# vision join, text rescue, popularity probe and enrichment phases even begin.
+#
+# The only wall clock above that was the mobile client's 90s
+# (SUGGEST_PLACES_TIMEOUT_MS), and hitting it fails the WHOLE chunk: the client
+# discards results the server already paid Google for. This budget is the
+# server's own ceiling, set below the client's so the server decides how the
+# request degrades. It is a DISPATCH gate, not a cancel: work already in flight
+# is never interrupted (which would waste a paid call), and no phase timeout is
+# changed. Once the budget is spent, a cluster that has not started is reported
+# as failed -- retryable, and delivered inside the client's window along with
+# every cluster that did complete.
+DEFAULT_REQUEST_BUDGET_SECONDS = 75.0
+
+# Process-wide circuit breaker. Under sustained throttling every concurrent
+# cluster is an independent retry multiplier, so a shared window of upstream
+# 429s short-circuits new attempts for a cooldown instead.
+RATE_LIMIT_BREAKER_THRESHOLD = 8
+RATE_LIMIT_BREAKER_WINDOW_SECONDS = 10.0
+RATE_LIMIT_BREAKER_COOLDOWN_SECONDS = 5.0
 
 
 # ============================================================================

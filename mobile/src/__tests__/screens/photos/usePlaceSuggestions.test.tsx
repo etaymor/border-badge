@@ -15,7 +15,17 @@ import { AxiosError } from 'axios';
 import React from 'react';
 
 import { usePlaceSuggestions } from '../../../screens/photos/usePlaceSuggestions';
+import { useWorkflowNavigation } from '../../../screens/photos/useWorkflowNavigation';
+import {
+  CHUNK_SIZE,
+  FIRST_CHUNK_SIZE,
+  planSuggestionBatches,
+  suggestionDispatch,
+} from '@hooks/usePhotoImport';
+import { getVisionImagesForCluster } from '@services/photoImport/visionPhoto';
+import { useIsPremium, useCanImportPhotos, useSubscriptionStore } from '@stores/subscriptionStore';
 import { api } from '@services/api';
+import { Analytics } from '@services/analytics';
 import {
   getCachedSuggestions,
   cacheSuggestions,
@@ -34,7 +44,13 @@ jest.mock('@services/photoImport', () => ({
     (centroid: { latitude: number; longitude: number }) =>
       `loc:${centroid.latitude},${centroid.longitude}`
   ),
+  setLastSelectedCandidateId: jest.fn().mockResolvedValue(undefined),
   computeTimeHint: jest.fn(() => 'attraction'),
+}));
+
+const mockNavigate = jest.fn();
+jest.mock('@react-navigation/native', () => ({
+  useNavigation: () => ({ navigate: mockNavigate }),
 }));
 
 jest.mock('@services/photoImport/visionPhoto', () => ({
@@ -95,7 +111,8 @@ const createTestQueryClient = () =>
 
 function setup(
   clusters: LocationCluster[],
-  currentCandidateIdRef?: React.RefObject<string | null>
+  currentCandidateIdRef?: React.RefObject<string | null>,
+  selectedTripId: string | null = null
 ) {
   const lookup = new Map<string, LocationCluster>();
   for (const c of clusters) lookup.set(c.id, c);
@@ -105,13 +122,19 @@ function setup(
   const wrapper = ({ children }: { children: React.ReactNode }) => (
     <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
   );
-  return renderHook(() => usePlaceSuggestions({ clusterLookupRef, currentCandidateIdRef }), {
-    wrapper,
-  });
+  return renderHook(
+    () => usePlaceSuggestions({ clusterLookupRef, currentCandidateIdRef, selectedTripId }),
+    {
+      wrapper,
+    }
+  );
 }
 
 beforeEach(() => {
   jest.clearAllMocks();
+  // The dispatch controller is a module-level singleton (KTD21): without this a
+  // test that leaves an owner or a failure map behind cascades into the next.
+  suggestionDispatch.resetForTests();
   mockedGetCachedSuggestions.mockResolvedValue(new Map());
   mockedCacheSuggestions.mockResolvedValue(undefined as never);
 });
@@ -452,9 +475,9 @@ describe('usePlaceSuggestions.retryFailedClusters (U10)', () => {
     });
 
     // The fatal 429 recorded quota-1 with retryDisabled=true.
-    expect(
-      result.current.suggestPlacesMutation.failedClusterIds.get('quota-1')?.retryDisabled
-    ).toBe(true);
+    expect(result.current.suggestionDispatch.failedClusterIds.get('quota-1')?.retryDisabled).toBe(
+      true
+    );
 
     mockedApi.post.mockClear();
 
@@ -499,7 +522,7 @@ describe('usePlaceSuggestions.retryFailedClusters (U10)', () => {
     expect(
       result.current.cachedSuggestions.find((s) => s.cluster_id === 'stale-1')
     ).toBeUndefined();
-    expect(result.current.suggestPlacesMutation.failedClusterIds.has('stale-1')).toBe(false);
+    expect(result.current.suggestionDispatch.failedClusterIds.has('stale-1')).toBe(false);
   });
 
   it('CANDIDATE-STALE: switch-away-then-back to the SAME candidate keeps the result (live-ref check)', async () => {
@@ -641,5 +664,1215 @@ describe('usePlaceSuggestions.fetchSuggestions — B3 stale-request guard (live 
 
     const surfaced = result.current.cachedSuggestions.find((s) => s.cluster_id === 'noref-1');
     expect(surfaced?.places).toHaveLength(1);
+  });
+});
+
+// ---- U15 instrumentation ---------------------------------------------------
+
+describe('usePlaceSuggestions - timing instrumentation (U15)', () => {
+  const buildCandidate = (clusterIds: string[], id = 'cand-A') => ({
+    id,
+    countryCode: 'JP',
+    dateRange: { start: new Date(), end: new Date() },
+    photoIds: [],
+    photoCount: clusterIds.length,
+    previewUris: [],
+    previewAssetIds: [],
+    locationClusterIds: clusterIds,
+  });
+
+  const placeFor = (id: string) => ({
+    place_id: `ChIJ_${id}`,
+    name: `Place ${id}`,
+    address: '1 St',
+    location: { latitude: 35, longitude: 139 },
+    category: 'place',
+    distance_m: 10,
+    types: ['point_of_interest'],
+  });
+
+  const lastCompletedProps = () =>
+    (Analytics.photoImportSuggestionsCompleted as jest.Mock).mock.calls.at(-1)?.[0];
+
+  it('records time to first suggestion when the FIRST batch resolves, not at the end', async () => {
+    // CHUNK_SIZE is 5, so 6 clusters span two chunks. Chunk 1 resolves at once;
+    // chunk 2 is held for ~120ms, so a time-to-first-suggestion measured at the
+    // end of the whole request would be indistinguishable from wall clock.
+    const clusters = Array.from({ length: 6 }, (_, i) => makeCluster(`t-${i}`, 35 + i, 139));
+
+    mockedApi.post
+      .mockResolvedValueOnce({
+        data: {
+          suggestions: clusters.slice(0, 5).map((c) => ({
+            cluster_id: c.id,
+            photo_ids: [`photo-${c.id}`],
+            places: [placeFor(c.id)],
+          })),
+          failed_cluster_count: 0,
+        },
+      })
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) =>
+            setTimeout(
+              () =>
+                resolve({
+                  data: {
+                    suggestions: [
+                      { cluster_id: 't-5', photo_ids: ['photo-t-5'], places: [placeFor('t-5')] },
+                    ],
+                    failed_cluster_count: 0,
+                  },
+                }),
+              120
+            )
+          )
+      );
+
+    const { result } = setup(clusters);
+
+    await act(async () => {
+      await result.current.fetchSuggestions(
+        buildCandidate(
+          clusters.map((c) => c.id),
+          'cand-timing'
+        )
+      );
+    });
+
+    const props = lastCompletedProps();
+    expect(typeof props.timeToFirstSuggestionMs).toBe('number');
+    expect(typeof props.wallClockMs).toBe('number');
+    expect(props.timeToFirstSuggestionMs).toBeGreaterThanOrEqual(0);
+    // First batch landed well before the request finished.
+    expect(props.wallClockMs - props.timeToFirstSuggestionMs).toBeGreaterThanOrEqual(60);
+    expect(props.wallClockMs).toBeGreaterThanOrEqual(props.timeToFirstSuggestionMs);
+  });
+
+  it('keeps the existing per-batch duration and percentile fields computing as before', async () => {
+    const clusters = [makeCluster('p-1', 35.1, 139.1)];
+
+    mockedApi.post.mockResolvedValueOnce({
+      data: {
+        suggestions: [{ cluster_id: 'p-1', photo_ids: ['photo-p-1'], places: [placeFor('p-1')] }],
+        failed_cluster_count: 0,
+      },
+    });
+
+    const { result } = setup(clusters);
+
+    await act(async () => {
+      await result.current.fetchSuggestions(buildCandidate(['p-1'], 'cand-pct'));
+    });
+
+    const props = lastCompletedProps();
+    // Still sourced from calculateApiPercentiles (mocked to 100/200/300).
+    expect(props.apiP50Ms).toBe(100);
+    expect(props.apiP95Ms).toBe(200);
+    expect(props.apiP99Ms).toBe(300);
+    expect(typeof props.totalApiDurationMs).toBe('number');
+    expect(props.suggestionCount).toBe(1);
+    expect(props.cachedClusters).toBe(0);
+    expect(props.uncachedClusters).toBe(1);
+    expect(props.cacheHitRate).toBe(0);
+  });
+
+  it('records timings on the all-cached path too, with no identifiers in the event (R27)', async () => {
+    const clusters = [makeCluster('c-1', 35.1, 139.1)];
+    mockedGetCachedSuggestions.mockResolvedValue(new Map([['c-1', [placeFor('c-1')]]]));
+
+    const { result } = setup(clusters);
+
+    await act(async () => {
+      await result.current.fetchSuggestions(buildCandidate(['c-1'], 'cand-cached'));
+    });
+
+    const props = lastCompletedProps();
+    expect(typeof props.timeToFirstSuggestionMs).toBe('number');
+    expect(typeof props.wallClockMs).toBe('number');
+    expect(props.cacheHitRate).toBe(100);
+
+    // R27: the event carries per-batch aggregates only.
+    const serialized = JSON.stringify(props);
+    for (const forbidden of ['c-1', 'ChIJ_', '35.1', '139.1']) {
+      expect(serialized).not.toContain(forbidden);
+    }
+  });
+
+  // ---- U11: concurrency-aware fields ---------------------------------------
+
+  it('U11: carries the in-flight batch occupancy alongside the existing timings', async () => {
+    const clusters = Array.from({ length: 6 }, (_, i) => makeCluster(`o-${i}`, 35 + i, 139));
+
+    mockedApi.post.mockImplementation(async (_url, body) => {
+      const ids = (body as { clusters: { id: string }[] }).clusters.map((c) => c.id);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      return {
+        data: {
+          suggestions: ids.map((id) => ({
+            cluster_id: id,
+            photo_ids: [`photo-${id}`],
+            places: [placeFor(id)],
+          })),
+          failed_cluster_count: 0,
+        },
+      };
+    });
+
+    const { result } = setup(clusters);
+
+    await act(async () => {
+      await result.current.fetchSuggestions(
+        buildCandidate(
+          clusters.map((c) => c.id),
+          'cand-occupancy'
+        )
+      );
+    });
+
+    const props = lastCompletedProps();
+    // The pool ships at 1, so the peak is 1 — but it is MEASURED, not assumed.
+    expect(props.peakInFlightBatches).toBeGreaterThanOrEqual(1);
+    expect(props.meanInFlightBatches).toBeGreaterThan(0);
+    expect(props.wireSpanMs).toBeGreaterThan(0);
+    expect(props.wireBusyMs).toBeLessThanOrEqual(props.wireSpanMs);
+    // The U15 fields keep their existing computation.
+    expect(props.apiP50Ms).toBe(100);
+    expect(props.totalApiDurationMs).toBeGreaterThan(0);
+    expect(props.suggestionCount).toBe(6);
+
+    // R27 again: occupancy is counts and durations only.
+    const serialized = JSON.stringify(props);
+    for (const forbidden of ['o-0', 'ChIJ_', '139']) {
+      expect(serialized).not.toContain(forbidden);
+    }
+  });
+
+  it('U11: names the 402 entitlement stop instead of filing it under unknown', async () => {
+    const clusters = [makeCluster('e-1', 35.5, 139.5)];
+    const limitReached = new AxiosError('payment required');
+    limitReached.response = {
+      status: 402,
+      headers: {},
+      // The REAL wire shape: the backend raises
+      // `HTTPException(402, detail={"code": ...})` and FastAPI nests a dict
+      // detail under `detail` (its own test asserts
+      // `response.json()["detail"]["code"]`). The flat fixture this used to
+      // carry kept the client branch green while it could never match live.
+      data: { detail: { code: 'PHOTO_IMPORT_LIMIT_REACHED' } },
+      statusText: '',
+      config: {} as never,
+    };
+    mockedApi.post.mockRejectedValueOnce(limitReached);
+
+    const { result } = setup(clusters);
+
+    await act(async () => {
+      await result.current.fetchSuggestions(buildCandidate(['e-1'], 'cand-402'));
+    });
+
+    expect(Analytics.photoImportApiError).toHaveBeenCalledWith({
+      errorType: 'entitlement_exhausted',
+    });
+  });
+});
+
+// ---- Dispatch owner accounting (U2 / R1 / KTD13) ---------------------------
+
+describe('usePlaceSuggestions dispatch owner accounting (R1/KTD13)', () => {
+  const buildCandidate = (clusterIds: string[], id = 'cand-owner') => ({
+    id,
+    countryCode: 'JP',
+    dateRange: { start: new Date(), end: new Date() },
+    photoIds: [],
+    photoCount: clusterIds.length,
+    previewUris: [],
+    previewAssetIds: [],
+    locationClusterIds: clusterIds,
+  });
+
+  const placeFor = (id: string) => ({
+    place_id: `ChIJ_${id}`,
+    name: `Place ${id}`,
+    address: '1 St',
+    location: { latitude: 35, longitude: 139 },
+    category: 'place',
+    distance_m: 10,
+    types: ['point_of_interest'],
+  });
+
+  // `jest.clearAllMocks()` clears usage data but keeps a `mockReturnValue`, so
+  // the premium-gate test below would leak a gated user into its neighbours.
+  afterEach(() => {
+    (useIsPremium as jest.MockedFunction<typeof useIsPremium>).mockReturnValue(true);
+    (useCanImportPhotos as jest.MockedFunction<typeof useCanImportPhotos>).mockReturnValue(true);
+  });
+
+  it('settles after the already-processed early return', async () => {
+    const c1 = makeCluster('own-1', 35.1, 139.1);
+    mockedGetCachedSuggestions.mockResolvedValue(new Map([['own-1', [placeFor('own-1')]]]));
+
+    const { result } = setup([c1]);
+    const candidate = buildCandidate(['own-1']);
+
+    await act(async () => {
+      await result.current.fetchSuggestions(candidate);
+    });
+    expect(result.current.isFetchingSuggestions).toBe(false);
+
+    // Second call short-circuits on `fetchedCandidatesRef` before any await.
+    await act(async () => {
+      await result.current.fetchSuggestions(candidate);
+    });
+    expect(result.current.isFetchingSuggestions).toBe(false);
+  });
+
+  it('settles after the no-clusters early return', async () => {
+    // getFullCluster resolves nothing for this candidate's ids.
+    mockedGetFullCluster.mockImplementation(() => undefined);
+    const { result } = setup([]);
+
+    await act(async () => {
+      await result.current.fetchSuggestions(buildCandidate(['missing-1']));
+    });
+
+    expect(mockedApi.post).not.toHaveBeenCalled();
+    expect(result.current.isFetchingSuggestions).toBe(false);
+  });
+
+  it('settles after the gatedByPremium early return', async () => {
+    (useIsPremium as jest.MockedFunction<typeof useIsPremium>).mockReturnValue(false);
+    (useCanImportPhotos as jest.MockedFunction<typeof useCanImportPhotos>).mockReturnValue(false);
+
+    const c1 = makeCluster('gated-1', 35.1, 139.1);
+    const { result } = setup([c1]);
+
+    let outcome: { gatedByPremium: true } | undefined;
+    await act(async () => {
+      outcome = await result.current.fetchSuggestions(buildCandidate(['gated-1']));
+    });
+
+    expect(outcome).toEqual({ gatedByPremium: true });
+    expect(result.current.isFetchingSuggestions).toBe(false);
+  });
+
+  it('settles after the all-cached early return', async () => {
+    const c1 = makeCluster('cached-only', 35.1, 139.1);
+    mockedGetCachedSuggestions.mockResolvedValue(
+      new Map([['cached-only', [placeFor('cached-only')]]])
+    );
+
+    const { result } = setup([c1]);
+
+    await act(async () => {
+      await result.current.fetchSuggestions(buildCandidate(['cached-only']));
+    });
+
+    expect(mockedApi.post).not.toHaveBeenCalled();
+    expect(result.current.isFetchingSuggestions).toBe(false);
+  });
+
+  it('settles after a fetch that THROWS out of fetchSuggestions', async () => {
+    // The SQLite cache read sits outside the hook's internal try/catch, so a
+    // rejection there propagates out of fetchSuggestions. The owner must still
+    // be released — a stranded owner would withhold terminal rows forever.
+    const c1 = makeCluster('throw-1', 35.1, 139.1);
+    mockedGetCachedSuggestions.mockRejectedValueOnce(new Error('sqlite exploded'));
+
+    const { result } = setup([c1]);
+
+    await act(async () => {
+      await expect(result.current.fetchSuggestions(buildCandidate(['throw-1']))).rejects.toThrow(
+        'sqlite exploded'
+      );
+    });
+
+    expect(result.current.isFetchingSuggestions).toBe(false);
+  });
+
+  it('stays in progress until BOTH overlapping owners settle (KTD13)', async () => {
+    const a = makeCluster('overlap-a', 35.1, 139.1);
+    const b = makeCluster('overlap-b', 35.2, 139.2);
+
+    let resolveFirst!: (value: unknown) => void;
+    let resolveSecond!: (value: unknown) => void;
+    mockedApi.post
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveFirst = resolve as (value: unknown) => void;
+          })
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveSecond = resolve as (value: unknown) => void;
+          })
+      );
+
+    const { result } = setup([a, b]);
+
+    let firstDone!: Promise<unknown>;
+    let secondDone!: Promise<unknown>;
+    await act(async () => {
+      firstDone = result.current.fetchForClusters([a]);
+      secondDone = result.current.fetchForClusters([b]);
+    });
+
+    expect(result.current.isFetchingSuggestions).toBe(true);
+
+    // First owner settles — the second is still on the wire, so "settled" must
+    // NOT be reported (a plain boolean would flip false here).
+    await act(async () => {
+      resolveFirst({
+        data: {
+          suggestions: [
+            { cluster_id: 'overlap-a', photo_ids: ['photo-overlap-a'], places: [placeFor('a')] },
+          ],
+          failed_cluster_count: 0,
+        },
+      });
+      await firstDone;
+    });
+    expect(result.current.isFetchingSuggestions).toBe(true);
+
+    await act(async () => {
+      resolveSecond({
+        data: {
+          suggestions: [
+            { cluster_id: 'overlap-b', photo_ids: ['photo-overlap-b'], places: [placeFor('b')] },
+          ],
+          failed_cluster_count: 0,
+        },
+      });
+      await secondDone;
+    });
+    expect(result.current.isFetchingSuggestions).toBe(false);
+  });
+
+  it('does NOT append a split result into the candidate the user switched to', async () => {
+    const split = makeCluster('split-stale', 35.1, 139.1);
+
+    let resolveApi!: (value: unknown) => void;
+    mockedApi.post.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveApi = resolve as (value: unknown) => void;
+        })
+    );
+
+    const ref = { current: 'cand-A' } as React.RefObject<string | null>;
+    const { result } = setup([split], ref);
+
+    let splitDone!: Promise<unknown>;
+    await act(async () => {
+      splitDone = result.current.fetchForClusters([split]);
+    });
+
+    // User switches candidates while the split lookup is in flight.
+    ref.current = 'cand-B';
+
+    await act(async () => {
+      resolveApi({
+        data: {
+          suggestions: [
+            {
+              cluster_id: 'split-stale',
+              photo_ids: ['photo-split-stale'],
+              places: [placeFor('split-stale')],
+            },
+          ],
+          failed_cluster_count: 0,
+        },
+      });
+      await splitDone;
+    });
+
+    // The SQLite write still happened (location-keyed, useful on return)...
+    expect(mockedCacheSuggestions).toHaveBeenCalled();
+    // ...but the old candidate's sub-cluster was NOT appended to the new one.
+    expect(result.current.cachedSuggestions.map((s) => s.cluster_id)).not.toContain('split-stale');
+    expect(result.current.isFetchingSuggestions).toBe(false);
+  });
+});
+
+// ---- Pipelined preparation (U5 / R5, R24) ----------------------------------
+
+describe('usePlaceSuggestions pipelined preparation (U5)', () => {
+  const mockedGetVisionImages = getVisionImagesForCluster as jest.MockedFunction<
+    typeof getVisionImagesForCluster
+  >;
+
+  const buildCandidate = (clusterIds: string[], id = 'cand-pipeline') => ({
+    id,
+    countryCode: 'JP',
+    dateRange: { start: new Date(), end: new Date() },
+    photoIds: [],
+    photoCount: clusterIds.length,
+    previewUris: [],
+    previewAssetIds: [],
+    locationClusterIds: clusterIds,
+  });
+
+  afterEach(() => {
+    mockedGetVisionImages.mockResolvedValue([]);
+  });
+
+  it('dispatches the first batch while later batches are still being prepared', async () => {
+    // Enough clusters to span two batches under the U5 ramp (2, then 5).
+    const clusters = Array.from({ length: FIRST_CHUNK_SIZE + CHUNK_SIZE }, (_, i) =>
+      makeCluster(`pipe-${i}`, 35 + i * 0.01, 139)
+    );
+    const firstBatchIds = new Set(planSuggestionBatches(clusters)[0].map((c) => c.id));
+
+    let releaseLaterPrep!: () => void;
+    const laterPrepGate = new Promise<void>((resolve) => {
+      releaseLaterPrep = resolve;
+    });
+    let laterPrepFinished = false;
+    let laterPrepStarted = false;
+
+    mockedGetVisionImages.mockImplementation(async (cluster) => {
+      if (firstBatchIds.has(cluster.id)) return ['first-batch-image'];
+      laterPrepStarted = true;
+      await laterPrepGate;
+      laterPrepFinished = true;
+      return ['later-batch-image'];
+    });
+
+    const observed: { laterPrepStarted?: boolean; laterPrepFinished?: boolean } = {};
+    mockedApi.post.mockImplementation(async () => {
+      if (mockedApi.post.mock.calls.length === 1) {
+        observed.laterPrepStarted = laterPrepStarted;
+        observed.laterPrepFinished = laterPrepFinished;
+      }
+      return { data: { suggestions: [], failed_cluster_count: 0 } };
+    });
+
+    const { result } = setup(clusters);
+
+    let done!: Promise<unknown>;
+    await act(async () => {
+      done = result.current.fetchSuggestions(buildCandidate(clusters.map((c) => c.id)));
+      // Flush up to the point where batch two's preparation is the only thing
+      // outstanding.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    // Batch one's request went out before batch two finished preparing...
+    expect(mockedApi.post).toHaveBeenCalledTimes(1);
+    expect(observed.laterPrepFinished).toBe(false);
+    // ...and batch two's preparation had already begun by then.
+    expect(observed.laterPrepStarted).toBe(true);
+    // The owner slot stays claimed across the WHOLE pipeline, including while
+    // later batches are still being prepared.
+    expect(result.current.isFetchingSuggestions).toBe(true);
+
+    await act(async () => {
+      releaseLaterPrep();
+      await done;
+    });
+
+    expect(mockedApi.post).toHaveBeenCalledTimes(2);
+    // Only the batch about to be dispatched carries encoded images.
+    const firstBody = mockedApi.post.mock.calls[0][1] as {
+      clusters: { id: string; vision_images_base64?: string[] }[];
+    };
+    expect(firstBody.clusters.map((c) => c.id)).toEqual([...firstBatchIds]);
+    expect(
+      firstBody.clusters.every((c) => c.vision_images_base64?.[0] === 'first-batch-image')
+    ).toBe(true);
+    const secondBody = mockedApi.post.mock.calls[1][1] as {
+      clusters: { id: string; vision_images_base64?: string[] }[];
+    };
+    expect(
+      secondBody.clusters.every((c) => c.vision_images_base64?.[0] === 'later-batch-image')
+    ).toBe(true);
+    // Released once ALL of it settled.
+    expect(result.current.isFetchingSuggestions).toBe(false);
+  });
+
+  it('a preparation failure for one cluster does not reject the pipeline', async () => {
+    const clusters = Array.from({ length: FIRST_CHUNK_SIZE + 1 }, (_, i) =>
+      makeCluster(`fail-${i}`, 35 + i * 0.01, 139)
+    );
+
+    mockedGetVisionImages.mockImplementation(async (cluster) => {
+      if (cluster.id === 'fail-0') throw new Error('decode exploded');
+      return ['ok-image'];
+    });
+    mockedApi.post.mockResolvedValue({ data: { suggestions: [], failed_cluster_count: 0 } });
+
+    const { result } = setup(clusters);
+
+    await act(async () => {
+      await result.current.fetchSuggestions(buildCandidate(clusters.map((c) => c.id)));
+    });
+
+    // Both batches still dispatched; the failing cluster simply went without
+    // vision images.
+    expect(mockedApi.post).toHaveBeenCalledTimes(2);
+    const firstBody = mockedApi.post.mock.calls[0][1] as {
+      clusters: { id: string; vision_images_base64?: string[] }[];
+    };
+    expect(firstBody.clusters.map((c) => c.id)).toEqual(['fail-0', 'fail-1']);
+    expect(firstBody.clusters[0].vision_images_base64).toBeUndefined();
+    expect(firstBody.clusters[1].vision_images_base64).toEqual(['ok-image']);
+    expect(result.current.isFetchingSuggestions).toBe(false);
+  });
+});
+
+// ---- Callback identity across the dispatch seam (U14) -----------------------
+
+describe('usePlaceSuggestions callback identity (U14)', () => {
+  const buildCandidate = (clusterIds: string[], id = 'cand-identity') => ({
+    id,
+    countryCode: 'JP',
+    dateRange: { start: new Date(), end: new Date() },
+    photoIds: [],
+    photoCount: clusterIds.length,
+    previewUris: [],
+    previewAssetIds: [],
+    locationClusterIds: clusterIds,
+  });
+
+  it('keeps the retry callback stable across dispatch progress updates', async () => {
+    // Enough clusters for several batches, so the controller publishes progress,
+    // partial results, and claim-set changes mid-run. Before U14 the retry
+    // callback depended on the mutation's state container and was rebuilt on
+    // every one of those updates.
+    const clusters = Array.from({ length: FIRST_CHUNK_SIZE + CHUNK_SIZE * 2 }, (_, i) =>
+      makeCluster(`ident-${i}`, 35 + i * 0.01, 139)
+    );
+    mockedApi.post.mockResolvedValue({ data: { suggestions: [], failed_cluster_count: 0 } });
+
+    const { result } = setup(clusters);
+    const before = {
+      retryFailedClusters: result.current.retryFailedClusters,
+      fetchForClusters: result.current.fetchForClusters,
+      beginFetchOwner: result.current.beginFetchOwner,
+      endFetchOwner: result.current.endFetchOwner,
+    };
+
+    await act(async () => {
+      await result.current.fetchSuggestions(buildCandidate(clusters.map((c) => c.id)));
+    });
+
+    // The dispatch really did publish intermediate state.
+    expect(mockedApi.post).toHaveBeenCalledTimes(planSuggestionBatches(clusters).length);
+    expect(result.current.retryFailedClusters).toBe(before.retryFailedClusters);
+    expect(result.current.fetchForClusters).toBe(before.fetchForClusters);
+    // The owner-count callbacks are controller methods, so they are stable for
+    // the five call sites that take them as props.
+    expect(result.current.beginFetchOwner).toBe(before.beginFetchOwner);
+    expect(result.current.endFetchOwner).toBe(before.endFetchOwner);
+  });
+});
+
+// ---- U6: partial resolution, the cache allow-list, and coverage --------------
+
+describe('usePlaceSuggestions partial dispatch (U6 / KTD6, KTD14, R20)', () => {
+  const buildCandidate = (clusterIds: string[], id = 'cand-partial') => ({
+    id,
+    countryCode: 'JP',
+    dateRange: { start: new Date(), end: new Date() },
+    photoIds: [],
+    photoCount: clusterIds.length,
+    previewUris: [],
+    previewAssetIds: [],
+    locationClusterIds: clusterIds,
+  });
+
+  const placeFor = (id: string) => ({
+    place_id: `ChIJ_${id}`,
+    name: `Place ${id}`,
+    address: '1 St',
+    location: { latitude: 35, longitude: 139 },
+    category: 'place',
+    distance_m: 10,
+    types: ['point_of_interest'],
+  });
+
+  /** Three batches under the U5 ramp: 2 / 5 / 5. */
+  const THREE_BATCH_COUNT = FIRST_CHUNK_SIZE + CHUNK_SIZE * 2;
+  const buildClusters = () =>
+    Array.from({ length: THREE_BATCH_COUNT }, (_, i) =>
+      makeCluster(`pt-${i}`, 35 + i * 0.01, 139 + i * 0.01)
+    );
+
+  const respondFor = (ids: string[]) => ({
+    data: {
+      suggestions: ids.map((id) => ({
+        cluster_id: id,
+        photo_ids: [`photo-${id}`],
+        places: [placeFor(id)],
+      })),
+      // ZERO failures — the escape hatch this unit deletes keyed on exactly this.
+      failed_cluster_count: 0,
+    },
+  });
+
+  const cachedIds = () =>
+    mockedCacheSuggestions.mock.calls.flatMap((call) => call[0].map((row) => row.cluster_id));
+
+  // The SUSTAINED limit (60s), which is the 429 that genuinely stops dispatch
+  // and therefore the one that leaves clusters uncovered. A burst-cap 429 asks
+  // for ~1 second and the pool now parks through it and finishes the plan, so a
+  // 1s fixture no longer produces a partial run (see the U16 park tests in
+  // services/photoImport/suggestionDispatch.test.ts).
+  const rateLimited = () => {
+    const err = new AxiosError('rate limited');
+    err.response = {
+      status: 429,
+      headers: { 'retry-after': '60' },
+      data: {},
+      statusText: '',
+      config: {} as never,
+    };
+    return err;
+  };
+
+  it('writes NO cache row for a never-dispatched cluster, even at a zero failure count', async () => {
+    const clusters = buildClusters();
+    const batches = planSuggestionBatches(clusters).map((b) => b.map((c) => c.id));
+
+    mockedApi.post
+      .mockResolvedValueOnce(respondFor(batches[0]))
+      .mockRejectedValueOnce(rateLimited());
+
+    const { result } = setup(clusters);
+
+    await act(async () => {
+      await result.current.fetchSuggestions(buildCandidate(clusters.map((c) => c.id)));
+    });
+
+    // Batch 3 never went out. The old deny-list admitted it anyway — the run
+    // reported failed_cluster_count 0, so "no per-cluster failures" was read as
+    // "full coverage" and every unanswered cluster was written as `[]` and
+    // cached for 24h, indistinguishable from a genuine no-place-found.
+    for (const id of batches[2]) expect(cachedIds()).not.toContain(id);
+    // The rejected batch is excluded too...
+    for (const id of batches[1]) expect(cachedIds()).not.toContain(id);
+    // ...while the batch that actually answered keeps its rows.
+    expect(cachedIds().sort()).toEqual([...batches[0]].sort());
+  });
+
+  it('KTD14: a cluster its own batch omitted is not cached, even at a zero failure count', async () => {
+    // The deleted escape hatch was `|| failed_cluster_count === 0`: a GLOBAL
+    // property of the run standing in for per-cluster evidence. Here batch 1
+    // answers for only one of its two clusters and reports no failures at all,
+    // so the hatch would have written the omitted cluster as `[]` for 24h.
+    // Every term of the allow-list is now about the cluster itself.
+    const clusters = buildClusters();
+    const batches = planSuggestionBatches(clusters).map((b) => b.map((c) => c.id));
+
+    mockedApi.post
+      .mockResolvedValueOnce(respondFor(batches[0].slice(0, 1)))
+      .mockResolvedValueOnce(respondFor(batches[1]))
+      .mockResolvedValueOnce(respondFor(batches[2]));
+
+    const { result } = setup(clusters);
+
+    await act(async () => {
+      await result.current.fetchSuggestions(buildCandidate(clusters.map((c) => c.id)));
+    });
+
+    expect(cachedIds()).not.toContain(batches[0][1]);
+    expect(cachedIds().sort()).toEqual([batches[0][0], ...batches[1], ...batches[2]].sort());
+  });
+
+  it('writes no cache row for undispatched clusters when the fetch is aborted mid-flight', async () => {
+    const clusters = buildClusters();
+    const batches = planSuggestionBatches(clusters).map((b) => b.map((c) => c.id));
+
+    // Model axios: the request rejects the moment its signal aborts.
+    mockedApi.post.mockImplementation(
+      (_url, _body, config) =>
+        new Promise((_resolve, reject) => {
+          const signal = (config as { signal?: AbortSignal } | undefined)?.signal;
+          signal?.addEventListener('abort', () => reject(new Error('canceled')));
+        }) as never
+    );
+
+    const { result } = setup(clusters);
+
+    let done!: Promise<unknown>;
+    await act(async () => {
+      done = result.current.fetchSuggestions(buildCandidate(clusters.map((c) => c.id)));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    await act(async () => {
+      result.current.resetSuggestionDispatch();
+      await done;
+    });
+
+    // Nothing answered, so nothing may be cached — not the batch that was
+    // canceled on the wire, and certainly not the two that never left.
+    expect(cachedIds()).toEqual([]);
+    expect(batches).toHaveLength(3);
+    expect(result.current.isFetchingSuggestions).toBe(false);
+  });
+
+  it('re-fetches the uncovered clusters on a same-session re-entry, without unmounting', async () => {
+    const clusters = buildClusters();
+    const batches = planSuggestionBatches(clusters).map((b) => b.map((c) => c.id));
+    const candidate = buildCandidate(clusters.map((c) => c.id));
+
+    mockedApi.post
+      .mockResolvedValueOnce(respondFor(batches[0]))
+      .mockRejectedValueOnce(rateLimited());
+
+    const { result } = setup(clusters);
+
+    await act(async () => {
+      await result.current.fetchSuggestions(candidate);
+    });
+    expect(mockedApi.post).toHaveBeenCalledTimes(2);
+
+    // Re-entry. Batch 1's clusters come back from the SQLite cache (so they are
+    // not re-bought); everything the partial stop left uncovered must go out
+    // again. The candidate-fetched marker used to be set on ANY resolution,
+    // which made this second call return before touching the network and left
+    // those clusters unlooked-up for the rest of the session.
+    mockedApi.post.mockClear();
+    mockedGetCachedSuggestions.mockResolvedValue(
+      new Map(batches[0].map((id) => [id, [placeFor(id)]]))
+    );
+    mockedApi.post.mockResolvedValue({
+      data: { suggestions: [], failed_cluster_count: 0 },
+    });
+
+    await act(async () => {
+      await result.current.fetchSuggestions(candidate);
+    });
+
+    expect(mockedApi.post).toHaveBeenCalled();
+    const reRequested = mockedApi.post.mock.calls.flatMap((call) =>
+      (call[1] as { clusters: { id: string }[] }).clusters.map((c) => c.id)
+    );
+    for (const id of [...batches[1], ...batches[2]]) expect(reRequested).toContain(id);
+    for (const id of batches[0]) expect(reRequested).not.toContain(id);
+  });
+
+  it('short-circuits a re-entry when the first run covered every cluster', async () => {
+    const clusters = buildClusters();
+    const batches = planSuggestionBatches(clusters).map((b) => b.map((c) => c.id));
+    const candidate = buildCandidate(
+      clusters.map((c) => c.id),
+      'cand-covered'
+    );
+
+    mockedApi.post
+      .mockResolvedValueOnce(respondFor(batches[0]))
+      // A batch that FAILED is still covered: it was attempted, and the scoped
+      // retry path owns its recovery. Only a never-dispatched batch reopens the
+      // candidate.
+      .mockRejectedValueOnce(new Error('network blip'))
+      .mockResolvedValueOnce(respondFor(batches[2]));
+
+    const { result } = setup(clusters);
+
+    await act(async () => {
+      await result.current.fetchSuggestions(candidate);
+    });
+    expect(mockedApi.post).toHaveBeenCalledTimes(3);
+
+    mockedApi.post.mockClear();
+    await act(async () => {
+      await result.current.fetchSuggestions(candidate);
+    });
+
+    expect(mockedApi.post).not.toHaveBeenCalled();
+  });
+
+  it('still reports the fatal error to analytics now that dispatch resolves partially', async () => {
+    const clusters = buildClusters();
+    const batches = planSuggestionBatches(clusters).map((b) => b.map((c) => c.id));
+
+    mockedApi.post
+      .mockResolvedValueOnce(respondFor(batches[0]))
+      .mockRejectedValueOnce(rateLimited());
+
+    const { result } = setup(clusters);
+
+    await act(async () => {
+      await result.current.fetchSuggestions(buildCandidate(clusters.map((c) => c.id)));
+    });
+
+    expect(Analytics.photoImportApiError).toHaveBeenCalledWith({ errorType: 'rate_limited' });
+    // U11 note: the rate-limit scenario now emits COMPLETION as well as an
+    // error, with a lower suggestion count than that population ever had.
+    expect(Analytics.photoImportSuggestionsCompleted).toHaveBeenCalled();
+  });
+});
+
+// ---- U6: entitlement accounting preserved across partial resolution ---------
+
+describe('usePlaceSuggestions free-tier accounting across a partial dispatch (U6)', () => {
+  // `jest.clearAllMocks()` clears usage data but KEEPS a `mockReturnValue`, so
+  // these have to be put back by hand or they leak into every later test.
+  afterEach(() => {
+    (useIsPremium as jest.MockedFunction<typeof useIsPremium>).mockReturnValue(true);
+    (useCanImportPhotos as jest.MockedFunction<typeof useCanImportPhotos>).mockReturnValue(true);
+    (useSubscriptionStore as unknown as jest.Mock).mockImplementation(() => jest.fn());
+  });
+
+  it('does not spend a free user’s import through the local store any more (U10)', async () => {
+    // Pre-U6 the fatal error threw past the usage increment, so a rate-limited
+    // import was not charged; U6 preserved that with a `fatalError === null`
+    // term. U10 REPLACED that whole block: the import is claimed on the first
+    // SUCCESSFUL batch and recorded on the SERVER (see
+    // photoImportEntitlement.test.tsx), because progressive results make a
+    // partly-matched trip the normal case and an end-of-fetch charge would
+    // leave most free imports uncounted.
+    //
+    // What this test still pins is that nothing charges through the LOCAL
+    // store's `incrementPhotoImportUsage` — the counter that was silently
+    // overwritten on every usage refetch — and that a run with no trip id
+    // charges nothing at all, since without one the server has no consuming
+    // trip to exempt later.
+    const incrementPhotoImportUsage = jest.fn();
+    (useIsPremium as jest.MockedFunction<typeof useIsPremium>).mockReturnValue(false);
+    (useCanImportPhotos as jest.MockedFunction<typeof useCanImportPhotos>).mockReturnValue(true);
+    (useSubscriptionStore as unknown as jest.Mock).mockReturnValue(incrementPhotoImportUsage);
+
+    const clusters = Array.from({ length: FIRST_CHUNK_SIZE + CHUNK_SIZE }, (_, i) =>
+      makeCluster(`fr-${i}`, 35 + i * 0.01, 139)
+    );
+    const err = new AxiosError('rate limited');
+    err.response = {
+      status: 429,
+      headers: { 'retry-after': '1' },
+      data: {},
+      statusText: '',
+      config: {} as never,
+    };
+    mockedApi.post
+      .mockResolvedValueOnce({ data: { suggestions: [], failed_cluster_count: 0 } })
+      .mockRejectedValueOnce(err);
+
+    const { result } = setup(clusters);
+
+    await act(async () => {
+      await result.current.fetchSuggestions({
+        id: 'cand-free',
+        countryCode: 'JP',
+        dateRange: { start: new Date(), end: new Date() },
+        photoIds: [],
+        photoCount: clusters.length,
+        previewUris: [],
+        previewAssetIds: [],
+        locationClusterIds: clusters.map((c) => c.id),
+      });
+    });
+
+    expect(incrementPhotoImportUsage).not.toHaveBeenCalled();
+    expect(
+      mockedApi.post.mock.calls.filter((call) => call[0] === '/subscriptions/usage/increment')
+    ).toHaveLength(0);
+  });
+});
+
+// ---- F1: back navigation must clear the fetched-candidate marker ------------
+
+describe('useWorkflowNavigation back navigation + re-entry (F1)', () => {
+  const buildCandidate = (clusterIds: string[], id = 'cand-reentry') => ({
+    id,
+    countryCode: 'JP',
+    dateRange: { start: new Date(), end: new Date() },
+    photoIds: [],
+    photoCount: clusterIds.length,
+    previewUris: [],
+    previewAssetIds: [],
+    locationClusterIds: clusterIds,
+  });
+
+  const placeFor = (id: string) => ({
+    place_id: `ChIJ_${id}`,
+    name: `Place ${id}`,
+    address: '1 St',
+    location: { latitude: 35, longitude: 139 },
+    category: 'place',
+    distance_m: 10,
+    types: ['point_of_interest'],
+  });
+
+  const TRIP = 'trip-reentry';
+
+  /**
+   * Compose the two hooks exactly as `usePhotoImportWorkflow` does: the
+   * navigation hook's `clearFetchedCache` / `resetSuggestPlacesMutation` are the
+   * suggestion hook's own. The defect only exists at that seam, so a test that
+   * mocks either side away cannot see it.
+   */
+  function setupWorkflow(clusters: LocationCluster[]) {
+    const lookup = new Map<string, LocationCluster>();
+    for (const c of clusters) lookup.set(c.id, c);
+    mockedGetFullCluster.mockImplementation((id: string) => lookup.get(id));
+    const clusterLookupRef = { current: lookup } as React.RefObject<Map<string, LocationCluster>>;
+    const currentCandidateIdRef = { current: null } as React.MutableRefObject<string | null>;
+    const noop = {
+      setSelectedCandidate: jest.fn(),
+      setSelectedTripId: jest.fn(),
+      setPhase: jest.fn(),
+    };
+    const queryClient = createTestQueryClient();
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+    return renderHook(
+      () => {
+        const suggestions = usePlaceSuggestions({
+          clusterLookupRef,
+          currentCandidateIdRef,
+          selectedTripId: TRIP,
+        });
+        const navigation = useWorkflowNavigation({
+          selectedCandidate: null,
+          selectedTripId: TRIP,
+          isPremium: true,
+          canImportPhotos: true,
+          currentCandidateIdRef,
+          setSelectedCandidate: noop.setSelectedCandidate,
+          setSelectedTripId: noop.setSelectedTripId,
+          setPhase: noop.setPhase,
+          beginFetchOwner: suggestions.beginFetchOwner,
+          endFetchOwner: suggestions.endFetchOwner,
+          fetchSuggestions: suggestions.fetchSuggestions,
+          resetSuggestPlacesMutation: suggestions.resetSuggestionDispatch,
+          clearFetchedCache: suggestions.clearFetchedCache,
+        });
+        return { suggestions, navigation };
+      },
+      { wrapper }
+    );
+  }
+
+  const respondFor = (ids: string[]) => ({
+    data: {
+      suggestions: ids.map((id) => ({
+        cluster_id: id,
+        photo_ids: [`photo-${id}`],
+        places: [placeFor(id)],
+      })),
+      failed_cluster_count: 0,
+    },
+  });
+
+  it.each([['backToCandidates' as const], ['backToTripSelection' as const]])(
+    'restores the matched rows from SQLite when re-entering after %s',
+    async (backAction) => {
+      // The whole branch exists to stop a completed match coming back as a wall of
+      // "Couldn't check this location". `resetSuggestPlacesMutation()` clears the
+      // dispatch state but NOT `fetchedCandidatesRef`, so re-entry short-circuits
+      // before the SQLite read: no data, no partial results, no cached
+      // suggestions, an empty failure map and ownerCount 0 — which `useClusterItems`
+      // reads as "settled with nothing attributed" and renders as failure rows.
+      const clusters = [makeCluster('re-1', 35.1, 139.1), makeCluster('re-2', 35.2, 139.2)];
+      const candidate = buildCandidate(['re-1', 're-2']);
+
+      mockedApi.post.mockResolvedValueOnce(respondFor(['re-1', 're-2']));
+
+      const { result } = setupWorkflow(clusters);
+
+      await act(async () => {
+        await result.current.navigation.selectTrip(TRIP, candidate);
+      });
+      expect(mockedApi.post).toHaveBeenCalledTimes(1);
+
+      // Everything the run bought is in SQLite now.
+      mockedGetCachedSuggestions.mockResolvedValue(
+        new Map(clusters.map((c) => [c.id, [placeFor(c.id)]]))
+      );
+
+      act(() => {
+        result.current.navigation[backAction]();
+      });
+
+      mockedApi.post.mockClear();
+
+      await act(async () => {
+        await result.current.navigation.selectTrip(TRIP, candidate);
+      });
+
+      const restored = result.current.suggestions.cachedSuggestions;
+      expect(restored.map((s) => s.cluster_id).sort()).toEqual(['re-1', 're-2']);
+      expect(restored.every((s) => s.places.length === 1)).toBe(true);
+      // Nothing re-bought: the rows came back from the cache for free.
+      expect(mockedApi.post).not.toHaveBeenCalled();
+    }
+  );
+
+  it('clears the fetched-candidate cache alongside the dispatch reset on both back paths', () => {
+    const clearFetchedCache = jest.fn();
+    const resetSuggestPlacesMutation = jest.fn();
+    const { result } = renderHook(() =>
+      useWorkflowNavigation({
+        selectedCandidate: null,
+        selectedTripId: TRIP,
+        isPremium: true,
+        canImportPhotos: true,
+        currentCandidateIdRef: { current: null },
+        setSelectedCandidate: jest.fn(),
+        setSelectedTripId: jest.fn(),
+        setPhase: jest.fn(),
+        beginFetchOwner: jest.fn(),
+        endFetchOwner: jest.fn(),
+        fetchSuggestions: jest.fn().mockResolvedValue(undefined),
+        resetSuggestPlacesMutation,
+        clearFetchedCache,
+      })
+    );
+
+    act(() => {
+      result.current.backToCandidates();
+    });
+    expect(resetSuggestPlacesMutation).toHaveBeenCalledTimes(1);
+    expect(clearFetchedCache).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      result.current.backToTripSelection();
+    });
+    expect(resetSuggestPlacesMutation).toHaveBeenCalledTimes(2);
+    expect(clearFetchedCache).toHaveBeenCalledTimes(2);
+  });
+});
+
+// ---- F4/F5: the status -> retryDisabled classification, shared by every path -
+
+describe('scoped-path failure classification (F4/F5)', () => {
+  const axiosFailure = (
+    status: number,
+    headers: Record<string, string> = {},
+    data: unknown = {}
+  ) => {
+    const err = new AxiosError(`status ${status}`);
+    err.response = { status, headers, data, statusText: '', config: {} as never };
+    return err;
+  };
+
+  const entitlementStop = () =>
+    axiosFailure(402, {}, { detail: { code: 'PHOTO_IMPORT_LIMIT_REACHED' } });
+
+  describe('retryFailedClusters no longer hands out a Retry button that cannot succeed', () => {
+    it.each([
+      ['a quota 503 (Retry-After present)', () => axiosFailure(503, { 'retry-after': '3600' })],
+      ['a sustained-limit 429', () => axiosFailure(429, { 'retry-after': '60' })],
+      ['the 402 entitlement stop', entitlementStop],
+    ])('marks the re-asserted failure retry-DISABLED for %s', async (_label, makeError) => {
+      const c = makeCluster('rd-1', 35.1, 139.1);
+      mockedApi.post.mockRejectedValueOnce(makeError());
+
+      const { result } = setup([c]);
+
+      await act(async () => {
+        await result.current.retryFailedClusters(['rd-1']);
+      });
+
+      // The main dispatch marks exactly these three retry-disabled. The retry
+      // path used to hard-code `false`, so the same quota outage produced one
+      // correctly-disabled row and one with a live Retry button beside it.
+      expect(result.current.suggestionDispatch.failedClusterIds.get('rd-1')?.retryDisabled).toBe(
+        true
+      );
+    });
+
+    it.each([
+      ['a plain network error', () => new Error('network blip')],
+      ['a header-less 503 (busy, not quota)', () => axiosFailure(503)],
+      ['a burst-cap 429 the pool parks on', () => axiosFailure(429, { 'retry-after': '1' })],
+      ['a 500', () => axiosFailure(500)],
+    ])('keeps retry ENABLED for %s', async (_label, makeError) => {
+      const c = makeCluster('re-enabled', 35.1, 139.1);
+      mockedApi.post.mockRejectedValueOnce(makeError());
+
+      const { result } = setup([c]);
+
+      await act(async () => {
+        await result.current.retryFailedClusters(['re-enabled']);
+      });
+
+      expect(
+        result.current.suggestionDispatch.failedClusterIds.get('re-enabled')?.retryDisabled
+      ).toBe(false);
+    });
+  });
+
+  describe('fetchForClusters distinguishes the three 503 sources', () => {
+    it('says "daily limit" only for a 503 carrying Retry-After', async () => {
+      const c = makeCluster('quota-503', 35.1, 139.1);
+      mockedApi.post.mockRejectedValueOnce(axiosFailure(503, { 'retry-after': '3600' }));
+
+      const { result } = setup([c]);
+
+      await act(async () => {
+        await result.current.fetchForClusters([c]);
+      });
+
+      const [, message] = mockedAlert.mock.calls[0];
+      expect(message).toContain('daily limit');
+    });
+
+    it('uses transient wording for a header-less 503 (slot starvation / pool exhaustion)', async () => {
+      const c = makeCluster('busy-503', 35.1, 139.1);
+      mockedApi.post.mockRejectedValueOnce(axiosFailure(503));
+
+      const { result } = setup([c]);
+
+      await act(async () => {
+        await result.current.fetchForClusters([c]);
+      });
+
+      const [title, message] = mockedAlert.mock.calls[0];
+      expect(title).toBe('Service Temporarily Unavailable');
+      expect(message).not.toContain('daily limit');
+      expect(message).not.toContain('tomorrow');
+    });
+
+    it('routes the 402 entitlement stop to the paywall instead of a generic failure', async () => {
+      const c = makeCluster('gate-402', 35.1, 139.1);
+      mockedApi.post.mockRejectedValueOnce(entitlementStop());
+      const onPremiumGate = jest.fn();
+
+      const lookup = new Map<string, LocationCluster>([[c.id, c]]);
+      mockedGetFullCluster.mockImplementation((id: string) => lookup.get(id));
+      const queryClient = createTestQueryClient();
+      const { result } = renderHook(
+        () =>
+          usePlaceSuggestions({
+            clusterLookupRef: { current: lookup } as React.RefObject<Map<string, LocationCluster>>,
+            selectedTripId: 'trip-402',
+            onPremiumGate,
+          }),
+        {
+          wrapper: ({ children }: { children: React.ReactNode }) => (
+            <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+          ),
+        }
+      );
+
+      await act(async () => {
+        await result.current.fetchForClusters([c]);
+      });
+
+      expect(onPremiumGate).toHaveBeenCalledTimes(1);
+      expect(mockedAlert).not.toHaveBeenCalled();
+    });
+
+    it('names the entitlement stop honestly when there is no paywall handler', async () => {
+      const c = makeCluster('gate-402-alert', 35.1, 139.1);
+      mockedApi.post.mockRejectedValueOnce(entitlementStop());
+
+      const { result } = setup([c]);
+
+      await act(async () => {
+        await result.current.fetchForClusters([c]);
+      });
+
+      const [title] = mockedAlert.mock.calls[0];
+      expect(title).not.toBe('Failed to Get Suggestions');
+      expect(title).toBe('Free Photo Import Used');
+    });
   });
 });

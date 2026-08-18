@@ -48,7 +48,18 @@ jest.mock('@services/photoImport', () => ({
   tryResumeScan: jest.fn().mockResolvedValue({ status: 'skipped', reason: 'no-flag' }),
 }));
 
+// The controller is mocked rather than imported: this suite replaces the whole
+// `react-native` module with a two-property AppState stub, so pulling in the
+// real dispatch module (and the api client behind it) would drag in far more of
+// React Native than the stub provides.
+jest.mock('@services/photoImport/suggestionDispatch', () => ({
+  suggestionDispatch: { pause: jest.fn(), resume: jest.fn() },
+}));
+
 const photoImportMock = jest.requireMock('@services/photoImport');
+const { suggestionDispatch: dispatchMock } = jest.requireMock(
+  '@services/photoImport/suggestionDispatch'
+);
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -100,6 +111,71 @@ describe('useAppStateTracking foreground resume', () => {
 
     expect(photoImportMock.tryResumeScan).not.toHaveBeenCalled();
     expect(photoImportMock.performBackgroundPhotoSync).not.toHaveBeenCalled();
+  });
+});
+
+describe('useAppStateTracking suggestion-dispatch lifecycle (U9/R15/KTD19)', () => {
+  it('pauses dispatch when the app backgrounds, without aborting it', () => {
+    renderHook(() => useAppStateTracking(makeSession('user-1'), jest.fn(), 'US'));
+
+    appStateListeners[0]('background');
+
+    // pause(), never reset(): batches already on the wire must be allowed to
+    // land and cache.
+    expect(dispatchMock.pause).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not pause on a transient inactive (control centre, app switcher)', () => {
+    renderHook(() => useAppStateTracking(makeSession('user-1'), jest.fn(), 'US'));
+
+    appStateListeners[0]('inactive');
+
+    expect(dispatchMock.pause).not.toHaveBeenCalled();
+  });
+
+  it('resumes SYNCHRONOUSLY in the foreground event, not from the staggered burst', async () => {
+    renderHook(() => useAppStateTracking(makeSession('user-1'), jest.fn(), 'US'));
+
+    fireForeground();
+    // `pause()` is synchronous and this is its only release. Deferring it by a
+    // frame put it inside a cancellable burst; it is a flag flip, so it costs
+    // nothing to run here and cannot be lost.
+    expect(dispatchMock.resume).toHaveBeenCalledTimes(1);
+
+    // ...and it is not ALSO queued in the burst, which would double-resume.
+    await flushStagger();
+    expect(dispatchMock.resume).toHaveBeenCalledTimes(1);
+  });
+
+  it('resumes even when the burst is cancelled before its first frame', () => {
+    // The burst is cancelled wholesale by `cancelStaggerRef.current?.()`, which
+    // runs from the effect cleanup AND from the top of the next foreground
+    // event; the effect's deps change on foreground (Supabase refreshes the
+    // session then), so losing the burst before frame 0 is reachable. As job 0,
+    // resume died with it — and a stranded pause is permanent: workers stay
+    // parked, `dispatch()` never settles, the owner bracket never releases, and
+    // every remaining cluster is a pending row with no way out.
+    const { unmount } = renderHook(() =>
+      useAppStateTracking(makeSession('user-1'), jest.fn(), 'US')
+    );
+
+    const cb = appStateListeners[0];
+    cb('background');
+    cb('active');
+    // Unmount before any animation frame runs: the cleanup cancels the burst.
+    unmount();
+
+    expect(dispatchMock.pause).toHaveBeenCalledTimes(1);
+    expect(dispatchMock.resume).toHaveBeenCalledTimes(1);
+  });
+
+  it('resumes even when unauthenticated, so a signed-out blip cannot strand a pause', async () => {
+    renderHook(() => useAppStateTracking(null, jest.fn(), 'US'));
+
+    fireForeground();
+    await flushStagger();
+
+    expect(dispatchMock.resume).toHaveBeenCalledTimes(1);
   });
 });
 

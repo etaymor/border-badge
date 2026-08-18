@@ -972,15 +972,21 @@ class TestFindPlacesForClustersPartialFailures:
         mock_settings,
         clean_cache,
     ) -> None:
-        """Test that RateLimitError is filtered as exception."""
-        call_count = [0]
+        """A rate limit that outlasts the retry budget fails only its own cluster.
+
+        Keyed on the requested coordinates rather than a call index: since U3
+        retries a 429, an index-keyed mock would let the retry land on a
+        different (successful) index and the cluster would recover. This models
+        the case where the retries genuinely do not help.
+        """
 
         async def mock_post(*args, **kwargs):
-            idx = call_count[0]
-            call_count[0] += 1
+            request_json = kwargs.get("json", {})
+            circle = request_json.get("locationRestriction", {}).get("circle", {})
+            lat = circle.get("center", {}).get("latitude", 0)
 
-            # Cluster 3 raises rate limit (429)
-            if idx == 3:
+            # Cluster 3 is rate limited on every attempt, retries included.
+            if abs(lat - 35.7062) < 1e-9:
                 mock_response = MagicMock()
                 mock_response.status_code = 429
                 mock_response.json.return_value = {
@@ -5221,7 +5227,9 @@ class TestPopularityProbe:
         """POPULARITY results must not poison the DISTANCE Nearby cache."""
         captured_keys: list[str] = []
 
-        async def fake_get_or_fetch(cache_key, fetch, l2_get=None, l2_set=None):
+        async def fake_get_or_fetch(
+            cache_key, fetch, l2_get=None, l2_set=None, on_source=None
+        ):
             captured_keys.append(cache_key)
             return []
 

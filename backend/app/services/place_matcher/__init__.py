@@ -31,6 +31,7 @@ from .exceptions import (
     PlaceMatcherError,
     QuotaExhaustedError,
     RateLimitError,
+    SlotUnavailableError,
 )
 from .matcher import PlaceMatcher
 from .utils import haversine, sanitize_address, sanitize_place_name, sanitize_place_text
@@ -46,6 +47,7 @@ __all__ = [
     "RateLimitError",
     "QuotaExhaustedError",
     "ConfigurationError",
+    "SlotUnavailableError",
     # Constants
     "TYPE_TO_CATEGORY",
     "SEARCHABLE_PLACE_TYPES",

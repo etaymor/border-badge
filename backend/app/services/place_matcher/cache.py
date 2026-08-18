@@ -9,7 +9,43 @@ DB instead of re-buying them from Google.
 import asyncio
 import time
 from collections.abc import Awaitable, Callable
-from typing import Any
+from typing import Any, Final
+
+from .instrumentation import (
+    SOURCE_API,
+    SOURCE_L1,
+    SOURCE_L2,
+    SOURCE_SINGLE_FLIGHT,
+)
+
+# Sentinel meaning "the single-flight owner was cancelled out from under a
+# waiter" (U3). Not an error and not a result: the waiter re-elects an owner.
+_OWNER_CANCELLED: Final = object()
+
+# How many times a waiter will re-elect an owner before giving up and simply
+# fetching for itself. Bounded so a pathological cancel storm cannot spin.
+_MAX_OWNER_ELECTIONS: Final = 3
+
+
+class UncacheableResult(Exception):  # noqa: N818
+    """Raised by a ``fetch_fn`` whose result must NOT enter any cache layer.
+
+    The cache stack cannot tell "Google answered 200 with no places here" from
+    "Google answered 503 and we degraded to an empty list" — both are ``[]``.
+    Writing the second one through turns a 30-second upstream blip into 60 days
+    (``SEARCH_CACHE_TTL_DAYS``) of durable, cross-user, cross-deploy negative
+    knowledge for every coordinate the blip touched, recoverable only by purging
+    the table by hand.
+
+    So the fetch signals it instead of returning it. The value still reaches the
+    caller (and the concurrent single-flight waiters, so an outage does not turn
+    into a stampede), but it is written to neither L1 nor L2 and the very next
+    request re-issues the call.
+    """
+
+    def __init__(self, result: list[dict]) -> None:
+        super().__init__("fetch result must not be cached")
+        self.result = result
 
 
 class PlacesCache:
@@ -133,6 +169,7 @@ class PlacesCache:
         *,
         l2_get: Callable[[str], Awaitable[list[dict] | None]] | None = None,
         l2_set: Callable[[str, list[dict]], Awaitable[None]] | None = None,
+        on_source: Callable[[str], None] | None = None,
     ) -> list[dict]:
         """
         Get cached result or fetch using provided function (single-flight pattern).
@@ -154,9 +191,47 @@ class PlacesCache:
                 the persistent L2 cache
             l2_set: Optional async callable ``(key, data) -> None`` writing the
                 persistent L2 cache
+            on_source: Optional callback invoked exactly once per call with the
+                layer that served it — one of ``"l1_hits"``,
+                ``"single_flight_waits"``, ``"l2_hits"``, ``"google_calls"``.
+                Instrumentation only (U15): a latency number is uninterpretable
+                without knowing how much of it a warm cache absorbed. The four
+                buckets are mutually exclusive, so they sum to the number of
+                lookups attempted.
 
         Returns:
             Cached or freshly fetched places list
+        """
+        for _ in range(_MAX_OWNER_ELECTIONS):
+            result = await self._get_or_fetch_once(
+                key, fetch_fn, l2_get=l2_get, l2_set=l2_set, on_source=on_source
+            )
+            if result is not _OWNER_CANCELLED:
+                return result
+        # Every election we were willing to run ended with a cancelled owner.
+        # Degrade to a plain cache miss rather than inheriting a cancellation
+        # that was never aimed at us.
+        try:
+            return await fetch_fn()
+        except UncacheableResult as signal:
+            return signal.result
+
+    async def _get_or_fetch_once(
+        self,
+        key: str,
+        fetch_fn: Any,
+        *,
+        l2_get: Callable[[str], Awaitable[list[dict] | None]] | None = None,
+        l2_set: Callable[[str, list[dict]], Awaitable[None]] | None = None,
+        on_source: Callable[[str], None] | None = None,
+    ) -> Any:
+        """One single-flight round.
+
+        Returns the result, or the :data:`_OWNER_CANCELLED` sentinel when this
+        caller was a waiter whose owner got cancelled (U3 co-waiter hazard: a
+        cluster timing out cancels the owner, and retry backoff makes that more
+        likely, but the waiters have budgets of their own and must not inherit
+        a cancellation aimed at someone else).
         """
         # Determine what to do under lock, then act outside lock
         existing_future: asyncio.Future[list[dict]] | None = None
@@ -169,6 +244,8 @@ class PlacesCache:
                 if time.time() - timestamp < self._ttl:
                     # Move to end (most recently used)
                     self._cache[key] = self._cache.pop(key)
+                    if on_source is not None:
+                        on_source(SOURCE_L1)
                     return data
                 # Expired - remove from cache
                 del self._cache[key]
@@ -184,7 +261,18 @@ class PlacesCache:
 
         # If another request is in-flight, wait for it (outside lock)
         if existing_future is not None:
-            return await existing_future
+            if on_source is not None:
+                on_source(SOURCE_SINGLE_FLIGHT)
+            try:
+                return await existing_future
+            except asyncio.CancelledError:
+                current = asyncio.current_task()
+                # Distinguish "the owner was cancelled" from "WE were
+                # cancelled". Only the former is safe to recover from; a
+                # cancellation aimed at this task must keep propagating.
+                if current is not None and current.cancelling() > 0:
+                    raise
+                return _OWNER_CANCELLED
 
         # We own this request - check L2, then fetch the data
         assert our_future is not None  # Type narrowing for mypy/pyright
@@ -196,10 +284,25 @@ class PlacesCache:
                 result = await l2_get(key)
 
             if result is None:
-                result = await fetch_fn()
+                if on_source is not None:
+                    on_source(SOURCE_API)
+                try:
+                    result = await fetch_fn()
+                except UncacheableResult as signal:
+                    # A transient upstream fault produced this value. Hand it to
+                    # this caller and to the waiters (so one blip does not become
+                    # a stampede), but write it to NEITHER layer: see
+                    # UncacheableResult.
+                    async with self._lock:
+                        self._in_flight.pop(key, None)
+                        if not our_future.done():
+                            our_future.set_result(signal.result)
+                    return signal.result
                 # Write-through to L2 so other instances/deploys reuse this.
                 if l2_set is not None:
                     await l2_set(key, result)
+            elif on_source is not None:
+                on_source(SOURCE_L2)
             # result is now guaranteed non-None (L2 hit or fresh fetch)
             assert result is not None  # Type narrowing for mypy/pyright
             # Cache and resolve future
@@ -233,6 +336,11 @@ class PlacesCache:
                             our_future.cancel()
                         else:
                             our_future.set_exception(error)
+                            # Mark it retrieved: an owner with no waiters would
+                            # otherwise have asyncio log the whole traceback as
+                            # "Future exception was never retrieved" at GC time,
+                            # for a failure the owner is already re-raising.
+                            our_future.exception()
                     except Exception:
                         # set_exception/cancel failed (e.g., InvalidStateError)
                         pass

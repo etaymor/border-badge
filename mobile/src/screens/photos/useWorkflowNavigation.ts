@@ -23,6 +23,17 @@ export interface UseWorkflowNavigationOptions {
   isPremium: boolean;
   /** Whether user can import photos (premium or has remaining free imports) */
   canImportPhotos: boolean;
+  /**
+   * The R17-aware entitlement gate (U10). Resolves true when matching may run
+   * for `tripId`, INCLUDING the case where the free import is spent but this is
+   * the trip that spent it — that trip has to stay completable at every gate,
+   * on any device. Fails open on a read error.
+   *
+   * Optional so the raw store read remains the fallback; supplying it is what
+   * makes the exemption reachable from this hook at all, since `selectTrip` and
+   * `switchCandidate` both return before the suggestions fetch is ever called.
+   */
+  canRunImportForTrip?: (tripId: string | null) => Promise<boolean>;
   /** Ref tracking current candidate ID for race condition detection */
   currentCandidateIdRef: React.MutableRefObject<string | null>;
   /** Set selected candidate state */
@@ -31,11 +42,18 @@ export interface UseWorkflowNavigationOptions {
   setSelectedTripId: (tripId: string | null) => void;
   /** Set phase state */
   setPhase: (phase: ImportPhase) => void;
-  /** Set fetching suggestions flag (covers entire fetch lifecycle including cache + vision prep) */
-  setFetchingSuggestions: (value: boolean) => void;
+  /**
+   * Claim a dispatch owner slot (R1/KTD13). Each navigation path that starts a
+   * fetch is its own owner and must release its slot in a `finally`, so an
+   * overlapping owner can never be made to look settled by this one finishing.
+   */
+  beginFetchOwner: () => void;
+  /** Release this path's dispatch owner slot. Always paired in a `finally`. */
+  endFetchOwner: () => void;
   /** Fetch suggestions for a candidate */
   fetchSuggestions: (
-    candidate: TripCandidateDisplay
+    candidate: TripCandidateDisplay,
+    tripId?: string | null
   ) => Promise<{ gatedByPremium: true } | undefined>;
   /** Reset the suggest places mutation */
   resetSuggestPlacesMutation: () => void;
@@ -66,16 +84,33 @@ export function useWorkflowNavigation({
   selectedTripId,
   isPremium,
   canImportPhotos,
+  canRunImportForTrip,
   currentCandidateIdRef,
   setSelectedCandidate,
   setSelectedTripId,
   setPhase,
-  setFetchingSuggestions,
+  beginFetchOwner,
+  endFetchOwner,
   fetchSuggestions,
   resetSuggestPlacesMutation,
   clearFetchedCache,
 }: UseWorkflowNavigationOptions): UseWorkflowNavigationResult {
   const rootNavigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+
+  /**
+   * The single entitlement decision for this hook (U10/R17).
+   *
+   * Both navigation gates below return BEFORE the suggestions fetch is ever
+   * reached, so honoring the exemption only inside that fetch would leave the
+   * re-entry case — the exact scenario R17 exists for — permanently gated here.
+   */
+  const isImportAllowed = useCallback(
+    async (tripIdToCheck: string | null): Promise<boolean> => {
+      if (canRunImportForTrip) return canRunImportForTrip(tripIdToCheck);
+      return isPremium || canImportPhotos;
+    },
+    [canRunImportForTrip, isPremium, canImportPhotos]
+  );
 
   // ==========================================================================
   // Premium Gate Handler
@@ -133,7 +168,11 @@ export function useWorkflowNavigation({
 
       // Check premium gating upfront before any phase transition
       // This prevents UI flash where user briefly sees suggestions phase
-      if (!isPremium && !canImportPhotos) {
+      //
+      // U10/R17: gate site 1 of 3 upstream of the fetch. The device-marker fast
+      // path inside `canRunImportForTrip` is what keeps this await short enough
+      // that an exempt user never sees a paywall flash.
+      if (!(await isImportAllowed(tripIdToSelect))) {
         handlePremiumGate('selectTrip', { nextPhase: 'trip-selection' });
         return;
       }
@@ -143,7 +182,7 @@ export function useWorkflowNavigation({
 
       setSelectedTripId(tripIdToSelect);
       setPhase('suggestions');
-      setFetchingSuggestions(true);
+      beginFetchOwner();
 
       // Persist the candidate selection for this destination trip
       setLastSelectedCandidateId(tripIdToSelect, candidateToUse.id).catch(() => {
@@ -151,7 +190,7 @@ export function useWorkflowNavigation({
       });
 
       try {
-        const fetchResult = await fetchSuggestions(candidateToUse);
+        const fetchResult = await fetchSuggestions(candidateToUse, tripIdToSelect);
         if (fetchResult?.gatedByPremium) {
           handlePremiumGate('selectTrip-fetch', {
             nextPhase: 'suggestions',
@@ -159,37 +198,63 @@ export function useWorkflowNavigation({
           });
         }
       } finally {
-        setFetchingSuggestions(false);
+        endFetchOwner();
       }
     },
     [
       fetchSuggestions,
       selectedCandidate,
-      isPremium,
-      canImportPhotos,
+      isImportAllowed,
       handlePremiumGate,
       currentCandidateIdRef,
       setSelectedTripId,
       setPhase,
-      setFetchingSuggestions,
+      beginFetchOwner,
+      endFetchOwner,
     ]
   );
 
   // ==========================================================================
   // Back Navigation
   // ==========================================================================
+  /**
+   * Both back paths clear the session's fetched-candidate marker as well as the
+   * dispatch state, and they MUST do both together.
+   *
+   * `resetSuggestPlacesMutation()` drops `data`, `partialResults`,
+   * `failedClusterIds` and `enqueuedClusterIds`; `clearFetchedCache()` drops
+   * `fetchedCandidatesRef` and the in-memory cached suggestions. Resetting only
+   * the first leaves the candidate marked "already fetched", so a re-entry
+   * short-circuits `runFetchSuggestions` BEFORE its SQLite cache read — no data,
+   * no partial results, no cached suggestions, an empty failure map and an owner
+   * count of zero. `useClusterItems` reads that as "all owners settled with
+   * nothing attributed" and routes every cluster to the reconciliation arm, so a
+   * finished forty-location match comes back as forty "Couldn't check this
+   * location" rows even though every result is sitting in SQLite.
+   *
+   * Clearing the marker costs nothing: re-entry re-runs the cache read and the
+   * cached rows come back for free, with nothing re-bought.
+   */
   const backToCandidates = useCallback(() => {
     setSelectedCandidate(null);
     setSelectedTripId(null);
     setPhase('candidates');
     resetSuggestPlacesMutation();
-  }, [setSelectedCandidate, setSelectedTripId, setPhase, resetSuggestPlacesMutation]);
+    clearFetchedCache();
+  }, [
+    setSelectedCandidate,
+    setSelectedTripId,
+    setPhase,
+    resetSuggestPlacesMutation,
+    clearFetchedCache,
+  ]);
 
   const backToTripSelection = useCallback(() => {
     setSelectedTripId(null);
     setPhase('trip-selection');
     resetSuggestPlacesMutation();
-  }, [setSelectedTripId, setPhase, resetSuggestPlacesMutation]);
+    clearFetchedCache();
+  }, [setSelectedTripId, setPhase, resetSuggestPlacesMutation, clearFetchedCache]);
 
   // ==========================================================================
   // Switch Candidate
@@ -210,7 +275,8 @@ export function useWorkflowNavigation({
       if (!selectedTripId) return;
 
       // Check premium gating upfront before any state changes
-      if (!isPremium && !canImportPhotos) {
+      // U10/R17: gate site 2 of 3 upstream of the fetch.
+      if (!(await isImportAllowed(selectedTripId))) {
         handlePremiumGate('switchCandidate');
         return;
       }
@@ -224,7 +290,7 @@ export function useWorkflowNavigation({
 
       // Update selected candidate
       setSelectedCandidate(newCandidate);
-      setFetchingSuggestions(true);
+      beginFetchOwner();
 
       // Persist the selection for this destination trip
       setLastSelectedCandidateId(selectedTripId, newCandidate.id).catch(() => {
@@ -233,7 +299,7 @@ export function useWorkflowNavigation({
 
       // Fetch suggestions for new candidate
       try {
-        const fetchResult = await fetchSuggestions(newCandidate);
+        const fetchResult = await fetchSuggestions(newCandidate, selectedTripId);
         if (fetchResult?.gatedByPremium) {
           handlePremiumGate('switchCandidate-fetch', {
             nextPhase: 'suggestions',
@@ -241,7 +307,7 @@ export function useWorkflowNavigation({
           });
         }
       } finally {
-        setFetchingSuggestions(false);
+        endFetchOwner();
       }
 
       // Note: fetchSuggestions handles its own state updates via React Query mutation.
@@ -253,12 +319,12 @@ export function useWorkflowNavigation({
       resetSuggestPlacesMutation,
       clearFetchedCache,
       fetchSuggestions,
-      isPremium,
-      canImportPhotos,
+      isImportAllowed,
       handlePremiumGate,
       currentCandidateIdRef,
       setSelectedCandidate,
-      setFetchingSuggestions,
+      beginFetchOwner,
+      endFetchOwner,
     ]
   );
 

@@ -4,7 +4,7 @@
 
 import type { SelectedPlace } from '@components/places';
 import type { ClusterUploadState } from '@hooks/useMultiClusterUpload';
-import type { useSuggestPlacesChunked } from '@hooks/usePhotoImport';
+import type { SuggestionDispatchState } from '@hooks/usePhotoImport';
 import type {
   ScanProgress,
   TripCandidateDisplay,
@@ -59,7 +59,12 @@ export interface PhotoImportWorkflowResult {
   selectedTripId: string | null;
   clusterDisplays: Map<string, LocationClusterDisplay>;
   manualSearchCluster: LocationCluster | null;
-  suggestPlacesMutation: ReturnType<typeof useSuggestPlacesChunked>;
+  /**
+   * Live snapshot of the `suggestionDispatch` controller (U14): dispatch
+   * progress, partial and final results, failure attribution, and the enqueued
+   * / in-flight / dispatched-and-resolved cluster sets.
+   */
+  suggestionDispatch: SuggestionDispatchState;
   /** Suggestions loaded from SQLite cache (merged with API results in UI) */
   cachedSuggestions: ClusterSuggestion[];
   /** Timestamp of last successful import, null if never imported */
@@ -73,7 +78,12 @@ export interface PhotoImportWorkflowResult {
   /** Clear the scan failure after showing alert */
   clearScanFailure: () => void;
 
-  /** True from when suggestions fetch starts (including cache check + vision prep) until it completes */
+  /**
+   * True while ANY dispatch owner has an unsettled suggestion fetch (R1/KTD13):
+   * auto-start, selectTrip, switchCandidate, the fetch itself, or a manual
+   * split. Covers each owner's whole duration — SQLite cache check and vision
+   * prep included — and reports settled only once EVERY owner has settled.
+   */
   fetchingSuggestions: boolean;
 
   /**
@@ -82,6 +92,14 @@ export interface PhotoImportWorkflowResult {
    * must not re-hide healthy photos-only / no-place-found cards (KTD7 / C4).
    */
   retryingClusterIds: Set<string>;
+
+  /**
+   * Number of clusters a U9 bulk retry is currently rebuilding vision payloads
+   * for, or 0. Released payloads have to be re-encoded and preparation is
+   * serial at the native layer, so a large bulk retry spends real time before
+   * its first request leaves — the status row names that wait.
+   */
+  bulkRetryPreparingCount: number;
 
   /** Photo upload states for all active uploads, keyed by cluster ID */
   uploadStates: Map<string, ClusterUploadState>;
@@ -92,11 +110,29 @@ export interface PhotoImportWorkflowResult {
   /** Cancel upload for a specific cluster */
   cancelUpload: (clusterId: string) => void;
 
+  /**
+   * U11: record that these cluster rows have been scrolled into view. Stable
+   * identity, so it can be handed straight to the list's viewability callback.
+   * Only the resulting COUNT is ever emitted (R27).
+   */
+  markClustersViewed: (clusterIds: string[]) => void;
+  /**
+   * U11: the user is leaving the import. Fires the once-per-lifetime photo-import
+   * ad conversion when at least one place has been confirmed.
+   */
+  trackDeparture: () => void;
+
   // Premium gating
   /** Whether user has premium access (subscribed or trialing) */
   isPremium: boolean;
   /** Whether user can import photos (premium or has remaining free imports) */
   canImportPhotos: boolean;
+  /**
+   * Whether the selected trip is the one that already consumed the free photo
+   * import (U10/R17) — it stays completable, and must not be shown the
+   * free-limit banner.
+   */
+  isExemptTrip: boolean;
 
   // Actions
   startScan: (forceRefresh?: boolean) => Promise<void>;
@@ -122,6 +158,12 @@ export interface PhotoImportWorkflowResult {
   handleAddEntryForCluster: (clusterId: string) => void;
   /** Retry the place lookup for an explicit list of failed cluster ids (U10). */
   retryFailedClusters: (clusterIds: string[]) => Promise<void>;
+  /**
+   * Retry every retry-eligible failed cluster in one action (U9/R15). Runs
+   * through the controller's bounded pool and takes a dispatch owner slot,
+   * unlike the per-cluster `retryFailedClusters`.
+   */
+  retryAllFailedClusters: (clusterIds: string[]) => Promise<void>;
   handleManualSelect: (
     place: SelectedPlace,
     category: EntryType,

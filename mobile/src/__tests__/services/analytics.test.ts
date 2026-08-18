@@ -237,5 +237,79 @@ describe('Analytics Service', () => {
         });
       });
     });
+
+    describe('Photo import place events (R27 place-id redaction)', () => {
+      /** Pull the props object of the last `[Analytics] Track:` console log. */
+      const lastTrackedProps = (): Record<string, unknown> => {
+        const trackCalls = consoleLogSpy.mock.calls.filter(
+          (call) => call[0] === '[Analytics] Track:'
+        );
+        return trackCalls[trackCalls.length - 1][2] as Record<string, unknown>;
+      };
+
+      it('emits a hashed place id, not the raw id, on confirm', () => {
+        Analytics.photoImportPlaceConfirmed({
+          category: 'food',
+          suggestionRank: 1,
+          wasFromCache: false,
+          originalSuggestionPlaceId: 'ChIJN1t_tDeuEmsRUsoyG83frY4',
+        });
+
+        const props = lastTrackedProps();
+
+        expect(props).not.toHaveProperty('original_suggestion_place_id');
+        expect(props.original_suggestion_place_hash).toMatch(/^[0-9a-f]{16}$/);
+        expect(JSON.stringify(props)).not.toContain('ChIJ');
+      });
+
+      it('emits a hashed place id, not the raw id, on reject', () => {
+        Analytics.photoImportPlaceRejected({
+          suggestionCount: 3,
+          wasFromCache: true,
+          originalSuggestionPlaceId: 'ChIJN1t_tDeuEmsRUsoyG83frY4',
+        });
+
+        const props = lastTrackedProps();
+
+        expect(props).not.toHaveProperty('original_suggestion_place_id');
+        expect(props.original_suggestion_place_hash).toMatch(/^[0-9a-f]{16}$/);
+        expect(JSON.stringify(props)).not.toContain('ChIJ');
+      });
+
+      it('produces the same hash for the same place across confirm and reject', () => {
+        Analytics.photoImportPlaceConfirmed({
+          category: 'food',
+          suggestionRank: 1,
+          wasFromCache: false,
+          originalSuggestionPlaceId: 'ChIJN1t_tDeuEmsRUsoyG83frY4',
+        });
+        const confirmedHash = lastTrackedProps().original_suggestion_place_hash;
+
+        Analytics.photoImportPlaceRejected({
+          suggestionCount: 3,
+          wasFromCache: false,
+          originalSuggestionPlaceId: 'ChIJN1t_tDeuEmsRUsoyG83frY4',
+        });
+        const rejectedHash = lastTrackedProps().original_suggestion_place_hash;
+
+        expect(confirmedHash).toBe(rejectedHash);
+      });
+
+      it('keeps a missing place id null instead of hashing it', () => {
+        Analytics.photoImportPlaceConfirmed({
+          category: 'stay',
+          suggestionRank: 0,
+          wasFromCache: false,
+          originalSuggestionPlaceId: null,
+        });
+        expect(lastTrackedProps().original_suggestion_place_hash).toBeNull();
+
+        Analytics.photoImportPlaceRejected({
+          suggestionCount: 0,
+          wasFromCache: false,
+        });
+        expect(lastTrackedProps().original_suggestion_place_hash).toBeNull();
+      });
+    });
   });
 });

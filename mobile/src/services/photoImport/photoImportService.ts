@@ -113,7 +113,7 @@ export async function extractPhotosWithLocation(
     const result = await MediaLibrary.getAssetsAsync(fetchOptions);
 
     // Process batch in parallel (bounded by batch size)
-    const batchPromises = result.assets.map(async (asset) => {
+    const batchPromises = result.assets.map(async (asset): Promise<PhotoWithLocation | null> => {
       try {
         const info = await MediaLibrary.getAssetInfoAsync(asset.id, {
           // CRITICAL: Don't download iCloud photos during scan
@@ -133,6 +133,11 @@ export async function extractPhotosWithLocation(
               latitude: info.location.latitude,
               longitude: info.location.longitude,
             },
+            // U5/R7: the asset already carries its pixel dimensions here, so
+            // persisting them costs nothing and saves vision preparation a
+            // second decode of every representative photo later.
+            width: asset.width > 0 ? asset.width : undefined,
+            height: asset.height > 0 ? asset.height : undefined,
           };
         }
         return null;

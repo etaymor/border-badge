@@ -7,7 +7,13 @@
 
 import * as geohash from 'ngeohash';
 
-import { getDb, getMetadata, setMetadata, SQLITE_PARAM_LIMIT } from './photoCacheDb';
+import {
+  getDb,
+  getMetadata,
+  setMetadata,
+  SQLITE_PARAM_LIMIT,
+  withPhotoCacheWriteLock,
+} from './photoCacheDb';
 import { GEOHASH_PRECISION, haversine } from './photoClustering';
 
 /** Empty suggestions expire after 24 hours so transient failures get retried. */
@@ -39,9 +45,14 @@ export async function markClusterProcessed(
   status: ProcessedClusterStatus
 ): Promise<void> {
   const database = await getDb();
-  await database.runAsync(
-    'INSERT OR REPLACE INTO processed_clusters (cluster_id, status, processed_at) VALUES (?, ?, ?)',
-    [clusterId, status, Date.now()]
+  // Bare write, but still serialized: issued while another writer's transaction
+  // is open it would be enrolled in that transaction and lost on its rollback —
+  // the confirmed-entry-reappears-on-re-entry bug.
+  await withPhotoCacheWriteLock(() =>
+    database.runAsync(
+      'INSERT OR REPLACE INTO processed_clusters (cluster_id, status, processed_at) VALUES (?, ?, ?)',
+      [clusterId, status, Date.now()]
+    )
   );
 }
 
@@ -66,7 +77,7 @@ export async function getProcessedClusterIds(): Promise<Set<string>> {
  */
 export async function clearProcessedClusters(): Promise<void> {
   const database = await getDb();
-  await database.runAsync('DELETE FROM processed_clusters');
+  await withPhotoCacheWriteLock(() => database.runAsync('DELETE FROM processed_clusters'));
 }
 
 // =============================================================================
@@ -89,7 +100,82 @@ export async function setLastSelectedCandidateId(
   tripId: string,
   candidateId: string
 ): Promise<void> {
+  // setMetadata takes the photo-cache write lock itself — do not wrap it here
+  // (the mutex is not reentrant).
   await setMetadata(`last_candidate_${tripId}`, candidateId);
+}
+
+/**
+ * Every destination trip this device has ever taken into the suggestions phase.
+ *
+ * `last_candidate_<tripId>` is written the moment a trip is opened for matching,
+ * so the set of those keys IS this device's photo-import history. U10 uses it as
+ * the input to the one-time grandfather pass: the durable counter is new, and a
+ * user who imported repeatedly while it was unenforced must not be gated out of
+ * the trip they already imported.
+ *
+ * ORDER IS LEXICOGRAPHIC BY TRIP ID, NOT CHRONOLOGICAL. The metadata table
+ * stores no insertion time, so there is nothing here that could identify the
+ * oldest import; `ORDER BY key` only guarantees that two calls on the same
+ * device agree, which is what the grandfather pass needs to charge the same trip
+ * every time. Do not read `[0]` as "the first trip the user ever imported".
+ */
+export async function getPhotoImportHistoryTripIds(): Promise<string[]> {
+  const database = await getDb();
+  const rows = await database.getAllAsync<{ key: string }>(
+    "SELECT key FROM photo_cache_metadata WHERE key LIKE 'last_candidate_%' ORDER BY key"
+  );
+  return rows.map((r) => r.key.slice('last_candidate_'.length)).filter((id) => id.length > 0);
+}
+
+// =============================================================================
+// Photo-import entitlement markers (U10 / R17 / KTD23)
+// =============================================================================
+//
+// These are a FAST PATH ONLY. The server record is authoritative — it is what
+// `POST /photos/suggest-places` compares against — and these rows exist purely
+// so a returning user does not watch a paywall flash while the async read is in
+// flight.
+//
+// Both keys are namespaced by user id. Cluster and candidate ids are
+// deterministic per DEVICE, so an un-namespaced marker would let a second free
+// account inherit the first account's exemption on a shared phone.
+
+const CONSUMED_IMPORT_KEY_PREFIX = 'photo_import_consumed_';
+const GRANDFATHER_KEY_PREFIX = 'photo_import_grandfathered_';
+
+/** Trip ids this device believes `userId` may still run matching for (R17). */
+export async function getConsumedPhotoImportTripIds(userId: string): Promise<string[]> {
+  const raw = await getMetadata(`${CONSUMED_IMPORT_KEY_PREFIX}${userId}`);
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Record a trip id in this user's device-local exemption marker. */
+export async function addConsumedPhotoImportTripId(userId: string, tripId: string): Promise<void> {
+  const existing = await getConsumedPhotoImportTripIds(userId);
+  if (existing.includes(tripId)) return;
+  // setMetadata takes the photo-cache write lock itself — do not wrap it here
+  // (the mutex is not reentrant).
+  await setMetadata(
+    `${CONSUMED_IMPORT_KEY_PREFIX}${userId}`,
+    JSON.stringify([...existing, tripId])
+  );
+}
+
+/** Whether the one-time grandfather pass has already run for this user. */
+export async function hasRunPhotoImportGrandfatherPass(userId: string): Promise<boolean> {
+  return (await getMetadata(`${GRANDFATHER_KEY_PREFIX}${userId}`)) === 'done';
+}
+
+/** Mark the one-time grandfather pass as complete for this user. */
+export async function markPhotoImportGrandfatherPassRun(userId: string): Promise<void> {
+  await setMetadata(`${GRANDFATHER_KEY_PREFIX}${userId}`, 'done');
 }
 
 // =============================================================================
@@ -369,22 +455,24 @@ export async function cacheSuggestions(suggestions: CachedPlaceSuggestion[]): Pr
   const now = Date.now();
   const BATCH_SIZE = 50;
 
-  await database.withTransactionAsync(async () => {
-    for (let i = 0; i < suggestions.length; i += BATCH_SIZE) {
-      const batch = suggestions.slice(i, i + BATCH_SIZE);
-      const placeholders = batch.map(() => '(?, ?, ?, ?)').join(', ');
-      const values = batch.flatMap((s) => [
-        s.cluster_id,
-        JSON.stringify(s.places),
-        now,
-        s.location_key ?? null,
-      ]);
+  await withPhotoCacheWriteLock(async () => {
+    await database.withTransactionAsync(async () => {
+      for (let i = 0; i < suggestions.length; i += BATCH_SIZE) {
+        const batch = suggestions.slice(i, i + BATCH_SIZE);
+        const placeholders = batch.map(() => '(?, ?, ?, ?)').join(', ');
+        const values = batch.flatMap((s) => [
+          s.cluster_id,
+          JSON.stringify(s.places),
+          now,
+          s.location_key ?? null,
+        ]);
 
-      await database.runAsync(
-        `INSERT OR REPLACE INTO cached_place_suggestions (cluster_id, suggestions_json, cached_at, location_key) VALUES ${placeholders}`,
-        values
-      );
-    }
+        await database.runAsync(
+          `INSERT OR REPLACE INTO cached_place_suggestions (cluster_id, suggestions_json, cached_at, location_key) VALUES ${placeholders}`,
+          values
+        );
+      }
+    });
   });
 }
 
@@ -394,7 +482,7 @@ export async function cacheSuggestions(suggestions: CachedPlaceSuggestion[]): Pr
  */
 export async function clearSuggestionCache(): Promise<void> {
   const database = await getDb();
-  await database.runAsync('DELETE FROM cached_place_suggestions');
+  await withPhotoCacheWriteLock(() => database.runAsync('DELETE FROM cached_place_suggestions'));
 }
 
 /**
@@ -435,20 +523,22 @@ export async function saveClusterSplit(
 ): Promise<void> {
   const database = await getDb();
   const now = Date.now();
-  await database.withTransactionAsync(async () => {
-    await database.runAsync(
-      'INSERT OR REPLACE INTO cluster_splits (sub_cluster_id, parent_cluster_id, photo_ids, created_at) VALUES (?, ?, ?, ?), (?, ?, ?, ?)',
-      [
-        subA.id,
-        parentClusterId,
-        JSON.stringify(subA.photoIds),
-        now,
-        subB.id,
-        parentClusterId,
-        JSON.stringify(subB.photoIds),
-        now,
-      ]
-    );
+  await withPhotoCacheWriteLock(async () => {
+    await database.withTransactionAsync(async () => {
+      await database.runAsync(
+        'INSERT OR REPLACE INTO cluster_splits (sub_cluster_id, parent_cluster_id, photo_ids, created_at) VALUES (?, ?, ?, ?), (?, ?, ?, ?)',
+        [
+          subA.id,
+          parentClusterId,
+          JSON.stringify(subA.photoIds),
+          now,
+          subB.id,
+          parentClusterId,
+          JSON.stringify(subB.photoIds),
+          now,
+        ]
+      );
+    });
   });
 }
 
@@ -515,16 +605,18 @@ export async function markPhotosSaved(clusterId: string, photoIds: string[]): Pr
   // 3 params per row; chunk to stay well under SQLITE_PARAM_LIMIT.
   const BATCH_SIZE = 200;
 
-  await database.withTransactionAsync(async () => {
-    for (let i = 0; i < photoIds.length; i += BATCH_SIZE) {
-      const batch = photoIds.slice(i, i + BATCH_SIZE);
-      const placeholders = batch.map(() => '(?, ?, ?)').join(', ');
-      const values = batch.flatMap((id) => [id, clusterId, now]);
-      await database.runAsync(
-        `INSERT OR REPLACE INTO saved_cluster_photos (photo_id, cluster_id, saved_at) VALUES ${placeholders}`,
-        values
-      );
-    }
+  await withPhotoCacheWriteLock(async () => {
+    await database.withTransactionAsync(async () => {
+      for (let i = 0; i < photoIds.length; i += BATCH_SIZE) {
+        const batch = photoIds.slice(i, i + BATCH_SIZE);
+        const placeholders = batch.map(() => '(?, ?, ?)').join(', ');
+        const values = batch.flatMap((id) => [id, clusterId, now]);
+        await database.runAsync(
+          `INSERT OR REPLACE INTO saved_cluster_photos (photo_id, cluster_id, saved_at) VALUES ${placeholders}`,
+          values
+        );
+      }
+    });
   });
 }
 

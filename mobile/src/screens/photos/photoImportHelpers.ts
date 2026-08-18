@@ -10,8 +10,9 @@ import type { MergedSuggestion } from './photoImportTypes';
 
 /**
  * Display item that can be a merged suggestion, single suggestion, a terminal
- * lookup-failed cluster (place lookup errored — distinct from a real empty), or
- * a photo-only cluster (place lookup succeeded but found nothing).
+ * lookup-failed cluster (place lookup errored — distinct from a real empty), a
+ * photo-only cluster (place lookup succeeded but found nothing), or a `pending`
+ * cluster still waiting on its answer.
  *
  * `lookup-failed` carries the cluster (so its photos render), `retryDisabled`
  * (true for 429/503 quota/rate-limit, where an immediate retry is pointless —
@@ -19,6 +20,14 @@ import type { MergedSuggestion } from './photoImportTypes';
  * this cluster — drives the card spinner). It must NEVER collapse into
  * `photos-only`: that would re-introduce B1 (a transient failure rendered as a
  * confident "No place found").
+ *
+ * `pending` (U8/R10) is the NON-terminal state: the dispatch controller has
+ * ACCEPTED this cluster (it is in `enqueuedClusterIds`) and nothing has resolved
+ * it yet. It is sourced from the enqueued set rather than the in-flight set on
+ * purpose — the in-flight set holds only the clusters in the live batches
+ * (roughly 15 of 100), so sourcing pending rows from it would leave the screen
+ * mostly empty. Retry is NOT offered on a pending row (R12): there is nothing to
+ * retry, its request has not come back.
  */
 export type ClusterDisplayItem =
   | { type: 'merged-suggestion'; data: MergedSuggestion }
@@ -29,7 +38,8 @@ export type ClusterDisplayItem =
       retryDisabled: boolean;
       isRetrying: boolean;
     }
-  | { type: 'photos-only'; cluster: LocationClusterDisplay };
+  | { type: 'photos-only'; cluster: LocationClusterDisplay }
+  | { type: 'pending'; cluster: LocationClusterDisplay };
 
 /**
  * Format date range for display

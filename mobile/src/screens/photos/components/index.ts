@@ -4,6 +4,7 @@ export { PhotoThumbnail, type PhotoThumbnailProps } from './PhotoThumbnail';
 export { PlaceSuggestionCard, type PlaceSuggestionCardProps } from './PlaceSuggestionCard';
 export { PhotoClusterCard, type PhotoClusterCardProps } from './PhotoClusterCard';
 export { LookupFailedCard, type LookupFailedCardProps } from './LookupFailedCard';
+export { PendingClusterCard, type PendingClusterCardProps } from './PendingClusterCard';
 export { PhotoTripSwitcherSheet, type PhotoTripSwitcherSheetProps } from './PhotoTripSwitcherSheet';
 export { PhotoGalleryModal, type PhotoGalleryModalProps } from './PhotoGalleryModal';
 export { ClusterListItem, type ClusterListItemProps } from './ClusterListItem';

@@ -132,6 +132,84 @@ class Settings(BaseSettings):
         le=60.0,
         description="Timeout for processing a single cluster (includes retries)",
     )
+    places_request_budget_seconds: float = Field(
+        default=75.0,
+        gt=0.0,
+        le=600.0,
+        description=(
+            "U8: whole-request ceiling for /photos/suggest-places, kept below "
+            "the mobile client's 90s SUGGEST_PLACES_TIMEOUT_MS so the SERVER "
+            "decides how an overlong request degrades. The per-cluster timeout "
+            "bounds one cluster, not one request: 25 clusters against a "
+            "per-request share of 5 is five sequential waves before the vision "
+            "join, text rescue, probe and enrichment phases even begin. Once "
+            "the budget is spent, clusters that have not STARTED are reported "
+            "as failed; work already in flight is never cancelled."
+        ),
+    )
+    places_max_concurrent_requests: int = Field(
+        default=5,
+        ge=1,
+        le=50,
+        description=(
+            "U7: max concurrent outbound Google Places calls ONE suggest-places "
+            "request may have in flight (its share of the process-wide bound). "
+            "Default is the historical MAX_CONCURRENT_PLACES_REQUESTS constant. "
+            "Raise it in step with VISION_MAX_CONCURRENT_REQUESTS: cutting the "
+            "vision wait shortens the window the search phase hides behind."
+        ),
+    )
+    places_max_concurrent_requests_process: int = Field(
+        default=15,
+        ge=1,
+        le=100,
+        description=(
+            "U7: PER-PROCESS ceiling on concurrent outbound Google Places calls "
+            "across every in-flight request. Adding a worker or replica "
+            "multiplies this and the route's request-rate limit together. Sized "
+            "for the planned client concurrency of 3 x 5 = 15, and kept below "
+            "the private Places pool (20 connections) so pool exhaustion stays "
+            "rare. This is the dial-down lever if the bound needs rolling back."
+        ),
+    )
+    suggest_places_cluster_budget_per_minute: int = Field(
+        default=400,
+        ge=1,
+        le=100_000,
+        description=(
+            "U16: rolling per-minute budget of CLUSTERS one caller may submit "
+            "to /photos/suggest-places. The request-rate limit counts requests, "
+            "so it bounds traffic but not spend: every cluster fans out to "
+            "Google. Sized above one full honest import inside a single minute "
+            "(~100 clusters) with headroom, and far below what the per-request "
+            "ceiling times the request rate would otherwise permit."
+        ),
+    )
+    suggest_places_vision_image_budget_per_minute: int = Field(
+        default=600,
+        ge=1,
+        le=100_000,
+        description=(
+            "U16: rolling per-minute budget of VISION IMAGES one caller may "
+            "submit to /photos/suggest-places. Vision is the second metered "
+            "paid API on this route and is billed per image, so it needs its "
+            "own budget: a caller can stay under the cluster budget while "
+            "attaching three images to every cluster."
+        ),
+    )
+    vision_max_concurrent_requests: int = Field(
+        default=5,
+        ge=1,
+        le=50,
+        description=(
+            "U12: max concurrent vision (OpenRouter) calls a single "
+            "suggest-places request may have in flight. A full batch is 5 "
+            "clusters x up to 3 images = 15 images, so 15 classifies a batch "
+            "in ONE concurrency wave instead of three. Default stays at the "
+            "historical value (5); raise it only after reading the "
+            "vision-vs-search split off the place_matcher_phase_metrics line."
+        ),
+    )
     places_rank_distance_weight: float = Field(
         default=1.0,
         ge=0.0,

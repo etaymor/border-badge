@@ -14,6 +14,15 @@ export interface PhotoWithLocation {
     latitude: number;
     longitude: number;
   };
+  /**
+   * Pixel dimensions, captured during the library scan and persisted on the
+   * photo cache (U5/R7). Vision preparation needs them only to decide whether
+   * the image is above the 768px cap; carrying them here removes a second
+   * decode of every representative photo. Undefined for rows cached before the
+   * migration — preparation falls back to probing the file in that case.
+   */
+  width?: number;
+  height?: number;
 }
 
 // Country discovered during photo scanning
@@ -159,4 +168,8 @@ export interface CachedPhoto {
   longitude: number;
   geohash: string; // Precomputed geohash (precision 7)
   countryCode: string | null; // Precomputed ISO 3166-1 alpha-2
+  /** Pixel width, when known (U5/R7). Undefined for rows predating the migration. */
+  width?: number;
+  /** Pixel height, when known (U5/R7). Undefined for rows predating the migration. */
+  height?: number;
 }

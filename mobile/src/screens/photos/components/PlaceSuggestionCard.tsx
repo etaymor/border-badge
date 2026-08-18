@@ -5,7 +5,7 @@
  * wrapper in ClusterListItem, not here.
  */
 
-import { useCallback, useRef } from 'react';
+import { useCallback } from 'react';
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useRecyclingState } from '@shopify/flash-list';
 import { Ionicons } from '@expo/vector-icons';
@@ -73,19 +73,26 @@ export function PlaceSuggestionCard({
   totalPhotosToUpload = 0,
   onCancelUpload,
 }: PlaceSuggestionCardProps) {
-  // Track which alternative indices the user has actually viewed so we can
-  // distinguish "accepted the top suggestion without looking" from "cycled
-  // through 3 options before picking one". Always seeded with index 0.
-  const viewedIndicesRef = useRef<Set<number>>(new Set([0]));
-
   // FlashList recycles this cell into a new cluster WITHOUT remounting, so a
   // plain useState would carry the previous cluster's index over. That index can
   // exceed the new cluster's `places` array, making currentPlace undefined and
   // blanking the card for a frame. useRecyclingState resets during the render
   // that reassigns the cell -- a useEffect would be a frame too late.
-  const [placeIndex, setPlaceIndex] = useRecyclingState(0, [suggestion.cluster_id], () => {
-    viewedIndicesRef.current = new Set([0]);
-  });
+  const [placeIndex, setPlaceIndex] = useRecyclingState(0, [suggestion.cluster_id]);
+
+  // Which alternative indices the user actually viewed, so we can distinguish
+  // "accepted the top suggestion without looking" from "cycled through 3 options
+  // before picking one". Always seeded with index 0.
+  //
+  // This is recycling-keyed state, NOT a ref (U8). As a ref it had to be
+  // reassigned from useRecyclingState's onReset callback -- a write during
+  // render, which React Compiler may memoize around; and any recycled cell that
+  // missed that write reported the PREVIOUS cluster's viewed count as this
+  // cluster's provenance, silently corrupting the photo_import eval metadata.
+  const [viewedIndices, setViewedIndices] = useRecyclingState<ReadonlySet<number>>(
+    () => new Set([0]),
+    [suggestion.cluster_id]
+  );
 
   const places = suggestion.places;
   const hasAlternatives = places.length > 1;
@@ -95,15 +102,15 @@ export function PlaceSuggestionCard({
   // (and mutating a ref inside one is the pattern React Compiler flags -- see U2).
   const goToPrevPlace = useCallback(() => {
     const next = placeIndex > 0 ? placeIndex - 1 : places.length - 1;
-    viewedIndicesRef.current.add(next);
+    setViewedIndices(new Set(viewedIndices).add(next));
     setPlaceIndex(next);
-  }, [placeIndex, places.length, setPlaceIndex]);
+  }, [placeIndex, places.length, setPlaceIndex, setViewedIndices, viewedIndices]);
 
   const goToNextPlace = useCallback(() => {
     const next = placeIndex < places.length - 1 ? placeIndex + 1 : 0;
-    viewedIndicesRef.current.add(next);
+    setViewedIndices(new Set(viewedIndices).add(next));
     setPlaceIndex(next);
-  }, [placeIndex, places.length, setPlaceIndex]);
+  }, [placeIndex, places.length, setPlaceIndex, setViewedIndices, viewedIndices]);
 
   const currentPlace = places[placeIndex];
   if (!currentPlace) return null;
@@ -111,7 +118,7 @@ export function PlaceSuggestionCard({
   const buildDecisionMeta = (): SuggestionDecisionMeta => ({
     suggested_rank: placeIndex + 1,
     alternatives_count: places.length,
-    alternatives_viewed: viewedIndicesRef.current.size,
+    alternatives_viewed: viewedIndices.size,
   });
 
   const heroUri = previewUris[0];
