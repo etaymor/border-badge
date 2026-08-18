@@ -23,6 +23,7 @@
  *   message text.
  */
 
+import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 // expo-image, not react-native's Image: the swap picker shows up to
 // SWAP_CANDIDATE_LIMIT (30) camera-roll ORIGINALS as 100pt thumbnails, and RN
@@ -73,8 +74,8 @@ import { getStampImage } from '../../assets/stampImages';
 
 import { PhotoHero } from './components/PhotoHero';
 import { QuizTopBar } from './components/QuizTopBar';
-import { PolaroidThumb, type PolaroidVerdict } from './components/PolaroidThumb';
 import { RowAction } from './components/RowAction';
+import { VerdictMark } from './components/VerdictMark';
 import { SerifScore } from './components/SerifScore';
 import {
   DURATION_BASE,
@@ -90,8 +91,10 @@ type Props = RootStackScreenProps<'QuizResults'>;
 /** Per-thumbnail delay so the recap populates rapidly, not all at once. */
 const THUMB_STAGGER = DURATION_FAST / 2;
 
+type RecapVerdict = 'correct' | 'incorrect' | 'unknown';
+
 /** The recap thumbnail's corner verdict for a stored answer (null = unanswered). */
-function verdictFor(answer: StoredQuizAnswer | undefined): PolaroidVerdict | null {
+function verdictFor(answer: StoredQuizAnswer | undefined): RecapVerdict | null {
   if (!answer) return null;
   if (answer.verdictUnknown) return 'unknown';
   if (answer.placeCorrect) return 'correct';
@@ -106,7 +109,7 @@ export function QuizResultsScreen({ navigation, route }: Props) {
   const paramsMissing = !route.params?.quizId;
   const reduceMotion = useReducedMotion();
   const insets = useSafeAreaInsets();
-  const { height: windowHeight } = useWindowDimensions();
+  const { height: windowHeight, width: windowWidth } = useWindowDimensions();
 
   const {
     data: quiz,
@@ -319,12 +322,21 @@ export function QuizResultsScreen({ navigation, route }: Props) {
   // The hero photo: the first challenge photo. Absent only while the quiz
   // detail is still loading behind a results param - the navy ground holds.
   const heroUri = questions[0]?.image_url ?? null;
-  const heroHeight = Math.round(windowHeight * 0.46);
+  const heroHeight = Math.round(windowHeight * 0.48);
+  // The hero's bottom edge is a shallow downward arc: the clip container runs
+  // twice the screen width with screen-width bottom radii, so only the gentle
+  // center of the curve is on screen. Content stays centered, so the extra
+  // width never shifts it.
+  const heroArcStyle = {
+    marginHorizontal: -Math.round(windowWidth * 0.5),
+    borderBottomLeftRadius: windowWidth,
+    borderBottomRightRadius: windowWidth,
+  };
 
   const heroContent = (
     <View style={[styles.heroInner, { paddingTop: insets.top + 56 }]}>
-      <Text style={styles.wordmark}>Atlasi</Text>
-      <Text style={styles.heroTitle}>Your Score to Beat</Text>
+      <Text style={styles.heroEyebrow}>Your Challenge</Text>
+      <Text style={styles.heroTitle}>Score to beat</Text>
       <Animated.View entering={scoreEntering}>
         <SerifScore
           score={scoreToBeat.correct}
@@ -345,23 +357,28 @@ export function QuizResultsScreen({ navigation, route }: Props) {
           style={{ height: heroHeight }}
           testID="quiz-results-hero"
         >
-          {heroUri ? (
-            <PhotoHero source={heroUri} scrim="bottom" style={styles.hero}>
-              {heroContent}
-            </PhotoHero>
-          ) : (
-            <View style={[styles.hero, styles.heroFallback]}>{heroContent}</View>
-          )}
+          <View style={[styles.heroArcClip, heroArcStyle]}>
+            {heroUri ? (
+              <PhotoHero source={heroUri} scrim="bottom" style={styles.hero}>
+                {heroContent}
+              </PhotoHero>
+            ) : (
+              <View style={[styles.hero, styles.heroFallback]}>{heroContent}</View>
+            )}
+          </View>
         </Animated.View>
 
         <View style={styles.sheet}>
-          <Animated.View entering={sheetEntering}>
+          <Animated.View entering={sheetEntering} style={styles.sheetHeading}>
+            <Text style={styles.sheetTitle}>Think they can beat you?</Text>
             <Text style={styles.body}>
-              Friends who play your challenge will try to beat this country score.
+              {questions.length > 0
+                ? `Send the same ${questions.length} photos to your friends.`
+                : 'Send the same photos to your friends.'}
             </Text>
           </Animated.View>
 
-          <View style={styles.recapRow} testID="quiz-recap">
+          <View style={styles.recapGrid} testID="quiz-recap">
             {questions.map((question, index) => {
               const verdict = verdictFor(playState?.answers[question.id]);
               return (
@@ -372,25 +389,37 @@ export function QuizResultsScreen({ navigation, route }: Props) {
                       ? FadeIn.duration(DURATION_FAST).delay(DURATION_HERO + index * THUMB_STAGGER)
                       : undefined
                   }
+                  style={styles.recapCell}
                 >
-                  <PolaroidThumb
-                    uri={question.image_url}
-                    index={index}
-                    size={56}
-                    verdict={verdict}
-                    testID={`quiz-recap-thumb-${question.position}`}
-                  />
+                  <View style={styles.recapThumb} testID={`quiz-recap-thumb-${question.position}`}>
+                    <Image
+                      source={{ uri: question.image_url }}
+                      style={styles.recapPhoto}
+                      contentFit="cover"
+                      recyclingKey={question.id}
+                      cachePolicy="memory-disk"
+                      transition={150}
+                    />
+                    {verdict ? (
+                      verdict === 'unknown' ? (
+                        <View
+                          style={styles.recapUnknownDot}
+                          testID={`quiz-recap-thumb-${question.position}-verdict-unknown`}
+                        />
+                      ) : (
+                        <VerdictMark
+                          verdict={verdict}
+                          size={22}
+                          style={styles.recapVerdict}
+                          testID={`quiz-recap-thumb-${question.position}-verdict-${verdict}`}
+                        />
+                      )
+                    ) : null}
+                  </View>
                 </Animated.View>
               );
             })}
           </View>
-
-          <Button
-            title={reviewOpen ? 'Hide Answers' : 'Review Answers'}
-            variant="outline"
-            onPress={toggleReview}
-            testID="quiz-review-toggle"
-          />
 
           {reviewOpen && (
             <View style={styles.reviewList}>
@@ -479,10 +508,18 @@ export function QuizResultsScreen({ navigation, route }: Props) {
                 title="Challenge Your Friends"
                 onPress={handleShare}
                 loading={shareMutation.isPending}
+                leftIcon={<Ionicons name="share-outline" size={20} color={colors.midnightNavy} />}
                 style={styles.primaryCta}
                 testID="quiz-share"
               />
             )}
+            <Button
+              title={reviewOpen ? 'Hide Answers' : 'Review Answers'}
+              variant="outline"
+              onPress={toggleReview}
+              style={styles.primaryCta}
+              testID="quiz-review-toggle"
+            />
             {state === 'shared' && (
               <Button
                 title="Revoke Link"
@@ -492,6 +529,7 @@ export function QuizResultsScreen({ navigation, route }: Props) {
                 testID="quiz-revoke"
               />
             )}
+            <Button title="Done" variant="ghost" onPress={handleDone} testID="quiz-done" />
           </Animated.View>
         </View>
       </ScrollView>
@@ -578,6 +616,11 @@ const styles = StyleSheet.create({
   hero: {
     flex: 1,
   },
+  heroArcClip: {
+    flex: 1,
+    overflow: 'hidden',
+    backgroundColor: colors.midnightNavy,
+  },
   heroFallback: {
     backgroundColor: colors.midnightNavy,
   },
@@ -586,26 +629,39 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
     alignItems: 'center',
     paddingHorizontal: 24,
-    paddingBottom: 20,
-    gap: 2,
+    // Clears the deepest point of the arc so the score never grazes the curve.
+    paddingBottom: 36,
+    gap: 4,
   },
-  wordmark: {
+  heroEyebrow: {
     fontFamily: fonts.body.bold,
-    fontSize: 11,
-    letterSpacing: 4,
+    fontSize: 12,
+    letterSpacing: 3,
     textTransform: 'uppercase',
     color: withAlpha(colors.warmCream, 0.85),
+    textAlign: 'center',
   },
   heroTitle: {
     fontFamily: fonts.playfair.bold,
-    fontSize: 26,
+    fontSize: 32,
+    lineHeight: 38,
     color: colors.warmCream,
     textAlign: 'center',
   },
   sheet: {
     paddingHorizontal: 24,
-    paddingTop: 20,
-    gap: 14,
+    paddingTop: 24,
+    gap: 16,
+  },
+  sheetHeading: {
+    gap: 6,
+  },
+  sheetTitle: {
+    fontFamily: fonts.playfair.bold,
+    fontSize: 28,
+    lineHeight: 34,
+    color: colors.textPrimary,
+    textAlign: 'center',
   },
   body: {
     fontFamily: fonts.body.regular,
@@ -614,12 +670,40 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     textAlign: 'center',
   },
-  recapRow: {
+  recapGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    justifyContent: 'center',
-    gap: 12,
-    paddingVertical: 6,
+    marginHorizontal: -4,
+  },
+  recapCell: {
+    width: '20%',
+    aspectRatio: 1,
+    padding: 4,
+  },
+  recapThumb: {
+    flex: 1,
+    borderRadius: 10,
+    overflow: 'hidden',
+    backgroundColor: colors.backgroundCard,
+  },
+  recapPhoto: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  recapVerdict: {
+    position: 'absolute',
+    bottom: 5,
+    right: 5,
+  },
+  recapUnknownDot: {
+    position: 'absolute',
+    bottom: 8,
+    right: 8,
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: colors.stormGray,
+    borderWidth: 2,
+    borderColor: colors.cloudWhite,
   },
   reviewList: {
     gap: 10,

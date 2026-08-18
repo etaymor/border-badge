@@ -1,8 +1,9 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import {
   Animated,
   StyleSheet,
   ActivityIndicator,
+  View,
   ViewStyle,
   TextStyle,
   Pressable,
@@ -26,6 +27,8 @@ interface ButtonProps {
    * transparent variants read in cream instead of navy.
    */
   onDark?: boolean;
+  /** Optional glyph rendered before the title (e.g. a share icon on a CTA). */
+  leftIcon?: ReactNode;
   style?: ViewStyle;
   textStyle?: TextStyle;
   testID?: string;
@@ -38,6 +41,7 @@ export function Button({
   disabled = false,
   loading = false,
   onDark = false,
+  leftIcon,
   style,
   textStyle,
   testID,
@@ -115,17 +119,20 @@ export function Button({
             size="small"
           />
         ) : (
-          <Text
-            style={[
-              styles.text,
-              styles[`${variant}Text` as keyof typeof styles],
-              onDark && darkStyles[`${variant}Text` as keyof typeof darkStyles],
-              isDisabled && styles.disabledText,
-              textStyle,
-            ]}
-          >
-            {title}
-          </Text>
+          <View style={styles.contentRow}>
+            {leftIcon}
+            <Text
+              style={[
+                styles.text,
+                styles[`${variant}Text` as keyof typeof styles],
+                onDark && darkStyles[`${variant}Text` as keyof typeof darkStyles],
+                isDisabled && styles.disabledText,
+                textStyle,
+              ]}
+            >
+              {title}
+            </Text>
+          </View>
         )}
       </Pressable>
     </Animated.View>
@@ -165,6 +172,11 @@ const styles = StyleSheet.create({
   },
   disabled: {
     opacity: 0.5,
+  },
+  contentRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   text: {
     fontSize: 16,

@@ -66,7 +66,7 @@ import type { QuizAnswerResult } from '@hooks/useQuizzes';
 import type { RootStackScreenProps } from '@navigation/types';
 
 import { GuessOption } from './components/GuessOption';
-import { BOTTOM_SCRIM_COLORS } from './components/PhotoHero';
+import { BOTTOM_SCRIM_COLORS, BOTTOM_SCRIM_LOCATIONS } from './components/PhotoHero';
 import {
   DURATION_BASE,
   DURATION_FAST,
@@ -442,7 +442,6 @@ export function QuizPlayScreen({ navigation, route }: Props) {
         exiting={reduceMotion ? undefined : FadeOut.duration(DURATION_FAST)}
         style={styles.optionsBlock}
       >
-        <Text style={styles.promptAccent}>guess where</Text>
         <Text style={styles.prompt} testID="quiz-country-prompt">
           Where in the world was this?
         </Text>
@@ -590,6 +589,7 @@ export function QuizPlayScreen({ navigation, route }: Props) {
             ) : (
               <LinearGradient
                 colors={BOTTOM_SCRIM_COLORS}
+                locations={BOTTOM_SCRIM_LOCATIONS}
                 style={[styles.bottomSheet, { paddingBottom: insets.bottom + 20 }]}
                 onLayout={handleSheetLayout}
                 testID="quiz-answer-scrim"
@@ -660,9 +660,11 @@ const styles = StyleSheet.create({
     flex: 1,
     width: '100%',
   },
+  // The tall paddingTop is the fade itself: the eased scrim needs room to
+  // dissolve the photo into solid navy before the serif prompt begins.
   bottomSheet: {
     paddingHorizontal: 20,
-    paddingTop: 44,
+    paddingTop: 108,
   },
   answerAreaSolid: {
     position: 'absolute',
@@ -675,21 +677,15 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   optionsBlock: {
-    gap: 10,
-  },
-  promptAccent: {
-    fontFamily: fonts.dawning.regular,
-    fontSize: 22,
-    lineHeight: 26,
-    color: colors.sunsetGold,
-    textAlign: 'center',
+    gap: 14,
   },
   prompt: {
     fontFamily: fonts.playfair.bold,
-    fontSize: 30,
-    lineHeight: 36,
+    fontSize: 32,
+    lineHeight: 40,
     color: colors.warmCream,
     textAlign: 'center',
+    paddingHorizontal: 12,
   },
   optionsGrid: {
     flexDirection: 'row',

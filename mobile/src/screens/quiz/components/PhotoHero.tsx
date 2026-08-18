@@ -29,19 +29,27 @@ interface PhotoHeroProps {
   testID?: string;
 }
 
-/** The bottom-fade scrim pair, shared with surfaces that draw the same fade inline. */
-export const BOTTOM_SCRIM_COLORS: [string, string] = [
-  withAlpha(colors.midnightNavy, 0),
-  withAlpha(colors.midnightNavy, 0.9),
-];
+/**
+ * The bottom-fade scrim, shared with surfaces that draw the same fade inline.
+ * The stops trace an ease-in curve into SOLID navy - a two-stop linear ramp
+ * read as a hard band across the photo, and the type below needs a fully
+ * opaque ground anyway.
+ */
+type GradientColors = [string, string, ...string[]];
+type GradientLocations = [number, number, ...number[]];
 
-const SCRIM_COLORS: Record<'bottom' | 'full', [string, string]> = {
+export const BOTTOM_SCRIM_COLORS = [0, 0.04, 0.14, 0.32, 0.58, 0.85, 1].map((alpha) =>
+  withAlpha(colors.midnightNavy, alpha)
+) as GradientColors;
+export const BOTTOM_SCRIM_LOCATIONS: GradientLocations = [0, 0.18, 0.34, 0.5, 0.65, 0.8, 1];
+
+const SCRIM_COLORS: Record<'bottom' | 'full', GradientColors> = {
   bottom: BOTTOM_SCRIM_COLORS,
   full: [withAlpha(colors.midnightNavy, 0.45), withAlpha(colors.midnightNavy, 0.75)],
 };
 
-const SCRIM_LOCATIONS: Record<'bottom' | 'full', [number, number]> = {
-  bottom: [0.4, 1],
+const SCRIM_LOCATIONS: Record<'bottom' | 'full', GradientLocations> = {
+  bottom: BOTTOM_SCRIM_LOCATIONS.map((location) => 0.3 + location * 0.7) as GradientLocations,
   full: [0, 1],
 };
 

@@ -274,24 +274,27 @@ const styles = StyleSheet.create({
     width: undefined,
     height: undefined,
   },
+  // Bottom-anchored, not centered: the copy sits low over the footage, just
+  // above the CTA, so the video stays the hero.
   body: {
     flex: 1,
     paddingHorizontal: 24,
-    justifyContent: 'center',
+    justifyContent: 'flex-end',
+    paddingBottom: 28,
     gap: 12,
   },
   title: {
     fontFamily: fonts.playfair.bold,
-    fontSize: 32,
-    lineHeight: 38,
+    fontSize: 38,
+    lineHeight: 46,
     color: colors.warmCream,
     textAlign: 'center',
   },
   copy: {
     fontFamily: fonts.body.regular,
-    fontSize: 15,
-    lineHeight: 22,
-    color: withAlpha(colors.warmCream, 0.85),
+    fontSize: 16,
+    lineHeight: 23,
+    color: withAlpha(colors.warmCream, 0.88),
     textAlign: 'center',
   },
   demoBlock: {

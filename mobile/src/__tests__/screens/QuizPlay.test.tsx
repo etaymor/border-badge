@@ -733,10 +733,10 @@ describe('QuizResultsScreen', () => {
 
     renderResultsScreen();
 
-    // The hero is photo-first: the first challenge photo under the wordmark,
+    // The hero is photo-first: the first challenge photo under the eyebrow,
     // the title, and the serif score lockup. No stamp plate, no trophy.
     await waitFor(() => expect(screen.getByTestId('quiz-results-hero')).toBeTruthy());
-    expect(screen.getByText('Your Score to Beat')).toBeTruthy();
+    expect(screen.getByText('Score to beat')).toBeTruthy();
     const lockup = screen.getByTestId('quiz-score-to-beat');
     expect(within(lockup).getByText('3')).toBeTruthy();
     expect(within(lockup).getByText('5')).toBeTruthy();

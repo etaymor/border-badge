@@ -557,6 +557,8 @@ export function QuizCreationScreen({ navigation }: Props) {
             <Text style={styles.privacyLine} testID="quiz-privacy-line">
               Your photos stay private until you share the challenge.
             </Text>
+
+            <Button title="Cancel" variant="ghost" onPress={handleCancel} testID="quiz-cancel" />
           </View>
         )}
 
@@ -667,10 +669,10 @@ const styles = StyleSheet.create({
   },
   sheet: {
     backgroundColor: colors.warmCream,
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    marginTop: -24,
-    paddingTop: 28,
+    borderTopLeftRadius: 36,
+    borderTopRightRadius: 36,
+    marginTop: -28,
+    paddingTop: 32,
     paddingHorizontal: 24,
   },
   sheetContent: {
@@ -725,31 +727,33 @@ const styles = StyleSheet.create({
     marginTop: -8,
   },
   barTrack: {
-    height: 3,
-    borderRadius: 1.5,
-    backgroundColor: colors.paperBeige,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: withAlpha(colors.sunsetGold, 0.25),
     overflow: 'hidden',
   },
   barFill: {
     height: '100%',
-    borderRadius: 1.5,
+    borderRadius: 3,
     backgroundColor: colors.sunsetGold,
   },
   slotGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    marginHorizontal: -3,
+    marginHorizontal: -5,
   },
   slotWrapper: {
     width: '20%',
     aspectRatio: 1,
-    padding: 3,
+    padding: 5,
   },
   slot: {
     flex: 1,
-    borderRadius: 8,
+    borderRadius: 12,
     overflow: 'hidden',
     backgroundColor: colors.paperBeige,
+    borderWidth: 1,
+    borderColor: withAlpha(colors.stormGray, 0.18),
   },
   slotPlaceholder: {
     ...StyleSheet.absoluteFillObject,

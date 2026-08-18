@@ -1,8 +1,8 @@
 /**
  * VerdictMark - a small corner verdict badge for photo thumbnails: a gold
- * check (correct) or terracotta X (incorrect) on a solid navy chip so the
- * mark reads over any photo. Glyph-based (same approach as the existing
- * checkmarks in CountryGridItem / SearchInput) - no icon libraries.
+ * check on a navy chip (correct) or a cream X on a brick chip (incorrect),
+ * so the mark reads over any photo. Glyph-based (same approach as the
+ * existing checkmarks in CountryGridItem / SearchInput) - no icon libraries.
  */
 
 import { StyleSheet, Text, View, type ViewStyle } from 'react-native';
@@ -27,6 +27,11 @@ const VERDICT_GLYPHS: Record<Verdict, string> = {
 
 const VERDICT_COLORS: Record<Verdict, string> = {
   correct: colors.sunsetGold,
+  incorrect: colors.warmCream,
+};
+
+const VERDICT_CHIP_COLORS: Record<Verdict, string> = {
+  correct: colors.midnightNavy,
   incorrect: colors.adobeBrick,
 };
 
@@ -38,7 +43,16 @@ const VERDICT_LABELS: Record<Verdict, string> = {
 export function VerdictMark({ verdict, size = 20, style, testID }: VerdictMarkProps) {
   return (
     <View
-      style={[styles.chip, { width: size, height: size, borderRadius: size / 2 }, style]}
+      style={[
+        styles.chip,
+        {
+          width: size,
+          height: size,
+          borderRadius: size / 2,
+          backgroundColor: VERDICT_CHIP_COLORS[verdict],
+        },
+        style,
+      ]}
       accessibilityLabel={VERDICT_LABELS[verdict]}
       testID={testID}
     >
@@ -54,7 +68,6 @@ export function VerdictMark({ verdict, size = 20, style, testID }: VerdictMarkPr
 
 const styles = StyleSheet.create({
   chip: {
-    backgroundColor: colors.midnightNavy,
     borderWidth: 1,
     borderColor: colors.cloudWhite,
     alignItems: 'center',
