@@ -12,17 +12,6 @@ import httpx
 from app.core.config import get_settings
 from app.core.http_client import VISION_POOL_TIMEOUT_SECONDS, get_vision_client
 from app.core.llm_utils import OPENROUTER_API_URL, extract_content
-from app.services.place_matcher.instrumentation import (
-    VISION_NULL_EMPTY_RESPONSE,
-    VISION_NULL_EXCEPTION,
-    VISION_NULL_HTTP_ERROR,
-    VISION_NULL_NO_API_KEY,
-    VISION_NULL_REQUEST_ERROR,
-    VISION_NULL_SLOT_UNAVAILABLE,
-    VISION_NULL_TIMEOUT,
-    VISION_NULL_UNKNOWN,
-    record_vision,
-)
 
 from .constants import (
     CLASSIFICATION_RESPONSE_FORMAT,
@@ -32,6 +21,14 @@ from .constants import (
     GENERIC_VENUE_WORDS,
     VISION_CATEGORIES,
     VISION_CONFIDENCE_LEVELS,
+    VISION_NULL_EMPTY_RESPONSE,
+    VISION_NULL_EXCEPTION,
+    VISION_NULL_HTTP_ERROR,
+    VISION_NULL_NO_API_KEY,
+    VISION_NULL_REQUEST_ERROR,
+    VISION_NULL_SLOT_UNAVAILABLE,
+    VISION_NULL_TIMEOUT,
+    VISION_NULL_UNKNOWN,
 )
 
 logger = logging.getLogger(__name__)
@@ -537,6 +534,13 @@ async def classify_cluster_photos(
 
     # Vision-null rate (R18): recorded for every request, including the all-null
     # one — the case a "clusters classified successfully" line stays silent about.
+    #
+    # Imported here, not at module scope: place_matcher imports photo_vision, so
+    # a module-level import would close an import cycle and break every entry
+    # point that reaches photo_vision first. Guarded by
+    # test_no_import_cycle.py.
+    from app.services.place_matcher.instrumentation import record_vision
+
     record_vision(
         clusters_attempted=len(vision_clusters),
         clusters_classified=len(vision_map),

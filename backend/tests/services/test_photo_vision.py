@@ -24,12 +24,12 @@ from app.services.photo_vision.classifier import (
     MAX_CONCURRENT_VISION_REQUESTS,
     classify_cluster_photos,
 )
-from app.services.place_matcher import PlaceMatcher
-from app.services.place_matcher.instrumentation import (
+from app.services.photo_vision.constants import (
     VISION_NULL_TIMEOUT,
     VISION_NULL_UNKNOWN,
-    request_metrics,
 )
+from app.services.place_matcher import PlaceMatcher
+from app.services.place_matcher.instrumentation import request_metrics
 
 # ============================================================================
 # VisionResult.has_business_name Tests

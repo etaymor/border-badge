@@ -268,3 +268,41 @@ GENERIC_VENUE_WORDS: set[str] = {
     "praia",
     "igreja",
 }
+
+
+# ---------------------------------------------------------------------------
+# Vision-null outcome vocabulary
+# ---------------------------------------------------------------------------
+# Lives here rather than in place_matcher.instrumentation so that the vision
+# classifier can name its own failure modes without importing the matcher.
+# That import closed a cycle (photo_vision -> place_matcher -> photo_vision)
+# which broke every entry point that reached photo_vision first.
+# instrumentation.py re-exports these, so its public API is unchanged.
+# U12 vision-null outcomes. A classification that returns nothing costs the
+# cluster its business-name and landmark signals and drops it back to a
+# distance-ranked result — a silent degradation that a bare null COUNT cannot
+# explain. These say WHY the null happened, so a rise after the concurrency
+# bound is widened is attributable (timeouts) rather than merely visible.
+# Static strings only — no coordinate, cluster id, or place id (R27).
+VISION_NULL_TIMEOUT = "timeout"
+VISION_NULL_HTTP_ERROR = "http_error"
+VISION_NULL_REQUEST_ERROR = "request_error"
+VISION_NULL_EMPTY_RESPONSE = "empty_response"
+VISION_NULL_NO_API_KEY = "no_api_key"
+VISION_NULL_EXCEPTION = "exception"
+# Our OWN process-wide vision bound was saturated, so the image was never sent.
+# Distinct from `timeout` on purpose: a timeout says the model was slow, this
+# says we throttled ourselves. Conflating them would make a self-inflicted
+# capacity limit look like an upstream regression on the dashboard.
+VISION_NULL_SLOT_UNAVAILABLE = "slot_unavailable"
+VISION_NULL_UNKNOWN = "unknown"
+VISION_NULL_REASONS: tuple[str, ...] = (
+    VISION_NULL_TIMEOUT,
+    VISION_NULL_HTTP_ERROR,
+    VISION_NULL_REQUEST_ERROR,
+    VISION_NULL_EMPTY_RESPONSE,
+    VISION_NULL_NO_API_KEY,
+    VISION_NULL_EXCEPTION,
+    VISION_NULL_SLOT_UNAVAILABLE,
+    VISION_NULL_UNKNOWN,
+)

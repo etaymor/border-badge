@@ -38,6 +38,11 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 
+from app.services.photo_vision.constants import (
+    VISION_NULL_REASONS,
+    VISION_NULL_UNKNOWN,
+)
+
 logger = logging.getLogger(__name__)
 
 # Greppable event name for the per-request phase/dispatch metrics line.
@@ -114,34 +119,10 @@ SITES: tuple[str, ...] = (
     SITE_ENRICHMENT,
 )
 
-# U12 vision-null outcomes. A classification that returns nothing costs the
-# cluster its business-name and landmark signals and drops it back to a
-# distance-ranked result — a silent degradation that a bare null COUNT cannot
-# explain. These say WHY the null happened, so a rise after the concurrency
-# bound is widened is attributable (timeouts) rather than merely visible.
-# Static strings only — no coordinate, cluster id, or place id (R27).
-VISION_NULL_TIMEOUT = "timeout"
-VISION_NULL_HTTP_ERROR = "http_error"
-VISION_NULL_REQUEST_ERROR = "request_error"
-VISION_NULL_EMPTY_RESPONSE = "empty_response"
-VISION_NULL_NO_API_KEY = "no_api_key"
-VISION_NULL_EXCEPTION = "exception"
-# Our OWN process-wide vision bound was saturated, so the image was never sent.
-# Distinct from `timeout` on purpose: a timeout says the model was slow, this
-# says we throttled ourselves. Conflating them would make a self-inflicted
-# capacity limit look like an upstream regression on the dashboard.
-VISION_NULL_SLOT_UNAVAILABLE = "slot_unavailable"
-VISION_NULL_UNKNOWN = "unknown"
-VISION_NULL_REASONS: tuple[str, ...] = (
-    VISION_NULL_TIMEOUT,
-    VISION_NULL_HTTP_ERROR,
-    VISION_NULL_REQUEST_ERROR,
-    VISION_NULL_EMPTY_RESPONSE,
-    VISION_NULL_NO_API_KEY,
-    VISION_NULL_EXCEPTION,
-    VISION_NULL_SLOT_UNAVAILABLE,
-    VISION_NULL_UNKNOWN,
-)
+# The vision-null vocabulary lives in photo_vision.constants, a leaf module,
+# so the classifier can name its failure modes without importing this package
+# (that import closed a cycle). Only the two names used below are pulled in;
+# import the rest from photo_vision.constants directly.
 
 
 @dataclass
