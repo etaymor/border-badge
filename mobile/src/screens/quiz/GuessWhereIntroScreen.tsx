@@ -21,7 +21,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeIn } from 'react-native-reanimated';
 
 import { Button } from '@components/ui/Button';
-import { GlassBackButton } from '@components/ui/GlassBackButton';
 import { colors, withAlpha } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { useReducedMotion } from '@hooks/useReducedMotion';
@@ -29,6 +28,7 @@ import { useStableCallback } from '@hooks/useStableCallback';
 import type { RootStackScreenProps } from '@navigation/types';
 
 import { GuessOption } from './components/GuessOption';
+import { QuizTopBar } from './components/QuizTopBar';
 import { SerifScore } from './components/SerifScore';
 import { DURATION_BASE } from './components/motionTokens';
 import { demoCountry, demoOptions, demoPhoto, introPoster, introVideo } from './sampleAssets';
@@ -191,12 +191,9 @@ export function GuessWhereIntroScreen({ navigation }: Props) {
         pointerEvents="none"
       />
 
-      <View style={[styles.topBar, { paddingTop: insets.top + 8 }]}>
-        <GlassBackButton onPress={handleBack} variant="dark" size="small" icon="close" />
-      </View>
+      <QuizTopBar title="Guess Where" onClose={handleBack} testID="quiz-intro-top-bar" />
 
       <View style={styles.body}>
-        <Text style={styles.eyebrow}>Guess Where</Text>
         <Text style={styles.title}>How well do your friends know your world?</Text>
         <Text style={styles.copy}>
           Turn your travel photos into a challenge only your friends can solve.
@@ -277,23 +274,11 @@ const styles = StyleSheet.create({
     width: undefined,
     height: undefined,
   },
-  topBar: {
-    paddingHorizontal: 16,
-    alignItems: 'flex-start',
-  },
   body: {
     flex: 1,
     paddingHorizontal: 24,
     justifyContent: 'center',
     gap: 12,
-  },
-  eyebrow: {
-    fontFamily: fonts.body.bold,
-    fontSize: 12,
-    letterSpacing: 2,
-    textTransform: 'uppercase',
-    color: colors.sunsetGold,
-    textAlign: 'center',
   },
   title: {
     fontFamily: fonts.playfair.bold,

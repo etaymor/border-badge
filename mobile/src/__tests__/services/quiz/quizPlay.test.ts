@@ -76,12 +76,9 @@ function makeAnswer(questionId: string, overrides?: Partial<StoredQuizAnswer>): 
   return {
     questionId,
     selectedOptionIndex: 0,
-    selectedYear: null,
     placeCorrect: true,
-    yearCorrect: null,
     correctOptionIndex: 0,
     correctOption: 'France',
-    correctYear: null,
     ...overrides,
   };
 }

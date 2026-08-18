@@ -760,8 +760,7 @@ async def download_trip_kml(
 #   the moment it commits, so there is no in-process slug cache and 200s carry
 #   at most a 60s shared-cache TTL (KTD5: quiz photos have a 60s object TTL;
 #   the page must never outlive its own images).
-# * Ground truth (correct_index, capture_year, year_options) never reaches the
-#   page. The JSON island carries only what the player may see: image URLs and
+# * Ground truth (correct_index) never reaches the page. The JSON island carries only what the player may see: image URLs and
 #   the four options per question. Grading happens server-side (the
 #   /q/{slug}/* JSON routes in app/api/public_quiz.py).
 # * Every /q/ response -- 200, 404, and the revoked "gone" page -- is noindex

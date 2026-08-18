@@ -60,6 +60,7 @@ import { useStableCallback } from '@hooks/useStableCallback';
 import type { RootStackScreenProps } from '@navigation/types';
 
 import { PhotoHero } from './components/PhotoHero';
+import { QuizTopBar } from './components/QuizTopBar';
 import { RowAction } from './components/RowAction';
 import { SerifScore } from './components/SerifScore';
 import { DURATION_BASE, DURATION_HERO, DURATION_SLOW } from './components/motionTokens';
@@ -228,8 +229,7 @@ export function QuizLeaderboardScreen({ navigation, route }: Props) {
     : 'Who knows your world best?';
 
   const heroContent = (
-    <View style={[styles.heroInner, { paddingTop: insets.top + 12 }]}>
-      <Text style={styles.eyebrow}>Guess Where</Text>
+    <View style={[styles.heroInner, { paddingTop: insets.top + 56 }]}>
       <Text style={styles.heading}>Leaderboard</Text>
       <Text style={styles.support}>{supportLine}</Text>
       {scoreToBeat && (
@@ -298,15 +298,24 @@ export function QuizLeaderboardScreen({ navigation, route }: Props) {
               />
             ))
           )}
-
-          <Button title="Done" variant="ghost" onPress={handleDone} testID="leaderboard-done" />
         </View>
       </ScrollView>
+
+      {/* Pinned above the scroll: the way out must not scroll away. */}
+      <View style={styles.topBar} pointerEvents="box-none">
+        <QuizTopBar title="Guess Where" onClose={handleDone} testID="leaderboard-top-bar" />
+      </View>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
+  topBar: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+  },
   hero: {
     flex: 1,
   },
@@ -320,13 +329,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingBottom: 18,
     gap: 2,
-  },
-  eyebrow: {
-    fontFamily: fonts.body.bold,
-    fontSize: 11,
-    letterSpacing: 4,
-    textTransform: 'uppercase',
-    color: withAlpha(colors.warmCream, 0.85),
   },
   heading: {
     fontFamily: fonts.playfair.bold,

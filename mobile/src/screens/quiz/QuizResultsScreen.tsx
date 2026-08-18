@@ -10,8 +10,6 @@
  *
  * - The country score is the score-to-beat (R4): always rendered from the
  *   freshest quiz detail (the backend rescales it after swap/remove).
- * - The memory (year) score is OWNER-ONLY (AE3): it exists only in the
- *   completion payload passed via navigation params and is labeled private.
  * - The recap keeps country names hidden until "Review Answers" is opened;
  *   the opened rows carry the serif reveal lines and the one sanctioned
  *   country-stamp artwork moment (small, post-answer only).
@@ -74,6 +72,7 @@ import type { RootStackScreenProps } from '@navigation/types';
 import { getStampImage } from '../../assets/stampImages';
 
 import { PhotoHero } from './components/PhotoHero';
+import { QuizTopBar } from './components/QuizTopBar';
 import { PolaroidThumb, type PolaroidVerdict } from './components/PolaroidThumb';
 import { RowAction } from './components/RowAction';
 import { SerifScore } from './components/SerifScore';
@@ -323,7 +322,7 @@ export function QuizResultsScreen({ navigation, route }: Props) {
   const heroHeight = Math.round(windowHeight * 0.46);
 
   const heroContent = (
-    <View style={[styles.heroInner, { paddingTop: insets.top + 12 }]}>
+    <View style={[styles.heroInner, { paddingTop: insets.top + 56 }]}>
       <Text style={styles.wordmark}>Atlasi</Text>
       <Text style={styles.heroTitle}>Your Score to Beat</Text>
       <Animated.View entering={scoreEntering}>
@@ -361,20 +360,6 @@ export function QuizResultsScreen({ navigation, route }: Props) {
               Friends who play your challenge will try to beat this country score.
             </Text>
           </Animated.View>
-
-          {results && results.memory_total > 0 && (
-            <Animated.View
-              entering={sheetEntering}
-              style={styles.memoryCard}
-              testID="quiz-memory-score"
-            >
-              <Text style={styles.memoryTitle}>Memory</Text>
-              <Text style={styles.memoryLine}>
-                {results.memory_correct} of {results.memory_total} years right
-              </Text>
-              <Text style={styles.memoryFootnote}>Only you see this.</Text>
-            </Animated.View>
-          )}
 
           <View style={styles.recapRow} testID="quiz-recap">
             {questions.map((question, index) => {
@@ -425,7 +410,7 @@ export function QuizResultsScreen({ navigation, route }: Props) {
                     <View style={styles.reviewBody}>
                       {answer ? (
                         answer.verdictUnknown ? (
-                          <Text style={styles.reviewYear}>
+                          <Text style={styles.reviewNote}>
                             Answered - verdict syncs with your score.
                           </Text>
                         ) : (
@@ -438,13 +423,6 @@ export function QuizResultsScreen({ navigation, route }: Props) {
                                 : `It was ${answer.correctOption} — you picked ` +
                                   `${question.options[answer.selectedOptionIndex] ?? 'another country'}`}
                             </Text>
-                            {answer.correctYear != null && (
-                              <Text style={styles.reviewYear}>
-                                {answer.yearCorrect
-                                  ? `Year remembered: ${answer.correctYear}`
-                                  : `Taken in ${answer.correctYear}`}
-                              </Text>
-                            )}
                           </>
                         )
                       ) : (
@@ -514,10 +492,14 @@ export function QuizResultsScreen({ navigation, route }: Props) {
                 testID="quiz-revoke"
               />
             )}
-            <Button title="Done" variant="ghost" onPress={handleDone} testID="quiz-done" />
           </Animated.View>
         </View>
       </ScrollView>
+
+      {/* Pinned above the scroll: the way out must not scroll away. */}
+      <View style={styles.topBar} pointerEvents="box-none">
+        <QuizTopBar title="Guess Where" onClose={handleDone} testID="quiz-results-top-bar" />
+      </View>
 
       <Modal visible={swapTargetId !== null} animationType="slide" onRequestClose={closeSwapPicker}>
         <Screen>
@@ -587,6 +569,12 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
     textAlign: 'center',
   },
+  topBar: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+  },
   hero: {
     flex: 1,
   },
@@ -626,28 +614,6 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     textAlign: 'center',
   },
-  memoryCard: {
-    backgroundColor: colors.paperBeige,
-    borderRadius: 20,
-    padding: 16,
-    gap: 4,
-  },
-  memoryTitle: {
-    fontFamily: fonts.playfair.bold,
-    fontSize: 18,
-    color: colors.textPrimary,
-  },
-  memoryLine: {
-    fontFamily: fonts.body.semiBold,
-    fontSize: 15,
-    color: colors.textPrimary,
-  },
-  memoryFootnote: {
-    fontFamily: fonts.body.regular,
-    fontSize: 13,
-    lineHeight: 19,
-    color: colors.textSecondary,
-  },
   recapRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -680,7 +646,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: colors.adobeBrick,
   },
-  reviewYear: {
+  reviewNote: {
     fontFamily: fonts.body.regular,
     fontSize: 13,
     color: colors.textSecondary,

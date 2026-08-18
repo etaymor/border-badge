@@ -20,6 +20,7 @@ import pytest
 MIGRATIONS_DIR = Path(__file__).resolve().parents[2] / "supabase" / "migrations"
 MIGRATION_PATH = MIGRATIONS_DIR / "0060_travel_photo_quiz.sql"
 FUNNEL_MIGRATION_PATH = MIGRATIONS_DIR / "0061_quiz_funnel_reveal_events.sql"
+DROP_YEAR_MIGRATION_PATH = MIGRATIONS_DIR / "0062_quiz_remove_year_question.sql"
 
 QUIZ_TABLES = [
     "quiz",
@@ -458,3 +459,59 @@ def test_code_vocabulary_matches_the_database_constraint():
     from app.core.analytics import QuizFunnelEvent
 
     assert set(get_args(QuizFunnelEvent)) == _current_funnel_event_constraint()
+
+
+# ============================================================================
+# 0062: the year sub-question is removed (the quiz is country-only)
+# ============================================================================
+
+
+@pytest.fixture(scope="module")
+def drop_year_sql() -> str:
+    assert (
+        DROP_YEAR_MIGRATION_PATH.exists()
+    ), f"missing migration: {DROP_YEAR_MIGRATION_PATH}"
+    return DROP_YEAR_MIGRATION_PATH.read_text()
+
+
+def test_0062_is_wrapped_in_do_migration_block(drop_year_sql: str):
+    assert "DO $migration$" in drop_year_sql
+
+
+def test_0062_drops_the_paired_year_check_before_the_columns(drop_year_sql: str):
+    """The CHECK references both columns, so it has to go first -- and by
+    name, because 0060 named it explicitly."""
+    drop_constraint = drop_year_sql.index("quiz_question_year_pair")
+    drop_columns = drop_year_sql.index("DROP COLUMN IF EXISTS capture_year")
+    assert "DROP CONSTRAINT IF EXISTS quiz_question_year_pair" in drop_year_sql
+    assert drop_constraint < drop_columns
+
+
+@pytest.mark.parametrize(
+    ("table", "column"),
+    [
+        ("quiz_question", "capture_year"),
+        ("quiz_question", "year_options"),
+        ("quiz_answer", "selected_year"),
+        ("quiz_answer", "year_correct"),
+    ],
+)
+def test_0062_drops_every_year_column_idempotently(
+    drop_year_sql: str, table: str, column: str
+):
+    assert (
+        f"DROP COLUMN IF EXISTS {column}" in drop_year_sql
+    ), f"{table}.{column} must be dropped idempotently"
+
+
+def test_no_year_columns_survive_across_the_migration_set(sql: str, drop_year_sql: str):
+    """The tripwire: 0060 creates the year columns and 0062 removes them, so
+    the schema in apply order ends with none. Re-introducing one in 0060
+    without a matching drop in 0062 fails here."""
+    created = {
+        match.group(1)
+        for match in re.finditer(r"^\s{4}(\w*year\w*)\s+\w", sql, re.MULTILINE)
+    }
+    dropped = set(re.findall(r"DROP COLUMN IF EXISTS (\w+)", drop_year_sql))
+    assert created, "expected 0060 to be the migration that created the year columns"
+    assert created == dropped

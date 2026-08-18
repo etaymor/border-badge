@@ -30,7 +30,6 @@ export interface QuizQuestion {
   position: number;
   image_url: string;
   options: string[];
-  year_options?: number[] | null;
 }
 
 export interface QuizScoreToBeat {
@@ -127,20 +126,16 @@ export function useCreateQuiz() {
 // Matches backend QuizAnswerResponse (the ground truth revealed by grading).
 export interface QuizAnswerResult {
   place_correct: boolean;
-  year_correct?: boolean | null;
   correct_option_index: number;
   correct_option: string;
-  correct_year?: number | null;
   score: number;
 }
 
-// Matches backend QuizCompleteResponse. The memory (year) score exists ONLY
-// in this owner-facing payload - it is never stored nor served publicly (AE3).
+// Matches backend QuizCompleteResponse. The country score is the only score:
+// there is no second, private one (AE3).
 export interface QuizCompleteResult {
   correct: number;
   total: number;
-  memory_correct: number;
-  memory_total: number;
   score_to_beat: QuizScoreToBeat;
   state: string;
 }
@@ -156,14 +151,11 @@ export interface QuizAnswerInput {
   sessionId: string;
   questionId: string;
   selectedOptionIndex: number;
-  /** null when the question has no year sub-question or none was picked. */
-  selectedYear: number | null;
 }
 
 /**
- * Grade one owner answer (country + year in a SINGLE call - the backend
- * grades each question at most once per session, so both picks travel
- * together). The screen persists the verdict via `recordAnswer`.
+ * Grade one owner answer. The backend grades each question at most once per
+ * session; the screen persists the verdict via `recordAnswer`.
  */
 export function useAnswerQuizQuestion(quizId: string) {
   return useMutation({
@@ -172,7 +164,6 @@ export function useAnswerQuizQuestion(quizId: string) {
         session_id: input.sessionId,
         question_id: input.questionId,
         selected_option_index: input.selectedOptionIndex,
-        selected_year: input.selectedYear,
       });
       return response.data;
     },
@@ -224,7 +215,6 @@ export function useSwapQuizQuestion(quizId: string) {
       const response = await api.post(`/quiz/${quizId}/questions/${input.questionId}/swap`, {
         storage_path: upload.storagePath,
         country_code: upload.countryCode,
-        capture_year: upload.captureYear,
         // Only present when a cached eligibility verdict supplied one; the
         // server normalizes an unknown value back to null.
         landscape: upload.landscape,

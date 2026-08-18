@@ -208,7 +208,6 @@ describe('QuizCreationScreen', () => {
       assetId,
       uri: `file:///photos/draft-${assetId}.jpg`,
       countryCode: 'JP',
-      captureYear: 2024,
       storagePath: uploaded ? `quiz-1/${assetId}.jpg` : null,
       uploaded,
     });
@@ -342,18 +341,65 @@ describe('QuizCreationScreen', () => {
       emitProgress({ step: 'building', current: 1, total: 3, pickUris: picks });
 
       expect(screen.getByText('Building your challenge')).toBeTruthy();
-      expect(screen.getByText('1 of 3')).toBeTruthy();
+      // The counter reads FOUND photos, so it does not restart at the
+      // handover: the hunt is over and every slot is filled.
+      expect(screen.getByText('3 of 3')).toBeTruthy();
       expect(screen.getByTestId('quiz-slot-photo-0').props.source.uri).toBe(picks[0]);
       expect(screen.getByTestId('quiz-slot-photo-2').props.source.uri).toBe(picks[2]);
       // The final pick list is the whole grid now - no pending placeholders.
       expect(screen.queryByTestId('quiz-slot-empty-3')).toBeNull();
     });
 
-    it('keeps the cancel affordance live during the build', async () => {
+    it('never takes back a photo it has already shown (the handover reset)', async () => {
+      // The reported bug: the grid filled almost completely, then swapped in
+      // a different, smaller set and restarted the counter. The service now
+      // guarantees an append-only list; this is the screen's half of it.
+      await startHeld();
+      emitProgress({ step: 'checking', current: 2, total: 10, pickUris: picks.slice(0, 2) });
+      expect(screen.getByTestId('quiz-slot-photo-0').props.source.uri).toBe(picks[0]);
+      expect(screen.getByTestId('quiz-slot-photo-1').props.source.uri).toBe(picks[1]);
+      expect(screen.getByText('2 of 10')).toBeTruthy();
+
+      emitProgress({ step: 'checking', current: 3, total: 10, pickUris: picks });
+      emitProgress({ step: 'building', current: 0, total: 3, pickUris: picks });
+
+      // Same photos, same slots, across the handover - and the counter has
+      // not gone backwards.
+      expect(screen.getByTestId('quiz-slot-photo-0').props.source.uri).toBe(picks[0]);
+      expect(screen.getByTestId('quiz-slot-photo-1').props.source.uri).toBe(picks[1]);
+      expect(screen.getByTestId('quiz-slot-photo-2').props.source.uri).toBe(picks[2]);
+      expect(screen.getByText('3 of 3')).toBeTruthy();
+      expect(screen.queryByText('0 of 3')).toBeNull();
+    });
+
+    it('shows how many photos have been checked while a batch is in flight', async () => {
+      await startHeld();
+      // A classification batch can take most of a minute; without this the
+      // whole screen sits still through it.
+      emitProgress({
+        step: 'checking',
+        current: 1,
+        total: 10,
+        examined: 120,
+        pickUris: [picks[0]],
+      });
+
+      expect(screen.getByTestId('quiz-examined-line')).toBeTruthy();
+      expect(screen.getByText('120 photos checked')).toBeTruthy();
+
+      // Not during the upload: nothing is being checked any more.
+      emitProgress({ step: 'building', current: 0, total: 1, examined: 120, pickUris: [picks[0]] });
+      expect(screen.queryByTestId('quiz-examined-line')).toBeNull();
+    });
+
+    it('keeps the way out live during the build', async () => {
+      // The title bar's close IS the cancel: mid-build it aborts the run
+      // (the draft stays resumable) instead of leaving it classifying behind
+      // a screen the user has left.
       await startHeld();
       emitProgress({ step: 'checking', current: 2, total: 10, pickUris: picks.slice(0, 2) });
 
-      fireEvent.press(screen.getByText('Cancel'));
+      fireEvent.press(screen.getByTestId('quiz-creation-top-bar-close'));
       expect(mockNavigation.goBack).toHaveBeenCalled();
     });
   });

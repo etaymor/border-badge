@@ -3,6 +3,7 @@ export { PhotoHero } from './PhotoHero';
 export { PhotoInspector } from './PhotoInspector';
 export { PolaroidThumb, type PolaroidVerdict } from './PolaroidThumb';
 export { ProgressSegments } from './ProgressSegments';
+export { QuizTopBar } from './QuizTopBar';
 export { RowAction } from './RowAction';
 export { SerifScore } from './SerifScore';
 export { VerdictMark, type Verdict } from './VerdictMark';

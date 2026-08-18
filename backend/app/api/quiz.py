@@ -29,7 +29,6 @@ so spend is bounded server-side twice:
 """
 
 import logging
-import random
 import re
 import secrets
 import uuid as uuid_mod
@@ -461,20 +460,6 @@ def _validate_storage_path(path: str, quiz_id: UUID) -> None:
         )
 
 
-def _validate_capture_year(photo: QuizFinalizePhoto) -> None:
-    if photo.capture_year is None:
-        return
-    current_year = datetime.now(UTC).year
-    if not 1900 <= photo.capture_year <= current_year:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail={
-                "code": "QUIZ_INVALID_CAPTURE_YEAR",
-                "message": f"capture_year must be between 1900 and {current_year}.",
-            },
-        )
-
-
 async def _validate_countries(
     db: SupabaseClient, codes: list[str]
 ) -> dict[str, dict[str, Any]]:
@@ -522,15 +507,6 @@ async def _place_options(
         ) from e
 
 
-def _year_options(capture_year: int) -> list[int]:
-    """Four consecutive years bracketing the capture year (KTD6), positioned
-    randomly within the window and never extending past the current year."""
-    current_year = datetime.now(UTC).year
-    start = capture_year - random.randint(0, 3)
-    start = min(start, current_year - 3)
-    return list(range(start, start + 4))
-
-
 def _build_question_row(
     quiz_id: UUID,
     position: int,
@@ -544,23 +520,16 @@ def _build_question_row(
         "storage_path": photo.storage_path,
         "options": options,
         "correct_index": correct_index,
-        "capture_year": photo.capture_year,
-        "year_options": (
-            _year_options(photo.capture_year)
-            if photo.capture_year is not None
-            else None
-        ),
     }
 
 
 def _sanitize_question(q: dict[str, Any]) -> QuizQuestionPayload:
-    """Strip ALL ground truth: no correct_index, no capture_year."""
+    """Strip ALL ground truth: the correct index never leaves the server."""
     return QuizQuestionPayload(
         id=q["id"],
         position=q["position"],
         image_url=build_media_url(q["storage_path"]),
         options=list(q["options"]),
-        year_options=q.get("year_options"),
     )
 
 
@@ -852,7 +821,6 @@ async def finalize_quiz(
         )
     for photo in data.photos:
         _validate_storage_path(photo.storage_path, quiz_id)
-        _validate_capture_year(photo)
 
     country_map = await _validate_countries(db, [p.country_code for p in data.photos])
     option_sets = await _place_options(
@@ -1054,7 +1022,6 @@ async def answer_quiz_question(
         session=session,
         question=questions[0],
         selected_option_index=data.selected_option_index,
-        selected_year=data.selected_year,
     )
 
     # A pre-share swap deletes that question's owner answers; when the owner
@@ -1079,8 +1046,7 @@ async def complete_owner_play(
 
     The FIRST completed owner play seeds the score-to-beat pair permanently
     (conditional write on the pair being unset -- replays and double submits
-    update zero rows and change nothing). The memory (year) score is returned
-    only in this owner results payload; it is never stored on the quiz row.
+    update zero rows and change nothing).
     """
     db = get_supabase_client()  # service role: quiz tables are backend-only
     await _get_owned_quiz(db, quiz_id, user.id)
@@ -1103,11 +1069,6 @@ async def complete_owner_play(
     relevant = [by_question[str(q["id"])] for q in questions]
     correct = sum(1 for a in relevant if a.get("place_correct"))
     total = len(questions)
-    year_questions = [q for q in questions if q.get("capture_year") is not None]
-    memory_total = len(year_questions)
-    memory_correct = sum(
-        1 for q in year_questions if by_question[str(q["id"])].get("year_correct")
-    )
 
     # Preserve the first completion time on double submits.
     await db.patch(
@@ -1150,8 +1111,6 @@ async def complete_owner_play(
     return QuizCompleteResponse(
         correct=correct,
         total=total,
-        memory_correct=memory_correct,
-        memory_total=memory_total,
         score_to_beat=ScoreToBeat(
             correct=refreshed["score_to_beat_correct"],
             total=refreshed["score_to_beat_total"],
@@ -1212,8 +1171,8 @@ async def swap_quiz_question(
 
     Regenerates options for the new country, deletes the question's recorded
     answers, and rescales the seeded pair. The owner must answer the
-    replacement (country + year) before sharing -- share asserts the
-    owner-answers-to-questions bijection.
+    replacement before sharing -- share asserts the owner-answers-to-questions
+    bijection.
     """
     db = get_supabase_client()  # service role: quiz tables are backend-only
     quiz = await _get_owned_quiz(db, quiz_id, user.id)
@@ -1228,7 +1187,6 @@ async def swap_quiz_question(
             status_code=status.HTTP_404_NOT_FOUND, detail="Question not found"
         )
     _validate_storage_path(data.storage_path, quiz_id)
-    _validate_capture_year(data)
     country_map = await _validate_countries(db, [data.country_code])
     correct = country_map[data.country_code]
 
@@ -1254,12 +1212,6 @@ async def swap_quiz_question(
             "storage_path": data.storage_path,
             "options": options,
             "correct_index": correct_index,
-            "capture_year": data.capture_year,
-            "year_options": (
-                _year_options(data.capture_year)
-                if data.capture_year is not None
-                else None
-            ),
         },
         {"id": f"eq.{question_id}", "quiz_id": f"eq.{quiz_id}"},
     )

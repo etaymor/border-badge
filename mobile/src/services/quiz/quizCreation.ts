@@ -53,7 +53,6 @@ import {
   QUIZ_MIN_PHOTOS,
   nextResampleSize,
   orderByCountrySpread,
-  pickQuizPhotos,
   prepareCandidatePool,
   selectEligibilityBatch,
   toCandidate,
@@ -63,6 +62,7 @@ import {
   classifyBatch,
   createClassificationSession,
   dominantRejectionReason,
+  reportFound,
   summarizeRejections,
 } from './quizClassification';
 import type { ClassifyBatchResult } from './quizClassification';
@@ -151,10 +151,10 @@ function reportPrefilterAgreement(
 
 /**
  * Decorate a progress callback so every emission carries the running pick
- * URIs. The creation screen renders the found photos live - hero = the most
- * recent find, thumbnail grid = every find in found order - so the list rides
- * along with each count update instead of arriving only at the end. The
- * getter is read per emission, so callers hand over a live view, not a copy.
+ * URIs. The creation screen renders the game live - hero = the most recent
+ * find, thumbnail grid = every locked slot in order - so the list rides along
+ * with each count update instead of arriving only at the end. The getter is
+ * read per emission, so callers hand over a live view, not a copy.
  */
 function withPickUris(
   onProgress: ((progress: QuizCreationProgress) => void) | undefined,
@@ -296,10 +296,22 @@ async function runQuizCreation(
   // this alone can fill the game, making it upload-bound instead of gate-bound.
   const session = createClassificationSession();
   const { classifiedIds, eligible } = session;
-  // The running list the screen renders while the hunt is on: eligible picks
-  // in found order, capped at the game size so it always matches `current`.
-  const huntPickUris = () => eligible.slice(0, QUIZ_MAX_PHOTOS).map((candidate) => candidate.uri);
-  const huntProgress = withPickUris(onProgress, huntPickUris);
+  // The running list the screen renders for the WHOLE run (hunt and upload
+  // alike): the locked game, in slot order. Append-only, so a photo the screen
+  // has shown is never replaced, reordered, or dropped (the old code showed
+  // the raw eligible list here and the re-picked game later, and the two
+  // disagreed - the grid visibly reset part-way through a 90s wait).
+  const ledger = session.ledger;
+  const gamePickUris = () => ledger.picks.map((candidate) => candidate.uri);
+  const huntProgress = withPickUris(onProgress, gamePickUris);
+  /**
+   * Upper bound on the game `ledger.finalize()` could reach: the locked slots
+   * plus whatever the relaxed passes might still promote off the bench. Used
+   * only to decide whether to keep hunting - the real size comes from
+   * `finalize()` itself, once.
+   */
+  const finalizableCount = () =>
+    Math.min(QUIZ_MAX_PHOTOS, ledger.picks.length + ledger.bench.length);
   let seededEligible = 0;
   let seededIneligible = 0;
   if (features.enableVerdictCache) {
@@ -309,18 +321,28 @@ async function runQuizCreation(
       for (const id of seeded.seenIds) classifiedIds.add(id);
       // Order them the way a fresh hunt would, so a seeded game has the same
       // country/day spread as a classified one rather than whatever order the
-      // cache happened to hold.
-      eligible.push(
-        ...orderByCountrySpread(seeded.eligible, usedAssetIds, homeCountries, QUIZ_MAX_PHOTOS)
-      );
+      // cache happened to hold, then let the ledger lock its slots. They are
+      // deliberately NOT pushed into `eligible`: that list is the GATE's
+      // output and feeds the pass-rate estimate, and these photos were never
+      // sent to it.
+      for (const candidate of orderByCountrySpread(
+        seeded.eligible,
+        usedAssetIds,
+        homeCountries,
+        Infinity
+      )) {
+        ledger.offer(candidate);
+      }
+      ledger.topUp();
       seededEligible = seeded.eligibleCount;
       seededIneligible = seeded.ineligibleCount;
-      if (eligible.length > 0) {
+      if (ledger.picks.length > 0) {
         onProgress?.({
           step: 'checking',
-          current: Math.min(eligible.length, QUIZ_MAX_PHOTOS),
+          current: Math.min(ledger.picks.length, QUIZ_MAX_PHOTOS),
           total: QUIZ_MAX_PHOTOS,
-          pickUris: huntPickUris(),
+          examined: classifiedIds.size,
+          pickUris: gamePickUris(),
         });
       }
     }
@@ -328,7 +350,7 @@ async function runQuizCreation(
 
   // A game already filled from cache needs no candidates at all.
   const firstBatch =
-    eligible.length >= QUIZ_MAX_PHOTOS
+    ledger.picks.length >= QUIZ_MAX_PHOTOS
       ? []
       : selectEligibilityBatch({
           pool: rankedPool,
@@ -349,11 +371,15 @@ async function runQuizCreation(
       `home=${homeCountry ?? 'unset'} ${formatTagFunnel(decorated)} ` +
       `seeded=${seededEligible}/${seededIneligible} firstBatch=${firstBatch.length}`
   );
-  if (firstBatch.length === 0 && eligible.length < QUIZ_MIN_PHOTOS) {
+  // Nothing left to classify AND not even a relaxed game's worth in hand:
+  // give up before creating a server draft. `finalizableCount` is the upper
+  // bound on what `ledger.finalize()` could reach, so this never declines a
+  // run the relaxation passes could still have saved.
+  if (firstBatch.length === 0 && finalizableCount() < QUIZ_MIN_PHOTOS) {
     if (persisted) await discardDraft(persisted.quizId);
     return {
       status: 'thin-library',
-      eligibleCount: eligible.length,
+      eligibleCount: finalizableCount(),
       // Distinguishes "no geotagged travel photos at all" from "photos exist
       // but the pre-filter or the gate ate them" - the decline copy differs.
       hasGeoCandidates: preparedPool.length > 0,
@@ -384,6 +410,8 @@ async function runQuizCreation(
       return restartAfterDraftGone(options, restartedAfterDraftGone);
     }
     if (signal?.aborted) return { status: 'cancelled' };
+    ledger.topUp();
+    reportFound(session, huntProgress);
   }
 
   // Keep drawing fresh batches until the game is FULL - not until the first
@@ -410,11 +438,11 @@ async function runQuizCreation(
   let consecutiveFailures = typeof firstResult === 'object' ? 0 : 1;
   let passes = 1;
 
-  while (lastResult !== 'budget-exceeded' && eligible.length < QUIZ_MAX_PHOTOS) {
+  while (lastResult !== 'budget-exceeded' && ledger.picks.length < QUIZ_MAX_PHOTOS) {
     if (consecutiveFailures >= MAX_CONSECUTIVE_FAILED_PASSES) break;
     // Past the deadline with a playable game in hand: build it. Below the
     // minimum, the deadline is ignored - a slow hunt beats a false decline.
-    if (Date.now() - startedAt >= HUNT_SOFT_DEADLINE_MS && eligible.length >= QUIZ_MIN_PHOTOS) {
+    if (Date.now() - startedAt >= HUNT_SOFT_DEADLINE_MS && finalizableCount() >= QUIZ_MIN_PHOTOS) {
       break;
     }
     // Sized by the pass rate seen so far, then clamped by BOTH budget meters:
@@ -422,7 +450,11 @@ async function runQuizCreation(
     // recomputed every pass rather than carried, so images sent on a pass that
     // then failed still count - they were charged.
     const resampleTarget = Math.min(
-      nextResampleSize(QUIZ_MAX_PHOTOS - eligible.length, session.sentCount, eligible.length),
+      // How many more photos must clear the GATE before a full game is
+      // reachable - not how many slots are still strictly diverse. Sizing by
+      // the latter over-draws whenever diversity, rather than the gate, is
+      // what is holding the game back.
+      nextResampleSize(QUIZ_MAX_PHOTOS - finalizableCount(), session.sentCount, eligible.length),
       budgetRemaining,
       CLASSIFICATION_BUDGET_PER_QUIZ - session.sentCount
     );
@@ -475,11 +507,23 @@ async function runQuizCreation(
       break;
     }
     consecutiveFailures = 0;
+    // Enough photos in hand for a full game: settle the remaining slots now
+    // rather than hunting for a diversity the library may not have. This is
+    // what ends the loop, and it ends it at exactly the point the old code
+    // did - ten photos through the gate.
+    ledger.topUp();
+    reportFound(session, huntProgress);
     for (const candidate of resampleBatch) classifiedCountries.add(candidate.countryCode);
     lastResult = resampleResult;
     budgetRemaining = resampleResult.budgetRemaining;
   }
   if (signal?.aborted) return { status: 'cancelled' };
+
+  // The hunt is over: settle the game ONCE. Every slot locked during the hunt
+  // keeps its photo and its position; this only appends, relaxing the day and
+  // country-year rules over the bench when the library was too thin to fill
+  // the game diversely.
+  const picks = ledger.finalize();
 
   // Failing to build because passes were FAILING is a retryable outage;
   // failing to build after the library was honestly searched is a thin
@@ -487,7 +531,7 @@ async function runQuizCreation(
   // when the last pass returned real verdicts, so a hunt that ended on a
   // failure - including one that ran out of candidates before its retry could
   // run - is never mislabeled as the user's library being too thin.
-  if (eligible.length < QUIZ_MIN_PHOTOS && consecutiveFailures > 0) {
+  if (picks.length < QUIZ_MIN_PHOTOS && consecutiveFailures > 0) {
     return { status: 'service-error', stage: 'classify' };
   }
 
@@ -499,32 +543,34 @@ async function runQuizCreation(
   const reasonSummary = summarizeRejections(session);
   console.warn(
     `[QuizCreation] funnel: attempted=${classifiedIds.size} sent=${session.sentCount} ` +
-      `eligible=${eligible.length} seeded=${seededEligible} passes=${passes} ` +
+      `eligible=${eligible.length} picks=${picks.length} benched=${ledger.bench.length} ` +
+      `seeded=${seededEligible} passes=${passes} ` +
       `elapsedMs=${Date.now() - startedAt} offloaded=${session.offloadedFailures}` +
       (reasonSummary ? ` ${reasonSummary}` : '')
   );
 
-  if (eligible.length < QUIZ_MIN_PHOTOS) {
+  if (picks.length < QUIZ_MIN_PHOTOS) {
     // Genuine decline (AE2): the draft is deleted, not left dangling (KTD7).
     await discardDraft(quizId);
     return {
       status: 'thin-library',
-      eligibleCount: eligible.length,
+      eligibleCount: picks.length,
       hasGeoCandidates: true,
       dominantReason: dominantRejectionReason(session.reasons),
     };
   }
 
-  // Step 5: final picks (R1 spread, KTD12 freshness) and resumable state.
-  const picks = pickQuizPhotos(eligible, usedAssetIds);
+  // Step 5: resumable state. The question order gets the R1 country spread;
+  // the SET is already settled, so this reorders nothing the screen showed -
+  // the grid keeps reading `ledger.picks` (see the upload call below).
+  const ordered = orderByCountrySpread(picks, usedAssetIds, homeCountries, Infinity);
   const state: QuizDraftState = {
     quizId,
     createdAt: persisted?.createdAt ?? Date.now(),
-    picks: picks.map((pick) => ({
+    picks: ordered.map((pick) => ({
       assetId: pick.id,
       uri: pick.uri,
       countryCode: pick.countryCode,
-      captureYear: pick.creationTime > 0 ? new Date(pick.creationTime).getFullYear() : null,
       storagePath: null,
       uploaded: false,
       landscape: pick.landscape ?? null,
@@ -532,13 +578,11 @@ async function runQuizCreation(
   };
   await saveDraftState(state);
 
-  // Step 6: upload + finalize (resumable). The full pick list stays on every
-  // emission so the screen keeps all thumbnails visible through the upload.
-  const outcome = await uploadAndFinalize(
-    state,
-    withPickUris(onProgress, () => state.picks.map((pick) => pick.uri)),
-    signal
-  );
+  // Step 6: upload + finalize (resumable). The grid keeps reading the LEDGER,
+  // not `state.picks`: the draft carries the spread question order, and
+  // re-emitting that order here would shuffle a grid the user has been
+  // watching fill for the last minute.
+  const outcome = await uploadAndFinalize(state, withPickUris(onProgress, gamePickUris), signal);
   if (outcome === 'draft-gone') {
     return restartAfterDraftGone(options, restartedAfterDraftGone);
   }

@@ -1,9 +1,9 @@
 /**
  * shareChallenge: the invitation copy and the share funnel events.
  *
- * - Settled copy: "I made a challenge from {n} of my travel photos. Can you
- *   beat my {s}/{t}?", with a numberless fallback when the surface does not
- *   know the score.
+ * - Settled copy: "Guess where in the world these {n} photos were taken. I got
+ *   {s}/{t} - beat me.", with the score clause dropped when the surface does
+ *   not know the score.
  * - iOS: the link travels in the dedicated url slot (Q10); Android appends
  *   it on its own line at the end of the message.
  * - Funnel: quiz_share_initiated on sheet open; quiz_share_completed ONLY
@@ -36,25 +36,25 @@ const URL = 'https://atlasi.app/q/abc123';
 describe('buildChallengeMessage', () => {
   it('carries the photo count and the score to beat', () => {
     expect(buildChallengeMessage({ score: SCORE, photoCount: 10 })).toBe(
-      'I made a challenge from 10 of my travel photos. Can you beat my 7/10?'
+      'Guess where in the world these 10 photos were taken. I got 7/10 — beat me.'
     );
   });
 
   it('falls back to the score total when the photo count is unknown', () => {
     expect(buildChallengeMessage({ score: SCORE })).toBe(
-      'I made a challenge from 10 of my travel photos. Can you beat my 7/10?'
+      'Guess where in the world these 10 photos were taken. I got 7/10 — beat me.'
     );
   });
 
   it('keeps a whole invitation when the score is unknown', () => {
     expect(buildChallengeMessage({ score: null, photoCount: 8 })).toBe(
-      'I made a challenge from 8 of my travel photos. Can you guess where they were taken?'
+      'Guess where in the world these 8 photos were taken.'
     );
   });
 
   it('keeps a whole invitation when neither score nor count is known', () => {
     expect(buildChallengeMessage({ score: null })).toBe(
-      'I made a challenge from my travel photos. Can you guess where they were taken?'
+      'Guess where in the world my travel photos were taken.'
     );
   });
 });
@@ -76,7 +76,7 @@ describe('presentChallengeShare', () => {
     await presentChallengeShare(URL, { score: SCORE, photoCount: 10 });
 
     expect(mockedShare).toHaveBeenCalledWith({
-      message: 'I made a challenge from 10 of my travel photos. Can you beat my 7/10?',
+      message: 'Guess where in the world these 10 photos were taken. I got 7/10 — beat me.',
       url: URL,
     });
   });
@@ -87,7 +87,7 @@ describe('presentChallengeShare', () => {
     await presentChallengeShare(URL, { score: SCORE, photoCount: 10 });
 
     expect(mockedShare).toHaveBeenCalledWith({
-      message: `I made a challenge from 10 of my travel photos. Can you beat my 7/10?\n${URL}`,
+      message: `Guess where in the world these 10 photos were taken. I got 7/10 — beat me.\n${URL}`,
     });
   });
 

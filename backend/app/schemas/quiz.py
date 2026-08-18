@@ -139,7 +139,6 @@ class QuizFinalizePhoto(BaseModel):
 
     storage_path: str = Field(..., min_length=1, max_length=512)
     country_code: str = Field(..., min_length=2, max_length=2)
-    capture_year: int | None = Field(None, ge=1900, le=2100)
     landscape: str | None = Field(None, max_length=32)
 
     @field_validator("country_code")
@@ -180,15 +179,14 @@ class QuizSwapRequest(QuizFinalizePhoto):
 class QuizQuestionPayload(BaseModel):
     """A question as served to any player.
 
-    Deliberately excludes correct_index, capture_year, and the storage path's
-    answer-bearing metadata -- ground truth is revealed only by grading.
+    Deliberately excludes correct_index and the storage path's answer-bearing
+    metadata -- ground truth is revealed only by grading.
     """
 
     id: UUID
     position: int
     image_url: str
     options: list[str]
-    year_options: list[int] | None = None
 
 
 class ScoreToBeat(BaseModel):
@@ -221,17 +219,14 @@ class QuizAnswerRequest(BaseModel):
     session_id: UUID
     question_id: UUID
     selected_option_index: int = Field(..., ge=0, le=3)
-    selected_year: int | None = Field(None, ge=1800, le=2100)
 
 
 class QuizAnswerResponse(BaseModel):
     """The server's verdict, revealing the ground truth for this question."""
 
     place_correct: bool
-    year_correct: bool | None = None
     correct_option_index: int
     correct_option: str
-    correct_year: int | None = None
     score: int
 
 
@@ -240,13 +235,11 @@ class QuizCompleteRequest(BaseModel):
 
 
 class QuizCompleteResponse(BaseModel):
-    """Owner results. The memory (year) score lives ONLY here -- it is never
-    stored on the quiz row nor served on any public-facing field."""
+    """Owner results. The quiz is country-only: there is no second, private
+    score here or anywhere else."""
 
     correct: int
     total: int
-    memory_correct: int
-    memory_total: int
     score_to_beat: ScoreToBeat
     state: str
 

@@ -19,8 +19,10 @@ import { isBudgetExceededError, isDraftGoneError } from './quizHttpErrors';
 import { recordVerdicts } from './quizVerdictStore';
 
 import { QUIZ_MAX_PHOTOS } from './candidateSelection';
+import { createPickLedger } from './pickLedger';
 
 import type { GeoEligibleCandidate } from './candidateSelection';
+import type { PickLedger } from './pickLedger';
 import type { QuizCreationProgress } from './quizCreationTypes';
 
 /**
@@ -88,7 +90,18 @@ export type ClassifyBatchResult =
  */
 export interface ClassificationSession {
   classifiedIds: Set<string>;
+  /**
+   * Every photo the gate passed, in found order. This is the GATE's output,
+   * used for the pass-rate estimate and the reason tallies -- it is NOT the
+   * game. `ledger.picks` is the game.
+   */
   eligible: GeoEligibleCandidate[];
+  /**
+   * The game being locked in as photos are found. Every eligible candidate is
+   * offered here immediately, so what the creation screen previews during the
+   * hunt is what it uploads afterwards (see `pickLedger.ts`).
+   */
+  ledger: PickLedger;
   reasons: Record<string, number>;
   /**
    * Images the SERVER actually received. The per-draft budget belongs to the
@@ -113,6 +126,7 @@ export function createClassificationSession(): ClassificationSession {
   return {
     classifiedIds: new Set<string>(),
     eligible: [],
+    ledger: createPickLedger(),
     reasons: {},
     sentCount: 0,
     offloadedFailures: 0,
@@ -125,13 +139,17 @@ function tally(session: ClassificationSession, reason: string): void {
 }
 
 /**
- * Report progress as PHOTOS FOUND, not images checked.
+ * Report progress as SLOTS FILLED, not images checked.
  *
  * The old per-batch `images.length / targetCount` restarted at zero on every
  * pass, so a creation that drew six batches looked like it kept losing its
- * place. Counting eligible photos against the game size is the only number
- * here that means anything to someone waiting - and it is monotonic across
- * however many passes the hunt takes.
+ * place. Counting the game's own filled slots against its size is the only
+ * number here that means anything to someone waiting - and because the ledger
+ * is append-only, it is monotonic across however many passes the hunt takes.
+ *
+ * `examined` rides along as a second, faster-moving number: a single batch can
+ * take most of a minute, and without it the whole screen sits still while the
+ * classifier works through 50 images.
  */
 export function reportFound(
   session: ClassificationSession,
@@ -139,8 +157,9 @@ export function reportFound(
 ): void {
   onProgress?.({
     step: 'checking',
-    current: Math.min(session.eligible.length, QUIZ_MAX_PHOTOS),
+    current: Math.min(session.ledger.picks.length, QUIZ_MAX_PHOTOS),
     total: QUIZ_MAX_PHOTOS,
+    examined: session.classifiedIds.size,
   });
 }
 
@@ -258,6 +277,9 @@ export async function classifyBatch(
     if (candidate && result.eligible) {
       candidate.landscape = result.landscape ?? undefined;
       eligible.push(candidate);
+      // Decide its slot NOW: a photo the screen shows must be a photo the
+      // finished game contains.
+      session.ledger.offer(candidate);
       tally(session, 'eligible');
       toCache.push({
         id: result.id,

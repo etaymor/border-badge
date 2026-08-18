@@ -13,15 +13,23 @@ export interface QuizCreationProgress {
   current?: number;
   total?: number;
   /**
-   * Local URIs of the eligible picks found so far, in found order, capped at
-   * the game size (so `current === pickUris.length` on hunt emissions). Lets
-   * the creation screen render the photos live: hero = the most recent find,
-   * thumbnails = every find in order. Only photos that passed the eligibility
-   * gate appear - rejected candidates never do. During the upload phase
-   * ('building') this is the final pick list, held constant across emissions.
-   * Absent on 'scanning' emissions (nothing has been found yet).
+   * Local URIs of the photos LOCKED into the game so far, in the order their
+   * slots were filled (so `current === pickUris.length` on hunt emissions).
+   * Lets the creation screen render the game live: hero = the most recent
+   * find, thumbnails = every slot in order.
+   *
+   * APPEND-ONLY for the whole run, hunt and upload alike: the game is decided
+   * as photos are found (see `pickLedger.ts`), so a photo the screen has shown
+   * is never replaced, reordered, or dropped. Absent on 'scanning' emissions
+   * (nothing has been found yet).
    */
   pickUris?: string[];
+  /**
+   * Photos put through the eligibility gate so far. Purely informational -
+   * a single batch can take most of a minute, and this is the only number
+   * that moves during one.
+   */
+  examined?: number;
 }
 
 export type QuizCreationOutcome =
@@ -53,7 +61,6 @@ export interface DraftPick {
   assetId: string;
   uri: string;
   countryCode: string;
-  captureYear: number | null;
   storagePath: string | null;
   uploaded: boolean;
   landscape?: string | null;

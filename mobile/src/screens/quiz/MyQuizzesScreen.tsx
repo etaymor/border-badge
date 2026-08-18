@@ -31,7 +31,7 @@ import {
 import { useStableCallback } from '@hooks/useStableCallback';
 import type { RootStackScreenProps } from '@navigation/types';
 
-import { RowAction } from './components';
+import { QuizTopBar, RowAction } from './components';
 import { DURATION_FAST } from './components/motionTokens';
 import { guessWhereMark } from './sampleAssets';
 
@@ -231,8 +231,13 @@ export function MyQuizzesScreen({ navigation }: Props) {
 
   return (
     <Screen>
+      <QuizTopBar
+        title="Guess Where"
+        onClose={handleBack}
+        variant="light"
+        testID="quiz-list-top-bar"
+      />
       <ScrollView contentContainerStyle={styles.content}>
-        <Text style={styles.eyebrow}>Guess Where</Text>
         <Text style={styles.heading}>Your Challenges</Text>
         <Button title="New Challenge" onPress={handleCreate} testID="quiz-create-new" />
         <Button
@@ -267,8 +272,6 @@ export function MyQuizzesScreen({ navigation }: Props) {
         ) : (
           quizzes.map((quiz) => <QuizRow key={quiz.id} quiz={quiz} navigation={navigation} />)
         )}
-
-        <Button title="Done" variant="ghost" onPress={handleBack} testID="quiz-list-done" />
       </ScrollView>
     </Screen>
   );
@@ -279,14 +282,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingVertical: 16,
     gap: 12,
-  },
-  eyebrow: {
-    fontFamily: fonts.body.bold,
-    fontSize: 12,
-    letterSpacing: 2,
-    textTransform: 'uppercase',
-    color: colors.mossGreen,
-    textAlign: 'center',
   },
   heading: {
     fontFamily: fonts.playfair.bold,

@@ -96,7 +96,6 @@ function makeQuestion(n: number): QuizQuestion {
     position: n,
     image_url: `https://cdn.example/quiz/q${n}.jpg`,
     options: ['France', 'Spain', 'Italy', 'Portugal'],
-    year_options: null,
   };
 }
 
@@ -122,12 +121,9 @@ function makePlayState(): QuizPlayState {
         {
           questionId: id,
           selectedOptionIndex: 0,
-          selectedYear: null,
           placeCorrect: true,
-          yearCorrect: null,
           correctOptionIndex: 0,
           correctOption: 'France',
-          correctYear: null,
         },
       ])
     ),
@@ -137,8 +133,6 @@ function makePlayState(): QuizPlayState {
 const RESULTS = {
   correct: 3,
   total: 5,
-  memory_correct: 0,
-  memory_total: 0,
   score_to_beat: { correct: 3, total: 5 },
   state: 'playable',
 };
@@ -285,7 +279,7 @@ describe('QuizResultsScreen share wiring (Q10)', () => {
     expect(content.url).toBe('https://borderbadge.app/q/abc123slug');
     expect(content.message).not.toContain('https://');
     expect(content.message).toBe(
-      'I made a challenge from 5 of my travel photos. Can you beat my 3/5?'
+      'Guess where in the world these 5 photos were taken. I got 3/5 — beat me.'
     );
     shareSpy.mockRestore();
   });

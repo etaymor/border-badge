@@ -712,7 +712,7 @@ describe('QuizLeaderboardScreen', () => {
     // The fixture detail has no questions loaded, so the photo count falls
     // back to the score total instead of reading "0 of my travel photos".
     expect(content.message).toBe(
-      'I made a challenge from 5 of my travel photos. Can you beat my 3/5?'
+      'Guess where in the world these 5 photos were taken. I got 3/5 — beat me.'
     );
     // Re-sharing presents the minted link; it never mints another one.
     expect(mockApiPost).not.toHaveBeenCalledWith('/quiz/quiz-1/share');

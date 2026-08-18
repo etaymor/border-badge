@@ -12,8 +12,8 @@ filters -- and performs the grade server-side:
   answers (clients never submit scores),
 - returns the verdict along with the ground truth revealed by answering.
 
-Ground truth (correct index/country/year) exists only in this return value and
-in backend-only tables; question payloads served to players never contain it.
+Ground truth (correct index/country) exists only in this return value and in
+backend-only tables; question payloads served to players never contain it.
 """
 
 from dataclasses import dataclass
@@ -29,11 +29,8 @@ class GradedAnswer:
     """The server's verdict for one answered question."""
 
     place_correct: bool
-    # None when the question has no year sub-question (no usable capture date).
-    year_correct: bool | None
     correct_option_index: int
     correct_option: str
-    correct_year: int | None
     # The session's updated running score (count of place-correct answers).
     score: int
     # How many questions the session has answered, this one included --
@@ -47,7 +44,6 @@ async def grade_answer(
     session: dict[str, Any],
     question: dict[str, Any],
     selected_option_index: int,
-    selected_year: int | None = None,
 ) -> GradedAnswer:
     """Grade one (session, question, choice) server-side and record it.
 
@@ -76,11 +72,6 @@ async def grade_answer(
     correct_index = int(question["correct_index"])
     place_correct = selected_option_index == correct_index
 
-    capture_year = question.get("capture_year")
-    year_correct: bool | None = None
-    if capture_year is not None:
-        year_correct = selected_year == capture_year
-
     try:
         await db.post(
             "quiz_answer",
@@ -88,9 +79,7 @@ async def grade_answer(
                 "session_id": str(session["id"]),
                 "question_id": str(question["id"]),
                 "selected_option_index": selected_option_index,
-                "selected_year": selected_year,
                 "place_correct": place_correct,
-                "year_correct": bool(year_correct),
             },
         )
     except HTTPException as exc:
@@ -116,10 +105,8 @@ async def grade_answer(
     options = list(question["options"])
     return GradedAnswer(
         place_correct=place_correct,
-        year_correct=year_correct,
         correct_option_index=correct_index,
         correct_option=options[correct_index],
-        correct_year=capture_year,
         score=score,
         answered_count=len(answers),
     )

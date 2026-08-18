@@ -2,8 +2,7 @@
  * Tests for the U5 owner play flow: QuizPlayScreen + QuizResultsScreen.
  *
  * Covers the U5 requirements:
- * - answering all country questions surfaces the seeded score-to-beat, and the
- *   year (memory) results render only in the owner view (AE3)
+ * - answering all country questions surfaces the seeded score-to-beat (AE3)
  * - immediate feedback reveals the correct country on a wrong answer
  * - mid-play kill + relaunch resumes at the next ungraded question (the
  *   persisted play state carries the graded answers)
@@ -110,13 +109,12 @@ const QUIZ_ID = 'quiz-1';
 const SESSION_ID = 'session-1';
 const OPTIONS = ['France', 'Spain', 'Italy', 'Portugal'];
 
-function makeQuestion(n: number, yearOptions: number[] | null = null): QuizQuestion {
+function makeQuestion(n: number): QuizQuestion {
   return {
     id: `q${n}`,
     position: n,
     image_url: `https://cdn.example/quiz/q${n}.jpg`,
     options: OPTIONS,
-    year_options: yearOptions,
   };
 }
 
@@ -136,12 +134,9 @@ function makeAnswer(questionId: string, overrides?: Partial<StoredQuizAnswer>): 
   return {
     questionId,
     selectedOptionIndex: 0,
-    selectedYear: null,
     placeCorrect: true,
-    yearCorrect: null,
     correctOptionIndex: 0,
     correctOption: 'France',
-    correctYear: null,
     ...overrides,
   };
 }
@@ -157,8 +152,6 @@ function makePlayState(answeredIds: string[]): QuizPlayState {
 const COMPLETE_RESULTS = {
   correct: 3,
   total: 5,
-  memory_correct: 2,
-  memory_total: 4,
   score_to_beat: { correct: 3, total: 5 },
   state: 'playable',
 };
@@ -347,12 +340,12 @@ describe('QuizPlayScreen stall recovery', () => {
   // The tapped option keeps its gold ring - and every option stays disabled -
   // for as long as `pendingAnswerKey` is set, and only advancing clears it. Any
   // path that sets it without reaching the next question freezes the game with
-  // the tapped year still lit and no way out but killing the app. Nothing may
+  // the tapped option still lit and no way out but killing the app. Nothing may
   // hold that lock indefinitely.
   it('recovers into the retryable error state when an answer never settles', async () => {
     jest.useFakeTimers();
     try {
-      mockQuizDetail(makeDetail({ questions: [makeQuestion(0, [2019, 2020, 2021, 2022])] }));
+      mockQuizDetail(makeDetail({ questions: [makeQuestion(0)] }));
       mockEnsurePlaySession.mockResolvedValue(makePlayState([]));
       // The request goes out and never comes back: no success, no error.
       mockApiPost.mockImplementation(() => new Promise(() => {}));
@@ -361,11 +354,9 @@ describe('QuizPlayScreen stall recovery', () => {
 
       await waitFor(() => expect(screen.getByTestId('quiz-option-0')).toBeTruthy());
       fireEvent.press(screen.getByTestId('quiz-option-0'));
-      await waitFor(() => expect(screen.getByTestId('quiz-year-2020')).toBeTruthy());
-      fireEvent.press(screen.getByTestId('quiz-year-2020'));
 
-      // Frozen: the year is lit and every option is disabled.
-      await waitFor(() => expect(screen.getByTestId('quiz-year-2020').props.accessibilityState));
+      // Frozen: the option is lit and every option is disabled.
+      await waitFor(() => expect(screen.getByTestId('quiz-option-0').props.accessibilityState));
 
       jest.advanceTimersByTime(20_000);
 
@@ -417,10 +408,8 @@ describe('QuizPlayScreen', () => {
     mockPostRoutes({
       [`/quiz/${QUIZ_ID}/answer`]: {
         place_correct: false,
-        year_correct: null,
         correct_option_index: 0,
         correct_option: 'France',
-        correct_year: null,
         score: 0,
       },
     });
@@ -440,28 +429,18 @@ describe('QuizPlayScreen', () => {
         session_id: SESSION_ID,
         question_id: 'q0',
         selected_option_index: 1,
-        selected_year: null,
       })
     );
   });
 
-  it('asks the year question for the same photo and grades both in one call', async () => {
-    mockQuizDetail(
-      makeDetail({
-        questions: [
-          makeQuestion(0, [2018, 2019, 2020, 2021]),
-          ...[1, 2, 3, 4].map((n) => makeQuestion(n)),
-        ],
-      })
-    );
+  it('grades a country pick in a single call, with no second sub-question', async () => {
+    mockQuizDetail(makeDetail());
     mockEnsurePlaySession.mockResolvedValue(makePlayState([]));
     mockPostRoutes({
       [`/quiz/${QUIZ_ID}/answer`]: {
         place_correct: true,
-        year_correct: true,
         correct_option_index: 1,
         correct_option: 'Spain',
-        correct_year: 2019,
         score: 1,
       },
     });
@@ -471,15 +450,14 @@ describe('QuizPlayScreen', () => {
     await waitFor(() => expect(screen.getByText('Spain')).toBeTruthy());
     fireEvent.press(screen.getByText('Spain'));
 
-    // The year memory question comes BEFORE any grading round-trip.
-    await waitFor(() => expect(screen.getByTestId('quiz-year-prompt')).toBeTruthy());
-    expect(mockApiPost).not.toHaveBeenCalled();
-
-    fireEvent.press(screen.getByText('2019'));
+    // One tap per photo: the country pick goes straight to grading and the
+    // game advances. Nothing asks about the year.
     await waitFor(() => expect(screen.getByText('2 OF 5')).toBeTruthy());
+    expect(screen.queryByTestId('quiz-year-prompt')).toBeNull();
+    expect(mockApiPost).toHaveBeenCalledTimes(1);
     expect(mockApiPost).toHaveBeenCalledWith(
       `/quiz/${QUIZ_ID}/answer`,
-      expect.objectContaining({ selected_option_index: 1, selected_year: 2019 })
+      expect.not.objectContaining({ selected_year: expect.anything() })
     );
   });
 
@@ -489,10 +467,8 @@ describe('QuizPlayScreen', () => {
     mockPostRoutes({
       [`/quiz/${QUIZ_ID}/answer`]: {
         place_correct: true,
-        year_correct: null,
         correct_option_index: 0,
         correct_option: 'France',
-        correct_year: null,
         score: 3,
       },
       [`/quiz/${QUIZ_ID}/complete`]: COMPLETE_RESULTS,
@@ -520,10 +496,8 @@ describe('QuizPlayScreen', () => {
 describe('QuizPlayScreen resilience (BUG-1)', () => {
   const ANSWER_RESULT = {
     place_correct: true,
-    year_correct: null,
     correct_option_index: 0,
     correct_option: 'France',
-    correct_year: null,
     score: 1,
   };
 
@@ -686,46 +660,26 @@ describe('QuizPlayScreen photo inspector (Unit 1.2)', () => {
     expect(screen.getByTestId('quiz-option-1').props.accessibilityState.disabled).toBe(true);
   });
 
-  it('a pending country pick survives inspecting during the year question', async () => {
-    mockQuizDetail(
-      makeDetail({
-        questions: [
-          makeQuestion(0, [2018, 2019, 2020, 2021]),
-          ...[1, 2, 3, 4].map((n) => makeQuestion(n)),
-        ],
-      })
-    );
+  it('a pending country pick survives an inspect round-trip', async () => {
+    mockQuizDetail(makeDetail());
     mockEnsurePlaySession.mockResolvedValue(makePlayState([]));
-    mockPostRoutes({
-      [`/quiz/${QUIZ_ID}/answer`]: {
-        place_correct: true,
-        year_correct: true,
-        correct_option_index: 1,
-        correct_option: 'Spain',
-        correct_year: 2019,
-        score: 1,
-      },
-    });
+    // The grading call never settles, so the pick stays pending across the
+    // inspector open/close - which is exactly what must not be disturbed.
+    mockApiPost.mockImplementation(() => new Promise(() => {}));
 
     renderPlayScreen();
 
     await waitFor(() => expect(screen.getByTestId('quiz-option-1')).toBeTruthy());
     fireEvent.press(screen.getByTestId('quiz-option-1'));
-    await waitFor(() => expect(screen.getByTestId('quiz-year-prompt')).toBeTruthy());
+    await waitFor(() => expect(mockApiPost).toHaveBeenCalledTimes(1));
 
     fireEvent.press(screen.getByTestId('quiz-photo-inspect'));
     fireEvent.press(screen.getByTestId('quiz-photo-inspector-close'));
 
-    // Still on the year question for the same photo; answering grades BOTH
-    // picks in one call - the country pick made before inspecting included.
-    expect(screen.getByTestId('quiz-year-prompt')).toBeTruthy();
-    fireEvent.press(screen.getByText('2019'));
-    await waitFor(() =>
-      expect(mockApiPost).toHaveBeenCalledWith(
-        `/quiz/${QUIZ_ID}/answer`,
-        expect.objectContaining({ selected_option_index: 1, selected_year: 2019 })
-      )
-    );
+    // Same photo, same pending pick, same lock: nothing underneath unmounted.
+    expect(screen.getByTestId('quiz-option-1').props.accessibilityState.selected).toBe(true);
+    expect(screen.getByTestId('quiz-option-0').props.accessibilityState.disabled).toBe(true);
+    expect(mockApiPost).toHaveBeenCalledTimes(1);
   });
 
   it('closes an inspector opened during the acknowledgment hold once the question advances', async () => {
@@ -734,10 +688,8 @@ describe('QuizPlayScreen photo inspector (Unit 1.2)', () => {
     mockPostRoutes({
       [`/quiz/${QUIZ_ID}/answer`]: {
         place_correct: true,
-        year_correct: null,
         correct_option_index: 0,
         correct_option: 'France',
-        correct_year: null,
         score: 1,
       },
     });
@@ -775,7 +727,7 @@ describe('QuizPlayScreen photo inspector (Unit 1.2)', () => {
 });
 
 describe('QuizResultsScreen', () => {
-  it('reveals the photo hero with the serif score and the owner-only memory module (AE3)', async () => {
+  it('reveals the photo hero with the serif score and no second, private score', async () => {
     mockQuizDetail(makeDetail({ state: 'playable', score_to_beat: { correct: 3, total: 5 } }));
     mockLoadPlayState.mockResolvedValue(makePlayState(['q0', 'q1', 'q2', 'q3', 'q4']));
 
@@ -789,32 +741,10 @@ describe('QuizResultsScreen', () => {
     expect(within(lockup).getByText('3')).toBeTruthy();
     expect(within(lockup).getByText('5')).toBeTruthy();
 
-    // Memory module: owner-only (arrives only in the completion payload).
-    const memory = screen.getByTestId('quiz-memory-score');
-    expect(within(memory).getByText('Memory')).toBeTruthy();
-    expect(screen.getByText('2 of 4 years right')).toBeTruthy();
-    expect(screen.getByText('Only you see this.')).toBeTruthy();
-  });
-
-  it('hides the memory module when there is no fresh completion payload', async () => {
-    // Arriving from My Quizzes: no results param, only the quiz detail.
-    mockQuizDetail(makeDetail({ state: 'playable', score_to_beat: { correct: 3, total: 5 } }));
-    mockLoadPlayState.mockResolvedValue(makePlayState(['q0', 'q1', 'q2', 'q3', 'q4']));
-
-    renderResultsScreen('none');
-
-    await waitFor(() => expect(screen.getByTestId('quiz-score-to-beat')).toBeTruthy());
+    // The country score is the ONLY score: the private memory module is gone.
     expect(screen.queryByTestId('quiz-memory-score')).toBeNull();
-  });
-
-  it('hides the memory module when no photo carried a year question', async () => {
-    mockQuizDetail(makeDetail({ state: 'playable', score_to_beat: { correct: 3, total: 5 } }));
-    mockLoadPlayState.mockResolvedValue(makePlayState(['q0', 'q1', 'q2', 'q3', 'q4']));
-
-    renderResultsScreen({ ...COMPLETE_RESULTS, memory_correct: 0, memory_total: 0 });
-
-    await waitFor(() => expect(screen.getByTestId('quiz-score-to-beat')).toBeTruthy());
-    expect(screen.queryByTestId('quiz-memory-score')).toBeNull();
+    expect(screen.queryByText('Memory')).toBeNull();
+    expect(screen.queryByText('Only you see this.')).toBeNull();
   });
 
   it('keeps country names out of the recap until Review Answers is opened', async () => {
@@ -903,7 +833,6 @@ describe('QuizResultsScreen', () => {
     mockUploadSwapPhoto.mockResolvedValue({
       storagePath: `quiz/${QUIZ_ID}/new-object.jpg`,
       countryCode: 'FR',
-      captureYear: 2021,
       landscape: null,
     });
     mockPostRoutes({
@@ -932,7 +861,6 @@ describe('QuizResultsScreen', () => {
     expect(mockApiPost).toHaveBeenCalledWith(`/quiz/${QUIZ_ID}/questions/q2/swap`, {
       storage_path: `quiz/${QUIZ_ID}/new-object.jpg`,
       country_code: 'FR',
-      capture_year: 2021,
       landscape: null,
     });
   });
@@ -1025,7 +953,7 @@ describe('QuizResultsScreen', () => {
     expect(content.message).not.toContain('https://borderbadge.app/q/abc123slug');
     // Challenge framing carries the photo count and the score to beat.
     expect(content.message).toBe(
-      'I made a challenge from 5 of my travel photos. Can you beat my 3/5?'
+      'Guess where in the world these 5 photos were taken. I got 3/5 — beat me.'
     );
     shareSpy.mockRestore();
   });

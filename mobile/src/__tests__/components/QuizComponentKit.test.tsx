@@ -6,13 +6,15 @@
  * - VerdictMark renders distinguishable correct/incorrect badges with
  *   accessibility labels and the glyph marks
  * - PhotoHero renders its children above the photo + scrim
+ * - QuizTopBar renders the frame every quiz screen wears: the feature title
+ *   and a close button, in the same place on every screen
  */
 
 import { Text } from 'react-native';
 
-import { render, screen } from '../utils/testUtils';
+import { fireEvent, render, screen } from '../utils/testUtils';
 
-import { PhotoHero, SerifScore, VerdictMark } from '@screens/quiz/components';
+import { PhotoHero, QuizTopBar, SerifScore, VerdictMark } from '@screens/quiz/components';
 
 describe('SerifScore', () => {
   it('renders the score and total numerals', () => {
@@ -63,5 +65,30 @@ describe('PhotoHero', () => {
     render(<PhotoHero source="https://cdn.example/photo.jpg" scrim="full" testID="photo-hero" />);
 
     expect(screen.getByTestId('photo-hero')).toBeTruthy();
+  });
+});
+
+describe('QuizTopBar', () => {
+  it('renders the title and a close button that reports the tap', () => {
+    const onClose = jest.fn();
+    render(<QuizTopBar title="Guess Where" onClose={onClose} testID="top-bar" />);
+
+    expect(screen.getByText('Guess Where')).toBeTruthy();
+    const close = screen.getByTestId('top-bar-close');
+    fireEvent.press(close);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('labels the close button for assistive tech', () => {
+    render(<QuizTopBar title="Guess Where" onClose={jest.fn()} />);
+
+    expect(screen.getByLabelText('Close')).toBeTruthy();
+  });
+
+  it('renders over a light background too', () => {
+    render(<QuizTopBar title="Guess Where" onClose={jest.fn()} variant="light" testID="bar" />);
+
+    expect(screen.getByTestId('bar')).toBeTruthy();
+    expect(screen.getByText('Guess Where')).toBeTruthy();
   });
 });

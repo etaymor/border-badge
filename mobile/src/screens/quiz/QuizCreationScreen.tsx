@@ -22,6 +22,15 @@
  * lands as a crisp thumbnail over a neutral placeholder - photos the user
  * recognizes, not a frozen spinner, across the up-to-90-second wait.
  *
+ * The build reads as ONE continuous process, because it is: the service locks
+ * each photo into its slot as it is found (`pickLedger`), so `pickUris` is
+ * append-only from the first find through the last upload. This screen holds
+ * up its end - one meter spanning both steps (the hunt fills the first
+ * HUNT_BAR_SHARE, the upload the rest) and a counter that never restarts.
+ * Both used to reset at the hunt/upload handover, on top of a photo list that
+ * changed underneath them, which read as the build crashing and starting
+ * over.
+ *
  * Owns every state of the creation flow:
  * - intro (freshness-aware confirm) and resume-draft confirm (pre-flighted
  *   via loadDraftState instead of discovered after an interruption)
@@ -63,6 +72,7 @@ import type {
 import type { RootStackScreenProps } from '@navigation/types';
 
 import { PhotoHero } from './components/PhotoHero';
+import { QuizTopBar } from './components/QuizTopBar';
 import { DURATION_BASE } from './components/motionTokens';
 import { introPoster } from './sampleAssets';
 
@@ -87,6 +97,13 @@ const WORKING_STATUS: Record<QuizCreationStep, string> = {
   checking: 'Finding your travel photos',
   building: 'Building your challenge',
 };
+
+/**
+ * Share of the one progress meter that belongs to the photo hunt; the upload
+ * fills the rest. The split is what lets a single bar span two steps whose
+ * counts mean different things without ever moving backwards.
+ */
+const HUNT_BAR_SHARE = 0.7;
 
 /**
  * Name the rule that actually failed. The backend has always returned a
@@ -152,6 +169,8 @@ export function QuizCreationScreen({ navigation }: Props) {
   const [outcome, setOutcome] = useState<QuizCreationOutcome | null>(null);
   const [freshness, setFreshness] = useState<LibraryFreshness | null>(null);
   const [draftHeroUri, setDraftHeroUri] = useState<string | null>(null);
+  // The resumable draft's photos, so Resume can paint the grid immediately.
+  const [draftPickUris, setDraftPickUris] = useState<string[]>([]);
   const [draftUploadCounts, setDraftUploadCounts] = useState<{
     uploaded: number;
     total: number;
@@ -196,7 +215,20 @@ export function QuizCreationScreen({ navigation }: Props) {
     setPhase('working');
     setOutcome(null);
     const scanExpected = !freshness?.fresh;
-    setProgress({ step: scanExpected ? 'scanning' : 'checking' });
+    // Resuming a draft already has its photos: seed the grid with them rather
+    // than blanking it until the first upload tick arrives. A fresh start (or
+    // a retry after a decline) has nothing to show, and must not show the
+    // previous attempt's finds.
+    setProgress(
+      draftPickUris.length > 0
+        ? {
+            step: 'building',
+            current: 0,
+            total: draftPickUris.length,
+            pickUris: draftPickUris,
+          }
+        : { step: scanExpected ? 'scanning' : 'checking' }
+    );
     const controller = new AbortController();
     abortRef.current = controller;
     createQuiz.mutate(
@@ -240,6 +272,7 @@ export function QuizCreationScreen({ navigation }: Props) {
           total: draft.picks.length,
         });
         setDraftHeroUri(draft.picks[0]?.uri ?? null);
+        setDraftPickUris(draft.picks.map((pick) => pick.uri));
         setPhase('resume-draft');
       } else if (permissionStatus === 'granted' || permissionStatus === 'limited') {
         setPhase('intro');
@@ -279,6 +312,17 @@ export function QuizCreationScreen({ navigation }: Props) {
     navigation.goBack();
   });
 
+  // One close button for every phase: mid-build it must abort the controller
+  // first (the persisted draft stays resumable - KTD7), otherwise the run
+  // would keep classifying behind a screen the user has left.
+  const handleClose = useStableCallback(() => {
+    if (phase === 'working') {
+      handleCancel();
+      return;
+    }
+    handleBack();
+  });
+
   const handleOpenSettings = useStableCallback(() => {
     Linking.openSettings();
   });
@@ -294,26 +338,32 @@ export function QuizCreationScreen({ navigation }: Props) {
         }.`
     : 'We will check your library for new photos first.';
 
-  // Live build state (service contract: pickUris = eligible picks in found
-  // order; hero = the most recent one; absent on scanning emissions).
+  // Live build state (service contract: pickUris = the locked game in slot
+  // order, APPEND-ONLY across the whole run; hero = the most recent find;
+  // absent on scanning emissions).
   const step: QuizCreationStep = progress?.step ?? 'checking';
   const pickUris = progress?.pickUris ?? [];
   const lastPickUri = pickUris.length > 0 ? pickUris[pickUris.length - 1] : null;
-  const showCounter =
-    progress?.current !== undefined && progress?.total !== undefined && progress.total > 0;
-  const barFraction =
+  const uploading = step === 'building';
+  const uploadedCount = uploading ? (progress?.current ?? 0) : 0;
+  const withinStep =
     progress?.total && progress.total > 0 && progress.current !== undefined
       ? Math.min(1, Math.max(0, progress.current / progress.total))
       : 0;
-  // Hunting fills the game-size grid; the upload stage's grid IS the final
-  // pick list, so no pending placeholders linger once the hunt is over.
-  const slotTotal =
-    step === 'building'
-      ? pickUris.length
-      : progress?.total && progress.total > 0
-        ? progress.total
-        : // Grid size before the first progress emission names the real game size.
-          QUIZ_MAX_PHOTOS;
+  // ONE meter across both steps. The hunt owns the first HUNT_BAR_SHARE, the
+  // upload the rest, so the handover - where the count restarts at zero
+  // against a different total - cannot make the bar jump backwards.
+  const barFraction = uploading
+    ? HUNT_BAR_SHARE + (1 - HUNT_BAR_SHARE) * withinStep
+    : HUNT_BAR_SHARE * withinStep;
+  // The counter always reads FOUND photos. During the upload the hunt is over
+  // and every slot is filled, so it reads n of n - complete, and still.
+  const foundCount = uploading ? pickUris.length : (progress?.current ?? 0);
+  const foundTotal = uploading ? pickUris.length : (progress?.total ?? QUIZ_MAX_PHOTOS);
+  const showCounter = foundTotal > 0;
+  // Hunting shows the game-size grid; once the hunt is over the real game
+  // size is known, so the still-empty placeholders (never a found photo) go.
+  const slotTotal = uploading ? pickUris.length : QUIZ_MAX_PHOTOS;
 
   // Hero region per phase: real photos as soon as any are known, the bundled
   // intro poster for the confirm steps, a plain navy field for utility
@@ -375,6 +425,9 @@ export function QuizCreationScreen({ navigation }: Props) {
         <View style={styles.heroNeutral} testID="quiz-permission-loading">
           <ActivityIndicator size="large" color={colors.sunsetGold} />
         </View>
+        <View style={styles.topBar} pointerEvents="box-none">
+          <QuizTopBar title="Guess Where" onClose={handleBack} testID="quiz-creation-top-bar" />
+        </View>
       </View>
     );
   }
@@ -383,6 +436,9 @@ export function QuizCreationScreen({ navigation }: Props) {
     <View style={styles.stage}>
       <StatusBar barStyle="light-content" />
       <View style={styles.heroRegion}>{hero}</View>
+      <View style={styles.topBar} pointerEvents="box-none">
+        <QuizTopBar title="Guess Where" onClose={handleClose} testID="quiz-creation-top-bar" />
+      </View>
 
       <View style={[styles.sheet, { paddingBottom: insets.bottom + 20 }]}>
         {phase === 'intro' && (
@@ -395,7 +451,6 @@ export function QuizCreationScreen({ navigation }: Props) {
               {freshnessLine}
             </Text>
             <Button title="Build My Challenge" onPress={startCreation} testID="quiz-build-start" />
-            <Button title="Not Now" variant="ghost" onPress={handleBack} />
           </View>
         )}
 
@@ -421,7 +476,6 @@ export function QuizCreationScreen({ navigation }: Props) {
               We read them on your device and upload only the ones your challenge uses.
             </Text>
             <Button title="Allow Photo Access" onPress={handleRequestPermission} />
-            <Button title="Not Now" variant="ghost" onPress={handleBack} />
           </View>
         )}
 
@@ -430,7 +484,6 @@ export function QuizCreationScreen({ navigation }: Props) {
             <Text style={styles.title}>Photo Access Needed</Text>
             <Text style={styles.body}>Turn on photo access in Settings, then come back.</Text>
             <Button title="Open Settings" onPress={handleOpenSettings} />
-            <Button title="Back" variant="ghost" onPress={handleBack} />
           </View>
         )}
 
@@ -443,11 +496,20 @@ export function QuizCreationScreen({ navigation }: Props) {
 
             {showCounter && (
               <Text style={styles.counter} testID="quiz-found-counter">
-                {progress?.current}
+                {foundCount}
                 <Text style={styles.counterOf}> of </Text>
-                {progress?.total}
+                {foundTotal}
               </Text>
             )}
+
+            {/* The only number that moves during a classification batch: one
+                batch can take most of a minute, and without this the whole
+                screen sits still through it. */}
+            {step === 'checking' && progress?.examined ? (
+              <Text style={styles.examinedLine} testID="quiz-examined-line">
+                {progress.examined.toLocaleString()} photos checked
+              </Text>
+            ) : null}
 
             <View style={styles.barTrack} testID="quiz-progress-track">
               <View style={[styles.barFill, { width: `${barFraction * 100}%` }]} />
@@ -468,9 +530,14 @@ export function QuizCreationScreen({ navigation }: Props) {
                       {uri ? (
                         // The warm-cream layer mounts with the photo: the slot
                         // brightens for a beat while the thumbnail fades in.
+                        // During the upload a slot stays dimmed until its own
+                        // photo is up - the grid itself is the upload meter.
                         <Animated.View
                           entering={reduceMotion ? undefined : FadeIn.duration(DURATION_BASE)}
-                          style={styles.slotPhotoLayer}
+                          style={[
+                            styles.slotPhotoLayer,
+                            uploading && index >= uploadedCount && styles.slotPhotoPending,
+                          ]}
                         >
                           <Image
                             source={{ uri }}
@@ -490,7 +557,6 @@ export function QuizCreationScreen({ navigation }: Props) {
             <Text style={styles.privacyLine} testID="quiz-privacy-line">
               Your photos stay private until you share the challenge.
             </Text>
-            <Button title="Cancel" variant="ghost" onPress={handleCancel} />
           </View>
         )}
 
@@ -506,7 +572,6 @@ export function QuizCreationScreen({ navigation }: Props) {
               </Text>
               <Button title="Allow More Photos" onPress={handleOpenSettings} />
               <Button title="Try Again" variant="outline" onPress={startCreation} />
-              <Button title="Back" variant="ghost" onPress={handleBack} />
             </View>
           ) : (
             <View style={styles.sheetContent} testID="quiz-thin-library">
@@ -518,7 +583,6 @@ export function QuizCreationScreen({ navigation }: Props) {
                 {thinLibraryReason(outcome)}
               </Text>
               <Button title="Try Again" onPress={startCreation} />
-              <Button title="Back" variant="ghost" onPress={handleBack} />
             </View>
           ))}
 
@@ -529,7 +593,6 @@ export function QuizCreationScreen({ navigation }: Props) {
               We could not check your photos right now. Your library is fine.
             </Text>
             <Button title="Retry" onPress={startCreation} />
-            <Button title="Back" variant="ghost" onPress={handleBack} />
           </View>
         )}
 
@@ -559,6 +622,12 @@ const styles = StyleSheet.create({
   heroRegion: {
     flex: 1,
     minHeight: 200,
+  },
+  topBar: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
   },
   heroFill: {
     flex: 1,
@@ -647,6 +716,14 @@ const styles = StyleSheet.create({
     fontSize: 22,
     color: colors.stormGray,
   },
+  examinedLine: {
+    fontFamily: fonts.body.regular,
+    fontSize: 13,
+    lineHeight: 19,
+    color: colors.stormGray,
+    textAlign: 'center',
+    marginTop: -8,
+  },
   barTrack: {
     height: 3,
     borderRadius: 1.5,
@@ -713,6 +790,9 @@ const styles = StyleSheet.create({
   slotPhotoLayer: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: colors.warmCream,
+  },
+  slotPhotoPending: {
+    opacity: 0.55,
   },
   slotPhoto: {
     flex: 1,

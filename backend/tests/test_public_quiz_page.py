@@ -5,9 +5,9 @@ non-negotiables under test:
 
 - Only quizzes in state 'shared' render (R9). Unknown slugs and pre-share
   states 404; revoked quizzes serve a content-free "gone" page (AE5).
-- GROUND TRUTH NEVER REACHES THE PAGE: no correct_index, no capture_year,
-  no year_options, and the correct country appears nowhere outside the
-  four-option list in the JSON data island.
+- GROUND TRUTH NEVER REACHES THE PAGE: no correct_index, and the correct
+  country appears nowhere outside the four-option list in the JSON data
+  island. (The quiz is country-only; year columns no longer exist.)
 - Every /q/ response is noindex (meta tag + X-Robots-Tag header) and the
   slug never leaks into sitemap.xml or robots.txt.
 - 200s cache for at most 60s (KTD5: quiz photos have a 60s object TTL);
@@ -32,7 +32,6 @@ QUIZ_SLUG = "0123456789abcdef0123456789abcdef"
 
 # Distinctive markers that must never appear outside their sanctioned spot.
 CORRECT_COUNTRY = "Kiribati"
-CAPTURE_YEAR = 1987
 
 
 def _quiz_row(state: str = "shared", **overrides: Any) -> dict[str, Any]:
@@ -65,8 +64,6 @@ def _question_rows(count: int = 10) -> list[dict[str, Any]]:
                 if i == 0
                 else ["Chile", "Kenya", "Norway", "Vietnam"],
                 "correct_index": 0,
-                "capture_year": CAPTURE_YEAR if i == 0 else None,
-                "year_options": [1985, 1986, 1987, 1988] if i == 0 else None,
                 "created_at": "2026-01-01T00:00:00Z",
             }
         )
@@ -155,16 +152,18 @@ def test_shared_quiz_page_data_island_carries_the_game(
 def test_shared_quiz_page_contains_no_ground_truth(
     client: TestClient, mock_supabase_client: AsyncMock
 ) -> None:
-    """No correct index, no capture year, no year options -- anywhere."""
+    """No correct index anywhere -- and nothing year-shaped, which the
+    country-only quiz no longer has to serve at all."""
     response = _get_quiz_page(client, mock_supabase_client)
 
     island_keys = _all_keys(_data_island(response.text))
     assert not island_keys & {"correct_index", "capture_year", "year_options"}
+    assert not any("year" in key for key in island_keys)
     assert "correct" not in island_keys
 
     assert "correct_index" not in response.text
     assert "year_options" not in response.text
-    assert str(CAPTURE_YEAR) not in response.text
+    assert "capture_year" not in response.text
     # The correct country may appear ONLY inside the island's options list.
     assert response.text.count(CORRECT_COUNTRY) == 1
 

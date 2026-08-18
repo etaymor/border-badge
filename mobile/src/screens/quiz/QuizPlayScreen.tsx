@@ -10,12 +10,9 @@
  * hand over like an editorial slideshow: the answered photo fades toward
  * navy, the next fades up and settles from a hair over full size.
  *
- * Per photo: the four country options first, then (when the photo has a
- * usable capture date) the year memory question - both picks are graded in a
- * SINGLE /answer call because the backend grades each question at most once
- * per session. There is NO per-question verdict (Q8): the tapped option gets
- * a neutral navy acknowledgment and the game moves on; the score lands once,
- * on the results screen.
+ * Per photo: four country options, one tap. There is NO per-question verdict
+ * (Q8): the tapped option gets a neutral navy acknowledgment and the game
+ * moves on; the score lands once, on the results screen.
  *
  * Resume: every graded verdict is persisted locally with the session id
  * (`quizPlay.recordAnswer`), so killing the app mid-play resumes at the next
@@ -46,7 +43,6 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, {
   FadeIn,
-  FadeInDown,
   FadeOut,
   withSpring,
   withTiming,
@@ -83,7 +79,7 @@ import { sortQuestionsByPosition } from './questionOrder';
 
 type Props = RootStackScreenProps<'QuizPlay'>;
 
-type PlayPhase = 'loading' | 'country' | 'year' | 'completing' | 'error';
+type PlayPhase = 'loading' | 'country' | 'completing' | 'error';
 
 type PhotoOrientation = 'portrait' | 'landscape';
 
@@ -168,7 +164,6 @@ export function QuizPlayScreen({ navigation, route }: Props) {
   const [phase, setPhase] = useState<PlayPhase>('loading');
   const [playState, setPlayState] = useState<QuizPlayState | null>(null);
   const [activeQuestionId, setActiveQuestionId] = useState<string | null>(null);
-  const [pendingCountryIndex, setPendingCountryIndex] = useState<number | null>(null);
   // The tapped option keeps its navy acknowledgment while the answer is in
   // flight and through the hold - a neutral "got it", never a verdict.
   const [pendingAnswerKey, setPendingAnswerKey] = useState<string | null>(null);
@@ -238,10 +233,9 @@ export function QuizPlayScreen({ navigation, route }: Props) {
   }, [phase, quiz, questions, playState, completePlay]);
 
   // Warm the NEXT photo while the player is still answering this one. Without
-  // this, every advance paid for a cold download + decode, which is why the
-  // wait after the year question was so much longer than the country->year
-  // step (that one mounts no new image at all). Exactly one ahead: warming the
-  // whole game would put every full-size bitmap in memory at once.
+  // this, every advance paid for a cold download + decode, which is the whole
+  // reason an advance used to stall. Exactly one ahead: warming the whole game
+  // would put every full-size bitmap in memory at once.
   useEffect(() => {
     if (!activeQuestionId) return;
     const index = questions.findIndex((question) => question.id === activeQuestionId);
@@ -260,7 +254,6 @@ export function QuizPlayScreen({ navigation, route }: Props) {
   }, [quizLoadFailed, quizFetching, phase]);
 
   const goToNext = useStableCallback((state: QuizPlayState) => {
-    setPendingCountryIndex(null);
     setPendingAnswerKey(null);
     const next = questions.find((question) => !state.answers[question.id]);
     if (next) {
@@ -302,7 +295,7 @@ export function QuizPlayScreen({ navigation, route }: Props) {
     }
   });
 
-  const submitAnswer = useStableCallback((optionIndex: number, year: number | null) => {
+  const submitAnswer = useStableCallback((optionIndex: number) => {
     if (!playState || !activeQuestion) {
       // The caller already lit the tapped option; never leave it lit and
       // disabled with no request in flight to clear it.
@@ -315,7 +308,6 @@ export function QuizPlayScreen({ navigation, route }: Props) {
         sessionId: playState.sessionId,
         questionId,
         selectedOptionIndex: optionIndex,
-        selectedYear: year,
       },
       {
         onSuccess: (result: QuizAnswerResult) => {
@@ -323,12 +315,9 @@ export function QuizPlayScreen({ navigation, route }: Props) {
             {
               questionId,
               selectedOptionIndex: optionIndex,
-              selectedYear: year,
               placeCorrect: result.place_correct,
-              yearCorrect: result.year_correct ?? null,
               correctOptionIndex: result.correct_option_index,
               correctOption: result.correct_option,
-              correctYear: result.correct_year ?? null,
             },
             true
           );
@@ -342,12 +331,9 @@ export function QuizPlayScreen({ navigation, route }: Props) {
               {
                 questionId,
                 selectedOptionIndex: optionIndex,
-                selectedYear: year,
                 placeCorrect: false,
-                yearCorrect: null,
                 correctOptionIndex: -1,
                 correctOption: '',
-                correctYear: null,
                 verdictUnknown: true,
               },
               false
@@ -364,21 +350,8 @@ export function QuizPlayScreen({ navigation, route }: Props) {
   const handleSelectCountry = useStableCallback((optionIndex: number) => {
     if (answerMutation.isPending || pendingAnswerKey !== null) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-    if (activeQuestion?.year_options?.length) {
-      setPendingCountryIndex(optionIndex);
-      setPhase('year');
-    } else {
-      setPendingAnswerKey(`option-${optionIndex}`);
-      submitAnswer(optionIndex, null);
-    }
-  });
-
-  const handleSelectYear = useStableCallback((year: number) => {
-    if (answerMutation.isPending || pendingAnswerKey !== null) return;
-    if (pendingCountryIndex === null) return;
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-    setPendingAnswerKey(`year-${year}`);
-    submitAnswer(pendingCountryIndex, year);
+    setPendingAnswerKey(`option-${optionIndex}`);
+    submitAnswer(optionIndex);
   });
 
   // The watchdog: nothing may hold the answer lock indefinitely. The warn names
@@ -437,7 +410,7 @@ export function QuizPlayScreen({ navigation, route }: Props) {
     setSheetHeight((prev) => (prev === next ? prev : next));
   });
 
-  const showQuestion = (phase === 'country' || phase === 'year') && activeQuestion;
+  const showQuestion = phase === 'country' && activeQuestion;
   const entering = reduceMotion ? FadeIn.duration(0) : photoIn;
   // No lateral toss: the answered photo simply fades toward the navy stage.
   const exiting = reduceMotion ? FadeOut.duration(0) : FadeOut.duration(DURATION_FAST);
@@ -463,57 +436,31 @@ export function QuizPlayScreen({ navigation, route }: Props) {
 
   const answerContent =
     showQuestion && activeQuestion ? (
-      phase === 'country' ? (
-        <Animated.View
-          key={`country-${activeQuestion.id}`}
-          entering={reduceMotion ? undefined : FadeIn.duration(DURATION_BASE).delay(DURATION_FAST)}
-          exiting={reduceMotion ? undefined : FadeOut.duration(DURATION_FAST)}
-          style={styles.optionsBlock}
-        >
-          <Text style={styles.promptAccent}>guess where</Text>
-          <Text style={styles.prompt} testID="quiz-country-prompt">
-            Where in the world was this?
-          </Text>
-          <View style={styles.optionsGrid}>
-            {activeQuestion.options.map((option, index) => (
-              <GuessOption
-                key={option}
-                label={option}
-                selected={pendingAnswerKey === `option-${index}`}
-                disabled={answerMutation.isPending || pendingAnswerKey !== null}
-                entranceDelay={reduceMotion ? 0 : DURATION_BASE + index * 50}
-                onPress={() => handleSelectCountry(index)}
-                style={styles.optionCell}
-                testID={`quiz-option-${index}`}
-              />
-            ))}
-          </View>
-        </Animated.View>
-      ) : (
-        <Animated.View
-          key={`year-${activeQuestion.id}`}
-          entering={reduceMotion ? undefined : FadeInDown.duration(DURATION_BASE)}
-          style={styles.optionsBlock}
-        >
-          <Text style={styles.promptAccent}>from memory</Text>
-          <Text style={styles.prompt} testID="quiz-year-prompt">
-            What year was this?
-          </Text>
-          <View style={styles.optionsGrid}>
-            {(activeQuestion.year_options ?? []).map((year) => (
-              <GuessOption
-                key={year}
-                label={String(year)}
-                selected={pendingAnswerKey === `year-${year}`}
-                disabled={answerMutation.isPending || pendingAnswerKey !== null}
-                onPress={() => handleSelectYear(year)}
-                style={styles.optionCell}
-                testID={`quiz-year-${year}`}
-              />
-            ))}
-          </View>
-        </Animated.View>
-      )
+      <Animated.View
+        key={`country-${activeQuestion.id}`}
+        entering={reduceMotion ? undefined : FadeIn.duration(DURATION_BASE).delay(DURATION_FAST)}
+        exiting={reduceMotion ? undefined : FadeOut.duration(DURATION_FAST)}
+        style={styles.optionsBlock}
+      >
+        <Text style={styles.promptAccent}>guess where</Text>
+        <Text style={styles.prompt} testID="quiz-country-prompt">
+          Where in the world was this?
+        </Text>
+        <View style={styles.optionsGrid}>
+          {activeQuestion.options.map((option, index) => (
+            <GuessOption
+              key={option}
+              label={option}
+              selected={pendingAnswerKey === `option-${index}`}
+              disabled={answerMutation.isPending || pendingAnswerKey !== null}
+              entranceDelay={reduceMotion ? 0 : DURATION_BASE + index * 50}
+              onPress={() => handleSelectCountry(index)}
+              style={styles.optionCell}
+              testID={`quiz-option-${index}`}
+            />
+          ))}
+        </View>
+      </Animated.View>
     ) : null;
 
   return (

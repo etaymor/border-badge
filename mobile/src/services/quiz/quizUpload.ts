@@ -114,7 +114,6 @@ export async function uploadAndFinalize(
       photos: state.picks.map((pick) => ({
         storage_path: pick.storagePath,
         country_code: pick.countryCode,
-        capture_year: pick.captureYear,
         landscape: pick.landscape ?? null,
       })),
     });

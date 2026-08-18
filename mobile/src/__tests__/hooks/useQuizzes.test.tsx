@@ -265,8 +265,6 @@ describe('useQuizzes', () => {
         data: {
           correct: 7,
           total: 10,
-          memory_correct: 3,
-          memory_total: 6,
           score_to_beat: { correct: 7, total: 10 },
           state: 'playable',
         },

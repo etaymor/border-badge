@@ -20,15 +20,12 @@ export type RootStackParamList = {
   QuizPlay: { quizId: string };
   QuizResults: {
     quizId: string;
-    /** Owner completion payload (backend QuizCompleteResponse). The memory
-     * score exists only here - it is never stored nor served publicly.
-     * Absent when arriving from the My Quizzes list (no fresh play-through);
-     * the screen then renders entirely from the quiz detail. */
+    /** Owner completion payload (backend QuizCompleteResponse). Absent when
+     * arriving from the My Quizzes list (no fresh play-through); the screen
+     * then renders entirely from the quiz detail. */
     results?: {
       correct: number;
       total: number;
-      memory_correct: number;
-      memory_total: number;
       score_to_beat: { correct: number; total: number };
       state: string;
     };

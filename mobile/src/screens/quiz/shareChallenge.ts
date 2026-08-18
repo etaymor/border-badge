@@ -27,17 +27,17 @@ export interface ChallengeShareDetails {
 
 export function buildChallengeMessage(details: ChallengeShareDetails): string {
   const photoCount = details.photoCount ?? details.score?.total ?? null;
-  const photosPhrase =
-    photoCount != null ? `${photoCount} of my travel photos` : 'my travel photos';
+  const photosPhrase = photoCount != null ? `these ${photoCount} photos` : 'my travel photos';
+  // Lead with the game, not with the fact that a thing was made: the recipient
+  // reads this in a message list next to an unfurled link, so the first clause
+  // has to say what they are being asked to do.
+  const invitation = `Guess where in the world ${photosPhrase} were taken.`;
   if (details.score) {
-    return (
-      `I made a challenge from ${photosPhrase}. ` +
-      `Can you beat my ${details.score.correct}/${details.score.total}?`
-    );
+    return `${invitation} I got ${details.score.correct}/${details.score.total} — beat me.`;
   }
   // Score unknown (a surface without the seeded pair): keep the invitation
   // whole without inventing numbers.
-  return `I made a challenge from ${photosPhrase}. Can you guess where they were taken?`;
+  return invitation;
 }
 
 export async function presentChallengeShare(

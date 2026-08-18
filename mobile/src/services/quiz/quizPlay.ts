@@ -53,12 +53,9 @@ function playStateKey(quizId: string): string {
 export interface StoredQuizAnswer {
   questionId: string;
   selectedOptionIndex: number;
-  selectedYear: number | null;
   placeCorrect: boolean;
-  yearCorrect: boolean | null;
   correctOptionIndex: number;
   correctOption: string;
-  correctYear: number | null;
   /**
    * True when the server reported the question as already answered (409) but
    * the original verdict never persisted locally (BUG-1 recovery). The
@@ -209,7 +206,6 @@ export async function loadSwapCandidates(quizId: string): Promise<GeoEligibleCan
 export interface SwapUploadResult {
   storagePath: string;
   countryCode: string;
-  captureYear: number | null;
   /**
    * Scenic tag for decoy selection, when a cached verdict supplied one. The
    * swap endpoint has always accepted it (QuizSwapRequest extends
@@ -254,7 +250,6 @@ export async function uploadSwapPhoto(
   return {
     storagePath: target.storage_path,
     countryCode: candidate.countryCode,
-    captureYear: candidate.creationTime > 0 ? new Date(candidate.creationTime).getFullYear() : null,
     landscape: candidate.landscape ?? null,
   };
 }

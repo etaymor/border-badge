@@ -83,7 +83,7 @@ export function toCandidate(cached: CachedPhoto): QuizPhotoCandidate {
 export const NEAR_DUPLICATE_WINDOW_MS = 90_000;
 export const NEAR_DUPLICATE_RADIUS_M = 100;
 
-function isNearDuplicatePair(a: QuizPhotoCandidate, b: QuizPhotoCandidate): boolean {
+export function isNearDuplicatePair(a: QuizPhotoCandidate, b: QuizPhotoCandidate): boolean {
   return (
     a.countryCode !== null &&
     a.countryCode === b.countryCode &&
@@ -150,7 +150,7 @@ export function photoDayKey(candidate: QuizPhotoCandidate): string {
   return new Date(candidate.creationTime).toISOString().slice(0, 10);
 }
 
-function countryYearKey(candidate: GeoEligibleCandidate): string {
+export function countryYearKey(candidate: GeoEligibleCandidate): string {
   return `${candidate.countryCode}:${new Date(candidate.creationTime).getUTCFullYear()}`;
 }
 

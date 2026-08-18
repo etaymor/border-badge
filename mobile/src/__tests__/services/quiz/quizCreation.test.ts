@@ -840,12 +840,100 @@ describe('createQuizFromLibrary - progress pick URIs', () => {
     expect(new Set(building.map((progress) => JSON.stringify(progress.pickUris))).size).toBe(1);
   });
 
+  it('never resets the preview across the hunt -> upload handover', async () => {
+    // THE REPORTED BUG. The hunt used to preview the raw eligible list while
+    // the game was chosen afterwards by an independent pass (de-dupe,
+    // re-order, diversity), so at the handover the grid swapped photos,
+    // shuffled the survivors and shrank - part-way through a 90-second wait
+    // it looked like the build had crashed and started over.
+    //
+    // The library is deliberately hostile to the old code: burst siblings and
+    // same-day repeats are exactly what the second pass used to remove.
+    const library = [
+      ...buildCachedLibrary(24),
+      // Burst siblings of the first photo: seconds apart, metres away.
+      ...[1, 2].map(
+        (offset) =>
+          ({
+            id: `FR-burst-${offset}`,
+            uri: `file:///stale/asset-burst-${offset}.jpg`,
+            filename: `asset-burst-${offset}.jpg`,
+            creationTime: Date.UTC(2024, 0, 1, 12) + offset * 4_000,
+            latitude: PLACES[0].latitude,
+            longitude: PLACES[0].longitude,
+            countryCode: PLACES[0].code,
+          }) as CachedPhoto
+      ),
+    ];
+    mockGetAllCachedPhotos.mockResolvedValue(library);
+
+    const emissions: QuizCreationProgress[] = [];
+    const outcome = await createQuizFromLibrary({
+      onProgress: (progress) => emissions.push(progress),
+    });
+    expect(outcome.status).toBe('created');
+
+    // Every emission that carries a list, hunt and upload alike, in order.
+    const lists = emissions
+      .map((progress) => progress.pickUris)
+      .filter((uris): uris is string[] => uris !== undefined);
+    expect(lists.length).toBeGreaterThan(1);
+    // Append-only: each list is a prefix of the next. A swap, a reorder or a
+    // drop anywhere in the run breaks this.
+    for (let index = 1; index < lists.length; index++) {
+      expect(lists[index].slice(0, lists[index - 1].length)).toEqual(lists[index - 1]);
+    }
+    // And there IS a handover to survive: the run crossed into the upload
+    // phase, and the photos it uploads are the photos it previewed.
+    const building = emissions.filter((progress) => progress.step === 'building');
+    expect(building.length).toBeGreaterThan(0);
+    const lastHunt = emissions.filter((progress) => progress.step === 'checking').at(-1)!;
+    expect(building[0].pickUris!.slice(0, lastHunt.pickUris!.length)).toEqual(lastHunt.pickUris);
+    // BUG-2 still holds: at most ONE frame of the burst reaches the game
+    // (which frame is immaterial - they are the same photo to a player).
+    const final = lists[lists.length - 1];
+    const burstGroup = ['asset-0.jpg', 'asset-burst-1.jpg', 'asset-burst-2.jpg'];
+    expect(
+      final.filter((uri) => burstGroup.some((frame) => uri.endsWith(frame))).length
+    ).toBeLessThanOrEqual(1);
+    expect(new Set(final).size).toBe(final.length);
+  });
+
+  it('never moves the progress meter backwards', async () => {
+    mockGetAllCachedPhotos.mockResolvedValue(buildCachedLibrary(60));
+    let seen = 0;
+    verdictFor = () => {
+      seen += 1;
+      return seen % 4 === 0 ? { eligible: true } : { eligible: false, reason: 'indoor' };
+    };
+
+    const emissions: QuizCreationProgress[] = [];
+    const outcome = await createQuizFromLibrary({
+      onProgress: (progress) => emissions.push(progress),
+    });
+    expect(outcome.status).toBe('created');
+
+    // The screen draws one meter across both phases, so the two steps must
+    // hand over without the fraction dropping: the hunt fills the first part
+    // of the bar, the upload the rest.
+    const HUNT_SHARE = 0.7;
+    let previous = -1;
+    for (const progress of emissions) {
+      if (progress.step === 'scanning') continue;
+      if (progress.current === undefined || !progress.total) continue;
+      const within = progress.current / progress.total;
+      const fraction =
+        progress.step === 'building' ? HUNT_SHARE + (1 - HUNT_SHARE) * within : HUNT_SHARE * within;
+      expect(fraction).toBeGreaterThanOrEqual(previous);
+      previous = fraction;
+    }
+  });
+
   it('carries the persisted picks through a resumed upload', async () => {
     const picks = Array.from({ length: 5 }, (_, index) => ({
       assetId: `FR-${index}`,
       uri: `file:///stale/asset-${index}.jpg`,
       countryCode: 'FR',
-      captureYear: 2024,
       storagePath: null,
       uploaded: false,
       landscape: null,

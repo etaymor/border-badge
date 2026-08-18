@@ -515,23 +515,19 @@ def sign_http() -> AsyncMock:
     return http
 
 
-def photos_for(quiz_id: str, codes: list[str], years: list[int | None] | None = None):
-    years = years if years is not None else [2019] * len(codes)
+def photos_for(quiz_id: str, codes: list[str]):
     return [
         {
             "storage_path": f"quiz/{quiz_id}/photo-{i}.jpg",
             "country_code": code,
-            "capture_year": year,
         }
-        for i, (code, year) in enumerate(zip(codes, years, strict=True))
+        for i, code in enumerate(codes)
     ]
 
 
-def finalize(
-    client, db, quiz_id, photos=None, codes=None, years=None, user_id=TEST_USER_ID
-):
+def finalize(client, db, quiz_id, photos=None, codes=None, user_id=TEST_USER_ID):
     if photos is None:
-        photos = photos_for(quiz_id, codes or CODES_10[:5], years)
+        photos = photos_for(quiz_id, codes or CODES_10[:5])
     return call(
         client,
         db,
@@ -546,17 +542,10 @@ def play(client, db, quiz_id, user_id=TEST_USER_ID):
     return call(client, db, "POST", f"/quiz/{quiz_id}/play", user_id=user_id)
 
 
-def answer(
-    client, db, quiz_id, session_id, question, *, correct=True, year_correct=True
-):
+def answer(client, db, quiz_id, session_id, question, *, correct=True):
     idx = question["correct_index"]
     if not correct:
         idx = (idx + 1) % 4
-    year = None
-    if question.get("capture_year") is not None:
-        year = (
-            question["capture_year"] if year_correct else question["capture_year"] - 1
-        )
     return call(
         client,
         db,
@@ -566,14 +555,11 @@ def answer(
             "session_id": session_id,
             "question_id": question["id"],
             "selected_option_index": idx,
-            "selected_year": year,
         },
     )
 
 
-def answer_all(
-    client, db, quiz_id, session_id, wrong_positions=(), wrong_year_positions=()
-):
+def answer_all(client, db, quiz_id, session_id, wrong_positions=()):
     results = []
     for q in db.questions(quiz_id):
         resp = answer(
@@ -583,7 +569,6 @@ def answer_all(
             session_id,
             q,
             correct=q["position"] not in wrong_positions,
-            year_correct=q["position"] not in wrong_year_positions,
         )
         assert resp.status_code == 200, resp.text
         results.append(resp.json())
@@ -605,7 +590,7 @@ def share(client, db, quiz_id, user_id=TEST_USER_ID):
     return call(client, db, "POST", f"/quiz/{quiz_id}/share", user_id=user_id)
 
 
-def build_playable(client, db, n=5, wrong_positions=(), wrong_year_positions=()):
+def build_playable(client, db, n=5, wrong_positions=()):
     """Full flow: seed draft -> finalize -> play -> answer all -> complete."""
     quiz_id = db.seed_quiz()
     resp = finalize(client, db, quiz_id, codes=CODES_10[:n])
@@ -613,14 +598,7 @@ def build_playable(client, db, n=5, wrong_positions=(), wrong_year_positions=())
     resp = play(client, db, quiz_id)
     assert resp.status_code == 201, resp.text
     session_id = resp.json()["session_id"]
-    answer_all(
-        client,
-        db,
-        quiz_id,
-        session_id,
-        wrong_positions=wrong_positions,
-        wrong_year_positions=wrong_year_positions,
-    )
+    answer_all(client, db, quiz_id, session_id, wrong_positions=wrong_positions)
     resp = complete(client, db, quiz_id, session_id)
     assert resp.status_code == 200, resp.text
     return quiz_id, session_id, resp.json()
@@ -920,22 +898,13 @@ class TestFinalize:
         decoys = [o for i, o in enumerate(q["options"]) if i != q["correct_index"]]
         assert "Thailand" not in decoys
 
-    def test_year_options_bracket_capture_year(self, client: TestClient) -> None:
+    def test_questions_carry_no_year_columns(self, client: TestClient) -> None:
+        """The quiz is country-only: nothing year-shaped is ever written."""
         db = FakeDB()
         quiz_id = db.seed_quiz()
-        years: list[int | None] = [2015, 2019, 2024, None, 2019]
-        assert (
-            finalize(client, db, quiz_id, codes=CODES_10[:5], years=years)
-        ).status_code == 200
-        for q, year in zip(db.questions(quiz_id), years, strict=True):
-            if year is None:
-                assert q["capture_year"] is None
-                assert q["year_options"] is None
-            else:
-                assert q["capture_year"] == year
-                assert len(q["year_options"]) == 4
-                assert len(set(q["year_options"])) == 4
-                assert year in q["year_options"]
+        assert finalize(client, db, quiz_id, codes=CODES_10[:5]).status_code == 200
+        for q in db.questions(quiz_id):
+            assert not any("year" in key for key in q)
 
 
 # ============================================================================
@@ -960,7 +929,7 @@ class TestOwnerPlayPayloads:
             assert len(payload) == 5
             for q in payload:
                 assert "correct_index" not in q
-                assert "capture_year" not in q
+                assert not any("year" in key for key in q)
                 assert "correct" not in str(sorted(q.keys()))
                 assert len(q["options"]) == 4
                 assert q["image_url"].startswith(
@@ -996,18 +965,16 @@ class TestGradingAndSeeding:
         )
         assert body["score"] == 1  # unchanged by a wrong answer
 
-    def test_year_grading(self, client: TestClient) -> None:
+    def test_verdict_reveals_no_year(self, client: TestClient) -> None:
         db = FakeDB()
         quiz_id = db.seed_quiz()
         assert finalize(client, db, quiz_id).status_code == 200
         session_id = play(client, db, quiz_id).json()["session_id"]
         questions = db.questions(quiz_id)
 
-        good = answer(client, db, quiz_id, session_id, questions[0], year_correct=True)
-        assert good.json()["year_correct"] is True
-        bad = answer(client, db, quiz_id, session_id, questions[1], year_correct=False)
-        assert bad.json()["year_correct"] is False
-        assert bad.json()["correct_year"] == questions[1]["capture_year"]
+        body = answer(client, db, quiz_id, session_id, questions[0]).json()
+        assert body["place_correct"] is True
+        assert not any("year" in key for key in body)
 
     def test_duplicate_answer_conflicts(self, client: TestClient) -> None:
         db = FakeDB()
@@ -1037,9 +1004,7 @@ class TestGradingAndSeeding:
                 "session_id": session_id,
                 "question_id": question_id,
                 "selected_option_index": 0,
-                "selected_year": None,
                 "place_correct": True,
-                "year_correct": False,
             }
         )
 
@@ -1064,7 +1029,6 @@ class TestGradingAndSeeding:
                     "id": question_id,
                     "correct_index": 0,
                     "options": ["A", "B", "C", "D"],
-                    "capture_year": None,
                 },
                 selected_option_index=1,
             )
@@ -1092,25 +1056,22 @@ class TestGradingAndSeeding:
         recorded = db.find("quiz_answer", session_id=session_id)
         assert sum(1 for a in recorded if a["place_correct"]) == 4
 
-    def test_completion_seeds_score_to_beat_and_memory_score_stays_private(
+    def test_completion_seeds_score_to_beat_and_scores_only_places(
         self, client: TestClient
     ) -> None:
-        """AE3: completing owner play seeds the pair; the memory (year) score
-        appears only in the owner results payload, never on the quiz row or
-        any share-facing field."""
+        """AE3: completing owner play seeds the pair. The country score is the
+        ONLY score -- the private memory (year) score is gone, so nothing
+        year- or memory-shaped may appear in any payload or on the quiz row."""
         db = FakeDB()
-        quiz_id, _, result = build_playable(
-            client, db, n=5, wrong_positions=(0,), wrong_year_positions=(1, 2)
-        )
+        quiz_id, _, result = build_playable(client, db, n=5, wrong_positions=(0,))
         quiz = db.quiz(quiz_id)
         assert quiz["score_to_beat_correct"] == 4
         assert quiz["score_to_beat_total"] == 5
         assert quiz["state"] == "playable"
-        # Owner results payload carries the memory score...
-        assert result["memory_correct"] == 3
-        assert result["memory_total"] == 5
+        assert result["correct"] == 4
+        assert result["total"] == 5
         assert result["score_to_beat"] == {"correct": 4, "total": 5}
-        # ...but nothing memory-shaped is stored on the quiz row.
+        assert not any("memory" in k or "year" in k for k in result)
         assert not any("memory" in k or "year" in k for k in quiz)
         # And the owner detail payload exposes only the place pair.
         detail = call(client, db, "GET", f"/quiz/{quiz_id}").json()
@@ -1239,7 +1200,6 @@ class TestSwapAndRemove:
             json={
                 "storage_path": f"quiz/{quiz_id}/replacement.jpg",
                 "country_code": "JP",
-                "capture_year": 2021,
             },
         )
         assert resp.status_code == 200, resp.text
@@ -1248,7 +1208,6 @@ class TestSwapAndRemove:
         swapped = db.find("quiz_question", id=target["id"])[0]
         assert swapped["storage_path"] == f"quiz/{quiz_id}/replacement.jpg"
         assert swapped["options"][swapped["correct_index"]] == "Japan"
-        assert swapped["capture_year"] == 2021
         # Its old owner answers are gone.
         assert db.find("quiz_answer", question_id=target["id"]) == []
 
@@ -1257,7 +1216,7 @@ class TestSwapAndRemove:
         assert blocked.status_code == 409
         assert blocked.json()["detail"]["code"] == "QUIZ_OWNER_ANSWERS_INCOMPLETE"
 
-        # Owner answers the replacement (country + year) in the seeding session.
+        # Owner answers the replacement country in the seeding session.
         resp = answer(client, db, quiz_id, session_id, swapped, correct=True)
         assert resp.status_code == 200
         shared = share(client, db, quiz_id)
@@ -1302,7 +1261,6 @@ class TestSwapAndRemove:
             json={
                 "storage_path": f"quiz/{quiz_id}/late.jpg",
                 "country_code": "JP",
-                "capture_year": 2021,
             },
         )
         assert resp.status_code == 409
@@ -1336,7 +1294,6 @@ class TestSwapAndRemove:
             json={
                 "storage_path": f"quiz/{quiz_id}/replacement.jpg",
                 "country_code": "JP",
-                "capture_year": 2021,
             },
         )
         assert resp.status_code == 200, resp.text
@@ -1381,7 +1338,6 @@ class TestSwapAndRemove:
             json={
                 "storage_path": f"quiz/{quiz_id}/raced.jpg",
                 "country_code": "JP",
-                "capture_year": 2021,
             },
         )
         assert resp.status_code == 409
@@ -1665,8 +1621,6 @@ def seed_questions(db: FakeDB, quiz_id: str, count: int) -> None:
                 "storage_path": f"quiz/{quiz_id}/photo-{position}.jpg",
                 "options": ["France", "Italy", "Spain", "Germany"],
                 "correct_index": 0,
-                "capture_year": None,
-                "year_options": None,
             }
         )
 
