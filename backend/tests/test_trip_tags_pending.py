@@ -188,15 +188,74 @@ def test_pending_trip_tag_count_returns_value(
     auth_headers: dict[str, str],
 ) -> None:
     """Test that GET /trip-tags/pending/count returns the pending count."""
-    mock_supabase_client.count.return_value = 4
+    mock_supabase_client.get.return_value = [
+        {"id": f"tag-{i}", "initiated_by": OTHER_USER_ID} for i in range(4)
+    ]
+    # Service client answers the two block-filter queries (no blocks)
+    service_client = AsyncMock()
+    service_client.get.return_value = []
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
-        with patch(
-            "app.api.trip_tags.get_supabase_client", return_value=mock_supabase_client
+        with (
+            patch(
+                "app.api.trip_tags.get_supabase_client",
+                return_value=mock_supabase_client,
+            ),
+            patch(
+                "app.api.trip_tags.get_service_supabase_client",
+                return_value=service_client,
+            ),
         ):
             response = client.get("/trip-tags/pending/count", headers=auth_headers)
         assert response.status_code == 200
         assert response.json()["count"] == 4
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_pending_trip_tag_count_excludes_blocked_initiators(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+) -> None:
+    """#19: the count applies the same bidirectional block exclusion as the
+    pending LIST -- otherwise the badge shows a count the user can never clear
+    (the list hides tags from blocked initiators)."""
+    blocked_initiator = "99999999-9999-9999-9999-999999999999"
+    mock_supabase_client.get.return_value = [
+        {"id": "tag-1", "initiated_by": OTHER_USER_ID},
+        {"id": "tag-2", "initiated_by": blocked_initiator},
+        {"id": "tag-3", "initiated_by": blocked_initiator},
+    ]
+
+    # Service client: the current user blocked `blocked_initiator` (out
+    # direction); the "someone blocked me" direction returns nothing.
+    service_client = AsyncMock()
+
+    def block_rows(table: str, params: dict) -> list[dict]:
+        if "blocker_id" in params and params["blocker_id"].startswith("eq."):
+            return [{"blocked_id": blocked_initiator}]
+        return []
+
+    service_client.get.side_effect = block_rows
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with (
+            patch(
+                "app.api.trip_tags.get_supabase_client",
+                return_value=mock_supabase_client,
+            ),
+            patch(
+                "app.api.trip_tags.get_service_supabase_client",
+                return_value=service_client,
+            ),
+        ):
+            response = client.get("/trip-tags/pending/count", headers=auth_headers)
+        assert response.status_code == 200
+        # Only the tag from the non-blocked initiator counts
+        assert response.json()["count"] == 1
     finally:
         app.dependency_overrides.clear()

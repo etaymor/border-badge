@@ -200,6 +200,46 @@ def test_create_trip_with_tags(
         app.dependency_overrides.clear()
 
 
+def test_create_trip_with_only_self_tag_returns_trip_without_tags(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+    sample_trip: dict[str, Any],
+    sample_country: dict[str, Any],
+) -> None:
+    """#17: tagged_user_ids containing only the caller must not 500. The
+    self-filter empties the candidate list; the (in_list-based) existence and
+    block lookups must be skipped entirely -- the trip is returned with no
+    tags, exactly as if no one had been tagged."""
+    mock_supabase_client.get.side_effect = [[sample_country]]
+    mock_supabase_client.post.side_effect = [[sample_trip]]
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with patch(
+            "app.api.trips.get_supabase_client", return_value=mock_supabase_client
+        ):
+            response = client.post(
+                "/trips",
+                headers=auth_headers,
+                json={
+                    "name": "Summer Vacation",
+                    "country_code": "US",
+                    "tagged_user_ids": [mock_user.id],
+                },
+            )
+        assert response.status_code == 201
+        data = response.json()
+        assert data["name"] == "Summer Vacation"
+        assert data["tags"] == []
+        # Only the trip insert; no trip_tags insert and no target lookups
+        assert mock_supabase_client.post.call_count == 1
+        assert mock_supabase_client.get.call_count == 1  # country lookup only
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_create_trip_skips_blocked_tagged_user(
     client: TestClient,
     mock_supabase_client: AsyncMock,

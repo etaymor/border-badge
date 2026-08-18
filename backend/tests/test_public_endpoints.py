@@ -3066,6 +3066,44 @@ def test_invite_landing_cancelled_invite_renders_graceful_page(
     assert "invalid or has expired" in response.text
 
 
+def test_invite_landing_cancelled_status_hides_inviter(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+) -> None:
+    """#16: a row that still exists but was cancelled (block_user_full sets
+    status='cancelled') renders the generic install page -- the inviter must
+    not be revealed."""
+    code = _signed_invite_code()
+    mock_supabase_client.get.side_effect = supabase_tables(
+        pending_invite=[
+            {
+                "id": "inv-1",
+                "inviter_id": OTHER_USER_ID,
+                "invite_type": "follow",
+                "status": "cancelled",
+            }
+        ],
+        user_profile=[
+            {
+                "user_id": OTHER_USER_ID,
+                "username": "world_wanderer",
+                "display_name": "World Wanderer",
+                "avatar_url": "https://example.com/avatar.jpg",
+            }
+        ],
+    )
+
+    with patch(
+        "app.api.public.get_service_supabase_client", return_value=mock_supabase_client
+    ):
+        response = client.get(f"/invite?code={code}")
+
+    assert response.status_code == 200
+    assert "World Wanderer" not in response.text
+    assert "world_wanderer" not in response.text
+    assert "apps.apple.com" in response.text  # generic install CTA
+
+
 def test_invite_landing_db_failure_degrades_gracefully(
     client: TestClient,
     mock_supabase_client: AsyncMock,

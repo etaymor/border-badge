@@ -18,7 +18,7 @@ from app.api.utils import (
 from app.core.config import get_settings
 from app.core.db_utils import get_rpc_first_row
 from app.core.edge_functions import send_invite_email, send_push_notification
-from app.core.invite_signer import generate_invite_code, verify_invite_code
+from app.core.invite_signer import generate_invite_code
 from app.core.notifications import get_user_push_tokens, profile_display_name
 from app.core.security import CurrentUser
 from app.db.session import get_service_supabase_client, get_supabase_client
@@ -32,6 +32,7 @@ from app.schemas.invites import (
     PendingInviteSummary,
 )
 from app.schemas.trips import TripTagStatus
+from app.services.invites import resolve_invite_with_inviter
 
 logger = logging.getLogger(__name__)
 
@@ -225,24 +226,15 @@ async def redeem_invite(
     Uses the service-role client: the invite row belongs to the inviter, so
     the redeemer's JWT cannot read or update it under RLS.
     """
-    verified = verify_invite_code(payload.code)
-    if not verified:
+    db = get_service_supabase_client()
+
+    resolved = await resolve_invite_with_inviter(db, payload.code, include_trip=True)
+    if resolved is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="This invite code is invalid or has expired",
         )
-
-    db = get_service_supabase_client()
-
-    invites = await db.get(
-        "pending_invite",
-        {
-            "select": "id,inviter_id,invite_type,trip_id,status",
-            "invite_code": f"eq.{payload.code}",
-            "limit": 1,
-        },
-    )
-    if not invites:
+    if not resolved.invite:
         # Cancelled by the inviter, or the inviter's account (and the row,
         # by FK cascade) is gone: the invite no longer stands.
         raise HTTPException(
@@ -250,11 +242,11 @@ async def redeem_invite(
             detail="Invite not found",
         )
 
-    invite = invites[0]
+    invite = resolved.invite
     inviter_id = str(invite["inviter_id"])
 
     # Defense in depth: the row's inviter must match the code's signature.
-    if inviter_id != str(verified["inviter_id"]):
+    if inviter_id != str(resolved.verified["inviter_id"]):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Invite not found",
@@ -266,29 +258,29 @@ async def redeem_invite(
             detail="You cannot redeem your own invite",
         )
 
-    profiles = await db.get(
-        "user_profile",
-        {
-            "select": "user_id,username,display_name,avatar_url",
-            "user_id": f"eq.{inviter_id}",
-            "limit": 1,
-        },
-    )
-    if not profiles:
+    if not resolved.inviter_profile:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Invite not found",
         )
-    profile = profiles[0]
+    profile = resolved.inviter_profile
     inviter = InviterSummary(
         user_id=inviter_id,
         username=profile.get("username"),
         display_name=profile.get("display_name"),
         avatar_url=profile.get("avatar_url"),
     )
-    invite_type = invite.get("invite_type") or "follow"
+    invite_type = resolved.invite_type
 
-    if invite.get("status") != "pending":
+    invite_status = invite.get("status")
+    if invite_status == "cancelled":
+        # block_user_full cancels invites between a blocked pair; a cancelled
+        # invite must not reveal the inviter through the follow-back prompt.
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Invite not found",
+        )
+    if invite_status != "pending":
         # Already redeemed (this user's retry, or the email-match fallback got
         # there first). No new side effects.
         return InviteRedeemResponse(
@@ -373,6 +365,25 @@ async def redeem_invite(
         },
     )
     if not claimed:
+        # Zero rows claimed: something else moved the row off 'pending' since
+        # our read. Re-read to learn what won. A concurrent redemption or the
+        # signup trigger (status now 'accepted') is a benign retry -- return
+        # already_redeemed with the inviter. But a block cancels invites
+        # (block_user_full sets status='cancelled'), and a cancelled or
+        # deleted invite must not reveal the inviter: 404, no side effects.
+        rows = await db.get(
+            "pending_invite",
+            {
+                "select": "id,status",
+                "id": f"eq.{invite['id']}",
+                "limit": 1,
+            },
+        )
+        if not rows or rows[0].get("status") == "cancelled":
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Invite not found",
+            )
         return InviteRedeemResponse(
             status="already_redeemed",
             invite_type=invite_type,

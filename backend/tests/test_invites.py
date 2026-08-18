@@ -947,6 +947,79 @@ def test_redeem_invite_cancelled_invite_returns_404(
         app.dependency_overrides.clear()
 
 
+def test_redeem_invite_cancelled_status_returns_404_without_inviter(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+) -> None:
+    """#16: a row that still exists but was cancelled (block_user_full sets
+    status='cancelled' when a pair blocks) must NOT return already_redeemed
+    with inviter details -- that would leak a blocked inviter through the
+    follow-back prompt. 404, no side effects."""
+    code = make_invite_code(OTHER_USER_ID, SAMPLE_EMAIL)
+    mock_supabase_client.get.side_effect = supabase_tables(
+        pending_invite=[_pending_invite_row(code, status="cancelled")],
+        user_profile=[INVITER_PROFILE],
+    )
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with patch(
+            "app.api.invites.get_service_supabase_client",
+            return_value=mock_supabase_client,
+        ):
+            response = client.post(
+                "/invites/redeem",
+                headers=auth_headers,
+                json={"code": code},
+            )
+        assert response.status_code == 404
+        assert "world_wanderer" not in response.text
+        mock_supabase_client.post.assert_not_called()
+        mock_supabase_client.patch.assert_not_called()
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_redeem_invite_cancelled_during_claim_race_returns_404(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+) -> None:
+    """#16: when the claim matches zero rows because a block cancelled the
+    invite mid-flight, the re-read sees status='cancelled' and the endpoint
+    404s instead of returning the inviter as already_redeemed."""
+    code = make_invite_code(OTHER_USER_ID, SAMPLE_EMAIL)
+    cancelled_row = _pending_invite_row(code, status="cancelled")
+    mock_supabase_client.get.side_effect = supabase_tables(
+        # Queue: read as pending, then the post-claim re-read sees cancelled.
+        pending_invite=[[_pending_invite_row(code)], [cancelled_row]],
+        user_profile=[INVITER_PROFILE],
+    )
+    mock_supabase_client.patch.return_value = []  # claim loses: zero rows
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with patch(
+            "app.api.invites.get_service_supabase_client",
+            return_value=mock_supabase_client,
+        ):
+            response = client.post(
+                "/invites/redeem",
+                headers=auth_headers,
+                json={"code": code},
+            )
+        assert response.status_code == 404
+        assert "world_wanderer" not in response.text
+        # Only the failed claim attempt; no follow, no tag.
+        assert mock_supabase_client.patch.call_count == 1
+        mock_supabase_client.post.assert_not_called()
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_redeem_invite_own_code_returns_400(
     client: TestClient,
     mock_supabase_client: AsyncMock,

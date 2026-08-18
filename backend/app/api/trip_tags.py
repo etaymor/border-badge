@@ -171,18 +171,60 @@ async def get_pending_trip_tag_count(
     request: Request,
     user: CurrentUser,
 ) -> PendingTripTagCount:
-    """Return the number of pending trip tags for the current user."""
+    """Return the number of pending trip tags for the current user.
+
+    Applies the same bidirectional block exclusion as GET /trip-tags/pending:
+    without it the badge counts tags the list hides, showing a count the user
+    can never clear.
+    """
     token = get_token_from_request(request)
     db = get_supabase_client(user_token=token)
 
-    count = await db.count(
+    tags = await db.get(
         "trip_tags",
         {
+            "select": "id,initiated_by",
             "tagged_user_id": f"eq.{user.id}",
             "status": f"eq.{TripTagStatus.PENDING.value}",
         },
     )
+    if not tags:
+        return PendingTripTagCount(count=0)
 
+    initiator_ids = list(
+        {tag["initiated_by"] for tag in tags if tag.get("initiated_by")}
+    )
+    blocked_initiator_ids: set[str] = set()
+    if initiator_ids:
+        initiator_id_list = in_list([str(uid) for uid in initiator_ids])
+        # Block filtering needs the service client: RLS hides "someone
+        # blocked me" user_block rows from the blocked party's JWT.
+        service_db = get_service_supabase_client()
+        blocks_out, blocks_in = await asyncio.gather(
+            service_db.get(
+                "user_block",
+                {
+                    "select": "blocked_id",
+                    "blocker_id": f"eq.{user.id}",
+                    "blocked_id": initiator_id_list,
+                },
+            ),
+            service_db.get(
+                "user_block",
+                {
+                    "select": "blocker_id",
+                    "blocked_id": f"eq.{user.id}",
+                    "blocker_id": initiator_id_list,
+                },
+            ),
+        )
+        blocked_initiator_ids = {row["blocked_id"] for row in blocks_out or []} | {
+            row["blocker_id"] for row in blocks_in or []
+        }
+
+    count = sum(
+        1 for tag in tags if tag.get("initiated_by") not in blocked_initiator_ids
+    )
     return PendingTripTagCount(count=count)
 
 

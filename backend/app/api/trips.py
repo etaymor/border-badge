@@ -253,7 +253,10 @@ async def create_trip(
 
     # Create trip tags for tagged users
     if data.tagged_user_ids:
-        # Deduplicate and drop self-tags, preserving order
+        # Deduplicate and drop self-tags, preserving order. The self-filter can
+        # empty the list (caller tagged only themselves); the guard below skips
+        # the lookups too -- in_list() raises on an empty list, and the trip
+        # row is already inserted, so a crash here would 500 a created trip.
         candidate_ids: list[str] = list(
             dict.fromkeys(
                 tagged_id_str
@@ -262,24 +265,26 @@ async def create_trip(
             )
         )
 
-        # Target-existence check in one query
-        existing_profiles = await db.get(
-            "user_profile",
-            {
-                "select": "user_id",
-                "user_id": in_list(candidate_ids),
-            },
-        )
-        existing_ids = {p["user_id"] for p in existing_profiles or []}
-
-        # Bidirectional block check, batched: two user_block queries via the
-        # service client (a JWT-scoped user_block query cannot see "someone
-        # blocked me" rows under RLS). Nonexistent and blocked targets are
-        # skipped, not errors: the trip itself is already created, and
-        # skipping keeps blocks unobservable.
+        existing_ids: set[str] = set()
         blocked_ids: set[str] = set()
         if candidate_ids:
             candidate_id_list = in_list(candidate_ids)
+
+            # Target-existence check in one query
+            existing_profiles = await db.get(
+                "user_profile",
+                {
+                    "select": "user_id",
+                    "user_id": candidate_id_list,
+                },
+            )
+            existing_ids = {p["user_id"] for p in existing_profiles or []}
+
+            # Bidirectional block check, batched: two user_block queries via
+            # the service client (a JWT-scoped user_block query cannot see
+            # "someone blocked me" rows under RLS). Nonexistent and blocked
+            # targets are skipped, not errors: the trip itself is already
+            # created, and skipping keeps blocks unobservable.
             service_db = get_service_supabase_client()
             blocks_out, blocks_in = await asyncio.gather(
                 service_db.get(

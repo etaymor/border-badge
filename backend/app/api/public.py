@@ -28,7 +28,6 @@ from app.core.analytics import (
 from app.core.blog import get_registry
 from app.core.config import get_settings
 from app.core.db_utils import get_rpc_first_row
-from app.core.invite_signer import verify_invite_code
 from app.core.kml import KML_MEDIA_TYPE, Placemark, build_kml
 from app.core.media import (
     AVATAR_WIDTH,
@@ -72,6 +71,7 @@ from app.services.affiliate_links import (
     get_or_create_link_for_entry,
 )
 from app.services.email import cancel_scheduled_emails, send_contact_email
+from app.services.invites import resolve_invite_with_inviter
 from app.services.turnstile import verify_turnstile_token
 
 logger = logging.getLogger(__name__)
@@ -441,33 +441,17 @@ async def invite_landing(
     inviter: dict[str, Any] | None = None
     invite_type = "follow"
 
-    verified = verify_invite_code(code) if code else None
-    if verified:
+    if code:
         try:
             db = get_service_supabase_client()
+            resolved = await resolve_invite_with_inviter(db, code)
             # The invite row is the consent record: a validly signed code
-            # whose row was cancelled must not show the inviter.
-            invites = await db.get(
-                "pending_invite",
-                {
-                    "select": "id,inviter_id,invite_type,status",
-                    "invite_code": f"eq.{code}",
-                    "limit": 1,
-                },
-            )
-            if invites:
-                invite = invites[0]
-                invite_type = invite.get("invite_type") or "follow"
-                profiles = await db.get(
-                    "user_profile",
-                    {
-                        "select": "user_id,username,display_name,avatar_url",
-                        "user_id": f"eq.{invite['inviter_id']}",
-                        "limit": 1,
-                    },
-                )
-                if profiles:
-                    profile = profiles[0]
+            # whose row was cancelled (block_user_full sets status='cancelled')
+            # must not show the inviter -- render the generic install page.
+            if resolved and resolved.invite and resolved.status != "cancelled":
+                invite_type = resolved.invite_type
+                if resolved.inviter_profile:
+                    profile = resolved.inviter_profile
                     inviter = {
                         "username": profile.get("username"),
                         "display_name": profile.get("display_name"),
