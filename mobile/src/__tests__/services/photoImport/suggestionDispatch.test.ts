@@ -199,7 +199,7 @@ describe('suggestionDispatch - failedClusterIds (KTD6/KTD8/KTD10)', () => {
       // chunk-2 throws fatal — chunk-3 never runs
       .mockRejectedValueOnce(makeQuotaError());
 
-    const result = await suggestionDispatch.dispatch({ clusters, concurrency: 1, concurrency: 1 });
+    const result = await suggestionDispatch.dispatch({ clusters, concurrency: 1 });
 
     const failed = suggestionDispatch.getState().failedClusterIds;
     expect([...failed.keys()].sort()).toEqual([...chunk2Ids].sort());
@@ -222,7 +222,7 @@ describe('suggestionDispatch - failedClusterIds (KTD6/KTD8/KTD10)', () => {
       .mockRejectedValueOnce(makeAxiosError(429, { 'retry-after': '60' }))
       .mockResolvedValue(emptyResponse);
 
-    await suggestionDispatch.dispatch({ clusters, concurrency: 1, concurrency: 1 });
+    await suggestionDispatch.dispatch({ clusters, concurrency: 1 });
 
     // Batches 3 and 4 never leave, even though the mock would have answered them.
     expect(mockedApi.post).toHaveBeenCalledTimes(2);
@@ -241,7 +241,7 @@ describe('suggestionDispatch - failedClusterIds (KTD6/KTD8/KTD10)', () => {
     mockedApi.post.mockRejectedValueOnce(err);
 
     const clusters = buildClustersForBatches(2);
-    const result = await suggestionDispatch.dispatch({ clusters, concurrency: 1, concurrency: 1 });
+    const result = await suggestionDispatch.dispatch({ clusters, concurrency: 1 });
 
     expect(result.fatalError).toMatchObject({ name: 'PhotoImportLimitReachedError' });
     // Retrying an entitlement refusal cannot succeed, so no Retry affordance.
@@ -520,7 +520,7 @@ describe('suggestionDispatch - cluster sets (KTD7)', () => {
       return emptyResponse;
     });
 
-    await suggestionDispatch.dispatch({ clusters, concurrency: 1, concurrency: 1 });
+    await suggestionDispatch.dispatch({ clusters, concurrency: 1 });
 
     const batches = planSuggestionBatches(clusters);
     expect(observed).toHaveLength(batches.length);
@@ -548,7 +548,7 @@ describe('suggestionDispatch - cluster sets (KTD7)', () => {
 
     // KTD6: resolves partially rather than throwing; the allow-list is what
     // keeps the undispatched batch out of the cache.
-    await suggestionDispatch.dispatch({ clusters, concurrency: 1, concurrency: 1 });
+    await suggestionDispatch.dispatch({ clusters, concurrency: 1 });
 
     const resolved = suggestionDispatch.getState().dispatchedAndResolvedClusterIds;
     for (const id of chunkIds(clusters, 0)) expect(resolved.has(id)).toBe(true);
@@ -1100,7 +1100,7 @@ describe('suggestionDispatch - abort (U6)', () => {
     abortableApi();
 
     // Sequential (the shipped default): only the first batch is on the wire.
-    const run = suggestionDispatch.dispatch({ clusters, concurrency: 1, concurrency: 1 });
+    const run = suggestionDispatch.dispatch({ clusters, concurrency: 1 });
     await flush();
     suggestionDispatch.reset();
     const result = await run;
@@ -1145,7 +1145,7 @@ describe('suggestionDispatch - lifecycle pause / resume (U9/R15)', () => {
     const clusters = buildClustersForBatches(4);
     const release = controlledApi();
 
-    const run = suggestionDispatch.dispatch({ clusters, concurrency: 1, concurrency: 1 });
+    const run = suggestionDispatch.dispatch({ clusters, concurrency: 1 });
     await flush();
     expect(mockedApi.post).toHaveBeenCalledTimes(1);
 
@@ -1668,7 +1668,7 @@ describe('suggestionDispatch - burst-cap rate limiting (U16)', () => {
     });
 
     const startedAt = Date.now();
-    const result = await suggestionDispatch.dispatch({ clusters, concurrency: 1, concurrency: 1 });
+    const result = await suggestionDispatch.dispatch({ clusters, concurrency: 1 });
     const elapsedMs = Date.now() - startedAt;
 
     // The burst cap is 5/second and answers with Retry-After: 1. Ending the
@@ -1699,7 +1699,7 @@ describe('suggestionDispatch - burst-cap rate limiting (U16)', () => {
     expect(MAX_PARKABLE_RETRY_AFTER_SECONDS).toBeGreaterThanOrEqual(1);
     mockedApi.post.mockRejectedValue(makeAxiosError(429, { 'retry-after': '0' }));
 
-    const result = await suggestionDispatch.dispatch({ clusters, concurrency: 1, concurrency: 1 });
+    const result = await suggestionDispatch.dispatch({ clusters, concurrency: 1 });
 
     // MAX parks, then the next rejection is a hard stop like the sustained one.
     expect(mockedApi.post).toHaveBeenCalledTimes(MAX_RATE_LIMIT_PARKS + 1);
@@ -1717,7 +1717,7 @@ describe('suggestionDispatch - burst-cap rate limiting (U16)', () => {
       .mockResolvedValue(emptyResponse);
 
     const startedAt = Date.now();
-    const result = await suggestionDispatch.dispatch({ clusters, concurrency: 1, concurrency: 1 });
+    const result = await suggestionDispatch.dispatch({ clusters, concurrency: 1 });
 
     expect(mockedApi.post).toHaveBeenCalledTimes(2);
     expect(Date.now() - startedAt).toBeLessThan(1000);

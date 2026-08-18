@@ -4,6 +4,11 @@
 process.env.EXPO_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
 process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY = 'test-anon-key';
 
+// CI runners are CPU-starved enough that real-timer flows (e.g. QuizPlay's
+// 420ms acknowledgment hold) overrun waitFor's 1s default. waitFor still
+// resolves the moment its assertion passes, so fast machines pay nothing.
+require('@testing-library/react-native').configure({ asyncUtilTimeout: 5000 });
+
 // Mock react-native-reanimated
 jest.mock(
   'react-native-reanimated',
