@@ -60,6 +60,12 @@ async def cleanup_test_users(
         await db.delete("user_follow", {"follower_id": f"eq.{user_id}"})
         await db.delete("user_follow", {"following_id": f"eq.{user_id}"})
 
+    logger.info("Deleting blocks...")
+    for user_id in test_user_ids:
+        # Delete blocks where the test user is the blocker or the blocked
+        await db.delete("user_block", {"blocker_id": f"eq.{user_id}"})
+        await db.delete("user_block", {"blocked_id": f"eq.{user_id}"})
+
     logger.info("Deleting pending_invite...")
     for user_id in test_user_ids:
         await db.delete("pending_invite", {"inviter_id": f"eq.{user_id}"})

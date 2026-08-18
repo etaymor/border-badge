@@ -93,5 +93,5 @@ WHERE mf.entry_id = e.id
 
 ## Resources
 
-- PR #34: https://github.com/etaymor/border-badge/pull/34
+- [PR #34](https://github.com/etaymor/border-badge/pull/34)
 - Media schema: `supabase/migrations/0001_init_schema.sql`

@@ -83,4 +83,4 @@ CREATE POLICY "Users can delete their own invites"
 
 ## Resources
 
-- PR #34: https://github.com/etaymor/border-badge/pull/34
+- [PR #34](https://github.com/etaymor/border-badge/pull/34)

@@ -91,6 +91,11 @@ async def send_push_notification(
             "title": title,
             "body": body,
             "data": data,
+            # Every push this backend sends today is a social notification
+            # (follow / trip tag / invite accepted). The mobile app creates a
+            # dedicated 'social' Android channel; without channelId Android
+            # would route these to the default channel.
+            "channelId": "social",
         },
     )
 

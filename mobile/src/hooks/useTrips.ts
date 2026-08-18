@@ -252,7 +252,7 @@ export function useAddTripTag() {
       queryClient.invalidateQueries({ queryKey: [...TRIPS_QUERY_KEY, variables.tripId] });
     },
     onError: (error) => {
-      const message = error instanceof Error ? error.message : 'Failed to add friend';
+      const message = error instanceof Error ? error.message : 'Failed to tag friend';
       Alert.alert('Error', message);
     },
   });
@@ -276,7 +276,7 @@ export function useRemoveTripTag() {
       queryClient.invalidateQueries({ queryKey: [...TRIPS_QUERY_KEY, variables.tripId] });
     },
     onError: (error) => {
-      const message = error instanceof Error ? error.message : 'Failed to remove friend';
+      const message = error instanceof Error ? error.message : 'Failed to remove tag';
       Alert.alert('Error', message);
     },
   });

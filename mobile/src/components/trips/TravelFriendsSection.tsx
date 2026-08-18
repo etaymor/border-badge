@@ -6,7 +6,7 @@
 
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -69,7 +69,22 @@ export function TravelFriendsSection({
 }: TravelFriendsSectionProps) {
   const [search, setSearch] = useState('');
   const [isFocused, setIsFocused] = useState(false);
+  // Cache selected user objects so selections made via email lookup survive
+  // search text changes (the email lookup query result is transient)
+  const [selectedUserCache, setSelectedUserCache] = useState<Map<string, UserSearchResult>>(
+    () => new Map()
+  );
   const inputRef = useRef<TextInput>(null);
+  const blurTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(
+    () => () => {
+      if (blurTimeoutRef.current) {
+        clearTimeout(blurTimeoutRef.current);
+      }
+    },
+    []
+  );
 
   const debouncedSearch = useDebounce(search.trim(), 300);
 
@@ -136,15 +151,36 @@ export function TravelFriendsSection({
     // Also check email lookup result (for users found by email who aren't followed)
     if (emailUser && selectedIds.has(emailUser.id) && !addedIds.has(emailUser.id)) {
       users.push(emailUser);
+      addedIds.add(emailUser.id);
+    }
+
+    // Fall back to cached selections (users found via a previous email lookup
+    // whose query result is gone after the search text changed)
+    for (const id of selectedIds) {
+      if (!addedIds.has(id)) {
+        const cached = selectedUserCache.get(id);
+        if (cached) {
+          users.push(cached);
+          addedIds.add(id);
+        }
+      }
     }
 
     return users;
-  }, [following, selectedIds, emailUser]);
+  }, [following, selectedIds, emailUser, selectedUserCache]);
 
   const handleToggle = useCallback(
-    (userId: string) => {
+    (user: UserSearchResult) => {
       if (!disabled) {
-        onToggleSelection(userId);
+        setSelectedUserCache((prev) => {
+          if (prev.has(user.id)) {
+            return prev;
+          }
+          const next = new Map(prev);
+          next.set(user.id, user);
+          return next;
+        });
+        onToggleSelection(user.id);
       }
     },
     [disabled, onToggleSelection]
@@ -168,9 +204,19 @@ export function TravelFriendsSection({
   );
 
   const handleFocus = useCallback(() => {
+    if (blurTimeoutRef.current) {
+      clearTimeout(blurTimeoutRef.current);
+      blurTimeoutRef.current = null;
+    }
     setIsFocused(true);
     onSearchFocus?.();
   }, [onSearchFocus]);
+
+  const handleBlur = useCallback(() => {
+    // Delay hiding the dropdown so a tap on a result row still registers
+    // even if the tap dismisses the keyboard (blur) first
+    blurTimeoutRef.current = setTimeout(() => setIsFocused(false), 150);
+  }, []);
 
   const isLoading = loadingFollowing || emailLoading;
   const hasSelections = selectedUsers.length > 0 || invitedEmails.size > 0;
@@ -207,6 +253,7 @@ export function TravelFriendsSection({
               autoCapitalize="none"
               autoCorrect={false}
               onFocus={handleFocus}
+              onBlur={handleBlur}
               editable={!disabled}
             />
             {isLoading && (
@@ -235,7 +282,7 @@ export function TravelFriendsSection({
                 </View>
                 {!disabled && (
                   <TouchableOpacity
-                    onPress={() => handleToggle(user.id)}
+                    onPress={() => handleToggle(user)}
                     style={styles.removeButton}
                     hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                   >
@@ -313,7 +360,7 @@ export function TravelFriendsSection({
                     avatar_url: item.avatar_url,
                   }}
                   isSelected={selectedIds.has(item.id)}
-                  onToggle={() => handleToggle(item.id)}
+                  onToggle={() => handleToggle(item)}
                 />
               ))}
             </ScrollView>

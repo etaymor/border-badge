@@ -438,7 +438,10 @@ export function ProfileSettingsScreen({ navigation }: Props) {
   }, [handleDeleteAccount, handleOpenTerms, handleOpenPrivacy]);
 
   // Memoized values
-  const initials = useMemo(() => getInitials(profile?.username), [profile?.username]);
+  const initials = useMemo(
+    () => getInitials(profile?.display_name || profile?.username),
+    [profile?.display_name, profile?.username]
+  );
   const formattedEmail = useMemo(() => session?.user.email || 'Not set', [session?.user.email]);
   const memberSince = useMemo(() => formatMemberSince(profile?.created_at), [profile?.created_at]);
   const homeCountryDisplay = useMemo(() => {

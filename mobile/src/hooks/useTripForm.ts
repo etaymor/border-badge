@@ -241,8 +241,10 @@ export function useTripForm(options: UseTripFormOptions = {}): UseTripFormResult
 
           onSuccess(newTrip.id);
         }
-      } catch {
-        // Error is handled by the mutation's onError
+      } catch (error) {
+        // Error is handled by the mutation's onError; log so unexpected
+        // errors aren't silently swallowed
+        console.warn('Trip form submission error (handled by mutation onError):', error);
       }
     },
     [

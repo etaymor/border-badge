@@ -60,6 +60,9 @@ export function FollowButton({
           onPress={handlePress}
           disabled={isPending}
           activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel={username ? `Unfollow ${username}` : 'Unfollow'}
+          accessibilityState={{ disabled: isPending, busy: isPending }}
           {...pressHandlers}
         >
           <View style={styles.followingContent}>
@@ -78,6 +81,9 @@ export function FollowButton({
         onPress={handlePress}
         disabled={isPending}
         activeOpacity={0.8}
+        accessibilityRole="button"
+        accessibilityLabel={username ? `Follow ${username}` : 'Follow'}
+        accessibilityState={{ disabled: isPending, busy: isPending }}
         {...pressHandlers}
       >
         <View style={styles.followContent}>

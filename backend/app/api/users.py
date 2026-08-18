@@ -254,10 +254,9 @@ async def lookup_user_by_email(
         },
     )
 
-    if not result:
+    profile = get_rpc_first_row(result)
+    if profile is None:
         return None
-
-    profile = result[0]
 
     # Get user's DB client for subsequent queries
     token = get_token_from_request(request)

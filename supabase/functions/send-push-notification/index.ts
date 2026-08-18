@@ -13,6 +13,10 @@ interface PushNotificationRequest {
     username?: string;
     tripId?: string;
   };
+  // Android notification channel (e.g. 'social'). Routes the push to the
+  // matching channel created by the mobile app; Android falls back to the
+  // default channel when omitted.
+  channelId?: string;
 }
 
 interface ExpoMessage {
@@ -21,6 +25,7 @@ interface ExpoMessage {
   body: string;
   sound: 'default';
   data?: Record<string, string>;
+  channelId?: string;
 }
 
 serve(async (req: Request) => {
@@ -36,7 +41,7 @@ serve(async (req: Request) => {
   }
 
   try {
-    const { tokens, title, body, data } = (await req.json()) as PushNotificationRequest;
+    const { tokens, title, body, data, channelId } = (await req.json()) as PushNotificationRequest;
 
     if (!tokens || tokens.length === 0) {
       return new Response(
@@ -61,6 +66,7 @@ serve(async (req: Request) => {
         body,
         sound: 'default' as const,
         data: data as Record<string, string> | undefined,
+        ...(channelId ? { channelId } : {}),
       }));
 
     if (messages.length === 0) {

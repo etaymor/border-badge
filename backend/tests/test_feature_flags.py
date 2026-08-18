@@ -90,11 +90,18 @@ class TestSocialFeaturesDisabled:
         assert response.status_code == 404
 
     def test_notifications_returns_404_when_disabled(self):
-        """Test /notifications returns 404 when social features disabled."""
+        """Test /notifications/register returns 404 when social disabled.
+
+        Uses a real route (the router only exposes /register and /unregister)
+        so the 404 proves the router is unregistered, not just a bad path.
+        """
         from app import main
 
         client = TestClient(main.app)
-        response = client.get("/notifications")
+        response = client.post(
+            "/notifications/register",
+            json={"token": "ExponentPushToken[abc]", "platform": "ios"},
+        )
         assert response.status_code == 404
 
     def test_trip_tags_returns_404_when_disabled(self):
@@ -315,6 +322,18 @@ class TestSocialFeaturesEnabled:
 
         client = TestClient(main.app)
         response = client.get("/invites/pending")
+        assert response.status_code == 403
+
+    def test_notifications_exists_when_enabled(self):
+        """Test /notifications/register returns 403 (needs auth) when enabled,
+        not 404."""
+        from app import main
+
+        client = TestClient(main.app)
+        response = client.post(
+            "/notifications/register",
+            json={"token": "ExponentPushToken[abc]", "platform": "ios"},
+        )
         assert response.status_code == 403
 
 

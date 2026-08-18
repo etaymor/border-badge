@@ -43,14 +43,18 @@ function getInitials(user?: TripTagUser): string {
 
   // Check if username looks like an email
   const username = user.username || '';
+  let initials: string;
   if (username.includes('@')) {
     // Email: take first 2 chars before @
     const localPart = username.split('@')[0];
-    return localPart.slice(0, 2).toUpperCase();
+    initials = localPart.slice(0, 2).toUpperCase();
+  } else {
+    // Regular username: take first 2 chars
+    initials = username.slice(0, 2).toUpperCase();
   }
 
-  // Regular username: take first 2 chars
-  return username.slice(0, 2).toUpperCase();
+  // Fallback for empty usernames or emails with no local part (e.g. "@example.com")
+  return initials || '?';
 }
 
 function TripPartnersComponent({
@@ -102,7 +106,7 @@ function TripPartnersComponent({
     return null;
   }
 
-  // Calculate overlap - each avatar overlaps 40% with the previous
+  // Calculate overlap - each avatar overlaps 35% with the previous
   const overlapOffset = avatarSize * 0.65;
   const stackWidth =
     overlapOffset * (displayedParticipants.length - 1) +

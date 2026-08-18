@@ -519,6 +519,7 @@ async def get_pending_invites(
         {
             "select": "id,email,invite_type,status,created_at",
             "inviter_id": f"eq.{user.id}",
+            "status": "eq.pending",
             "order": "created_at.desc",
             "limit": limit,
             "offset": offset,

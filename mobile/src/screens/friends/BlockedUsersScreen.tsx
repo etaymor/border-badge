@@ -103,24 +103,23 @@ export function BlockedUsersScreen({ navigation }: Props) {
     []
   );
 
+  const renderHeader = () => (
+    <View style={[styles.header, { paddingTop: insets.top }]}>
+      <TouchableOpacity style={styles.backButton} onPress={handleBack}>
+        <Ionicons name="arrow-back" size={24} color={colors.midnightNavy} />
+      </TouchableOpacity>
+      <View style={styles.headerCenter}>
+        <Ionicons name="shield" size={18} color={colors.midnightNavy} style={styles.headerIcon} />
+        <Text style={styles.headerTitle}>Blocked</Text>
+      </View>
+      <View style={styles.headerRight} />
+    </View>
+  );
+
   if (isLoading) {
     return (
       <View style={styles.container}>
-        <View style={[styles.header, { paddingTop: insets.top }]}>
-          <TouchableOpacity style={styles.backButton} onPress={handleBack}>
-            <Ionicons name="arrow-back" size={24} color={colors.midnightNavy} />
-          </TouchableOpacity>
-          <View style={styles.headerCenter}>
-            <Ionicons
-              name="shield"
-              size={18}
-              color={colors.midnightNavy}
-              style={styles.headerIcon}
-            />
-            <Text style={styles.headerTitle}>Blocked</Text>
-          </View>
-          <View style={styles.headerRight} />
-        </View>
+        {renderHeader()}
         <UserListSkeleton />
       </View>
     );
@@ -128,16 +127,7 @@ export function BlockedUsersScreen({ navigation }: Props) {
 
   return (
     <View style={styles.container}>
-      <View style={[styles.header, { paddingTop: insets.top }]}>
-        <TouchableOpacity style={styles.backButton} onPress={handleBack}>
-          <Ionicons name="arrow-back" size={24} color={colors.midnightNavy} />
-        </TouchableOpacity>
-        <View style={styles.headerCenter}>
-          <Ionicons name="shield" size={18} color={colors.midnightNavy} style={styles.headerIcon} />
-          <Text style={styles.headerTitle}>Blocked</Text>
-        </View>
-        <View style={styles.headerRight} />
-      </View>
+      {renderHeader()}
 
       {isError ? (
         <ErrorState

@@ -78,6 +78,28 @@ async def test_call_edge_function_uses_shared_pooled_client(monkeypatch) -> None
 
 
 @pytest.mark.asyncio
+async def test_send_push_notification_sets_social_channel_id(monkeypatch) -> None:
+    """Push payloads carry channelId='social' so Android routes them to the
+    'social' notification channel the mobile app creates (not the default)."""
+    pooled = DummyPooledClient()
+    monkeypatch.setattr(edge_functions, "get_settings", lambda: DummySettings())
+    monkeypatch.setattr(edge_functions, "get_http_client", lambda: pooled)
+
+    result = await edge_functions.send_push_notification(
+        tokens=["ExponentPushToken[abc]"],
+        title="You Were Tagged",
+        body="Someone tagged you",
+        data={"screen": "UserProfile"},
+    )
+
+    assert result == {"ok": True}
+    assert len(pooled.calls) == 1
+    payload = pooled.calls[0]["json"]
+    assert payload["channelId"] == "social"
+    assert payload["tokens"] == ["ExponentPushToken[abc]"]
+
+
+@pytest.mark.asyncio
 async def test_call_edge_function_returns_none_without_config(monkeypatch) -> None:
     class EmptySettings:
         supabase_url = None

@@ -315,6 +315,10 @@ def test_get_pending_invites_success(
         assert len(data) == 2
         assert data[0]["email"] == SAMPLE_EMAIL
         assert data[1]["invite_type"] == "trip_tag"
+        # The endpoint returns *pending* invites only: the query must filter
+        # by status, not just inviter.
+        query_params = mock_supabase_client.get.await_args.args[1]
+        assert query_params["status"] == "eq.pending"
     finally:
         app.dependency_overrides.clear()
 
@@ -1557,27 +1561,3 @@ def test_redeem_invite_notifies_all_inviter_devices(
         ]
     finally:
         app.dependency_overrides.clear()
-
-
-def test_invite_flow_pending_status_used_for_lookup():
-    """
-    Document: Pending invites are found by email + status='pending'.
-
-    The database trigger (0044_process_pending_invites_on_signup.sql)
-    queries pending_invite WHERE LOWER(email) = email AND status = 'pending'
-    to find invites to process when a new user signs up.
-
-    This test verifies the expected query pattern.
-    """
-    # This documents the expected SQL query pattern used by the signup trigger:
-    expected_query_pattern = """
-    SELECT id, inviter_id, invite_type, trip_id
-    FROM pending_invite
-    WHERE LOWER(email) = <new_user_email>
-      AND status = 'pending'
-    """
-    # The query should use the index: idx_pending_invite_email
-    # which is defined as: ON pending_invite(LOWER(email)) WHERE accepted_at IS NULL
-    # Note: After migration 0042, we use status='pending' instead of accepted_at IS NULL
-    assert "status = 'pending'" in expected_query_pattern
-    assert "LOWER(email)" in expected_query_pattern

@@ -134,6 +134,7 @@ export function UserProfileScreen({ navigation, route }: Props) {
       );
     } catch {
       setIsBlocking(false);
+      Alert.alert('Block Failed', 'Could not block this user. Please try again.');
     }
   }, [profile, isBlocking, blockMutation, navigation]);
 

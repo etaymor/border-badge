@@ -90,7 +90,7 @@ export function FriendsStatsGrid({
   onFollowersPress,
   onFollowingPress,
 }: FriendsStatsGridProps) {
-  const rankDisplay = rank ? `#${rank}` : '-';
+  const rankDisplay = rank != null ? `#${rank}` : '-';
 
   return (
     <View style={styles.statsGrid}>

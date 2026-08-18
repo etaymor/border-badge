@@ -30,7 +30,7 @@
             <img src="{{ profile.avatar_url | safe_external_url }}" alt="{{ profile.display_name }}" class="profile-avatar">
             {% else %}
             <div class="profile-avatar profile-avatar-placeholder">
-                {{ profile.display_name[0] | upper if profile.display_name else '?' }}
+                {{ profile.display_name[:2] | upper if profile.display_name else '?' }}
             </div>
             {% endif %}
         </div>
