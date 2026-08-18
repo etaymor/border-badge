@@ -51,5 +51,5 @@ export const socialKeys = {
   invites: ['invites'] as const,
   pendingInvites: (limit: number, offset: number) =>
     ['invites', 'pending', { limit, offset }] as const,
-  tripInvites: (tripId: string) => ['invites', 'trip', tripId] as const,
+  tripInvites: (tripId: string | undefined) => ['invites', 'trip', tripId] as const,
 };

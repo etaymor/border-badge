@@ -373,6 +373,83 @@ describe('useFollows', () => {
       expect(Alert.alert).toHaveBeenCalled();
     });
 
+    it('does not resurrect caches a block purged while the follow was in flight', async () => {
+      queryClient = createSeededQueryClient();
+      queryClient.setQueryData(PROFILE_KEY, makeProfile());
+      queryClient.setQueryData(SOCIAL_HOME_PAGE_KEY, makeSocialHome(5));
+      queryClient.setQueryData(SEARCH_KEY, makeSearchResults(false));
+
+      let rejectPost: (reason: unknown) => void = () => {};
+      mockedApi.post.mockReturnValue(
+        new Promise((_resolve, reject) => {
+          rejectPost = reject;
+        }) as ReturnType<typeof api.post>
+      );
+
+      const { result } = renderHook(() => useFollowUser(OTHER_USER_ID, OTHER_USERNAME), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      act(() => {
+        result.current.mutate();
+      });
+
+      // Wait for the optimistic update so the snapshot has been taken.
+      await waitFor(() => {
+        expect(queryClient.getQueryData<UserProfile>(PROFILE_KEY)?.is_following).toBe(true);
+      });
+
+      // A block lands while the follow request is in flight and purges every
+      // cache that could show the blocked user (mirrors useBlockUser).
+      queryClient.removeQueries({ queryKey: ['social-home'] });
+      queryClient.removeQueries({ queryKey: ['users', 'search'] });
+      queryClient.removeQueries({ queryKey: PROFILE_KEY });
+
+      await act(async () => {
+        rejectPost({ response: { status: 500 } });
+      });
+      await waitFor(() => expect(result.current.isError).toBe(true));
+
+      // The rollback must not re-create the purged queries from snapshots.
+      expect(queryClient.getQueryState(PROFILE_KEY)).toBeUndefined();
+      expect(queryClient.getQueryState(SOCIAL_HOME_PAGE_KEY)).toBeUndefined();
+      expect(queryClient.getQueryState(SEARCH_KEY)).toBeUndefined();
+    });
+
+    it('invalidates instead of restoring profile/user-feed snapshots on a blocked-pair 403', async () => {
+      queryClient = createSeededQueryClient();
+      const originalSocialHome = makeSocialHome(5);
+      const originalSearch = makeSearchResults(false);
+      queryClient.setQueryData(PROFILE_KEY, makeProfile());
+      queryClient.setQueryData(SOCIAL_HOME_PAGE_KEY, originalSocialHome);
+      queryClient.setQueryData(SEARCH_KEY, originalSearch);
+
+      const invalidateSpy = jest.spyOn(queryClient, 'invalidateQueries');
+      mockedApi.post.mockRejectedValue({ response: { status: 403 } });
+
+      const { result } = renderHook(() => useFollowUser(OTHER_USER_ID, OTHER_USERNAME), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      await act(async () => {
+        result.current.mutate();
+      });
+      await waitFor(() => expect(result.current.isError).toBe(true));
+
+      // The profile snapshot is not blindly restored: it is invalidated so
+      // the next observer refetches (the block may have purged it).
+      const invalidatedKeys = invalidateSpy.mock.calls.map(
+        ([filters]) => filters?.queryKey as unknown[]
+      );
+      expect(invalidatedKeys).toContainEqual(['user', OTHER_USERNAME, 'profile']);
+      expect(invalidatedKeys).toContainEqual(['user-feed', OTHER_USER_ID]);
+
+      // Shared caches still roll back normally.
+      expect(queryClient.getQueryData(SOCIAL_HOME_PAGE_KEY)).toEqual(originalSocialHome);
+      expect(queryClient.getQueryData(SEARCH_KEY)).toEqual(originalSearch);
+      expect(Alert.alert).toHaveBeenCalled();
+    });
+
     it('sets error state on conflict (already following)', async () => {
       mockedApi.post.mockRejectedValue({
         response: { status: 409 },

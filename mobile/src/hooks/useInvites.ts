@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import type { AxiosError } from 'axios';
 import { Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -98,7 +99,7 @@ export function usePendingInvites(options?: { limit?: number; offset?: number })
  */
 export function useTripPendingInvites(tripId: string | undefined) {
   return useQuery<PendingInvite[]>({
-    queryKey: socialKeys.tripInvites(tripId as string),
+    queryKey: socialKeys.tripInvites(tripId),
     queryFn: async () => {
       const response = await api.get<PendingInvite[]>(`/invites/trip/${tripId}`);
       return response.data;
@@ -208,9 +209,15 @@ export function usePendingInviteRedemption() {
             setInviter(data.inviter);
           }
         },
-        onError: () => {
-          // Keep the code for a later retry (next mount).
-          void storePendingInviteCode(code);
+        onError: (error) => {
+          // Keep the code for a later retry (next mount) only when the
+          // failure is transient: no response (network) or a server-side
+          // 5xx. A 4xx means the code is permanently invalid (expired,
+          // malformed, already used) -- re-storing it would retry forever.
+          const status = (error as AxiosError)?.response?.status;
+          if (status === undefined || status >= 500) {
+            void storePendingInviteCode(code);
+          }
         },
       });
     })();

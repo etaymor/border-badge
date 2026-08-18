@@ -168,7 +168,7 @@ describe('useInvites', () => {
       expect(result.current.inviter).toBeNull();
     });
 
-    it('re-stores the code when redemption fails so attribution survives retries', async () => {
+    it('re-stores the code when redemption fails transiently (network error, no response)', async () => {
       const mockedStorage = AsyncStorage as jest.Mocked<typeof AsyncStorage>;
       (mockedStorage.getItem as jest.Mock).mockResolvedValue('flaky-code');
       mockedApi.post.mockRejectedValue(new Error('network down'));
@@ -180,6 +180,38 @@ describe('useInvites', () => {
       await waitFor(() =>
         expect(mockedStorage.setItem).toHaveBeenCalledWith(expect.any(String), 'flaky-code')
       );
+    });
+
+    it('re-stores the code on a server-side 5xx failure', async () => {
+      const mockedStorage = AsyncStorage as jest.Mocked<typeof AsyncStorage>;
+      (mockedStorage.getItem as jest.Mock).mockResolvedValue('unlucky-code');
+      mockedApi.post.mockRejectedValue({ response: { status: 503 } });
+
+      renderHook(() => usePendingInviteRedemption(), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      await waitFor(() =>
+        expect(mockedStorage.setItem).toHaveBeenCalledWith(expect.any(String), 'unlucky-code')
+      );
+    });
+
+    it('drops a permanently invalid code instead of re-storing it (4xx)', async () => {
+      const mockedStorage = AsyncStorage as jest.Mocked<typeof AsyncStorage>;
+      (mockedStorage.getItem as jest.Mock).mockResolvedValue('bogus-code');
+      mockedApi.post.mockRejectedValue({ response: { status: 400 } });
+
+      renderHook(() => usePendingInviteRedemption(), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      await waitFor(() => expect(mockedApi.post).toHaveBeenCalled());
+      // Flush the mutation's rejection through react-query's onError.
+      await act(async () => {});
+      await act(async () => {});
+
+      // The invalid code is not re-stored: retrying it forever is pointless.
+      expect(mockedStorage.setItem).not.toHaveBeenCalled();
     });
 
     it('dismiss clears the inviter', async () => {

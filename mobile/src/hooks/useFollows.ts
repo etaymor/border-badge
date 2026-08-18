@@ -1,5 +1,6 @@
 import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { InfiniteData, QueryClient, QueryKey } from '@tanstack/react-query';
+import type { AxiosError } from 'axios';
 import { Alert } from 'react-native';
 
 import { socialKeys } from '@hooks/queryKeys';
@@ -151,6 +152,22 @@ async function applyOptimisticFollowChange(
   return { previousProfile, previousSocialHome, previousSearches };
 }
 
+/**
+ * Restore a snapshot only when its query still exists in the cache. A query
+ * another flow removed while the mutation was in flight (e.g. a block purging
+ * the blocked user's content via `removeQueries`) must stay removed —
+ * `setQueryData` would otherwise re-create it with the purged content.
+ */
+function restoreSnapshotIfPresent(
+  queryClient: QueryClient,
+  queryKey: QueryKey,
+  data: unknown
+): void {
+  if (queryClient.getQueryState(queryKey) !== undefined) {
+    queryClient.setQueryData(queryKey, data);
+  }
+}
+
 function rollbackFollowChange(
   queryClient: QueryClient,
   username: string | undefined,
@@ -158,14 +175,27 @@ function rollbackFollowChange(
 ): void {
   if (!context) return;
   if (username && context.previousProfile !== undefined) {
-    queryClient.setQueryData(socialKeys.userProfile(username), context.previousProfile);
+    restoreSnapshotIfPresent(
+      queryClient,
+      socialKeys.userProfile(username),
+      context.previousProfile
+    );
   }
   for (const [queryKey, data] of context.previousSocialHome) {
-    queryClient.setQueryData(queryKey, data);
+    restoreSnapshotIfPresent(queryClient, queryKey, data);
   }
   for (const [queryKey, data] of context.previousSearches) {
-    queryClient.setQueryData(queryKey, data);
+    restoreSnapshotIfPresent(queryClient, queryKey, data);
   }
+}
+
+/**
+ * True when a follow failed because the pair is blocked (backend/DB trigger
+ * answers 403 "Cannot follow this user"). In that case the block flow purges
+ * the target's caches, so snapshots of them must not be restored.
+ */
+function isBlockedPairError(error: unknown): boolean {
+  return (error as AxiosError)?.response?.status === 403;
 }
 
 /**
@@ -183,7 +213,19 @@ export function useFollowUser(userId: string, username?: string) {
     onMutate: () => applyOptimisticFollowChange(queryClient, userId, username, true),
 
     onError: (error, _variables, context) => {
-      rollbackFollowChange(queryClient, username, context);
+      if (isBlockedPairError(error)) {
+        // The follow failed because the target is blocked: the block flow
+        // purged this user's profile/feed caches, so restoring their
+        // snapshots would resurrect purged content. Roll back only the
+        // shared caches and refetch the user-specific ones.
+        rollbackFollowChange(queryClient, undefined, context);
+        if (username) {
+          queryClient.invalidateQueries({ queryKey: socialKeys.userProfile(username) });
+        }
+        queryClient.invalidateQueries({ queryKey: socialKeys.userFeed(userId) });
+      } else {
+        rollbackFollowChange(queryClient, username, context);
+      }
       Alert.alert('Error', getSocialErrorMessage(error, 'follow'));
     },
 
