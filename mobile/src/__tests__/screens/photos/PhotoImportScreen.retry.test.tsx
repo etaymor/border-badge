@@ -33,7 +33,11 @@ import type { ClusterDisplayItem } from '../../../screens/photos/photoImportHelp
 import { api } from '@services/api';
 // The real controller (a module-level singleton), imported from its own module
 // so the blanket '@services/photoImport' mock below does not swallow it.
-import { suggestionDispatch } from '@services/photoImport/suggestionDispatch';
+import {
+  CHUNK_SIZE,
+  SUGGESTION_DISPATCH_CONCURRENCY,
+  suggestionDispatch,
+} from '@services/photoImport/suggestionDispatch';
 import {
   getCachedSuggestions,
   cacheSuggestions,
@@ -594,18 +598,28 @@ describe('suggestion fetch reports in-progress for its whole duration (R1/R2)', 
    * accepts every cluster up front.
    */
   it('renders every enqueued cluster as pending, including batches not yet dispatched', async () => {
-    const allClusters = Array.from({ length: 8 }, (_, i) =>
+    // Enough clusters that the pool CANNOT cover them all at once, so there are
+    // genuinely undispatched clusters left to assert about. Sized off the
+    // shipped concurrency rather than a literal: at concurrency 1 eight was
+    // plenty, at 3 the pool swallowed all eight and the test asserted nothing.
+    const clusterCount = SUGGESTION_DISPATCH_CONCURRENCY * CHUNK_SIZE + 5;
+    const allClusters = Array.from({ length: clusterCount }, (_, i) =>
       makeCluster(`c-${i}`, 35 + i * 0.01, 139 + i * 0.01)
     );
     const lookup = new Map(allClusters.map((c) => [c.id, c]));
     mockedGetFullCluster.mockImplementation((id: string) => lookup.get(id));
 
-    // Hold the FIRST batch open so nothing has resolved when we assert.
-    let resolveFirst!: (value: unknown) => void;
-    mockedApi.post.mockImplementationOnce(
+    // Hold EVERY dispatched batch open so nothing has resolved when we assert.
+    // This used to hold only the first, which was sufficient while the shipped
+    // concurrency was 1; at 3 the pool sends more than one batch straight away
+    // and the rest would fall through unmocked. Holding all of them keeps the
+    // assertion about pending ROWS rather than about how many batches are in
+    // flight, which is the point of the test.
+    const resolvers: ((value: unknown) => void)[] = [];
+    mockedApi.post.mockImplementation(
       () =>
         new Promise((resolve) => {
-          resolveFirst = resolve as (value: unknown) => void;
+          resolvers.push(resolve as (value: unknown) => void);
         })
     );
 
@@ -621,21 +635,32 @@ describe('suggestion fetch reports in-progress for its whole duration (R1/R2)', 
     await act(async () => {
       fetchPromise = result.current.fetchSuggestions(candidate);
     });
+    // The pool fills to its bound and stops: never more than the shipped
+    // concurrency in flight at once.
     await waitFor(() => {
-      expect(mockedApi.post).toHaveBeenCalledTimes(1);
+      expect(mockedApi.post).toHaveBeenCalledTimes(SUGGESTION_DISPATCH_CONCURRENCY);
     });
 
-    // Only the opening batch is on the wire...
+    // Only the batches the pool admitted are on the wire...
     expect(result.current.suggestionDispatch.inFlightClusterIds.size).toBeLessThan(
       allClusters.length
     );
     // ...but EVERY cluster is a visible pending row, in canonical order.
     expect(pendingIds(result.current.clusterItems)).toEqual(allClusters.map((c) => c.id));
 
-    // Drain so the controller does not stay parked into the next test.
+    // Drain so the controller does not stay parked into the next test. Later
+    // batches are admitted as earlier ones settle, so keep draining until the
+    // dispatch itself completes.
     await act(async () => {
-      resolveFirst({ data: { suggestions: [], failed_cluster_count: 0 } });
+      const drain = () => {
+        while (resolvers.length > 0) {
+          resolvers.shift()!({ data: { suggestions: [], failed_cluster_count: 0 } });
+        }
+      };
+      const interval = setInterval(drain, 0);
+      drain();
       await fetchPromise;
+      clearInterval(interval);
     });
   });
 

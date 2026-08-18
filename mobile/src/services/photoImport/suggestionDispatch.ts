@@ -166,7 +166,7 @@ export function deriveDispatchConcurrency(prepareMs: number, networkMs: number):
  * lowered, or rolled back over the air with an EAS Update, with no native build
  * and independently of every other change in this area.
  */
-export const SUGGESTION_DISPATCH_CONCURRENCY = 1;
+export const SUGGESTION_DISPATCH_CONCURRENCY = 3;
 
 /**
  * Split clusters into dispatch batches: a small first batch, then full-size

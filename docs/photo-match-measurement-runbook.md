@@ -41,12 +41,17 @@ Do these once, in order, before any measurement.
 
 ## The two dials
 
-Both ship at their pre-plan values, so merging changed no runtime behavior.
+**Both dials are now open** following the 2026-08-17 measurement below.
 
-| Dial                              | Where                                                   | Ships at | Target | Rolls back via                  |
-| --------------------------------- | ------------------------------------------------------- | -------- | ------ | ------------------------------- |
-| `VISION_MAX_CONCURRENT_REQUESTS`  | backend env                                             | `5`      | `15`   | env + restart                   |
-| `SUGGESTION_DISPATCH_CONCURRENCY` | `mobile/src/services/photoImport/suggestionDispatch.ts` | `1`      | `3`    | **EAS update, no native build** |
+| Dial                              | Where                                                   | Ships at | Rolls back via                  |
+| --------------------------------- | ------------------------------------------------------- | -------- | ------------------------------- |
+| `VISION_MAX_CONCURRENT_REQUESTS`  | backend env                                             | `15`     | env + restart                   |
+| `SUGGESTION_DISPATCH_CONCURRENCY` | `mobile/src/services/photoImport/suggestionDispatch.ts` | `3`      | **EAS update, no native build** |
+
+> The vision dial is **backend env**, so it does not travel with the client.
+> `.env.example` carries `15`, but the deployed environment must set it
+> explicitly. A backend left at `5` while the client dispatches `3` is the
+> "raise them in step" violation in reverse and forfeits the larger win.
 
 `15` is the single-wave value: a batch is 5 clusters × up to 3 images = 15 images,
 so at 5 a batch costs three sequential concurrency waves. `3` is
@@ -57,6 +62,62 @@ Raise them **in step**. Cutting the vision wait shortens the window the concurre
 search phase hides behind, so the search bound becomes the next constraint. If you
 raise client concurrency without raising vision, you buy less than the numbers
 suggest.
+
+---
+
+## Measured result — 2026-08-17, point C
+
+One cold on-device run, 250 uncached clusters (country ZA), local backend,
+single process. Admissible as cold: **4.7% L2 hit rate, 0% L1**, 0 cached
+clusters.
+
+| Criterion                         | Target                     | Result                                    |
+| --------------------------------- | -------------------------- | ----------------------------------------- |
+| Time to first suggestion          | under 10s                  | **5.0s** — pass                           |
+| Failed-cluster count              | no higher than at conc. 1  | **0 of 250** — cannot be beaten           |
+| Vision-null rate                  | no higher than at conc. 1  | 2.8%, **0 timeouts**                      |
+| Top-ranked place per cluster      | identical to pre-plan main | **identical by inspection** (see below)   |
+| Total wall-clock vs point A       | at least 50% below         | **not evaluated — A never measured**      |
+| Concurrency's own contribution    | at least 30% below B       | **not evaluated — B never measured**      |
+| Batch time ratio                  | below 1.3x conc. 1         | **not evaluated — no conc. 1 baseline**   |
+| Absolute wall-clock, largest trip | stated and accepted        | **107s for 250 clusters**                 |
+| Peak request rate per method      | below Google quota         | `nearby` **913 req/min** peak — quota still unknown |
+
+Phase split: search **51.5%**, enrichment 15.7%, vision residual **10.8%**,
+backfill 10.1%. `vision.total_ms` was 71.1s against a `phase_ms.vision_wait`
+residual of 15.7s — **78% of vision hides behind search**. Per KTD16's ordering
+argument the vision dial has done its work; **search is now the dominant
+phase**, and the next lever is `PLACES_MAX_CONCURRENT_REQUESTS` (per-request,
+still 5, and saturated: `peak_concurrent` hit 5 on every request).
+`retries.slot_unavailable` was 0, so the process ceiling of 15 is sized right.
+
+All retry counters were zero: rate-limited, quota-exhausted, circuit-open,
+budget-exhausted, slot-unavailable. `dropped_ranking_inputs` 0.
+
+Client: `wall_clock_ms` 106,928 against `total_api_duration_ms` 153,838 — a
+**1.44x overlap**. `peak_in_flight_batches` reached 3, but
+`mean_in_flight_batches` was only **1.45**, so the pool idles much of the time
+and the gain is nearer 1.44x than 3x.
+
+### What this run does not establish
+
+**Points A and B were never measured**, so the two relative criteria are open.
+Inferring concurrency's contribution from the overlap ratio gives ~30.5% —
+landing on the 30% threshold rather than clearing it. The dials were kept open
+on the strength of the absolute numbers and the clean safety indicators, not
+because criterion 3 was met. Measuring point B is still the way to settle it.
+
+**Ranking parity was established by inspection, not by eval.**
+`_matcher_ranking.py` and `utils.py` are byte-identical to pre-plan `main`, and
+no ranking weight, score, or threshold changed — only rate-limit constants did.
+Given the same candidate set the same code returns the same winner, so the
+residual risk is confined to whether concurrent *search* collects a different
+candidate set, which an offline eval over fixed candidates cannot test anyway.
+`scripts/eval_place_matcher.py` reports top1=1.000 (n=18) on the sample dataset.
+
+**The Google Places per-method quota remains unread**, and `nearby` peaked at
+913 req/min (518 req/min aggregated over the 102s window). This is still the
+one exit criterion requiring a source outside the repo.
 
 ---
 

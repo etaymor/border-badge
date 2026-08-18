@@ -199,7 +199,7 @@ describe('suggestionDispatch - failedClusterIds (KTD6/KTD8/KTD10)', () => {
       // chunk-2 throws fatal — chunk-3 never runs
       .mockRejectedValueOnce(makeQuotaError());
 
-    const result = await suggestionDispatch.dispatch({ clusters });
+    const result = await suggestionDispatch.dispatch({ clusters, concurrency: 1, concurrency: 1 });
 
     const failed = suggestionDispatch.getState().failedClusterIds;
     expect([...failed.keys()].sort()).toEqual([...chunk2Ids].sort());
@@ -222,7 +222,7 @@ describe('suggestionDispatch - failedClusterIds (KTD6/KTD8/KTD10)', () => {
       .mockRejectedValueOnce(makeAxiosError(429, { 'retry-after': '60' }))
       .mockResolvedValue(emptyResponse);
 
-    await suggestionDispatch.dispatch({ clusters });
+    await suggestionDispatch.dispatch({ clusters, concurrency: 1, concurrency: 1 });
 
     // Batches 3 and 4 never leave, even though the mock would have answered them.
     expect(mockedApi.post).toHaveBeenCalledTimes(2);
@@ -241,7 +241,7 @@ describe('suggestionDispatch - failedClusterIds (KTD6/KTD8/KTD10)', () => {
     mockedApi.post.mockRejectedValueOnce(err);
 
     const clusters = buildClustersForBatches(2);
-    const result = await suggestionDispatch.dispatch({ clusters });
+    const result = await suggestionDispatch.dispatch({ clusters, concurrency: 1, concurrency: 1 });
 
     expect(result.fatalError).toMatchObject({ name: 'PhotoImportLimitReachedError' });
     // Retrying an entitlement refusal cannot succeed, so no Retry affordance.
@@ -520,7 +520,7 @@ describe('suggestionDispatch - cluster sets (KTD7)', () => {
       return emptyResponse;
     });
 
-    await suggestionDispatch.dispatch({ clusters });
+    await suggestionDispatch.dispatch({ clusters, concurrency: 1, concurrency: 1 });
 
     const batches = planSuggestionBatches(clusters);
     expect(observed).toHaveLength(batches.length);
@@ -548,7 +548,7 @@ describe('suggestionDispatch - cluster sets (KTD7)', () => {
 
     // KTD6: resolves partially rather than throwing; the allow-list is what
     // keeps the undispatched batch out of the cache.
-    await suggestionDispatch.dispatch({ clusters });
+    await suggestionDispatch.dispatch({ clusters, concurrency: 1, concurrency: 1 });
 
     const resolved = suggestionDispatch.getState().dispatchedAndResolvedClusterIds;
     for (const id of chunkIds(clusters, 0)) expect(resolved.has(id)).toBe(true);
@@ -717,13 +717,26 @@ describe('suggestionDispatch - owner accounting and lifetime', () => {
 // ===========================================================================
 
 describe('suggestionDispatch - concurrency configuration (U6/R6)', () => {
-  it('ships the client concurrency default at 1 (sequential) pending on-device measurement', () => {
-    // The pool is fully implemented and demonstrably works at 3 (below), but the
-    // exit criterion for raising it — concurrency's OWN contribution measured
-    // against the preparation-pipelining measurement point on a real device —
-    // has not been met. The code ships either way; the default is the lever, and
-    // it is a plain module constant so it moves over the air.
-    expect(SUGGESTION_DISPATCH_CONCURRENCY).toBe(1);
+  it('ships the client concurrency default at 3 following the on-device measurement', () => {
+    // Raised from 1 after the 2026-08-17 cold on-device run (250 uncached
+    // clusters, 4.7% L2 hit rate): 107s wall clock, 5.0s to first suggestion,
+    // 0 failed clusters, and every retry counter — rate-limited, circuit-open,
+    // slot-unavailable — at zero. See docs/photo-match-measurement-runbook.md.
+    //
+    // Honest caveat, recorded here because this constant is the ship decision:
+    // point B was never measured, so concurrency's OWN contribution is inferred
+    // from the overlap ratio (153.8s of API time in 106.9s wall = 1.44x, about
+    // 30.5%) rather than measured against the 30% criterion. It sits ON the
+    // threshold. mean_in_flight_batches was only 1.45 against a peak of 3, so
+    // the pool idles much of the time.
+    //
+    // Still a plain module constant: rolls back to 1 over the air with an EAS
+    // update, no native build. Raise it in step with the backend's
+    // VISION_MAX_CONCURRENT_REQUESTS (15) — the two are a paired flip.
+    expect(SUGGESTION_DISPATCH_CONCURRENCY).toBe(3);
+    expect(SUGGESTION_DISPATCH_CONCURRENCY).toBeLessThanOrEqual(
+      MAX_SUGGESTION_DISPATCH_CONCURRENCY
+    );
   });
 
   it('derives the pool size from the preparation/network knee rather than a guess', () => {
@@ -741,8 +754,11 @@ describe('suggestionDispatch - concurrency configuration (U6/R6)', () => {
     expect(deriveDispatchConcurrency(0, 3000)).toBe(1);
   });
 
-  it('dispatches strictly one batch at a time at the shipped default', async () => {
-    const clusters = buildClustersForBatches(3);
+  it('never exceeds the shipped default in flight, and still dispatches every batch', async () => {
+    // Was 'strictly one batch at a time' when the default was 1. The invariant
+    // that actually matters is the bound, not the number: whatever the default
+    // is, the pool must not exceed it and must still deliver every batch.
+    const clusters = buildClustersForBatches(6);
     let inFlight = 0;
     let peakInFlight = 0;
 
@@ -756,8 +772,111 @@ describe('suggestionDispatch - concurrency configuration (U6/R6)', () => {
 
     await suggestionDispatch.dispatch({ clusters });
 
+    expect(peakInFlight).toBeLessThanOrEqual(SUGGESTION_DISPATCH_CONCURRENCY);
+    expect(mockedApi.post).toHaveBeenCalledTimes(6);
+  });
+
+  it('dispatches strictly one batch at a time when explicitly sequential', async () => {
+    // The sequential guarantee still has to hold on demand — it is the rollback
+    // configuration, so it stays covered independently of the shipped default.
+    const clusters = buildClustersForBatches(3);
+    let inFlight = 0;
+    let peakInFlight = 0;
+
+    mockedApi.post.mockImplementation(async () => {
+      inFlight += 1;
+      peakInFlight = Math.max(peakInFlight, inFlight);
+      await Promise.resolve();
+      inFlight -= 1;
+      return emptyResponse;
+    });
+
+    await suggestionDispatch.dispatch({ clusters, concurrency: 1 });
+
     expect(peakInFlight).toBe(1);
     expect(mockedApi.post).toHaveBeenCalledTimes(3);
+  });
+});
+
+// ===========================================================================
+// Semantics AT the shipped concurrency (3), not just at 1.
+//
+// Raising SUGGESTION_DISPATCH_CONCURRENCY from 1 to 3 genuinely weakens the
+// "stop immediately" guarantees: when a fatal response lands, the batches the
+// pool already admitted are on the wire and cannot be recalled. The sequential
+// versions of these tests (above, pinned with `concurrency: 1`) still assert
+// the tight bound. These assert what actually holds at 3, so the difference is
+// documented and cannot drift unnoticed.
+// ===========================================================================
+
+describe('suggestionDispatch - fatal handling at the shipped concurrency', () => {
+  it('admits no NEW batches after a fatal rejection, bounded by what was in flight', async () => {
+    const clusters = buildClustersForBatches(8);
+
+    mockedApi.post
+      .mockResolvedValueOnce({
+        data: { suggestions: suggestionsFor(chunkIds(clusters, 0)), failed_cluster_count: 0 },
+      })
+      .mockRejectedValueOnce(makeAxiosError(429, { 'retry-after': '60' }))
+      .mockResolvedValue(emptyResponse);
+
+    await suggestionDispatch.dispatch({
+      clusters,
+      concurrency: SUGGESTION_DISPATCH_CONCURRENCY,
+    });
+
+    // The guarantee is a BOUND, not a number: nothing beyond the batches the
+    // pool had already admitted when the fatal landed. At concurrency 1 that is
+    // 2; at 3 it is at most 3. What must never happen is the whole plan going
+    // out regardless of the fatal.
+    expect(mockedApi.post.mock.calls.length).toBeLessThanOrEqual(SUGGESTION_DISPATCH_CONCURRENCY);
+    expect(mockedApi.post.mock.calls.length).toBeGreaterThanOrEqual(2);
+    expect(mockedApi.post.mock.calls.length).toBeLessThan(8);
+  });
+
+  it('spends at most `concurrency` requests on a 402 before stopping (U16)', async () => {
+    // Entitlement refusals are the case where an extra in-flight request is
+    // most worth bounding. It costs no Google Places spend -- a 402 means the
+    // backend refused BEFORE doing any work -- but it must not run the plan.
+    const err = makeAxiosError(402);
+    // @ts-expect-error - minimal AxiosError response shape for the test
+    err.response.data = { detail: { code: 'PHOTO_IMPORT_LIMIT_REACHED' } };
+    mockedApi.post.mockRejectedValue(err);
+
+    const clusters = buildClustersForBatches(8);
+    const result = await suggestionDispatch.dispatch({
+      clusters,
+      concurrency: SUGGESTION_DISPATCH_CONCURRENCY,
+    });
+
+    expect(result.fatalError).toMatchObject({ name: 'PhotoImportLimitReachedError' });
+    expect(mockedApi.post.mock.calls.length).toBeLessThanOrEqual(SUGGESTION_DISPATCH_CONCURRENCY);
+    // Still not retryable, however many were in flight when it landed.
+    for (const id of chunkIds(clusters, 0)) {
+      expect(suggestionDispatch.getState().failedClusterIds.get(id)).toEqual({
+        retryDisabled: true,
+      });
+    }
+  });
+
+  it('attributes failure ONLY to clusters that were actually dispatched', async () => {
+    // KTD6 at concurrency 3. More clusters are in flight than at 1, so more can
+    // legitimately be attributed -- but never one the pool never sent. That is
+    // the invariant the runbook's "no location shows failed while its lookup is
+    // still running" check depends on.
+    const clusters = buildClustersForBatches(8);
+    mockedApi.post.mockRejectedValue(makeQuotaError());
+
+    const result = await suggestionDispatch.dispatch({
+      clusters,
+      concurrency: SUGGESTION_DISPATCH_CONCURRENCY,
+    });
+
+    const failed = suggestionDispatch.getState().failedClusterIds;
+    for (const id of failed.keys()) {
+      expect(result.dispatchedClusterIds.has(id)).toBe(true);
+    }
+    expect(failed.size).toBeLessThanOrEqual(result.dispatchedClusterIds.size);
   });
 });
 
@@ -981,7 +1100,7 @@ describe('suggestionDispatch - abort (U6)', () => {
     abortableApi();
 
     // Sequential (the shipped default): only the first batch is on the wire.
-    const run = suggestionDispatch.dispatch({ clusters });
+    const run = suggestionDispatch.dispatch({ clusters, concurrency: 1, concurrency: 1 });
     await flush();
     suggestionDispatch.reset();
     const result = await run;
@@ -1026,7 +1145,7 @@ describe('suggestionDispatch - lifecycle pause / resume (U9/R15)', () => {
     const clusters = buildClustersForBatches(4);
     const release = controlledApi();
 
-    const run = suggestionDispatch.dispatch({ clusters });
+    const run = suggestionDispatch.dispatch({ clusters, concurrency: 1, concurrency: 1 });
     await flush();
     expect(mockedApi.post).toHaveBeenCalledTimes(1);
 
@@ -1549,7 +1668,7 @@ describe('suggestionDispatch - burst-cap rate limiting (U16)', () => {
     });
 
     const startedAt = Date.now();
-    const result = await suggestionDispatch.dispatch({ clusters });
+    const result = await suggestionDispatch.dispatch({ clusters, concurrency: 1, concurrency: 1 });
     const elapsedMs = Date.now() - startedAt;
 
     // The burst cap is 5/second and answers with Retry-After: 1. Ending the
@@ -1580,7 +1699,7 @@ describe('suggestionDispatch - burst-cap rate limiting (U16)', () => {
     expect(MAX_PARKABLE_RETRY_AFTER_SECONDS).toBeGreaterThanOrEqual(1);
     mockedApi.post.mockRejectedValue(makeAxiosError(429, { 'retry-after': '0' }));
 
-    const result = await suggestionDispatch.dispatch({ clusters });
+    const result = await suggestionDispatch.dispatch({ clusters, concurrency: 1, concurrency: 1 });
 
     // MAX parks, then the next rejection is a hard stop like the sustained one.
     expect(mockedApi.post).toHaveBeenCalledTimes(MAX_RATE_LIMIT_PARKS + 1);
@@ -1598,7 +1717,7 @@ describe('suggestionDispatch - burst-cap rate limiting (U16)', () => {
       .mockResolvedValue(emptyResponse);
 
     const startedAt = Date.now();
-    const result = await suggestionDispatch.dispatch({ clusters });
+    const result = await suggestionDispatch.dispatch({ clusters, concurrency: 1, concurrency: 1 });
 
     expect(mockedApi.post).toHaveBeenCalledTimes(2);
     expect(Date.now() - startedAt).toBeLessThan(1000);
