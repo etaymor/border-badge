@@ -17,7 +17,7 @@
 
 import { within } from '@testing-library/react-native';
 
-import { fireEvent, render, screen, waitFor } from '../utils/testUtils';
+import { act, fireEvent, render, screen, waitFor } from '../utils/testUtils';
 import { createMockNavigation } from '../utils/mockFactories';
 
 // Access the mock Alert from global (set in jest.setup.js).
@@ -343,7 +343,13 @@ describe('QuizPlayScreen stall recovery', () => {
   // the tapped option still lit and no way out but killing the app. Nothing may
   // hold that lock indefinitely.
   it('recovers into the retryable error state when an answer never settles', async () => {
-    jest.useFakeTimers();
+    // Fake ONLY the clock the watchdog needs. React's scheduler drives render
+    // continuations through setImmediate in this environment; mounting the
+    // screen while setImmediate is faked strands the scheduler's pending
+    // flush when useRealTimers() discards the fake queue, after which every
+    // outside-act update IN THE WHOLE FILE (the ACK-hold advances) renders
+    // but never commits. Node 20 fails on this; newer Nodes happen to mask it.
+    jest.useFakeTimers({ doNotFake: ['setImmediate', 'clearImmediate'] });
     try {
       mockQuizDetail(makeDetail({ questions: [makeQuestion(0)] }));
       mockEnsurePlaySession.mockResolvedValue(makePlayState([]));
@@ -358,7 +364,11 @@ describe('QuizPlayScreen stall recovery', () => {
       // Frozen: the option is lit and every option is disabled.
       await waitFor(() => expect(screen.getByTestId('quiz-option-0').props.accessibilityState));
 
-      jest.advanceTimersByTime(20_000);
+      // act-wrapped so the watchdog's state update flushes while the fake
+      // clock is still installed, not after useRealTimers() discards it.
+      act(() => {
+        jest.advanceTimersByTime(20_000);
+      });
 
       await waitFor(() => expect(screen.getByTestId('quiz-play-error')).toBeTruthy());
     } finally {
