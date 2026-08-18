@@ -603,11 +603,11 @@ def test_invite_flow_trip_tag_stores_trip_id(
         ]
 
     mock_supabase_client.rpc.return_value = [{"exists": False}]
-    mock_supabase_client.get.side_effect = [
-        # Inviter profile (fetched first: name for email, username for ?ref=)
-        [{"display_name": "Test User", "username": "test_user"}],
-        [],  # No existing invite
-    ]
+    mock_supabase_client.get.side_effect = supabase_tables(
+        trip=[{"id": trip_id}],  # ownership check: the caller owns this trip
+        user_profile=[{"display_name": "Test User", "username": "test_user"}],
+        pending_invite=[],  # no existing invite
+    )
     mock_supabase_client.post.side_effect = capture_post_call
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
@@ -1032,14 +1032,16 @@ def test_redeem_trip_tag_invite_creates_pending_tag(
         app.dependency_overrides.clear()
 
 
-def test_redeem_trip_tag_invite_deleted_trip_not_marked_accepted(
+def test_redeem_trip_tag_invite_deleted_trip_is_graceful_non_redeem(
     client: TestClient,
     mock_supabase_client: AsyncMock,
     mock_user: AuthUser,
     auth_headers: dict[str, str],
 ) -> None:
-    """A trip_tag invite whose trip is gone still connects the users but does
-    not consume (mark accepted) the invite."""
+    """A trip_tag invite whose trip is gone redeems nothing: no follow, no
+    tag, and the invite stays pending (a later attempt could still succeed if
+    semantics change). The response reuses already_redeemed with inviter=None
+    so the mobile RedeemInviteResponse union stays backward compatible."""
     trip_id = "550e8400-e29b-41d4-a716-446655440077"
     code = make_invite_code(OTHER_USER_ID, SAMPLE_EMAIL)
     mock_supabase_client.get.side_effect = supabase_tables(
@@ -1060,13 +1062,320 @@ def test_redeem_trip_tag_invite_deleted_trip_not_marked_accepted(
                 json={"code": code},
             )
         assert response.status_code == 200
-        # Follow still created, no trip tag, invite left pending
+        data = response.json()
+        assert data["status"] == "already_redeemed"
+        assert data["inviter"] is None
+        # No side effects at all: no follow, no tag, invite left pending
+        mock_supabase_client.post.assert_not_called()
+        mock_supabase_client.patch.assert_not_called()
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_redeem_trip_tag_invite_inviter_no_longer_owns_trip_creates_no_tag(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+) -> None:
+    """Defense in depth (#3): if the invite's inviter does not own the trip at
+    redemption time (e.g. a legacy invite minted with someone else's trip_id),
+    no tag is created and nothing is redeemed."""
+    trip_id = "550e8400-e29b-41d4-a716-446655440077"
+    someone_else = "550e8400-e29b-41d4-a716-446655440055"
+    code = make_invite_code(OTHER_USER_ID, SAMPLE_EMAIL)
+    mock_supabase_client.get.side_effect = supabase_tables(
+        pending_invite=[_pending_invite_row(code, "trip_tag", trip_id=trip_id)],
+        user_profile=[INVITER_PROFILE],
+        trip=[{"id": trip_id, "user_id": someone_else}],  # not the inviter's
+    )
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with patch(
+            "app.api.invites.get_service_supabase_client",
+            return_value=mock_supabase_client,
+        ):
+            response = client.post(
+                "/invites/redeem",
+                headers=auth_headers,
+                json={"code": code},
+            )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "already_redeemed"
+        assert data["inviter"] is None
+        mock_supabase_client.post.assert_not_called()
+        mock_supabase_client.patch.assert_not_called()
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_send_trip_tag_invite_for_unowned_trip_returns_404(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+) -> None:
+    """Security (#3): send_invite must verify the caller owns invite.trip_id.
+    An unowned trip 404s (existence-hiding) and persists nothing -- otherwise
+    an attacker could mint themselves a pending tag (and RLS read access) on
+    any private trip whose UUID they know."""
+    trip_id = "550e8400-e29b-41d4-a716-446655440077"
+    mock_supabase_client.rpc.return_value = [{"exists": False}]
+    mock_supabase_client.get.side_effect = supabase_tables(
+        trip=[],  # ownership check: not the caller's trip
+    )
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with (
+            patch(
+                "app.api.invites.get_supabase_client",
+                return_value=mock_supabase_client,
+            ),
+            patch(
+                "app.api.invites.get_service_supabase_client",
+                return_value=mock_supabase_client,
+            ),
+        ):
+            response = client.post(
+                "/invites",
+                headers=auth_headers,
+                json={
+                    "email": SAMPLE_EMAIL,
+                    "invite_type": "trip_tag",
+                    "trip_id": trip_id,
+                },
+            )
+        assert response.status_code == 404
+        mock_supabase_client.post.assert_not_called()
+    finally:
+        app.dependency_overrides.clear()
+
+
+def _post_raising_for(table_name: str, error: Exception):
+    """Async post side effect that raises `error` for one table only."""
+
+    async def side_effect(table, data):
+        if table == table_name:
+            raise error
+        return [{"id": "row-id"}]
+
+    return side_effect
+
+
+def _duplicate_key_database_error():
+    """The REAL exception shape the DB layer raises for a unique violation:
+    generic client-facing detail, specifics only in structured fields."""
+    from app.db.session import DatabaseError
+
+    error = DatabaseError(
+        status_code=409,
+        pg_code="23505",
+        message='duplicate key value violates unique constraint "some_key"',
+        constraint="some_key",
+    )
+    assert "duplicate" not in str(error.detail).lower()
+    return error
+
+
+def test_redeem_trip_tag_invite_duplicate_tag_passes_through(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+) -> None:
+    """Regression (#2/#4): a duplicate-key DatabaseError on the trip_tags
+    insert (tag already exists) is tolerated -- redemption still completes."""
+    trip_id = "550e8400-e29b-41d4-a716-446655440077"
+    code = make_invite_code(OTHER_USER_ID, SAMPLE_EMAIL)
+    mock_supabase_client.get.side_effect = supabase_tables(
+        pending_invite=[_pending_invite_row(code, "trip_tag", trip_id=trip_id)],
+        user_profile=[INVITER_PROFILE],
+        trip=[{"id": trip_id, "user_id": OTHER_USER_ID}],
+    )
+    mock_supabase_client.patch.return_value = [{"id": SAMPLE_INVITE_ID}]
+    mock_supabase_client.post.side_effect = _post_raising_for(
+        "trip_tags", _duplicate_key_database_error()
+    )
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with patch(
+            "app.api.invites.get_service_supabase_client",
+            return_value=mock_supabase_client,
+        ):
+            response = client.post(
+                "/invites/redeem",
+                headers=auth_headers,
+                json={"code": code},
+            )
+        assert response.status_code == 200
+        assert response.json()["status"] == "redeemed"
+        # The follow was still created and the claim was NOT reverted.
         tables_posted = [
             call.args[0] for call in mock_supabase_client.post.call_args_list
         ]
         assert "user_follow" in tables_posted
-        assert "trip_tags" not in tables_posted
+        assert mock_supabase_client.patch.call_count == 1
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_redeem_invite_duplicate_follow_passes_through(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+) -> None:
+    """Regression (#2/#4): a duplicate-key DatabaseError on the user_follow
+    insert (already following) is tolerated -- redemption still completes."""
+    code = make_invite_code(OTHER_USER_ID, SAMPLE_EMAIL)
+    mock_supabase_client.get.side_effect = supabase_tables(
+        pending_invite=[_pending_invite_row(code)],
+        user_profile=[INVITER_PROFILE],
+    )
+    mock_supabase_client.patch.return_value = [{"id": SAMPLE_INVITE_ID}]
+    mock_supabase_client.post.side_effect = _post_raising_for(
+        "user_follow", _duplicate_key_database_error()
+    )
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with patch(
+            "app.api.invites.get_service_supabase_client",
+            return_value=mock_supabase_client,
+        ):
+            response = client.post(
+                "/invites/redeem",
+                headers=auth_headers,
+                json={"code": code},
+            )
+        assert response.status_code == 200
+        assert response.json()["status"] == "redeemed"
+        # Claimed exactly once, never reverted.
+        assert mock_supabase_client.patch.call_count == 1
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_redeem_invite_blocked_pair_returns_403_without_side_effects(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+) -> None:
+    """#4: a blocked pair redeems nothing -- 403, no follow, no tag, and the
+    invite stays pending (never claimed)."""
+    code = make_invite_code(OTHER_USER_ID, SAMPLE_EMAIL)
+    mock_supabase_client.get.side_effect = supabase_tables(
+        pending_invite=[_pending_invite_row(code)],
+        user_profile=[INVITER_PROFILE],
+        user_block=[{"id": "block-id"}],  # a block exists in some direction
+    )
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with patch(
+            "app.api.invites.get_service_supabase_client",
+            return_value=mock_supabase_client,
+        ):
+            response = client.post(
+                "/invites/redeem",
+                headers=auth_headers,
+                json={"code": code},
+            )
+        assert response.status_code == 403
+        mock_supabase_client.post.assert_not_called()
         mock_supabase_client.patch.assert_not_called()
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_redeem_invite_block_trigger_race_reverts_claim(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+) -> None:
+    """#4: a block racing past the pre-check hits the database trigger on the
+    follow insert (real DatabaseError shape: generic detail, message only in
+    structured fields) -- 403, and the claim is reverted to pending."""
+    from app.db.session import DatabaseError
+
+    code = make_invite_code(OTHER_USER_ID, SAMPLE_EMAIL)
+    mock_supabase_client.get.side_effect = supabase_tables(
+        pending_invite=[_pending_invite_row(code)],
+        user_profile=[INVITER_PROFILE],
+        user_block=[],  # pre-check sees nothing; the block lands mid-flight
+    )
+    mock_supabase_client.patch.return_value = [{"id": SAMPLE_INVITE_ID}]
+    mock_supabase_client.post.side_effect = _post_raising_for(
+        "user_follow",
+        DatabaseError(
+            status_code=400,
+            pg_code="P0001",
+            message="Cannot follow a blocked user or a user who has blocked you",
+        ),
+    )
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with patch(
+            "app.api.invites.get_service_supabase_client",
+            return_value=mock_supabase_client,
+        ):
+            response = client.post(
+                "/invites/redeem",
+                headers=auth_headers,
+                json={"code": code},
+            )
+        assert response.status_code == 403
+        # Claim + revert: second patch puts the invite back to pending.
+        assert mock_supabase_client.patch.call_count == 2
+        revert_call = mock_supabase_client.patch.call_args_list[1]
+        assert revert_call.kwargs["data"]["status"] == "pending"
+        assert revert_call.kwargs["params"]["status"] == "eq.accepted"
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_redeem_invite_concurrent_claim_loses_race(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+) -> None:
+    """#5: the conditional claim (pending -> accepted) runs FIRST. When a
+    concurrent redemption already claimed the invite, the PATCH matches zero
+    rows and this request performs NO side effects -- no duplicate follow,
+    tag, or notification."""
+    code = make_invite_code(OTHER_USER_ID, SAMPLE_EMAIL)
+    mock_supabase_client.get.side_effect = supabase_tables(
+        pending_invite=[_pending_invite_row(code)],  # read as pending...
+        user_profile=[INVITER_PROFILE],
+    )
+    mock_supabase_client.patch.return_value = []  # ...but the claim loses
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with patch(
+            "app.api.invites.get_service_supabase_client",
+            return_value=mock_supabase_client,
+        ):
+            response = client.post(
+                "/invites/redeem",
+                headers=auth_headers,
+                json={"code": code},
+            )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "already_redeemed"
+        assert data["inviter"]["user_id"] == OTHER_USER_ID
+        # Claim attempted exactly once; zero side effects after losing.
+        assert mock_supabase_client.patch.call_count == 1
+        mock_supabase_client.post.assert_not_called()
     finally:
         app.dependency_overrides.clear()
 

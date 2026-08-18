@@ -189,6 +189,100 @@ def test_add_trip_tag_no_notification_when_insert_fails(
         app.dependency_overrides.clear()
 
 
+def test_add_trip_tag_block_trigger_race_returns_404(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+) -> None:
+    """#6: a block racing past the pre-check hits the database trigger
+    (enforce_no_trip_tag_when_blocked, migration 0092). The real error shape
+    is a DatabaseError with a generic detail and the trigger message only in
+    the structured fields; it must map to the same existence-hiding 404 as
+    the pre-check, with no notification."""
+    from app.db.session import DatabaseError
+
+    mock_supabase_client.get.side_effect = [
+        [{"id": TEST_TRIP_ID, "name": "Summer Vacation"}],  # Trip ownership
+        [{"user_id": OTHER_USER_ID}],  # Target exists
+        [],  # No existing tag
+    ]
+    mock_supabase_client.rpc.return_value = False  # Pre-check misses the block
+    mock_supabase_client.post.side_effect = DatabaseError(
+        status_code=400,
+        pg_code="P0001",
+        message="Cannot tag a blocked user or a user who has blocked you",
+    )
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with (
+            patch(
+                "app.api.trip_tags.get_supabase_client",
+                return_value=mock_supabase_client,
+            ),
+            patch(
+                "app.api.trip_tags.send_trip_tag_notification",
+                new_callable=AsyncMock,
+            ) as mock_notify,
+        ):
+            response = client.post(
+                f"/trip-tags/{TEST_TRIP_ID}/tags/{OTHER_USER_ID}",
+                headers=auth_headers,
+            )
+        assert response.status_code == 404
+        assert "User not found" in response.json()["detail"]
+        mock_notify.assert_not_called()
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_add_trip_tag_duplicate_race_returns_409(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+) -> None:
+    """A concurrent duplicate insert (DatabaseError 23505 with generic detail)
+    maps to the same 409 as the existing-tag pre-check."""
+    from app.db.session import DatabaseError
+
+    mock_supabase_client.get.side_effect = [
+        [{"id": TEST_TRIP_ID, "name": "Summer Vacation"}],  # Trip ownership
+        [{"user_id": OTHER_USER_ID}],  # Target exists
+        [],  # No existing tag (the duplicate races in)
+    ]
+    mock_supabase_client.rpc.return_value = False  # Not blocked
+    mock_supabase_client.post.side_effect = DatabaseError(
+        status_code=409,
+        pg_code="23505",
+        message='duplicate key value violates unique constraint "trip_tags_key"',
+        constraint="trip_tags_key",
+    )
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with (
+            patch(
+                "app.api.trip_tags.get_supabase_client",
+                return_value=mock_supabase_client,
+            ),
+            patch(
+                "app.api.trip_tags.send_trip_tag_notification",
+                new_callable=AsyncMock,
+            ) as mock_notify,
+        ):
+            response = client.post(
+                f"/trip-tags/{TEST_TRIP_ID}/tags/{OTHER_USER_ID}",
+                headers=auth_headers,
+            )
+        assert response.status_code == 409
+        assert "already tagged" in response.json()["detail"]
+        mock_notify.assert_not_called()
+    finally:
+        app.dependency_overrides.clear()
+
+
 # ============================================================================
 # Consent withdrawal (DELETE /trip-tags/{trip_id}/tag)
 # ============================================================================

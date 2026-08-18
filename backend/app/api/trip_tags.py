@@ -8,7 +8,11 @@ from uuid import UUID
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request, status
 
 from app.api.trips_helpers import verify_trip_ownership
-from app.api.utils import get_token_from_request
+from app.api.utils import (
+    get_token_from_request,
+    is_block_violation_error,
+    is_duplicate_key_error,
+)
 from app.core.edge_functions import send_push_notification
 from app.core.notifications import (
     get_user_push_tokens,
@@ -430,7 +434,24 @@ async def add_trip_tag(
         "initiated_by": user.id,
         "notification_id": None,
     }
-    tag_rows = await db.post("trip_tags", tag_data)
+    try:
+        tag_rows = await db.post("trip_tags", tag_data)
+    except Exception as e:
+        # The enforce_no_trip_tag_when_blocked trigger is the atomic backstop
+        # for a block racing past the pre-check above; map it to the same 404
+        # (a block must not reveal that the user exists).
+        if is_block_violation_error(e):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found",
+            ) from None
+        # A concurrent duplicate insert maps to the same 409 as the pre-check.
+        if is_duplicate_key_error(e):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="User is already tagged on this trip",
+            ) from None
+        raise
     if not tag_rows:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

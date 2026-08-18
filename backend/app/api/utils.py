@@ -2,6 +2,8 @@
 
 from fastapi import Request
 
+from app.db.session import DatabaseError
+
 
 def get_token_from_request(request: Request) -> str | None:
     """Extract bearer token from request headers."""
@@ -11,11 +13,45 @@ def get_token_from_request(request: Request) -> str | None:
     return None
 
 
+def _error_text(error: Exception | str) -> str:
+    """Classification text for a database error.
+
+    DatabaseError's ``str()`` is the generic client-facing detail ("Database
+    error"), so classification must read its server-side ``message`` field.
+    """
+    if isinstance(error, DatabaseError):
+        return (error.message or "").lower()
+    return str(error).lower()
+
+
 def is_duplicate_key_error(error: Exception | str) -> bool:
     """True when a database error indicates a duplicate-key / unique-constraint
-    violation (e.g. the row already exists)."""
-    msg = str(error).lower()
+    violation (e.g. the row already exists).
+
+    DatabaseError carries structured PostgREST fields: SQLSTATE 23505
+    (unique_violation) or an HTTP 409 Conflict is authoritative. The substring
+    fallback keeps non-DatabaseError exceptions (raw client errors, tests)
+    classifiable.
+    """
+    if isinstance(error, DatabaseError) and (
+        error.pg_code == "23505" or error.status_code == 409
+    ):
+        return True
+    msg = _error_text(error)
     return "duplicate key" in msg or "unique" in msg
+
+
+def is_block_violation_error(error: Exception | str) -> bool:
+    """True when a database error came from a block-enforcement trigger
+    (prevent_follow_when_blocked, prevent_trip_tag_when_blocked).
+
+    The triggers RAISE EXCEPTION with messages naming the block ("Cannot
+    follow a blocked user...", "Cannot tag a blocked user..."); the text
+    survives on DatabaseError.message even though the client-facing detail
+    is generic.
+    """
+    msg = _error_text(error)
+    return "cannot follow" in msg or "cannot tag" in msg or "blocked" in msg
 
 
 # Special flag mappings for non-standard country codes

@@ -123,6 +123,41 @@ def test_handle_http_error_does_not_leak_postgrest_detail(monkeypatch) -> None:
     assert "user_follow" not in str(exc_info.value.detail)
 
 
+def test_handle_http_error_carries_structured_fields(monkeypatch) -> None:
+    """The raised DatabaseError keeps the PostgREST specifics server-side
+    (pg_code / message / constraint) while the detail stays generic, so
+    endpoints can classify errors without string-matching the detail."""
+    import httpx
+
+    from app.db.session import DatabaseError
+
+    dummy = DummySettings()
+    monkeypatch.setattr("app.db.session.get_settings", lambda: dummy)
+    client = SupabaseClient()
+
+    message = 'duplicate key value violates unique constraint "user_follow_pkey"'
+    response = httpx.Response(
+        409,
+        json={"message": message, "code": "23505", "details": None},
+        request=httpx.Request("POST", "https://example.supabase.co/rest/v1/x"),
+    )
+    error = httpx.HTTPStatusError(
+        "Conflict", request=response.request, response=response
+    )
+
+    with pytest.raises(DatabaseError) as exc_info:
+        client._handle_http_error(error)
+
+    exc = exc_info.value
+    assert exc.status_code == 409
+    assert exc.detail == "Database error"
+    assert exc.pg_code == "23505"
+    assert exc.message == message
+    assert exc.constraint == "user_follow_pkey"
+    # str() must never leak the specifics
+    assert "duplicate" not in str(exc.detail).lower()
+
+
 @pytest.mark.asyncio
 async def test_rpc_invokes_function_with_payload(monkeypatch) -> None:
     """Ensure RPC helper posts to function endpoint with provided params."""

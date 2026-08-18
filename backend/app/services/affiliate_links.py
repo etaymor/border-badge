@@ -14,6 +14,7 @@ import logging
 from urllib.parse import urlencode
 from uuid import UUID
 
+from app.api.utils import is_duplicate_key_error
 from app.core.config import get_settings
 from app.db.session import get_service_supabase_client
 from app.schemas.affiliate import (
@@ -332,9 +333,11 @@ async def get_or_create_link_for_entry(
             )
         )
     except Exception as e:
-        # Handle race condition: another caller created the link concurrently
-        error_msg = str(e).lower()
-        if "duplicate" in error_msg or "unique" in error_msg or "conflict" in error_msg:
+        # Handle race condition: another caller created the link concurrently.
+        # is_duplicate_key_error understands DatabaseError's structured fields
+        # (SQLSTATE 23505 / HTTP 409); the extra "conflict" substring keeps
+        # older raw-text error shapes covered.
+        if is_duplicate_key_error(e) or "conflict" in str(e).lower():
             logger.debug(
                 f"Race condition on link creation for entry {entry_id}, re-fetching"
             )

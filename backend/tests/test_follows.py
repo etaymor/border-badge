@@ -140,6 +140,79 @@ def test_follow_user_already_following(
         app.dependency_overrides.clear()
 
 
+def test_follow_user_already_following_via_database_error_shape(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+) -> None:
+    """Regression (#2): the DB layer raises DatabaseError whose str() is the
+    GENERIC 'Database error' detail -- classification must read the structured
+    pg_code, not the exception text. A raw-text mock used to hide this."""
+    from app.db.session import DatabaseError
+
+    mock_supabase_client.get.side_effect = [
+        [],  # No blocks (user blocking target)
+        [],  # No blocks (target blocking user)
+        [{"id": "profile-id", "user_id": OTHER_USER_ID}],  # Target user exists
+    ]
+    # The REAL shape: generic detail, specifics only in structured fields.
+    error = DatabaseError(
+        status_code=409,
+        pg_code="23505",
+        message="duplicate key value violates unique constraint "
+        '"user_follow_follower_id_following_id_key"',
+        constraint="user_follow_follower_id_following_id_key",
+    )
+    assert "duplicate" not in str(error.detail).lower()
+    mock_supabase_client.post.side_effect = error
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with patch(
+            "app.api.follows.get_supabase_client", return_value=mock_supabase_client
+        ):
+            response = client.post(f"/follows/{OTHER_USER_ID}", headers=auth_headers)
+        assert response.status_code == 201
+        assert response.json()["status"] == "already_following"
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_follow_user_block_trigger_via_database_error_shape(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+) -> None:
+    """Regression (#2): the prevent_follow_when_blocked trigger error arrives
+    as a DatabaseError with a generic detail; the 'cannot follow' text only
+    survives on the structured message field, and must still map to 403."""
+    from app.db.session import DatabaseError
+
+    mock_supabase_client.get.side_effect = [
+        [],  # No blocks visible pre-insert (block raced in)
+        [],
+        [{"id": "profile-id", "user_id": OTHER_USER_ID}],  # Target user exists
+    ]
+    mock_supabase_client.post.side_effect = DatabaseError(
+        status_code=400,
+        pg_code="P0001",
+        message="Cannot follow a blocked user or a user who has blocked you",
+    )
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with patch(
+            "app.api.follows.get_supabase_client", return_value=mock_supabase_client
+        ):
+            response = client.post(f"/follows/{OTHER_USER_ID}", headers=auth_headers)
+        assert response.status_code == 403
+        assert "Cannot follow this user" in response.json()["detail"]
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_follow_self_returns_400(
     client: TestClient,
     mock_supabase_client: AsyncMock,

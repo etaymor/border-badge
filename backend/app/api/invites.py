@@ -9,7 +9,12 @@ from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request, status
 
-from app.api.utils import get_token_from_request, is_duplicate_key_error
+from app.api.trips_helpers import verify_trip_ownership
+from app.api.utils import (
+    get_token_from_request,
+    is_block_violation_error,
+    is_duplicate_key_error,
+)
 from app.core.config import get_settings
 from app.core.db_utils import get_rpc_first_row
 from app.core.edge_functions import send_invite_email, send_push_notification
@@ -75,6 +80,14 @@ async def send_invite(
     db = get_supabase_client(user_token=token)
 
     email_lower = invite.email.lower()
+
+    # An invite carrying a trip_id grants the redeemer a pending tag on that
+    # trip (and, once self-approved, RLS read access). The caller must own the
+    # trip -- otherwise anyone knowing a trip UUID could mint themselves
+    # access via a second account. 404 (not 403) mirrors trip_tags.py's
+    # existence-hiding convention; the user-scoped query enforces ownership.
+    if invite.trip_id is not None:
+        await verify_trip_ownership(db, str(invite.trip_id), str(user.id))
 
     # Three independent reads, run concurrently:
     # - Does a user already exist with this email? Use service role: the
@@ -284,10 +297,42 @@ async def redeem_invite(
             inviter=inviter,
         )
 
-    # For trip_tag invites, create the *pending* tag (consent workflow) if the
-    # trip is still alive. A dead trip cannot deliver the invite's promise, so
-    # the invite is left unconsumed (mirrors the signup-trigger semantics).
-    mark_accepted = True
+    # A blocked pair redeems nothing: check both directions BEFORE claiming so
+    # the invite stays pending and no side effects occur. The database
+    # triggers (prevent_follow_when_blocked, prevent_trip_tag_when_blocked)
+    # remain the atomic backstop for a block racing past this check.
+    blocks_out, blocks_in = await asyncio.gather(
+        db.get(
+            "user_block",
+            {
+                "select": "id",
+                "blocker_id": f"eq.{inviter_id}",
+                "blocked_id": f"eq.{user.id}",
+            },
+        ),
+        db.get(
+            "user_block",
+            {
+                "select": "id",
+                "blocker_id": f"eq.{user.id}",
+                "blocked_id": f"eq.{inviter_id}",
+            },
+        ),
+    )
+    if blocks_out or blocks_in:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Cannot redeem this invite",
+        )
+
+    # For trip_tag invites, the tag can only be delivered while the trip is
+    # alive AND still owned by the inviter (defense in depth: send_invite now
+    # verifies ownership, but legacy rows may predate that check). A trip that
+    # fails either test cannot deliver the invite's promise, so the invite is
+    # left unconsumed with NO side effects -- graceful non-redeem. The mobile
+    # RedeemInviteResponse union only knows redeemed/already_redeemed, so this
+    # reuses already_redeemed with inviter=None rather than adding a status.
+    trips: list[dict] = []
     if invite_type == "trip_tag":
         trip_id = invite.get("trip_id")
         trips = (
@@ -303,22 +348,78 @@ async def redeem_invite(
             if trip_id
             else []
         )
-        if trips:
-            try:
-                await db.post(
-                    "trip_tags",
-                    {
-                        "trip_id": str(trip_id),
-                        "tagged_user_id": str(user.id),
-                        "initiated_by": str(trips[0]["user_id"]),
-                        "status": TripTagStatus.PENDING.value,
-                    },
-                )
-            except Exception as e:
-                if not is_duplicate_key_error(e):
-                    raise
-        else:
-            mark_accepted = False
+        if trips and str(trips[0]["user_id"]) != inviter_id:
+            trips = []
+        if not trips:
+            return InviteRedeemResponse(
+                status="already_redeemed",
+                invite_type=invite_type,
+                inviter=None,
+            )
+
+    # Claim-first: atomically flip pending -> accepted. The conditional update
+    # guarantees accepted-exactly-once -- a concurrent redemption or the
+    # signup trigger may have won the race, in which case zero rows update and
+    # we skip ALL side effects (no duplicate follow/tag/notification).
+    claimed = await db.patch(
+        "pending_invite",
+        data={
+            "status": "accepted",
+            "accepted_at": datetime.now(UTC).isoformat(),
+        },
+        params={
+            "id": f"eq.{invite['id']}",
+            "status": "eq.pending",
+        },
+    )
+    if not claimed:
+        return InviteRedeemResponse(
+            status="already_redeemed",
+            invite_type=invite_type,
+            inviter=inviter,
+        )
+
+    async def revert_claim() -> None:
+        """Best-effort unclaim so a failed redemption can be retried."""
+        try:
+            await db.patch(
+                "pending_invite",
+                data={"status": "pending", "accepted_at": None},
+                params={
+                    "id": f"eq.{invite['id']}",
+                    "status": "eq.accepted",
+                },
+            )
+        except Exception:
+            logger.warning(
+                "Failed to revert invite claim %s", invite["id"], exc_info=True
+            )
+
+    # Create the *pending* tag (consent workflow).
+    if trips:
+        try:
+            await db.post(
+                "trip_tags",
+                {
+                    "trip_id": str(invite.get("trip_id")),
+                    "tagged_user_id": str(user.id),
+                    "initiated_by": str(trips[0]["user_id"]),
+                    "status": TripTagStatus.PENDING.value,
+                },
+            )
+        except Exception as e:
+            if is_duplicate_key_error(e):
+                pass  # tag already exists -- fine
+            elif is_block_violation_error(e):
+                # Block raced past the pre-check; the trigger held the line.
+                await revert_claim()
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Cannot redeem this invite",
+                ) from None
+            else:
+                await revert_claim()
+                raise
 
     # The follow half of the invite: inviter follows the redeemer. The
     # prevent_follow_when_blocked trigger still enforces blocks atomically.
@@ -331,33 +432,18 @@ async def redeem_invite(
             },
         )
     except Exception as e:
-        error_msg = str(e).lower()
-        if is_duplicate_key_error(error_msg):
+        if is_duplicate_key_error(e):
             pass  # already following -- fine
-        elif "cannot follow" in error_msg or "blocked" in error_msg:
-            # A blocked pair redeems nothing and the invite stays unmarked.
+        elif is_block_violation_error(e):
+            # A blocked pair redeems nothing; put the invite back to pending.
+            await revert_claim()
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Cannot redeem this invite",
             ) from None
         else:
+            await revert_claim()
             raise
-
-    if mark_accepted:
-        # Conditional update guarantees accepted-exactly-once: a concurrent
-        # redemption or the signup trigger may have won the race, in which
-        # case zero rows update and that is fine -- our follow exists.
-        await db.patch(
-            "pending_invite",
-            data={
-                "status": "accepted",
-                "accepted_at": datetime.now(UTC).isoformat(),
-            },
-            params={
-                "id": f"eq.{invite['id']}",
-                "status": "eq.pending",
-            },
-        )
 
     # Close the feedback loop: tell the inviter their invite converted.
     async def notify_inviter() -> None:

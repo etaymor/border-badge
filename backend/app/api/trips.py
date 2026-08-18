@@ -14,7 +14,7 @@ from fastapi import (
 )
 
 from app.api.trips_helpers import format_daterange, trip_from_row
-from app.api.utils import get_token_from_request
+from app.api.utils import get_token_from_request, is_block_violation_error
 from app.core.config import get_settings
 from app.core.media import build_media_url
 from app.core.notifications import send_trip_tag_notification
@@ -312,19 +312,34 @@ async def create_trip(
         if taggable_ids:
             # Batch insert: one call for the whole tag list. Notifications go
             # out as background tasks only after the insert succeeds.
-            tag_rows = await db.post(
-                "trip_tags",
-                [
-                    {
-                        "trip_id": str(trip.id),
-                        "tagged_user_id": tagged_id_str,
-                        "status": TripTagStatus.PENDING.value,
-                        "initiated_by": user.id,
-                        "notification_id": None,
-                    }
-                    for tagged_id_str in taggable_ids
-                ],
-            )
+            tag_payloads = [
+                {
+                    "trip_id": str(trip.id),
+                    "tagged_user_id": tagged_id_str,
+                    "status": TripTagStatus.PENDING.value,
+                    "initiated_by": user.id,
+                    "notification_id": None,
+                }
+                for tagged_id_str in taggable_ids
+            ]
+            try:
+                tag_rows = await db.post("trip_tags", tag_payloads)
+            except Exception as e:
+                if not is_block_violation_error(e):
+                    raise
+                # A block raced past the pre-check and the
+                # enforce_no_trip_tag_when_blocked trigger rejected the
+                # (all-or-nothing) batch. Same skip semantics as the
+                # pre-check: retry per row, dropping only the blocked pairs.
+                tag_rows = []
+                for payload in tag_payloads:
+                    try:
+                        rows = await db.post("trip_tags", [payload])
+                    except Exception as row_error:
+                        if is_block_violation_error(row_error):
+                            continue
+                        raise
+                    tag_rows.extend(rows or [])
             for tag_row in tag_rows or []:
                 tags.append(TripTag(**tag_row))
                 background_tasks.add_task(

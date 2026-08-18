@@ -6,7 +6,11 @@ from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request, status
 
-from app.api.utils import get_token_from_request, is_duplicate_key_error
+from app.api.utils import (
+    get_token_from_request,
+    is_block_violation_error,
+    is_duplicate_key_error,
+)
 from app.core.edge_functions import send_push_notification
 from app.core.notifications import get_user_push_tokens, profile_display_name
 from app.core.security import CurrentUser
@@ -105,12 +109,13 @@ async def follow_user(
             },
         )
     except Exception as e:
-        error_msg = str(e).lower()
-        # Handle duplicate key constraint violation (already following)
-        if is_duplicate_key_error(error_msg):
+        # Handle duplicate key constraint violation (already following).
+        # Classification inspects the exception itself: DatabaseError carries
+        # the PostgREST SQLSTATE/message server-side (its str() is generic).
+        if is_duplicate_key_error(e):
             return FollowResponse(status="already_following", following_id=str(user_id))
         # Handle block constraint from database trigger (race condition protection)
-        if "cannot follow" in error_msg or "blocked" in error_msg:
+        if is_block_violation_error(e):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Cannot follow this user",

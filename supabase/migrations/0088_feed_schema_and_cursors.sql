@@ -286,3 +286,29 @@ BEGIN
   LIMIT p_limit + 1;
 END;
 $$;
+
+--------------------------------------------------------------------------------
+-- 5. GRANTS
+--------------------------------------------------------------------------------
+
+-- Both RPCs are SECURITY DEFINER and take caller-supplied user ids; recreating
+-- them restores the default EXECUTE TO PUBLIC, which would let anon read any
+-- user's feed via PostgREST rpc. Lock execution down to authenticated +
+-- service_role (mirrors block_user_full in 0087 and the 0089 search RPCs).
+REVOKE ALL ON FUNCTION get_activity_feed(UUID, TIMESTAMPTZ, INT, UUID)
+  FROM PUBLIC;
+REVOKE ALL ON FUNCTION get_activity_feed(UUID, TIMESTAMPTZ, INT, UUID)
+  FROM anon;
+GRANT EXECUTE ON FUNCTION get_activity_feed(UUID, TIMESTAMPTZ, INT, UUID)
+  TO authenticated;
+GRANT EXECUTE ON FUNCTION get_activity_feed(UUID, TIMESTAMPTZ, INT, UUID)
+  TO service_role;
+
+REVOKE ALL ON FUNCTION get_user_activity_feed(UUID, UUID, TIMESTAMPTZ, INT, UUID)
+  FROM PUBLIC;
+REVOKE ALL ON FUNCTION get_user_activity_feed(UUID, UUID, TIMESTAMPTZ, INT, UUID)
+  FROM anon;
+GRANT EXECUTE ON FUNCTION get_user_activity_feed(UUID, UUID, TIMESTAMPTZ, INT, UUID)
+  TO authenticated;
+GRANT EXECUTE ON FUNCTION get_user_activity_feed(UUID, UUID, TIMESTAMPTZ, INT, UUID)
+  TO service_role;

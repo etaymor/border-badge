@@ -1,5 +1,6 @@
 """Supabase client for database operations."""
 
+import re
 from typing import Any
 
 import httpx
@@ -11,11 +12,37 @@ from app.core.http_client import close_http_client, get_http_client
 # Re-export for backward compatibility with main.py import
 __all__ = [
     "close_http_client",
+    "DatabaseError",
     "get_http_client",
     "get_service_supabase_client",
     "get_supabase_client",
     "SupabaseClient",
 ]
+
+
+class DatabaseError(HTTPException):
+    """HTTPException carrying structured fields from a PostgREST error.
+
+    The client-facing ``detail`` stays generic ("Database error") so internal
+    schema/query information is never forwarded in API responses, while
+    ``pg_code`` (SQLSTATE, e.g. ``23505`` for unique_violation or ``P0001``
+    for trigger-raised errors), ``message`` and ``constraint`` stay available
+    server-side so endpoints can classify the failure (duplicate key,
+    block-enforcement trigger, ...) without string-matching a generic detail.
+    """
+
+    def __init__(
+        self,
+        status_code: int,
+        *,
+        pg_code: str | None = None,
+        message: str | None = None,
+        constraint: str | None = None,
+    ) -> None:
+        super().__init__(status_code=status_code, detail="Database error")
+        self.pg_code = pg_code
+        self.message = message
+        self.constraint = constraint
 
 
 class SupabaseClient:
@@ -53,28 +80,48 @@ class SupabaseClient:
         return f"{self.base_url}/rest/v1"
 
     def _handle_http_error(self, e: httpx.HTTPStatusError) -> None:
-        """Convert httpx HTTP errors to FastAPI HTTPException.
+        """Convert httpx HTTP errors to a DatabaseError.
 
         The specifics (PostgREST message, code, raw body) are logged server-side
         only; the client receives a generic detail so internal schema/query
-        information is never forwarded in API responses.
+        information is never forwarded in API responses. The parsed PostgREST
+        fields ride on the raised DatabaseError so callers can classify the
+        failure programmatically instead of matching the (generic) detail.
         """
         import logging
 
         logger = logging.getLogger(__name__)
 
+        pg_code: str | None = None
+        message: str | None = None
+        constraint: str | None = None
+
         # Log the specifics server-side for debugging
         try:
             error_body = e.response.json()
             logger.error(f"Supabase HTTP error {e.response.status_code}: {error_body}")
+            if isinstance(error_body, dict):
+                pg_code = error_body.get("code")
+                message = error_body.get("message")
+                details = error_body.get("details")
+                # Postgres names the violated constraint in the message or
+                # details: ... violates unique constraint "user_follow_pkey"
+                for text in (message, details):
+                    if isinstance(text, str):
+                        match = re.search(r'constraint "([^"]+)"', text)
+                        if match:
+                            constraint = match.group(1)
+                            break
         except Exception:
             logger.error(
                 f"Supabase HTTP error {e.response.status_code}: {e.response.text[:500]}"
             )
 
-        raise HTTPException(
+        raise DatabaseError(
             status_code=e.response.status_code,
-            detail="Database error",
+            pg_code=pg_code,
+            message=message,
+            constraint=constraint,
         )
 
     def _handle_request_error(self, e: httpx.RequestError) -> None:
