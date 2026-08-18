@@ -5,24 +5,29 @@ import { fonts } from '@constants/typography';
 
 interface ProfileAvatarProps {
   initials: string;
+  username: string;
   isSmallScreen?: boolean;
 }
 
-export function ProfileAvatar({ initials, isSmallScreen }: ProfileAvatarProps) {
+export function ProfileAvatar({ initials, username, isSmallScreen }: ProfileAvatarProps) {
   return (
     <View style={styles.avatarSection}>
       <View style={[styles.avatarCircle, isSmallScreen && styles.avatarCircleSmall]}>
         <Text style={[styles.avatarText, isSmallScreen && styles.avatarTextSmall]}>{initials}</Text>
       </View>
+      <Text style={[styles.username, isSmallScreen && styles.usernameSmall]}>{username}</Text>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   avatarSection: {
+    flexDirection: 'row',
     alignItems: 'center',
+    paddingHorizontal: 24,
     paddingTop: 12,
-    paddingBottom: 8,
+    paddingBottom: 16,
+    gap: 16,
   },
   avatarCircle: {
     width: 80,
@@ -49,5 +54,13 @@ const styles = StyleSheet.create({
   },
   avatarTextSmall: {
     fontSize: 26,
+  },
+  username: {
+    fontFamily: fonts.playfair.bold,
+    fontSize: 24,
+    color: colors.midnightNavy,
+  },
+  usernameSmall: {
+    fontSize: 20,
   },
 });

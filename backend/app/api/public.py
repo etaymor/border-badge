@@ -8,7 +8,7 @@ import re
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Form, HTTPException, Path, Request, status
+from fastapi import APIRouter, Form, HTTPException, Path, Query, Request, status
 from fastapi.responses import (
     HTMLResponse,
     PlainTextResponse,
@@ -17,9 +17,17 @@ from fastapi.responses import (
 )
 
 from app.api.utils import get_flag_emoji
-from app.core.analytics import log_landing_viewed, log_list_viewed, log_trip_viewed
+from app.core.analytics import (
+    log_invite_viewed,
+    log_landing_viewed,
+    log_list_viewed,
+    log_profile_viewed,
+    log_trip_viewed,
+    sanitize_ref,
+)
 from app.core.blog import get_registry
 from app.core.config import get_settings
+from app.core.db_utils import get_rpc_first_row
 from app.core.kml import KML_MEDIA_TYPE, Placemark, build_kml
 from app.core.media import (
     AVATAR_WIDTH,
@@ -31,9 +39,11 @@ from app.core.media import (
 )
 from app.core.seo import (
     LANDING_FAQS,
+    build_invite_seo,
     build_landing_seo,
     build_landing_structured_data,
     build_list_seo,
+    build_profile_seo,
     build_share_structured_data,
     build_static_page_seo,
     build_trip_seo,
@@ -45,16 +55,23 @@ from app.core.urls import (
     safe_external_url,
     safe_google_photo_url,
 )
-from app.db.session import SupabaseClient, get_supabase_client
+from app.db.session import SupabaseClient, get_service_supabase_client
 from app.main import limiter, templates
+from app.schemas.classification import MAX_COUNTRIES
 from app.schemas.lists import PublicListEntry, PublicListView
-from app.schemas.public import PublicTripEntry, PublicTripView
+from app.schemas.public import (
+    PublicProfileStats,
+    PublicProfileView,
+    PublicTripEntry,
+    PublicTripView,
+)
 from app.schemas.share import ShareAuthor
 from app.services.affiliate_links import (
     build_redirect_url,
     get_or_create_link_for_entry,
 )
 from app.services.email import cancel_scheduled_emails, send_contact_email
+from app.services.invites import resolve_invite_with_inviter
 from app.services.turnstile import verify_turnstile_token
 
 logger = logging.getLogger(__name__)
@@ -139,7 +156,7 @@ def _extract_place_photo_url(place: dict[str, Any] | list | None) -> str | None:
         return None
     # PostgREST may return place as array or dict depending on relationship type
     if isinstance(place, list):
-        place = place[0] if place else None
+        place = place[0]  # Empty lists handled above ([] is falsy)
     if not isinstance(place, dict):
         return None
     extra_data = place.get("extra_data")
@@ -275,6 +292,200 @@ async def landing_page(request: Request) -> HTMLResponse:
     return response
 
 
+@router.get("/u/{username}", response_class=HTMLResponse)
+@limiter.limit("60/minute")
+async def view_public_profile(
+    request: Request,
+    username: str = Path(..., min_length=3, max_length=30, pattern=r"^[a-zA-Z0-9_]+$"),
+) -> HTMLResponse:
+    """Render a public profile page by username."""
+    settings = get_settings()
+    db = get_service_supabase_client()
+
+    # Fetch profile by username (case-insensitive)
+    # Note: username is pre-validated by FastAPI Path() with pattern=r"^[a-zA-Z0-9_]+$"
+    # before reaching this point. The ilike operator with alphanumeric input is safe.
+    profiles = await db.get(
+        "user_profile",
+        {
+            "username": f"ilike.{username}",
+            "select": "user_id, username, display_name, avatar_url, home_country_code, created_at",
+        },
+    )
+
+    if not profiles:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
+        )
+
+    profile = profiles[0]
+    user_id = profile["user_id"]
+    log_profile_viewed(
+        profile["username"], ref=sanitize_ref(request.query_params.get("ref"))
+    )
+
+    # Fetch all data in parallel using RPC for stats aggregation
+    # The RPC returns country/continent/subregion counts plus follower/following counts
+    stats_task = db.rpc("get_public_profile_stats", {"p_user_id": str(user_id)})
+
+    # Get home country name if set
+    home_country_task = None
+    if profile.get("home_country_code"):
+        home_country_task = db.get(
+            "country",
+            {
+                "code": f"eq.{profile['home_country_code']}",
+                "select": "name",
+            },
+        )
+
+    # Execute all queries in parallel
+    if home_country_task:
+        stats_result, home_country_rows = await asyncio.gather(
+            stats_task, home_country_task
+        )
+        home_country_name = (
+            home_country_rows[0].get("name")
+            if home_country_rows and len(home_country_rows) > 0
+            else None
+        )
+    else:
+        stats_result = await stats_task
+        home_country_name = None
+
+    # Extract stats from RPC result (includes follower/following counts)
+    stats_row = get_rpc_first_row(stats_result)
+    if stats_row:
+        country_count = stats_row.get("country_count", 0)
+        continent_count = stats_row.get("continent_count", 0)
+        subregion_count = stats_row.get("subregion_count", 0)
+        follower_count = stats_row.get("follower_count", 0)
+        following_count = stats_row.get("following_count", 0)
+    else:
+        logger.debug(
+            "get_public_profile_stats returned empty result for user %s", user_id
+        )
+        country_count = 0
+        continent_count = 0
+        subregion_count = 0
+        follower_count = 0
+        following_count = 0
+    world_percentage = (country_count / MAX_COUNTRIES) * 100 if MAX_COUNTRIES > 0 else 0
+
+    stats = PublicProfileStats(
+        country_count=country_count,
+        continent_count=continent_count,
+        subregion_count=subregion_count,
+        world_percentage=round(world_percentage, 1),
+    )
+
+    profile_view = PublicProfileView(
+        username=profile["username"],
+        display_name=profile["display_name"],
+        avatar_url=profile.get("avatar_url"),
+        home_country_code=profile.get("home_country_code"),
+        home_country_name=home_country_name,
+        stats=stats,
+        follower_count=follower_count,
+        following_count=following_count,
+        created_at=profile["created_at"],
+    )
+
+    seo = build_profile_seo(
+        username=profile_view.username,
+        display_name=profile_view.display_name,
+        country_count=stats.country_count,
+        world_percentage=stats.world_percentage,
+        base_url=settings.base_url,
+        avatar_url=profile_view.avatar_url,
+    )
+
+    response = templates.TemplateResponse(
+        request=request,
+        name="profile_public.html",
+        context={
+            "profile": profile_view,
+            "app_store_url": settings.app_store_url,
+            "google_analytics_id": settings.google_analytics_id,
+            "og_title": seo.og_title,
+            "og_description": seo.og_description,
+            "og_url": seo.canonical_url,
+            "og_image": seo.og_image,
+            "canonical_url": seo.canonical_url,
+            "has_hero": True,
+            "current_year": get_current_year(),
+        },
+    )
+    response.headers["Cache-Control"] = "public, max-age=300, stale-while-revalidate=60"
+    return response
+
+
+@router.get("/invite", response_class=HTMLResponse)
+@limiter.limit("60/minute")
+async def invite_landing(
+    request: Request,
+    code: str | None = Query(default=None, max_length=512),
+) -> HTMLResponse:
+    """Render the invite landing page (the invite loop's conversion moment).
+
+    A valid code shows who invited the visitor plus an install CTA; an
+    invalid, expired, or withdrawn code degrades to a generic install page.
+    This route never 404s and never 500s on backend trouble: it is the only
+    web surface an invited non-user ever sees, so a broken page dead-ends the
+    growth loop.
+    """
+    settings = get_settings()
+    log_invite_viewed(ref=sanitize_ref(request.query_params.get("ref")))
+
+    inviter: dict[str, Any] | None = None
+    invite_type = "follow"
+
+    if code:
+        try:
+            db = get_service_supabase_client()
+            resolved = await resolve_invite_with_inviter(db, code)
+            # The invite row is the consent record: a validly signed code
+            # whose row was cancelled (block_user_full sets status='cancelled')
+            # must not show the inviter -- render the generic install page.
+            if resolved and resolved.invite and resolved.status != "cancelled":
+                invite_type = resolved.invite_type
+                if resolved.inviter_profile:
+                    profile = resolved.inviter_profile
+                    inviter = {
+                        "username": profile.get("username"),
+                        "display_name": profile.get("display_name"),
+                        "avatar_url": _avatar_url(profile.get("avatar_url")),
+                    }
+        except Exception as e:
+            # Degrade to the generic install page rather than 500-ing the
+            # loop's conversion moment.
+            logger.warning("Invite landing lookup failed: %s", e)
+            inviter = None
+
+    inviter_name = None
+    if inviter:
+        inviter_name = inviter.get("display_name") or inviter.get("username")
+
+    seo = build_invite_seo(inviter_name, settings.base_url)
+
+    response = templates.TemplateResponse(
+        request=request,
+        name="invite_landing.html",
+        context={
+            "inviter": inviter,
+            "invite_type": invite_type,
+            "app_store_url": settings.app_store_url,
+            "google_analytics_id": settings.google_analytics_id,
+            "current_year": get_current_year(),
+            **seo_context(seo),
+        },
+    )
+    # Tokenized, per-recipient URL: never cache across visitors.
+    response.headers["Cache-Control"] = "private, no-store"
+    return response
+
+
 @router.get("/l/{slug}", response_class=HTMLResponse)
 @limiter.limit("60/minute")
 async def view_public_list(
@@ -283,7 +494,7 @@ async def view_public_list(
 ) -> HTMLResponse:
     """Render a public list page by slug."""
     settings = get_settings()
-    db = get_supabase_client()
+    db = get_service_supabase_client()
 
     # Fetch list by slug (all lists are public)
     lists = await db.get(
@@ -302,7 +513,7 @@ async def view_public_list(
         )
 
     lst = lists[0]
-    log_list_viewed(slug)
+    log_list_viewed(slug, ref=sanitize_ref(request.query_params.get("ref")))
 
     # Fetch entries with details including media
     entry_rows = await db.get(
@@ -434,7 +645,7 @@ async def view_public_trip(
 ) -> HTMLResponse:
     """Render a public trip page by share slug."""
     settings = get_settings()
-    db = get_supabase_client()
+    db = get_service_supabase_client()
 
     # Fetch trip by share_slug
     trips = await db.get(
@@ -453,7 +664,7 @@ async def view_public_trip(
         )
 
     trip = trips[0]
-    log_trip_viewed(slug)
+    log_trip_viewed(slug, ref=sanitize_ref(request.query_params.get("ref")))
 
     # Fetch entries with details including media and link/place data for redirects
     entry_rows = await db.get(
@@ -655,7 +866,7 @@ async def download_list_kml(
     slug: str = Path(..., min_length=1, max_length=100, pattern=r"^[a-z0-9-]+$"),
 ) -> Response:
     """Export a public list's places as KML for Google My Maps."""
-    db = get_supabase_client()
+    db = get_service_supabase_client()
 
     lists = await db.get(
         "list",
@@ -699,7 +910,7 @@ async def download_trip_kml(
     slug: str = Path(..., min_length=1, max_length=100, pattern=r"^[a-z0-9-]+$"),
 ) -> Response:
     """Export a public trip's places as KML for Google My Maps."""
-    db = get_supabase_client()
+    db = get_service_supabase_client()
 
     trips = await db.get(
         "trip",
@@ -794,7 +1005,7 @@ async def unsubscribe_email(
     No confirmation needed - visiting the URL unsubscribes the user.
     """
     settings = get_settings()
-    db = get_supabase_client()  # Service role for profile lookup
+    db = get_service_supabase_client()  # Service role for profile lookup
 
     # Look up user by unsubscribe_token
     try:
@@ -913,8 +1124,10 @@ Allow: /
 Allow: /blog
 Allow: /l/
 Allow: /t/
+Allow: /u/
 Disallow: /o/
 Disallow: /unsubscribe/
+Disallow: /invite
 
 Sitemap: {settings.base_url}/sitemap.xml
 """
@@ -942,7 +1155,7 @@ def _sitemap_entry(
 async def sitemap_xml() -> PlainTextResponse:
     """Generate sitemap.xml for search engines."""
     settings = get_settings()
-    db = get_supabase_client()
+    db = get_service_supabase_client()
 
     base = settings.base_url
     urls = [_sitemap_entry(base, changefreq="weekly", priority="1.0")]
@@ -986,6 +1199,18 @@ async def sitemap_xml() -> PlainTextResponse:
             _sitemap_entry(f"{base}/{page}", changefreq="yearly", priority="0.3")
         )
 
+    # All user profiles
+    profiles = await db.get(
+        "user_profile",
+        {
+            "select": "username",
+        },
+    )
+    profiles = profiles or []
+    for profile in profiles:
+        escaped_username = html.escape(profile["username"])
+        urls.append(f"  <url><loc>{settings.base_url}/u/{escaped_username}</loc></url>")
+
     # All lists (all lists are public)
     lists = await db.get(
         "list",
@@ -994,6 +1219,7 @@ async def sitemap_xml() -> PlainTextResponse:
             "select": "slug",
         },
     )
+    lists = lists or []
     for lst in lists:
         urls.append(
             _sitemap_entry(
@@ -1010,6 +1236,7 @@ async def sitemap_xml() -> PlainTextResponse:
             "select": "share_slug",
         },
     )
+    trips = trips or []
     for trip in trips:
         urls.append(
             _sitemap_entry(

@@ -1,7 +1,7 @@
 import type { Session } from '@supabase/supabase-js';
 import { create } from 'zustand';
 
-interface AuthState {
+export interface AuthState {
   session: Session | null;
   hasCompletedOnboarding: boolean;
   isLoading: boolean;

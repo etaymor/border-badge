@@ -33,7 +33,7 @@ def test_webhook_product_id_parsing(
     base_event["event"]["product_id"] = product_id
 
     with patch(
-        "app.api.webhooks.get_supabase_client",
+        "app.api.webhooks.get_service_supabase_client",
         return_value=mock_supabase_client,
     ):
         response = client.post(
@@ -60,7 +60,7 @@ def test_webhook_unknown_product_id_null_plan(
     base_event["event"]["product_id"] = "com.atlasi.Premium.Lifetime"
 
     with patch(
-        "app.api.webhooks.get_supabase_client",
+        "app.api.webhooks.get_service_supabase_client",
         return_value=mock_supabase_client,
     ):
         response = client.post(
@@ -87,7 +87,7 @@ def test_webhook_missing_product_id_null_plan(
     del base_event["event"]["product_id"]
 
     with patch(
-        "app.api.webhooks.get_supabase_client",
+        "app.api.webhooks.get_service_supabase_client",
         return_value=mock_supabase_client,
     ):
         response = client.post(

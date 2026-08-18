@@ -5,10 +5,14 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 
 import { SharedTripImage } from '@components/transitions/SharedTripImage';
+// Import directly (not via the @components/trips barrel) to avoid a require
+// cycle: ui/index -> TripCard -> trips/index -> CountryPicker -> ui/index.
+import { TripPartners } from '@components/trips/TripPartners';
 import { colors } from '@constants/colors';
 import { isDevelopment } from '@config/env';
 import { fonts } from '@constants/typography';
 import { useAnimatedPress, AnimatedPressPresets } from '@hooks/useAnimatedPress';
+import type { TripTag, TripTagUser } from '@hooks/useTrips';
 
 export interface TripCardTrip {
   id: string;
@@ -22,6 +26,9 @@ interface TripCardProps {
   flagEmoji: string;
   onPress: () => void;
   testID?: string;
+  tags?: TripTag[];
+  owner?: TripTagUser;
+  currentUserId?: string;
   /** Whether to enable shared element transition for the thumbnail */
   enableSharedElement?: boolean;
 }
@@ -91,11 +98,15 @@ export const TripCard = memo(function TripCard({
   flagEmoji,
   onPress,
   testID,
+  tags,
+  owner,
+  currentUserId,
   enableSharedElement: _enableSharedElement = true,
 }: TripCardProps) {
   const { scaleValue, pressHandlers } = useAnimatedPress(AnimatedPressPresets.subtle);
   // Memoize date formatting to avoid re-parsing on each render
   const dateStr = useMemo(() => formatDateRange(trip.date_range), [trip.date_range]);
+  const hasPartners = (tags && tags.length > 0) || (owner && owner.user_id !== currentUserId);
 
   // Deterministic fallback color
   const fallbackColor = useMemo(() => getTripColor(trip.id), [trip.id]);
@@ -150,6 +161,17 @@ export const TripCard = memo(function TripCard({
               <Text style={styles.tripName} numberOfLines={2}>
                 {trip.name}
               </Text>
+              {hasPartners && (
+                <View style={styles.partnersRow}>
+                  <TripPartners
+                    tags={tags || []}
+                    owner={owner}
+                    currentUserId={currentUserId}
+                    avatarSize={20}
+                    maxVisible={3}
+                  />
+                </View>
+              )}
               {dateStr ? (
                 <View style={styles.dateRow}>
                   <Ionicons name="calendar-outline" size={14} color="rgba(255,255,255,0.9)" />
@@ -233,6 +255,9 @@ const styles = StyleSheet.create({
     textShadowColor: 'rgba(0, 0, 0, 0.3)',
     textShadowOffset: { width: 0, height: 2 },
     textShadowRadius: 4,
+  },
+  partnersRow: {
+    marginBottom: 4,
   },
   dateRow: {
     flexDirection: 'row',

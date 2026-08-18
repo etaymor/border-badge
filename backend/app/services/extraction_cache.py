@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Literal
 
-from app.db.session import get_supabase_client
+from app.db.session import get_service_supabase_client
 from app.schemas.social_ingest import DetectedPlace
 
 logger = logging.getLogger(__name__)
@@ -135,7 +135,7 @@ async def get_cached_extraction(
     Returns:
         Cached extraction result if found and valid, None otherwise
     """
-    db = get_supabase_client()
+    db = get_service_supabase_client()
 
     rows = await db.get(
         "oembed_cache",
@@ -215,7 +215,7 @@ async def cache_extraction(
         places: List of detected places
         source: How the places were extracted
     """
-    db = get_supabase_client()
+    db = get_service_supabase_client()
 
     extraction_at = datetime.now(UTC).isoformat()
     places_json = _places_to_json(places)
@@ -263,7 +263,7 @@ async def invalidate_extraction_cache(canonical_url: str) -> None:
     Args:
         canonical_url: The canonical URL to invalidate
     """
-    db = get_supabase_client()
+    db = get_service_supabase_client()
 
     await db.patch(
         "oembed_cache",

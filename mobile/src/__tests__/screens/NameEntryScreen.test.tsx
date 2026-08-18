@@ -18,125 +18,137 @@ describe('NameEntryScreen', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     // Reset onboarding store
-    useOnboardingStore.setState({ displayName: null });
+    useOnboardingStore.setState({ username: null, displayName: null });
   });
 
   describe('validation', () => {
-    it('rejects empty name with error', () => {
+    it('rejects empty username with error', () => {
       render(<NameEntryScreen navigation={mockNavigation} route={mockRoute} />);
 
-      // Press continue without entering a name
-      fireEvent.press(screen.getByTestId('name-entry-continue'));
+      // Press continue without entering a username
+      fireEvent.press(screen.getByTestId('username-entry-continue'));
 
-      expect(screen.getByText('Please enter your name')).toBeTruthy();
+      expect(screen.getByText('Please enter a username')).toBeTruthy();
       expect(mockNavigation.navigate).not.toHaveBeenCalled();
     });
 
-    it('rejects name less than 2 characters with error', () => {
+    it('rejects username less than 3 characters with error', () => {
       render(<NameEntryScreen navigation={mockNavigation} route={mockRoute} />);
 
-      const input = screen.getByTestId('name-entry-input');
-      fireEvent.changeText(input, 'A');
-      fireEvent.press(screen.getByTestId('name-entry-continue'));
+      const input = screen.getByTestId('username-entry-input');
+      fireEvent.changeText(input, 'ab');
+      fireEvent.press(screen.getByTestId('username-entry-continue'));
 
-      expect(screen.getByText('Name must be at least 2 characters')).toBeTruthy();
+      expect(screen.getByText('Username must be at least 3 characters')).toBeTruthy();
       expect(mockNavigation.navigate).not.toHaveBeenCalled();
     });
 
-    it('rejects name over 50 characters with error', () => {
+    it('rejects username over 30 characters with error', () => {
       render(<NameEntryScreen navigation={mockNavigation} route={mockRoute} />);
 
-      const input = screen.getByTestId('name-entry-input');
-      const longName = 'A'.repeat(51);
+      const input = screen.getByTestId('username-entry-input');
+      const longName = 'a'.repeat(31);
       fireEvent.changeText(input, longName);
-      fireEvent.press(screen.getByTestId('name-entry-continue'));
+      fireEvent.press(screen.getByTestId('username-entry-continue'));
 
-      expect(screen.getByText('Name must be 50 characters or less')).toBeTruthy();
+      expect(screen.getByText('Username must be 30 characters or less')).toBeTruthy();
       expect(mockNavigation.navigate).not.toHaveBeenCalled();
+    });
+
+    it('strips invalid characters from input as user types', () => {
+      render(<NameEntryScreen navigation={mockNavigation} route={mockRoute} />);
+
+      const input = screen.getByTestId('username-entry-input');
+      // Input sanitizes as you type - invalid chars are stripped
+      fireEvent.changeText(input, 'user@name!test');
+      fireEvent.press(screen.getByTestId('username-entry-continue'));
+
+      // Should navigate successfully because @ and ! were stripped, leaving "usernametest"
+      expect(mockNavigation.navigate).toHaveBeenCalledWith('AccountCreation');
     });
 
     it('trims whitespace before validation', () => {
       render(<NameEntryScreen navigation={mockNavigation} route={mockRoute} />);
 
-      const input = screen.getByTestId('name-entry-input');
-      // Spaces around "A" - after trim, only 1 character
-      fireEvent.changeText(input, '   A   ');
-      fireEvent.press(screen.getByTestId('name-entry-continue'));
+      const input = screen.getByTestId('username-entry-input');
+      // Spaces around "ab" - after trim, only 2 characters (below min of 3)
+      fireEvent.changeText(input, '   ab   ');
+      fireEvent.press(screen.getByTestId('username-entry-continue'));
 
-      expect(screen.getByText('Name must be at least 2 characters')).toBeTruthy();
+      expect(screen.getByText('Username must be at least 3 characters')).toBeTruthy();
     });
 
     it('clears error when user types after validation failure', () => {
       render(<NameEntryScreen navigation={mockNavigation} route={mockRoute} />);
 
-      const input = screen.getByTestId('name-entry-input');
+      const input = screen.getByTestId('username-entry-input');
 
       // Trigger validation error
-      fireEvent.press(screen.getByTestId('name-entry-continue'));
-      expect(screen.getByText('Please enter your name')).toBeTruthy();
+      fireEvent.press(screen.getByTestId('username-entry-continue'));
+      expect(screen.getByText('Please enter a username')).toBeTruthy();
 
       // Start typing
-      fireEvent.changeText(input, 'J');
+      fireEvent.changeText(input, 'u');
 
       // Error should be cleared
-      expect(screen.queryByText('Please enter your name')).toBeNull();
+      expect(screen.queryByText('Please enter a username')).toBeNull();
     });
   });
 
   describe('successful submission', () => {
-    it('stores trimmed name to onboarding store on valid submission', () => {
-      const setDisplayNameSpy = jest.fn();
-      useOnboardingStore.setState({ setDisplayName: setDisplayNameSpy });
+    it('stores trimmed username to onboarding store on valid submission', () => {
+      const setUsernameSpy = jest.fn();
+      useOnboardingStore.setState({ setUsername: setUsernameSpy });
 
       render(<NameEntryScreen navigation={mockNavigation} route={mockRoute} />);
 
-      const input = screen.getByTestId('name-entry-input');
-      fireEvent.changeText(input, '  Bob Smith  ');
-      fireEvent.press(screen.getByTestId('name-entry-continue'));
+      const input = screen.getByTestId('username-entry-input');
+      fireEvent.changeText(input, '  bob_smith  ');
+      fireEvent.press(screen.getByTestId('username-entry-continue'));
 
-      expect(setDisplayNameSpy).toHaveBeenCalledWith('Bob Smith');
+      expect(setUsernameSpy).toHaveBeenCalledWith('bob_smith');
     });
 
     it('navigates to AccountCreation on valid submission', () => {
       render(<NameEntryScreen navigation={mockNavigation} route={mockRoute} />);
 
-      const input = screen.getByTestId('name-entry-input');
-      fireEvent.changeText(input, 'Bob Smith');
-      fireEvent.press(screen.getByTestId('name-entry-continue'));
+      const input = screen.getByTestId('username-entry-input');
+      fireEvent.changeText(input, 'bob_smith');
+      fireEvent.press(screen.getByTestId('username-entry-continue'));
 
       expect(mockNavigation.navigate).toHaveBeenCalledWith('AccountCreation');
     });
 
-    it('accepts valid name with exactly 2 characters', () => {
+    it('accepts valid username with exactly 3 characters', () => {
       render(<NameEntryScreen navigation={mockNavigation} route={mockRoute} />);
 
-      const input = screen.getByTestId('name-entry-input');
-      fireEvent.changeText(input, 'Jo');
-      fireEvent.press(screen.getByTestId('name-entry-continue'));
+      const input = screen.getByTestId('username-entry-input');
+      fireEvent.changeText(input, 'joe');
+      fireEvent.press(screen.getByTestId('username-entry-continue'));
 
       expect(mockNavigation.navigate).toHaveBeenCalledWith('AccountCreation');
     });
 
-    it('accepts valid name with exactly 50 characters', () => {
+    it('accepts valid username with exactly 30 characters', () => {
       render(<NameEntryScreen navigation={mockNavigation} route={mockRoute} />);
 
-      const input = screen.getByTestId('name-entry-input');
-      const maxName = 'A'.repeat(50);
+      const input = screen.getByTestId('username-entry-input');
+      const maxName = 'a'.repeat(30);
       fireEvent.changeText(input, maxName);
-      fireEvent.press(screen.getByTestId('name-entry-continue'));
+      fireEvent.press(screen.getByTestId('username-entry-continue'));
 
       expect(mockNavigation.navigate).toHaveBeenCalledWith('AccountCreation');
     });
   });
 
   describe('pre-population', () => {
-    it('pre-populates input with stored displayName if available', () => {
-      useOnboardingStore.setState({ displayName: 'Existing Name' });
+    it('pre-populates input with stored username if available', () => {
+      useOnboardingStore.setState({ username: 'existing_name' });
 
       render(<NameEntryScreen navigation={mockNavigation} route={mockRoute} />);
 
-      const input = screen.getByTestId('name-entry-input');
-      expect(input.props.value).toBe('Existing Name');
+      const input = screen.getByTestId('username-entry-input');
+      expect(input.props.value).toBe('existing_name');
     });
   });
 });

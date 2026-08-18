@@ -117,7 +117,9 @@ def test_public_list_returns_html(
     }
     mock_supabase_client.get.side_effect = supabase_tables(list=[list_with_trip])
 
-    with patch("app.api.public.get_supabase_client", return_value=mock_supabase_client):
+    with patch(
+        "app.api.public.get_service_supabase_client", return_value=mock_supabase_client
+    ):
         response = client.get("/l/best-places-to-visit-abc123")
 
     assert response.status_code == 200
@@ -132,7 +134,9 @@ def test_public_list_not_found(
     """Test that non-existent list returns 404."""
     mock_supabase_client.get.side_effect = supabase_tables()
 
-    with patch("app.api.public.get_supabase_client", return_value=mock_supabase_client):
+    with patch(
+        "app.api.public.get_service_supabase_client", return_value=mock_supabase_client
+    ):
         response = client.get("/l/nonexistent-slug")
 
     assert response.status_code == 404
@@ -150,7 +154,9 @@ def test_public_list_has_cache_header(
     }
     mock_supabase_client.get.side_effect = supabase_tables(list=[list_with_trip])
 
-    with patch("app.api.public.get_supabase_client", return_value=mock_supabase_client):
+    with patch(
+        "app.api.public.get_service_supabase_client", return_value=mock_supabase_client
+    ):
         response = client.get("/l/best-places-to-visit-abc123")
 
     assert response.status_code == 200
@@ -188,7 +194,9 @@ def test_public_list_with_entries(
         list_entries=entry_rows,
     )
 
-    with patch("app.api.public.get_supabase_client", return_value=mock_supabase_client):
+    with patch(
+        "app.api.public.get_service_supabase_client", return_value=mock_supabase_client
+    ):
         response = client.get("/l/best-places-to-visit-abc123")
 
     assert response.status_code == 200
@@ -224,7 +232,9 @@ def test_public_trip_returns_html(
     }
     mock_supabase_client.get.side_effect = supabase_tables(trip=[trip_data])
 
-    with patch("app.api.public.get_supabase_client", return_value=mock_supabase_client):
+    with patch(
+        "app.api.public.get_service_supabase_client", return_value=mock_supabase_client
+    ):
         response = client.get("/t/summer-vacation-abc123")
 
     assert response.status_code == 200
@@ -239,7 +249,9 @@ def test_public_trip_not_found(
     """Test that non-existent trip returns 404."""
     mock_supabase_client.get.side_effect = supabase_tables()
 
-    with patch("app.api.public.get_supabase_client", return_value=mock_supabase_client):
+    with patch(
+        "app.api.public.get_service_supabase_client", return_value=mock_supabase_client
+    ):
         response = client.get("/t/nonexistent-slug")
 
     assert response.status_code == 404
@@ -263,7 +275,9 @@ def test_public_trip_has_cache_header(
     }
     mock_supabase_client.get.side_effect = supabase_tables(trip=[trip_data])
 
-    with patch("app.api.public.get_supabase_client", return_value=mock_supabase_client):
+    with patch(
+        "app.api.public.get_service_supabase_client", return_value=mock_supabase_client
+    ):
         response = client.get("/t/summer-vacation-abc123")
 
     assert response.status_code == 200
@@ -295,11 +309,14 @@ def test_sitemap_xml(
 ) -> None:
     """Test that sitemap.xml is generated correctly."""
     mock_supabase_client.get.side_effect = supabase_tables(
+        user_profile=[{"username": "traveler1"}, {"username": "explorer_pro"}],
         list=[{"slug": "best-tacos-abc123"}, {"slug": "cool-spots-def456"}],
         trip=[{"share_slug": "summer-trip-xyz"}],
     )
 
-    with patch("app.api.public.get_supabase_client", return_value=mock_supabase_client):
+    with patch(
+        "app.api.public.get_service_supabase_client", return_value=mock_supabase_client
+    ):
         response = client.get("/sitemap.xml")
 
     assert response.status_code == 200
@@ -307,6 +324,8 @@ def test_sitemap_xml(
     assert "Cache-Control" in response.headers
     assert '<?xml version="1.0"' in response.text
     assert "<urlset" in response.text
+    assert "/u/traveler1" in response.text
+    assert "/u/explorer_pro" in response.text
     assert "/l/best-tacos-abc123" in response.text
     assert "/l/cool-spots-def456" in response.text
     assert "/t/summer-trip-xyz" in response.text
@@ -319,7 +338,9 @@ def test_sitemap_xml_empty(
     """Test sitemap.xml with no public content."""
     mock_supabase_client.get.side_effect = supabase_tables()
 
-    with patch("app.api.public.get_supabase_client", return_value=mock_supabase_client):
+    with patch(
+        "app.api.public.get_service_supabase_client", return_value=mock_supabase_client
+    ):
         response = client.get("/sitemap.xml")
 
     assert response.status_code == 200
@@ -498,7 +519,9 @@ def test_public_trip_with_entries(
         entry=entry_rows,
     )
 
-    with patch("app.api.public.get_supabase_client", return_value=mock_supabase_client):
+    with patch(
+        "app.api.public.get_service_supabase_client", return_value=mock_supabase_client
+    ):
         response = client.get("/t/summer-vacation-abc123")
 
     assert response.status_code == 200
@@ -537,7 +560,9 @@ def test_public_trip_with_many_entries(
         entry=entry_rows,
     )
 
-    with patch("app.api.public.get_supabase_client", return_value=mock_supabase_client):
+    with patch(
+        "app.api.public.get_service_supabase_client", return_value=mock_supabase_client
+    ):
         response = client.get("/t/summer-vacation-abc123")
 
     assert response.status_code == 200
@@ -560,7 +585,9 @@ def test_public_list_private_returns_404(
     # The query filters by is_public=true, so an empty result means list doesn't exist or is private
     mock_supabase_client.get.side_effect = supabase_tables()
 
-    with patch("app.api.public.get_supabase_client", return_value=mock_supabase_client):
+    with patch(
+        "app.api.public.get_service_supabase_client", return_value=mock_supabase_client
+    ):
         response = client.get("/l/private-list-slug")
 
     assert response.status_code == 404
@@ -748,7 +775,9 @@ def test_public_trip_with_place_photo_url(
         entry=entry_rows,
     )
 
-    with patch("app.api.public.get_supabase_client", return_value=mock_supabase_client):
+    with patch(
+        "app.api.public.get_service_supabase_client", return_value=mock_supabase_client
+    ):
         response = client.get("/t/summer-vacation-abc123")
 
     assert response.status_code == 200
@@ -795,11 +824,394 @@ def test_public_list_with_place_photo_url(
         list_entries=entry_rows,
     )
 
-    with patch("app.api.public.get_supabase_client", return_value=mock_supabase_client):
+    with patch(
+        "app.api.public.get_service_supabase_client", return_value=mock_supabase_client
+    ):
         response = client.get("/l/best-places-to-visit-abc123")
 
     assert response.status_code == 200
     assert "Best Coffee Shop" in response.text
+
+
+# ============================================================================
+# Public Profile Page Tests (/u/{username})
+# ============================================================================
+
+
+def test_public_profile_returns_html(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+) -> None:
+    """Test that public profile page returns HTML."""
+    profile_data = {
+        "user_id": TEST_USER_ID,
+        "username": "traveler_pro",
+        "display_name": "Pro Traveler",
+        "avatar_url": "https://example.com/avatar.jpg",
+        "home_country_code": "US",
+        "created_at": "2024-01-01T00:00:00Z",
+    }
+    stats_result = [
+        {
+            "country_count": 25,
+            "continent_count": 4,
+            "subregion_count": 12,
+            "follower_count": 2,
+            "following_count": 1,
+        }
+    ]
+    mock_supabase_client.get.side_effect = [
+        [profile_data],  # Profile lookup
+        [{"name": "United States"}],  # Home country
+    ]
+    mock_supabase_client.rpc.return_value = stats_result
+
+    with patch(
+        "app.api.public.get_service_supabase_client", return_value=mock_supabase_client
+    ):
+        response = client.get("/u/traveler_pro")
+
+    assert response.status_code == 200
+    assert "text/html" in response.headers["content-type"]
+    assert "Pro Traveler" in response.text
+
+
+def test_public_profile_not_found(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+) -> None:
+    """Test that non-existent profile returns 404."""
+    mock_supabase_client.get.return_value = []
+
+    with patch(
+        "app.api.public.get_service_supabase_client", return_value=mock_supabase_client
+    ):
+        response = client.get("/u/nonexistent_user")
+
+    assert response.status_code == 404
+
+
+def test_public_profile_case_insensitive(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+) -> None:
+    """Test that username lookup is case-insensitive."""
+    profile_data = {
+        "user_id": TEST_USER_ID,
+        "username": "TravelerPro",
+        "display_name": "Pro Traveler",
+        "avatar_url": None,
+        "home_country_code": None,
+        "created_at": "2024-01-01T00:00:00Z",
+    }
+    stats_result = [
+        {
+            "country_count": 0,
+            "continent_count": 0,
+            "subregion_count": 0,
+            "follower_count": 0,
+            "following_count": 0,
+        }
+    ]
+    # No home_country_code means only 1 get() call for profile
+    mock_supabase_client.get.side_effect = [[profile_data]]
+    mock_supabase_client.rpc.return_value = stats_result
+
+    with patch(
+        "app.api.public.get_service_supabase_client", return_value=mock_supabase_client
+    ):
+        # Request with lowercase, should find uppercase username
+        response = client.get("/u/travelerpro")
+
+    assert response.status_code == 200
+    assert "Pro Traveler" in response.text
+
+
+def test_public_profile_has_cache_header(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+) -> None:
+    """Test that public profile page has cache control header."""
+    profile_data = {
+        "user_id": TEST_USER_ID,
+        "username": "traveler_pro",
+        "display_name": "Pro Traveler",
+        "avatar_url": None,
+        "home_country_code": None,
+        "created_at": "2024-01-01T00:00:00Z",
+    }
+    stats_result = [
+        {
+            "country_count": 5,
+            "continent_count": 2,
+            "subregion_count": 3,
+            "follower_count": 0,
+            "following_count": 0,
+        }
+    ]
+    # No home_country_code means only 1 get() call for profile
+    mock_supabase_client.get.side_effect = [[profile_data]]
+    mock_supabase_client.rpc.return_value = stats_result
+
+    with patch(
+        "app.api.public.get_service_supabase_client", return_value=mock_supabase_client
+    ):
+        response = client.get("/u/traveler_pro")
+
+    assert response.status_code == 200
+    assert "Cache-Control" in response.headers
+    assert "public" in response.headers["Cache-Control"]
+
+
+def test_public_profile_stats_calculation(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+) -> None:
+    """Test that profile stats are calculated correctly via RPC."""
+    profile_data = {
+        "user_id": TEST_USER_ID,
+        "username": "world_traveler",
+        "display_name": "World Traveler",
+        "avatar_url": None,
+        "home_country_code": None,
+        "created_at": "2024-01-01T00:00:00Z",
+    }
+    # User has visited 50 countries across 5 continents and 15 subregions
+    stats_result = [{"country_count": 50, "continent_count": 5, "subregion_count": 15}]
+    mock_supabase_client.get.side_effect = [
+        [profile_data],
+        [{"id": str(i)} for i in range(100)],  # 100 followers
+        [{"id": str(i)} for i in range(50)],  # 50 following
+    ]
+    mock_supabase_client.rpc.return_value = stats_result
+
+    with patch(
+        "app.api.public.get_service_supabase_client", return_value=mock_supabase_client
+    ):
+        response = client.get("/u/world_traveler")
+
+    assert response.status_code == 200
+    # Verify stats appear in HTML (exact rendering depends on template)
+    assert "50" in response.text  # country count
+    assert "World Traveler" in response.text
+
+
+def test_public_profile_no_countries(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+) -> None:
+    """Test profile page for user with no visited countries."""
+    profile_data = {
+        "user_id": TEST_USER_ID,
+        "username": "new_user",
+        "display_name": "New User",
+        "avatar_url": None,
+        "home_country_code": None,
+        "created_at": "2024-01-01T00:00:00Z",
+    }
+    stats_result = [{"country_count": 0, "continent_count": 0, "subregion_count": 0}]
+    mock_supabase_client.get.side_effect = [
+        [profile_data],
+        [],  # No followers
+        [],  # Not following anyone
+    ]
+    mock_supabase_client.rpc.return_value = stats_result
+
+    with patch(
+        "app.api.public.get_service_supabase_client", return_value=mock_supabase_client
+    ):
+        response = client.get("/u/new_user")
+
+    assert response.status_code == 200
+    assert "New User" in response.text
+
+
+def test_public_profile_with_home_country(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+) -> None:
+    """Test profile page displays home country name."""
+    profile_data = {
+        "user_id": TEST_USER_ID,
+        "username": "american_traveler",
+        "display_name": "American Traveler",
+        "avatar_url": None,
+        "home_country_code": "US",
+        "created_at": "2024-01-01T00:00:00Z",
+    }
+    stats_result = [
+        {
+            "country_count": 10,
+            "continent_count": 3,
+            "subregion_count": 5,
+            "follower_count": 0,
+            "following_count": 0,
+        }
+    ]
+    mock_supabase_client.get.side_effect = [
+        [profile_data],
+        [{"name": "United States"}],  # Home country lookup
+    ]
+    mock_supabase_client.rpc.return_value = stats_result
+
+    with patch(
+        "app.api.public.get_service_supabase_client", return_value=mock_supabase_client
+    ):
+        response = client.get("/u/american_traveler")
+
+    assert response.status_code == 200
+    assert "United States" in response.text
+
+
+def test_public_profile_invalid_username_format(client: TestClient) -> None:
+    """Test that invalid username format returns 422."""
+    # Username with special characters should be rejected by path validation
+    response = client.get("/u/invalid@username!")
+    assert response.status_code == 422
+
+
+def test_public_profile_has_seo_tags(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+) -> None:
+    """Test that public profile page includes SEO meta tags."""
+    profile_data = {
+        "user_id": TEST_USER_ID,
+        "username": "seo_test_user",
+        "display_name": "SEO Test User",
+        "avatar_url": "https://example.com/avatar.jpg",
+        "home_country_code": None,
+        "created_at": "2024-01-01T00:00:00Z",
+    }
+    stats_result = [
+        {
+            "country_count": 15,
+            "continent_count": 3,
+            "subregion_count": 8,
+            "follower_count": 0,
+            "following_count": 0,
+        }
+    ]
+    mock_supabase_client.get.side_effect = [[profile_data]]
+    mock_supabase_client.rpc.return_value = stats_result
+
+    with patch(
+        "app.api.public.get_service_supabase_client", return_value=mock_supabase_client
+    ):
+        response = client.get("/u/seo_test_user")
+
+    assert response.status_code == 200
+    # Check for Open Graph tags
+    assert "og:title" in response.text
+    assert "og:description" in response.text
+    assert "og:url" in response.text
+    # Check for canonical URL
+    assert 'rel="canonical"' in response.text
+    # Check that username appears in SEO context
+    assert "seo_test_user" in response.text
+
+
+def test_public_profile_follower_following_counts(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+) -> None:
+    """Test that follower and following counts are displayed correctly."""
+    profile_data = {
+        "user_id": TEST_USER_ID,
+        "username": "popular_user",
+        "display_name": "Popular User",
+        "avatar_url": None,
+        "home_country_code": None,
+        "created_at": "2024-01-01T00:00:00Z",
+    }
+    # User has many followers and follows some people
+    stats_result = [
+        {
+            "country_count": 20,
+            "continent_count": 4,
+            "subregion_count": 10,
+            "follower_count": 1234,
+            "following_count": 567,
+        }
+    ]
+    mock_supabase_client.get.side_effect = [[profile_data]]
+    mock_supabase_client.rpc.return_value = stats_result
+
+    with patch(
+        "app.api.public.get_service_supabase_client", return_value=mock_supabase_client
+    ):
+        response = client.get("/u/popular_user")
+
+    assert response.status_code == 200
+    # Verify both counts appear in the response
+    # The exact format depends on the template, but numbers should be present
+    assert "1,234" in response.text or "1234" in response.text  # follower count
+    assert "567" in response.text  # following count
+
+
+def test_public_profile_rpc_empty_result(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+) -> None:
+    """Test that profile page handles empty RPC result gracefully."""
+    profile_data = {
+        "user_id": TEST_USER_ID,
+        "username": "edge_case_user",
+        "display_name": "Edge Case User",
+        "avatar_url": None,
+        "home_country_code": None,
+        "created_at": "2024-01-01T00:00:00Z",
+    }
+    # RPC returns empty result (edge case)
+    mock_supabase_client.get.side_effect = [[profile_data]]
+    mock_supabase_client.rpc.return_value = []
+
+    with patch(
+        "app.api.public.get_service_supabase_client", return_value=mock_supabase_client
+    ):
+        response = client.get("/u/edge_case_user")
+
+    assert response.status_code == 200
+    assert "Edge Case User" in response.text
+    # Should default to 0 for all counts
+    assert "0" in response.text
+
+
+def test_public_profile_world_percentage_calculation(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+) -> None:
+    """Test that world percentage is calculated and displayed correctly."""
+    profile_data = {
+        "user_id": TEST_USER_ID,
+        "username": "globe_trotter",
+        "display_name": "Globe Trotter",
+        "avatar_url": None,
+        "home_country_code": None,
+        "created_at": "2024-01-01T00:00:00Z",
+    }
+    # 50 countries out of ~195 = ~25.6%
+    stats_result = [
+        {
+            "country_count": 50,
+            "continent_count": 5,
+            "subregion_count": 20,
+            "follower_count": 0,
+            "following_count": 0,
+        }
+    ]
+    mock_supabase_client.get.side_effect = [[profile_data]]
+    mock_supabase_client.rpc.return_value = stats_result
+
+    with patch(
+        "app.api.public.get_service_supabase_client", return_value=mock_supabase_client
+    ):
+        response = client.get("/u/globe_trotter")
+
+    assert response.status_code == 200
+    assert "Globe Trotter" in response.text
+    # Country count should appear
+    assert "50" in response.text
 
 
 # ============================================================================
@@ -837,7 +1249,10 @@ def _render_trip_and_capture_view(
         return real_template_response(*args, **kwargs)
 
     with (
-        patch("app.api.public.get_supabase_client", return_value=mock_supabase_client),
+        patch(
+            "app.api.public.get_service_supabase_client",
+            return_value=mock_supabase_client,
+        ),
         patch.object(public_module.templates, "TemplateResponse", side_effect=capture),
     ):
         response = client.get("/t/summer-vacation-abc123")
@@ -959,7 +1374,9 @@ def _csp_for_share_route(
     header without fixture-shaping a full page render.
     """
     mock_supabase_client.get.side_effect = supabase_tables()
-    with patch("app.api.public.get_supabase_client", return_value=mock_supabase_client):
+    with patch(
+        "app.api.public.get_service_supabase_client", return_value=mock_supabase_client
+    ):
         response = client.get(path)
     assert response.status_code == 404
     return response.headers[CSP_HEADER]
@@ -1171,7 +1588,10 @@ def _render_and_capture_author(
         return real_template_response(*args, **kwargs)
 
     with (
-        patch("app.api.public.get_supabase_client", return_value=mock_supabase_client),
+        patch(
+            "app.api.public.get_service_supabase_client",
+            return_value=mock_supabase_client,
+        ),
         patch.object(public_module.templates, "TemplateResponse", side_effect=capture),
     ):
         response = client.get(path)
@@ -1487,7 +1907,9 @@ def _list_page(
 
     mock_supabase_client.get.side_effect = supabase_tables(**tables)
 
-    with patch("app.api.public.get_supabase_client", return_value=mock_supabase_client):
+    with patch(
+        "app.api.public.get_service_supabase_client", return_value=mock_supabase_client
+    ):
         return client.get("/l/istanbul-abc123")
 
 
@@ -2192,7 +2614,9 @@ def _list_kml(
         list=[{"id": TEST_LIST_ID, "name": "Istanbul", "description": "Two trips"}],
         list_entries=_KmlTable(entries, wrap_in="entry", seen=seen),
     )
-    with patch("app.api.public.get_supabase_client", return_value=mock_supabase_client):
+    with patch(
+        "app.api.public.get_service_supabase_client", return_value=mock_supabase_client
+    ):
         return client.get("/l/istanbul-abc123/map.kml")
 
 
@@ -2207,7 +2631,9 @@ def _trip_kml(
         trip=[{"id": TEST_TRIP_ID, "name": "Summer Vacation"}],
         entry=_KmlTable(entries, seen=seen),
     )
-    with patch("app.api.public.get_supabase_client", return_value=mock_supabase_client):
+    with patch(
+        "app.api.public.get_service_supabase_client", return_value=mock_supabase_client
+    ):
         return client.get(f"/t/{TRIP_SLUG}/map.kml")
 
 
@@ -2326,7 +2752,9 @@ def test_list_kml_404s_for_an_unknown_slug(
     client: TestClient, mock_supabase_client: AsyncMock
 ) -> None:
     mock_supabase_client.get.side_effect = supabase_tables()
-    with patch("app.api.public.get_supabase_client", return_value=mock_supabase_client):
+    with patch(
+        "app.api.public.get_service_supabase_client", return_value=mock_supabase_client
+    ):
         response = client.get("/l/nope-123/map.kml")
 
     assert response.status_code == 404
@@ -2431,7 +2859,9 @@ def test_trip_kml_404s_for_an_unknown_slug(
     client: TestClient, mock_supabase_client: AsyncMock
 ) -> None:
     mock_supabase_client.get.side_effect = supabase_tables()
-    with patch("app.api.public.get_supabase_client", return_value=mock_supabase_client):
+    with patch(
+        "app.api.public.get_service_supabase_client", return_value=mock_supabase_client
+    ):
         response = client.get("/t/nope-123/map.kml")
 
     assert response.status_code == 404
@@ -2463,7 +2893,9 @@ def test_sitemap_includes_blog_and_static_pages(
         list=[{"slug": "best-tacos-abc123"}],
         trip=[{"share_slug": "summer-trip-xyz"}],
     )
-    with patch("app.api.public.get_supabase_client", return_value=mock_supabase_client):
+    with patch(
+        "app.api.public.get_service_supabase_client", return_value=mock_supabase_client
+    ):
         response = client.get("/sitemap.xml")
 
     assert response.status_code == 200
@@ -2486,7 +2918,9 @@ def test_sitemap_blog_entries_carry_lastmod(
     mock_supabase_client: AsyncMock,
 ) -> None:
     mock_supabase_client.get.side_effect = supabase_tables()
-    with patch("app.api.public.get_supabase_client", return_value=mock_supabase_client):
+    with patch(
+        "app.api.public.get_service_supabase_client", return_value=mock_supabase_client
+    ):
         response = client.get("/sitemap.xml")
 
     root = ET.fromstring(response.text)
@@ -2506,9 +2940,12 @@ def test_sitemap_adds_no_database_calls_for_blog(
     Pins the guarantee that adding posts never adds query load to the sitemap.
     """
     mock_supabase_client.get.side_effect = supabase_tables()
-    with patch("app.api.public.get_supabase_client", return_value=mock_supabase_client):
+    with patch(
+        "app.api.public.get_service_supabase_client", return_value=mock_supabase_client
+    ):
         client.get("/sitemap.xml")
-    assert mock_supabase_client.get.call_count == 2
+    # user_profile (public profiles), list, and trip — blog adds nothing.
+    assert mock_supabase_client.get.call_count == 3
 
 
 @pytest.mark.parametrize("page", ["privacy", "terms", "contact"])
@@ -2531,3 +2968,160 @@ def test_header_nav_anchors_are_rooted(client: TestClient) -> None:
 
 def test_blog_is_linked_from_the_footer(client: TestClient) -> None:
     assert 'href="/blog"' in client.get("/privacy").text
+
+
+# ============================================================================
+# Invite Landing Page Tests (/invite?code=...)
+# ============================================================================
+
+
+def _signed_invite_code(inviter_id: str = OTHER_USER_ID) -> str:
+    from app.core.invite_signer import generate_invite_code
+
+    return generate_invite_code(inviter_id, "friend@example.com")
+
+
+def test_invite_landing_valid_code_shows_inviter(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+) -> None:
+    """A valid code renders the landing page with the inviter's name and an
+    install CTA."""
+    code = _signed_invite_code()
+    mock_supabase_client.get.side_effect = supabase_tables(
+        pending_invite=[
+            {
+                "id": "inv-1",
+                "inviter_id": OTHER_USER_ID,
+                "invite_type": "follow",
+                "status": "pending",
+            }
+        ],
+        user_profile=[
+            {
+                "user_id": OTHER_USER_ID,
+                "username": "world_wanderer",
+                "display_name": "World Wanderer",
+                "avatar_url": "https://example.com/avatar.jpg",
+            }
+        ],
+    )
+
+    with patch(
+        "app.api.public.get_service_supabase_client", return_value=mock_supabase_client
+    ):
+        response = client.get(f"/invite?code={code}")
+
+    assert response.status_code == 200
+    assert "text/html" in response.headers["content-type"]
+    assert "World Wanderer" in response.text
+    assert "apps.apple.com" in response.text  # install CTA
+    # Tokenized URL: never indexed
+    assert "noindex" in response.text
+
+
+def test_invite_landing_invalid_code_renders_graceful_page(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+) -> None:
+    """Invalid codes get a friendly page with an install CTA, never a 404."""
+    with patch(
+        "app.api.public.get_service_supabase_client", return_value=mock_supabase_client
+    ):
+        response = client.get("/invite?code=not-a-real-code")
+
+    assert response.status_code == 200
+    assert "invalid or has expired" in response.text
+    assert "apps.apple.com" in response.text
+
+
+def test_invite_landing_without_code_renders_graceful_page(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+) -> None:
+    with patch(
+        "app.api.public.get_service_supabase_client", return_value=mock_supabase_client
+    ):
+        response = client.get("/invite")
+
+    assert response.status_code == 200
+    assert "apps.apple.com" in response.text
+
+
+def test_invite_landing_cancelled_invite_renders_graceful_page(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+) -> None:
+    """A validly signed code whose invite row is gone (cancelled) degrades to
+    the graceful page rather than showing the inviter."""
+    code = _signed_invite_code()
+    mock_supabase_client.get.side_effect = supabase_tables()  # no rows
+
+    with patch(
+        "app.api.public.get_service_supabase_client", return_value=mock_supabase_client
+    ):
+        response = client.get(f"/invite?code={code}")
+
+    assert response.status_code == 200
+    assert "invalid or has expired" in response.text
+
+
+def test_invite_landing_cancelled_status_hides_inviter(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+) -> None:
+    """#16: a row that still exists but was cancelled (block_user_full sets
+    status='cancelled') renders the generic install page -- the inviter must
+    not be revealed."""
+    code = _signed_invite_code()
+    mock_supabase_client.get.side_effect = supabase_tables(
+        pending_invite=[
+            {
+                "id": "inv-1",
+                "inviter_id": OTHER_USER_ID,
+                "invite_type": "follow",
+                "status": "cancelled",
+            }
+        ],
+        user_profile=[
+            {
+                "user_id": OTHER_USER_ID,
+                "username": "world_wanderer",
+                "display_name": "World Wanderer",
+                "avatar_url": "https://example.com/avatar.jpg",
+            }
+        ],
+    )
+
+    with patch(
+        "app.api.public.get_service_supabase_client", return_value=mock_supabase_client
+    ):
+        response = client.get(f"/invite?code={code}")
+
+    assert response.status_code == 200
+    assert "World Wanderer" not in response.text
+    assert "world_wanderer" not in response.text
+    assert "apps.apple.com" in response.text  # generic install CTA
+
+
+def test_invite_landing_db_failure_degrades_gracefully(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+) -> None:
+    """A database error must not 500 the growth loop's conversion moment."""
+    code = _signed_invite_code()
+    mock_supabase_client.get.side_effect = RuntimeError("db down")
+
+    with patch(
+        "app.api.public.get_service_supabase_client", return_value=mock_supabase_client
+    ):
+        response = client.get(f"/invite?code={code}")
+
+    assert response.status_code == 200
+    assert "apps.apple.com" in response.text
+
+
+def test_robots_txt_disallows_invite(client: TestClient) -> None:
+    """Tokenized invite URLs are excluded from crawling."""
+    response = client.get("/robots.txt")
+    assert "Disallow: /invite" in response.text

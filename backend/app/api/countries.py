@@ -10,7 +10,7 @@ from fastapi import APIRouter, HTTPException, Query, Request, status
 from app.api.utils import get_token_from_request
 from app.core.security import CurrentUser
 from app.db.postgrest import eq, in_list
-from app.db.session import get_supabase_client
+from app.db.session import get_service_supabase_client, get_supabase_client
 from app.schemas.countries import (
     VALID_REGIONS,
     VALID_SUBREGIONS,
@@ -65,7 +65,7 @@ async def get_country_id_by_code(country_code: str) -> str | None:
                 return country_id
             _country_code_cache.pop(code, None)
 
-        db = get_supabase_client()
+        db = get_service_supabase_client()
         rows = await db.get(
             "country",
             {"code": eq(code), "select": "id"},
@@ -112,7 +112,7 @@ async def get_country_name_by_code(country_code: str) -> str | None:
             _country_name_cache.pop(code, None)
 
         try:
-            db = get_supabase_client()
+            db = get_service_supabase_client()
             rows = await db.get(
                 "country",
                 {"code": eq(code), "select": "name"},
@@ -168,7 +168,7 @@ async def list_countries(
             detail=f"Invalid subregion: '{subregion}'",
         )
 
-    db = get_supabase_client()
+    db = get_service_supabase_client()
 
     normalized_search = search.strip().lower() if search else None
 
@@ -206,7 +206,7 @@ async def list_regions() -> list[str]:
             if datetime.now(UTC) < expiry:
                 return regions
 
-        db = get_supabase_client()
+        db = get_service_supabase_client()
         params = {"select": "region", "order": "region.asc"}
         rows = await db.get("country", params)
         # Deduplicate
@@ -228,7 +228,7 @@ async def list_subregions() -> list[str]:
             if datetime.now(UTC) < expiry:
                 return subregions
 
-        db = get_supabase_client()
+        db = get_service_supabase_client()
         params = {"select": "subregion", "order": "subregion.asc"}
         rows = await db.get("country", params)
         # Deduplicate and filter out None values

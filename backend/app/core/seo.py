@@ -280,6 +280,38 @@ def build_trip_seo(
     )
 
 
+def build_profile_seo(
+    username: str,
+    display_name: str,
+    country_count: int,
+    world_percentage: float,
+    base_url: str,
+    avatar_url: str | None = None,
+) -> SEOContext:
+    """Build SEO context for a public profile page."""
+    title = f"@{username} - Atlasi"
+
+    if country_count > 0:
+        description = (
+            f"{display_name} has explored {country_count} countries "
+            f"({world_percentage:.1f}% of the world) on Atlasi"
+        )
+    else:
+        description = f"{display_name} is tracking their travels on Atlasi"
+
+    og_title = f"{display_name} (@{username})"
+
+    return SEOContext(
+        title=title,
+        description=description,
+        canonical_url=f"{base_url}/u/{username}",
+        og_title=og_title,
+        og_description=description,
+        og_image=avatar_url,
+        og_type="profile",
+    )
+
+
 def build_share_structured_data(
     share: "ShareView",
     canonical_url: str,
@@ -387,6 +419,36 @@ STATIC_PAGE_SEO: dict[str, tuple[str, str]] = {
         "Get in touch with the Atlasi team",
     ),
 }
+
+
+def build_invite_seo(inviter_name: str | None, base_url: str) -> SEOContext:
+    """SEO for the /invite landing page.
+
+    The canonical URL deliberately omits the code: invite links are tokenized,
+    per-recipient URLs and must never accumulate as distinct indexed pages.
+    The template additionally emits noindex.
+    """
+    if inviter_name:
+        title = f"{inviter_name} invited you to Atlasi"
+        description = (
+            f"{inviter_name} wants to connect on Atlasi -- track the countries"
+            " you've visited and share your trips with friends."
+        )
+    else:
+        title = "You're invited to Atlasi"
+        description = (
+            "Join Atlasi to track the countries you've visited and share your"
+            " trips with friends."
+        )
+    return SEOContext(
+        title=title,
+        description=description,
+        canonical_url=f"{base_url}/invite",
+        og_title=title,
+        og_description=description,
+        og_image=f"{base_url}{DEFAULT_OG_IMAGE_PATH}",
+        og_type="website",
+    )
 
 
 def build_static_page_seo(page: str, base_url: str) -> SEOContext:

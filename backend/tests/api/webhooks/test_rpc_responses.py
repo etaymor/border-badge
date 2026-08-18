@@ -17,7 +17,7 @@ def test_webhook_rpc_updated_true_returns_success(
     mock_supabase_client.rpc.return_value = {"updated": True}
 
     with patch(
-        "app.api.webhooks.get_supabase_client",
+        "app.api.webhooks.get_service_supabase_client",
         return_value=mock_supabase_client,
     ):
         response = client.post(
@@ -44,7 +44,7 @@ def test_webhook_rpc_skipped_returns_skipped(
     }
 
     with patch(
-        "app.api.webhooks.get_supabase_client",
+        "app.api.webhooks.get_service_supabase_client",
         return_value=mock_supabase_client,
     ):
         response = client.post(
@@ -73,7 +73,7 @@ def test_webhook_rpc_updated_false_returns_user_not_found(
     }
 
     with patch(
-        "app.api.webhooks.get_supabase_client",
+        "app.api.webhooks.get_service_supabase_client",
         return_value=mock_supabase_client,
     ):
         response = client.post(
@@ -97,7 +97,7 @@ def test_webhook_rpc_returns_none_user_not_found(
     mock_supabase_client.rpc.return_value = None
 
     with patch(
-        "app.api.webhooks.get_supabase_client",
+        "app.api.webhooks.get_service_supabase_client",
         return_value=mock_supabase_client,
     ):
         response = client.post(
@@ -121,7 +121,7 @@ def test_webhook_rpc_returns_empty_dict_user_not_found(
     mock_supabase_client.rpc.return_value = {}
 
     with patch(
-        "app.api.webhooks.get_supabase_client",
+        "app.api.webhooks.get_service_supabase_client",
         return_value=mock_supabase_client,
     ):
         response = client.post(

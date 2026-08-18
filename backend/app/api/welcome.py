@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from app.core.config import get_settings
 from app.core.security import CurrentUser
-from app.db.session import get_supabase_client
+from app.db.session import get_service_supabase_client
 from app.main import limiter
 from app.services.email import schedule_welcome_emails
 
@@ -74,7 +74,7 @@ async def trigger_welcome_emails(
     redacted_email = _redact_email(user_email)
 
     # Use service role client for profile lookup/update (bypasses RLS)
-    supabase = get_supabase_client()
+    supabase = get_service_supabase_client()
 
     # Fetch profile with unsubscribe status and token
     profiles = await supabase.get(

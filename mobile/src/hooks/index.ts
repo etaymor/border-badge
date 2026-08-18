@@ -79,6 +79,15 @@ export type {
 export { useResponsive } from './useResponsive';
 export type { ScreenSize, ResponsiveValues } from './useResponsive';
 
+export { useUserFeed, getUserFeedItems } from './useUserFeed';
+export {
+  useSocialHome,
+  getSocialFeedItems,
+  getSocialHomeStats,
+  getSocialHomeRanking,
+  getSocialPendingTagCount,
+} from './useSocialHome';
+
 export { useAnimatedPress, AnimatedPressPresets } from './useAnimatedPress';
 export type { UseAnimatedPressOptions, UseAnimatedPressResult } from './useAnimatedPress';
 

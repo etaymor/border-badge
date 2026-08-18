@@ -29,6 +29,12 @@ export default {
       bundleIdentifier: 'com.atlasi.app',
       buildNumber: '1',
       usesAppleSignIn: true,
+      // Universal links: iOS opens https://atlasi.app/{u,t,l,invite,share}/*
+      // in-app. The path allowlist lives in the backend-served AASA file
+      // (backend/app/static/.well-known/apple-app-site-association). The
+      // withShareExtension plugin sets this same entitlement; keeping it here
+      // makes the association visible in config.
+      associatedDomains: ['applinks:atlasi.app'],
       icon: {
         light: './assets/atlasi-stamp-app-icon.png',
         dark: './assets/atlasi-stamp-app-icon.png',
@@ -99,6 +105,23 @@ export default {
       },
       edgeToEdgeEnabled: true,
       package: 'com.atlasi.app',
+      // Android App Links for the same share paths as the iOS AASA.
+      // autoVerify requires /.well-known/assetlinks.json on atlasi.app with
+      // the release signing cert's SHA-256 fingerprint (not in this repo —
+      // it must be deployed on the atlasi.app web server).
+      intentFilters: [
+        {
+          action: 'VIEW',
+          autoVerify: true,
+          data: [
+            { scheme: 'https', host: 'atlasi.app', pathPrefix: '/u/' },
+            { scheme: 'https', host: 'atlasi.app', pathPrefix: '/t/' },
+            { scheme: 'https', host: 'atlasi.app', pathPrefix: '/l/' },
+            { scheme: 'https', host: 'atlasi.app', pathPrefix: '/invite' },
+          ],
+          category: ['BROWSABLE', 'DEFAULT'],
+        },
+      ],
     },
     web: {
       favicon: './assets/favicon.png',

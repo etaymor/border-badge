@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
 
-from app.api.trips import format_daterange
+from app.api.trips_helpers import format_daterange
 from app.core.security import AuthUser, get_current_user
 from app.main import app
 from tests.conftest import mock_auth_dependency
@@ -74,7 +74,15 @@ def test_list_trips_returns_trips(
     """Test listing trips returns user's trips."""
     # Trip now includes nested country from JOIN
     trip_with_country = {**sample_trip, "country": {"code": "US"}}
-    mock_supabase_client.get.return_value = [trip_with_country]
+    # Mock user profile for owner lookup
+    user_profile = {
+        "user_id": sample_trip["user_id"],
+        "username": "testuser",
+        "display_name": "Test User",
+        "avatar_url": None,
+    }
+    # First call returns trips, second call returns user profiles
+    mock_supabase_client.get.side_effect = [[trip_with_country], [user_profile]]
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
@@ -148,14 +156,27 @@ def test_create_trip_with_tags(
         "responded_at": None,
     }
 
-    # First get is for country lookup, second is for checking existing names
-    mock_supabase_client.get.side_effect = [[sample_country], []]
+    # First get is country lookup, second is the tagged-user existence check
+    mock_supabase_client.get.side_effect = [
+        [sample_country],
+        [{"user_id": OTHER_USER_ID}],
+    ]
+    # Batched bidirectional block check (service client): no blocks either way
+    mock_service_client = AsyncMock()
+    mock_service_client.get.return_value = []
+    # Trip insert, then ONE batch insert for the whole tag list
     mock_supabase_client.post.side_effect = [[sample_trip], [tag_data]]
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
-        with patch(
-            "app.api.trips.get_supabase_client", return_value=mock_supabase_client
+        with (
+            patch(
+                "app.api.trips.get_supabase_client", return_value=mock_supabase_client
+            ),
+            patch(
+                "app.api.trips.get_service_supabase_client",
+                return_value=mock_service_client,
+            ),
         ):
             response = client.post(
                 "/trips",
@@ -170,6 +191,115 @@ def test_create_trip_with_tags(
         data = response.json()
         assert len(data["tags"]) == 1
         assert data["tags"][0]["status"] == "pending"
+        # Tags go in as a single batch insert (a list payload), not per-tag
+        batch_call = mock_supabase_client.post.call_args_list[1]
+        assert batch_call[0][0] == "trip_tags"
+        assert isinstance(batch_call[0][1], list)
+        assert len(batch_call[0][1]) == 1
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_create_trip_with_only_self_tag_returns_trip_without_tags(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+    sample_trip: dict[str, Any],
+    sample_country: dict[str, Any],
+) -> None:
+    """#17: tagged_user_ids containing only the caller must not 500. The
+    self-filter empties the candidate list; the (in_list-based) existence and
+    block lookups must be skipped entirely -- the trip is returned with no
+    tags, exactly as if no one had been tagged."""
+    mock_supabase_client.get.side_effect = [[sample_country]]
+    mock_supabase_client.post.side_effect = [[sample_trip]]
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with patch(
+            "app.api.trips.get_supabase_client", return_value=mock_supabase_client
+        ):
+            response = client.post(
+                "/trips",
+                headers=auth_headers,
+                json={
+                    "name": "Summer Vacation",
+                    "country_code": "US",
+                    "tagged_user_ids": [mock_user.id],
+                },
+            )
+        assert response.status_code == 201
+        data = response.json()
+        assert data["name"] == "Summer Vacation"
+        assert data["tags"] == []
+        # Only the trip insert; no trip_tags insert and no target lookups
+        assert mock_supabase_client.post.call_count == 1
+        assert mock_supabase_client.get.call_count == 1  # country lookup only
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_create_trip_skips_blocked_tagged_user(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+    sample_trip: dict[str, Any],
+    sample_country: dict[str, Any],
+) -> None:
+    """A tagged user with a block in either direction is skipped: the trip is
+    created, no tag row is inserted, and no notification is scheduled."""
+    from tests.conftest import OTHER_USER_ID
+
+    mock_supabase_client.get.side_effect = [
+        [sample_country],
+        [{"user_id": OTHER_USER_ID}],  # Target exists
+    ]
+
+    # Batched bidirectional block check (service client): the caller has
+    # blocked the tagged user (rows only in the blocker_id=caller direction).
+    def _user_block_rows(table: str, params: dict) -> list[dict]:
+        assert table == "user_block"
+        if params["select"] == "blocked_id":
+            return [{"blocked_id": OTHER_USER_ID}]
+        return []
+
+    mock_service_client = AsyncMock()
+    mock_service_client.get.side_effect = _user_block_rows
+    mock_supabase_client.post.side_effect = [[sample_trip]]
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with (
+            patch(
+                "app.api.trips.get_supabase_client",
+                return_value=mock_supabase_client,
+            ),
+            patch(
+                "app.api.trips.get_service_supabase_client",
+                return_value=mock_service_client,
+            ),
+            patch(
+                "app.api.trips.send_trip_tag_notification",
+                new_callable=AsyncMock,
+            ) as mock_notify,
+        ):
+            response = client.post(
+                "/trips",
+                headers=auth_headers,
+                json={
+                    "name": "Summer Vacation",
+                    "country_code": "US",
+                    "tagged_user_ids": [OTHER_USER_ID],
+                },
+            )
+        assert response.status_code == 201
+        data = response.json()
+        assert data["tags"] == []
+        # Only the trip insert happened; no trip_tags insert for a blocked pair
+        assert mock_supabase_client.post.call_count == 1
+        mock_notify.assert_not_called()
     finally:
         app.dependency_overrides.clear()
 
@@ -247,9 +377,11 @@ def test_approve_trip_tag(
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
         with patch(
-            "app.api.trips.get_supabase_client", return_value=mock_supabase_client
+            "app.api.trip_tags.get_supabase_client", return_value=mock_supabase_client
         ):
-            response = client.post(f"/trips/{trip_id}/approve", headers=auth_headers)
+            response = client.post(
+                f"/trip-tags/{trip_id}/approve", headers=auth_headers
+            )
         assert response.status_code == 200
         data = response.json()
         assert data["status"] == "approved"
@@ -280,9 +412,11 @@ def test_decline_trip_tag(
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
         with patch(
-            "app.api.trips.get_supabase_client", return_value=mock_supabase_client
+            "app.api.trip_tags.get_supabase_client", return_value=mock_supabase_client
         ):
-            response = client.post(f"/trips/{trip_id}/decline", headers=auth_headers)
+            response = client.post(
+                f"/trip-tags/{trip_id}/decline", headers=auth_headers
+            )
         assert response.status_code == 200
         data = response.json()
         assert data["status"] == "declined"
@@ -306,14 +440,18 @@ def test_approve_already_actioned_tag_returns_409(
         "responded_at": "2024-01-01T00:00:00Z",
     }
 
+    # get returns tag, patch returns empty (status already changed, optimistic lock fails)
     mock_supabase_client.get.return_value = [tag]
+    mock_supabase_client.patch.return_value = []
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
         with patch(
-            "app.api.trips.get_supabase_client", return_value=mock_supabase_client
+            "app.api.trip_tags.get_supabase_client", return_value=mock_supabase_client
         ):
-            response = client.post(f"/trips/{trip_id}/approve", headers=auth_headers)
+            response = client.post(
+                f"/trip-tags/{trip_id}/approve", headers=auth_headers
+            )
         assert response.status_code == 409
     finally:
         app.dependency_overrides.clear()

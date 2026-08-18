@@ -13,7 +13,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel
 
 from app.core.security import require_service_role
-from app.db.session import get_supabase_client
+from app.db.postgrest import in_list
+from app.db.session import get_service_supabase_client
 from app.main import limiter
 from app.schemas.affiliate import OutboundLinkStatus
 
@@ -103,7 +104,7 @@ async def list_links(
     Returns paginated list of links with their click counts.
     Can filter by status (active, paused, archived).
     """
-    db = get_supabase_client()
+    db = get_service_supabase_client()
 
     # Build query filters
     filters: dict[str, str] = {}
@@ -146,7 +147,7 @@ async def list_links(
         all_clicks = await db.get(
             "outbound_click",
             {
-                "link_id": f"in.({','.join(link_ids)})",
+                "link_id": in_list(link_ids),
                 "select": "link_id",
             },
         )
@@ -207,7 +208,7 @@ async def get_stats_summary(
 
     Uses database-level aggregation (RPC) to avoid loading all clicks into memory.
     """
-    db = get_supabase_client()
+    db = get_service_supabase_client()
 
     # Calculate date range
     since = datetime.now(UTC) - timedelta(days=days)
@@ -270,7 +271,7 @@ async def get_link_detail(
 
     Returns the link definition plus the 20 most recent clicks.
     """
-    db = get_supabase_client()
+    db = get_service_supabase_client()
 
     # Get the link
     links = await db.get(
@@ -338,7 +339,7 @@ async def update_link(
     - Archive a link (permanently disable)
     - Override the affiliate URL for a specific link
     """
-    db = get_supabase_client()
+    db = get_service_supabase_client()
 
     # Verify link exists
     links = await db.get(

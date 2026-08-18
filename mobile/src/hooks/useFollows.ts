@@ -1,0 +1,263 @@
+import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import type { InfiniteData, QueryClient, QueryKey } from '@tanstack/react-query';
+import type { AxiosError } from 'axios';
+import { Alert } from 'react-native';
+
+import { socialKeys } from '@hooks/queryKeys';
+import type { SocialHomeInfiniteData } from '@hooks/useSocialHome';
+import { updateSocialHomeFirstPage } from '@hooks/useSocialHome';
+import type { UserProfile } from '@hooks/useUserProfile';
+import type { UserSearchResult } from '@hooks/useUserSearch';
+import { api } from '@services/api';
+import { getSocialErrorMessage } from '@utils/socialErrors';
+
+// Types
+export interface UserSummary {
+  id: string;
+  user_id: string;
+  username: string;
+  display_name: string;
+  avatar_url: string | null;
+  country_count: number;
+}
+
+export interface FollowStats {
+  follower_count: number;
+  following_count: number;
+}
+
+interface FollowResponse {
+  status: string;
+  following_id: string;
+}
+
+interface FollowMutationContext {
+  previousProfile?: UserProfile;
+  previousSocialHome: Array<[QueryKey, SocialHomeInfiniteData | undefined]>;
+  previousSearches: Array<[QueryKey, UserSearchResult[] | undefined]>;
+}
+
+/** Page size for follower/following lists. */
+export const FOLLOW_LIST_PAGE_SIZE = 20;
+
+export type FollowListInfiniteData = InfiniteData<UserSummary[], unknown>;
+
+function useFollowListInfinite(
+  endpoint: '/follows/following' | '/follows/followers',
+  queryKey: readonly unknown[],
+  limit: number
+) {
+  return useInfiniteQuery<UserSummary[]>({
+    queryKey,
+    queryFn: async ({ pageParam }) => {
+      const offset = (pageParam as number) ?? 0;
+      const response = await api.get<UserSummary[]>(endpoint, {
+        params: { limit, offset },
+      });
+      return response.data;
+    },
+    initialPageParam: 0,
+    // A short page means the server ran out of rows; otherwise the next
+    // offset is however many rows we have loaded so far.
+    getNextPageParam: (lastPage, allPages) =>
+      lastPage.length < limit
+        ? undefined
+        : allPages.reduce((count, page) => count + page.length, 0),
+    staleTime: 1000 * 60, // 1 minute
+  });
+}
+
+/**
+ * Hook to get the full list of users the current user is following,
+ * paginated via infinite offset pages (no hard cap).
+ */
+export function useFollowing(options?: { limit?: number }) {
+  const limit = options?.limit ?? FOLLOW_LIST_PAGE_SIZE;
+  return useFollowListInfinite('/follows/following', socialKeys.followingInfinite(limit), limit);
+}
+
+/**
+ * Hook to get the full list of users following the current user,
+ * paginated via infinite offset pages (no hard cap).
+ */
+export function useFollowers(options?: { limit?: number }) {
+  const limit = options?.limit ?? FOLLOW_LIST_PAGE_SIZE;
+  return useFollowListInfinite('/follows/followers', socialKeys.followersInfinite(limit), limit);
+}
+
+/** Flatten an infinite follow-list result into a single array of users. */
+export function getFollowListUsers(data: FollowListInfiniteData | undefined): UserSummary[] {
+  if (!data?.pages) return [];
+  return data.pages.flat();
+}
+
+/**
+ * Surgically apply a follow/unfollow change to every cache the user can see:
+ * the target's profile, my social-home follow stats (page 1), and any cached
+ * search results showing the target. Snapshots are returned for rollback.
+ */
+async function applyOptimisticFollowChange(
+  queryClient: QueryClient,
+  userId: string,
+  username: string | undefined,
+  isFollowing: boolean
+): Promise<FollowMutationContext> {
+  const delta = isFollowing ? 1 : -1;
+
+  // Cancel in-flight fetches so they cannot clobber the optimistic values.
+  await queryClient.cancelQueries({ queryKey: socialKeys.socialHome });
+  await queryClient.cancelQueries({ queryKey: socialKeys.userSearch });
+  if (username) {
+    await queryClient.cancelQueries({ queryKey: socialKeys.userProfile(username) });
+  }
+
+  // Snapshot previous values for rollback.
+  const previousProfile = username
+    ? queryClient.getQueryData<UserProfile>(socialKeys.userProfile(username))
+    : undefined;
+  const previousSocialHome = queryClient.getQueriesData<SocialHomeInfiniteData>({
+    queryKey: socialKeys.socialHome,
+  });
+  const previousSearches = queryClient.getQueriesData<UserSearchResult[]>({
+    queryKey: socialKeys.userSearch,
+  });
+
+  // Target user's profile: flip follow state, adjust their follower count.
+  if (username) {
+    queryClient.setQueryData<UserProfile>(socialKeys.userProfile(username), (old) =>
+      old
+        ? {
+            ...old,
+            is_following: isFollowing,
+            follower_count: Math.max(0, old.follower_count + delta),
+          }
+        : old
+    );
+  }
+
+  // Social-home page 1: adjust my following count. Feed pages stay untouched.
+  updateSocialHomeFirstPage(queryClient, (page) => ({
+    ...page,
+    follow_stats: {
+      ...page.follow_stats,
+      following_count: Math.max(0, page.follow_stats.following_count + delta),
+    },
+  }));
+
+  // Cached search results showing this user: flip follow state.
+  queryClient.setQueriesData<UserSearchResult[]>({ queryKey: socialKeys.userSearch }, (old) =>
+    old?.map((user) => (user.id === userId ? { ...user, is_following: isFollowing } : user))
+  );
+
+  return { previousProfile, previousSocialHome, previousSearches };
+}
+
+/**
+ * Restore a snapshot only when its query still exists in the cache. A query
+ * another flow removed while the mutation was in flight (e.g. a block purging
+ * the blocked user's content via `removeQueries`) must stay removed —
+ * `setQueryData` would otherwise re-create it with the purged content.
+ */
+function restoreSnapshotIfPresent(
+  queryClient: QueryClient,
+  queryKey: QueryKey,
+  data: unknown
+): void {
+  if (queryClient.getQueryState(queryKey) !== undefined) {
+    queryClient.setQueryData(queryKey, data);
+  }
+}
+
+function rollbackFollowChange(
+  queryClient: QueryClient,
+  username: string | undefined,
+  context: FollowMutationContext | undefined
+): void {
+  if (!context) return;
+  if (username && context.previousProfile !== undefined) {
+    restoreSnapshotIfPresent(
+      queryClient,
+      socialKeys.userProfile(username),
+      context.previousProfile
+    );
+  }
+  for (const [queryKey, data] of context.previousSocialHome) {
+    restoreSnapshotIfPresent(queryClient, queryKey, data);
+  }
+  for (const [queryKey, data] of context.previousSearches) {
+    restoreSnapshotIfPresent(queryClient, queryKey, data);
+  }
+}
+
+/**
+ * True when a follow failed because the pair is blocked (backend/DB trigger
+ * answers 403 "Cannot follow this user"). In that case the block flow purges
+ * the target's caches, so snapshots of them must not be restored.
+ */
+function isBlockedPairError(error: unknown): boolean {
+  return (error as AxiosError)?.response?.status === 403;
+}
+
+/**
+ * Hook to follow a user with optimistic updates.
+ */
+export function useFollowUser(userId: string, username?: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation<FollowResponse, Error, void, FollowMutationContext>({
+    mutationFn: async () => {
+      const response = await api.post<FollowResponse>(`/follows/${userId}`);
+      return response.data;
+    },
+
+    onMutate: () => applyOptimisticFollowChange(queryClient, userId, username, true),
+
+    onError: (error, _variables, context) => {
+      if (isBlockedPairError(error)) {
+        // The follow failed because the target is blocked: the block flow
+        // purged this user's profile/feed caches, so restoring their
+        // snapshots would resurrect purged content. Roll back only the
+        // shared caches and refetch the user-specific ones.
+        rollbackFollowChange(queryClient, undefined, context);
+        if (username) {
+          queryClient.invalidateQueries({ queryKey: socialKeys.userProfile(username) });
+        }
+        queryClient.invalidateQueries({ queryKey: socialKeys.userFeed(userId) });
+      } else {
+        rollbackFollowChange(queryClient, username, context);
+      }
+      Alert.alert('Error', getSocialErrorMessage(error, 'follow'));
+    },
+
+    onSettled: () => {
+      // The following list is the only visible cache not updated in place.
+      queryClient.invalidateQueries({ queryKey: socialKeys.following });
+    },
+  });
+}
+
+/**
+ * Hook to unfollow a user with optimistic updates.
+ */
+export function useUnfollowUser(userId: string, username?: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation<FollowResponse, Error, void, FollowMutationContext>({
+    mutationFn: async () => {
+      const response = await api.delete<FollowResponse>(`/follows/${userId}`);
+      return response.data;
+    },
+
+    onMutate: () => applyOptimisticFollowChange(queryClient, userId, username, false),
+
+    onError: (error, _variables, context) => {
+      rollbackFollowChange(queryClient, username, context);
+      Alert.alert('Error', getSocialErrorMessage(error, 'unfollow'));
+    },
+
+    onSettled: () => {
+      // The following list is the only visible cache not updated in place.
+      queryClient.invalidateQueries({ queryKey: socialKeys.following });
+    },
+  });
+}

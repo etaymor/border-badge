@@ -389,7 +389,7 @@ class TestCreateMediaRecordForGooglePhoto:
     async def test_creates_media_record_successfully(self):
         """Should create media record successfully."""
         with patch(
-            "app.services.google_photo_downloader.get_supabase_client"
+            "app.services.google_photo_downloader.get_service_supabase_client"
         ) as mock_db:
             mock_client = AsyncMock()
             mock_client.post = AsyncMock(return_value=[{"id": "new-media-id"}])
@@ -420,7 +420,7 @@ class TestCreateMediaRecordForGooglePhoto:
     async def test_handles_database_error(self):
         """Should handle database errors gracefully."""
         with patch(
-            "app.services.google_photo_downloader.get_supabase_client"
+            "app.services.google_photo_downloader.get_service_supabase_client"
         ) as mock_db:
             mock_client = AsyncMock()
             mock_client.post = AsyncMock(side_effect=Exception("Database error"))
@@ -440,7 +440,7 @@ class TestCreateMediaRecordForGooglePhoto:
     async def test_handles_constraint_violation(self):
         """Should handle constraint violations gracefully."""
         with patch(
-            "app.services.google_photo_downloader.get_supabase_client"
+            "app.services.google_photo_downloader.get_service_supabase_client"
         ) as mock_db:
             mock_client = AsyncMock()
             mock_client.post = AsyncMock(

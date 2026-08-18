@@ -1,3 +1,9 @@
+// TODO: Refactor - this file exceeds 500 lines (currently ~604 lines).
+// Consider extracting:
+// - useAccountCreationForm hook for form state and validation
+// - SocialSignUpButtons component for Apple/Google buttons
+// - AccountHeader component for header and progress indicator
+
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { useEffect, useRef, useState } from 'react';
@@ -28,7 +34,7 @@ import { useScreenEntrance } from '@hooks/useScreenEntrance';
 import type { OnboardingStackScreenProps } from '@navigation/types';
 import { Analytics } from '@services/analytics';
 import { useAuthStore } from '@stores/authStore';
-import { useOnboardingStore, selectDisplayName } from '@stores/onboardingStore';
+import { useOnboardingStore, selectDisplayName, selectUsername } from '@stores/onboardingStore';
 import { validateEmail } from '@utils/emailValidation';
 
 /* eslint-disable @typescript-eslint/no-require-imports */
@@ -48,6 +54,7 @@ export function AccountCreationScreen({ navigation }: Props) {
   const [showPassword, setShowPassword] = useState(false);
 
   const displayName = useOnboardingStore(selectDisplayName);
+  const username = useOnboardingStore(selectUsername);
   const reduceMotion = useReducedMotion();
 
   // Track screen view
@@ -130,7 +137,8 @@ export function AccountCreationScreen({ navigation }: Props) {
     const credentials = {
       email: emailResult.normalizedEmail!,
       password,
-      displayName: displayName ?? undefined,
+      displayName: displayName ?? username ?? undefined,
+      username: username ?? undefined,
     };
     signUp.mutate(credentials);
   };

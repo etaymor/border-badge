@@ -251,7 +251,9 @@ class TestCacheFunctions:
             ]
         )
 
-        with patch("app.services.skimlinks.get_supabase_client", return_value=mock_db):
+        with patch(
+            "app.services.skimlinks.get_service_supabase_client", return_value=mock_db
+        ):
             result = await get_cached_url(TEST_ORIGINAL_URL)
             assert result == TEST_WRAPPED_URL
 
@@ -261,7 +263,9 @@ class TestCacheFunctions:
         mock_db = AsyncMock()
         mock_db.get = AsyncMock(return_value=[])
 
-        with patch("app.services.skimlinks.get_supabase_client", return_value=mock_db):
+        with patch(
+            "app.services.skimlinks.get_service_supabase_client", return_value=mock_db
+        ):
             result = await get_cached_url(TEST_ORIGINAL_URL)
             assert result is None
 
@@ -281,7 +285,9 @@ class TestCacheFunctions:
             ]
         )
 
-        with patch("app.services.skimlinks.get_supabase_client", return_value=mock_db):
+        with patch(
+            "app.services.skimlinks.get_service_supabase_client", return_value=mock_db
+        ):
             result = await cache_url(TEST_ORIGINAL_URL, TEST_WRAPPED_URL)
             assert result.original_url == TEST_ORIGINAL_URL
             assert result.wrapped_url == TEST_WRAPPED_URL
@@ -311,7 +317,9 @@ class TestCacheFunctions:
             ]
         )
 
-        with patch("app.services.skimlinks.get_supabase_client", return_value=mock_db):
+        with patch(
+            "app.services.skimlinks.get_service_supabase_client", return_value=mock_db
+        ):
             await cache_url(TEST_ORIGINAL_URL, TEST_WRAPPED_URL, ttl_hours=24)
             mock_db.upsert.assert_called_once()
 
@@ -323,7 +331,9 @@ class TestCacheFunctions:
             return_value=[{"id": TEST_CACHE_ID}]  # Deleted entry
         )
 
-        with patch("app.services.skimlinks.get_supabase_client", return_value=mock_db):
+        with patch(
+            "app.services.skimlinks.get_service_supabase_client", return_value=mock_db
+        ):
             result = await invalidate_cache(TEST_ORIGINAL_URL)
             assert result is True
             mock_db.delete.assert_called_once_with(
@@ -337,7 +347,9 @@ class TestCacheFunctions:
         mock_db = AsyncMock()
         mock_db.delete = AsyncMock(return_value=[])
 
-        with patch("app.services.skimlinks.get_supabase_client", return_value=mock_db):
+        with patch(
+            "app.services.skimlinks.get_service_supabase_client", return_value=mock_db
+        ):
             result = await invalidate_cache(TEST_ORIGINAL_URL)
             assert result is False
 
@@ -349,7 +361,9 @@ class TestCacheFunctions:
             return_value=[{"id": "1"}, {"id": "2"}, {"id": "3"}]  # 3 deleted
         )
 
-        with patch("app.services.skimlinks.get_supabase_client", return_value=mock_db):
+        with patch(
+            "app.services.skimlinks.get_service_supabase_client", return_value=mock_db
+        ):
             result = await cleanup_expired_cache()
             assert result == 3
             mock_db.delete.assert_called_once()

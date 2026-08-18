@@ -1,34 +1,33 @@
 import { Ionicons } from '@expo/vector-icons';
-import { BlurView } from 'expo-blur';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import {
   Alert,
-  Keyboard,
   KeyboardAvoidingView,
   Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
-  TouchableOpacity,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { CoverImagePicker } from '@components/media';
-import { Button, GlassBackButton, GlassInput, SearchInput } from '@components/ui';
+import { CountryPicker, TravelFriendsSection } from '@components/trips';
+import { Button, GlassBackButton, GlassInput } from '@components/ui';
+import { features } from '@config/features';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
-import { useCountries, type Country } from '@hooks/useCountries';
+import { useCountryPicker } from '@hooks/useCountryPicker';
 import { usePhotoPermissionStatus } from '@hooks/usePhotoPermissions';
-import { useCreateTrip, useDeleteTrip, useTrip, useUpdateTrip } from '@hooks/useTrips';
+import { useTripForm } from '@hooks/useTripForm';
+import { useDeleteTrip } from '@hooks/useTrips';
 import type {
   DreamsStackScreenProps,
   PassportStackScreenProps,
   TripsStackScreenProps,
 } from '@navigation/types';
 import type { CompositeScreenProps } from '@react-navigation/native';
-import { getFlagEmoji } from '@utils/flags';
 
 // TripFormScreen can be rendered in TripsNavigator, PassportNavigator, or DreamsNavigator
 // Use CompositeScreenProps to create a union type that covers all three cases
@@ -43,51 +42,86 @@ export function TripFormScreen({ navigation, route }: Props) {
   const initialCountryName = route.params?.countryName;
   const prefillPlace = route.params?.prefillPlace;
   const prefillPhotos = route.params?.prefillPhotos;
-  const isEditing = !!tripId;
   const insets = useSafeAreaInsets();
+  const scrollViewRef = useRef<ScrollView>(null);
 
-  // Form state
-  const [name, setName] = useState('');
-  const [coverImageUrl, setCoverImageUrl] = useState('');
+  // Form state and logic
+  const {
+    name,
+    setName,
+    coverImageUrl,
+    setCoverImageUrl,
+    selectedFriendIds,
+    invitedEmails,
+    handleToggleFriend,
+    handleToggleEmailInvite,
+    nameError,
+    countryError,
+    setCountryError,
+    isLoading,
+    isFetching,
+    handleSave,
+    isEditing,
+    existingTrip,
+  } = useTripForm({ tripId });
 
   // Country picker state
-  const [countrySearch, setCountrySearch] = useState('');
-  const [selectedCountryCode, setSelectedCountryCode] = useState<string | null>(
-    initialCountryId || null
-  );
-  const [showDropdown, setShowDropdown] = useState(false);
+  const {
+    countrySearch,
+    setCountrySearch,
+    showDropdown,
+    setShowDropdown,
+    selectedCountryCode,
+    selectedCountry,
+    filteredCountries,
+    isLoading: loadingCountries,
+    handleSelectCountry,
+    selectCountryCode,
+    clearSelection,
+  } = useCountryPicker({ initialCountryCode: initialCountryId });
 
-  // Validation state
-  const [nameError, setNameError] = useState('');
-  const [countryError, setCountryError] = useState('');
-
-  // Fetch countries for picker
-  const { data: countries, isLoading: loadingCountries } = useCountries();
-
-  // Fetch existing trip if editing
-  const { data: existingTrip, isLoading: loadingTrip } = useTrip(tripId || '');
-
-  // Mutations
-  const createTrip = useCreateTrip();
-  const updateTrip = useUpdateTrip();
+  // Delete support (edit mode only)
   const deleteTrip = useDeleteTrip();
+  const isDeleting = deleteTrip.isPending;
+  const isMutating = isLoading || isDeleting;
 
   // Photo permissions for photo assist card
   const { status: photoPermissionStatus } = usePhotoPermissionStatus();
 
+  // System trips (Saved Places) cannot have their country changed.
+  const isSystemTrip = !!existingTrip?.is_system;
+  const showCountryPicker = !isEditing || !isSystemTrip;
+
+  // Seed the country picker from the existing trip when editing
+  useEffect(() => {
+    if (isEditing && existingTrip?.country_code && !selectedCountryCode) {
+      selectCountryCode(existingTrip.country_code);
+    }
+  }, [isEditing, existingTrip?.country_code, selectedCountryCode, selectCountryCode]);
+
+  // Clear country error when country is selected
+  useEffect(() => {
+    if (selectedCountryCode) {
+      setCountryError('');
+    }
+  }, [selectedCountryCode, setCountryError]);
+
+  const handleFriendsSearchFocus = useCallback(() => {
+    setTimeout(() => {
+      scrollViewRef.current?.scrollToEnd({ animated: true });
+    }, 100);
+  }, []);
+
   // Navigate to photo trips (filtered by country)
-  // TripFormScreen can be rendered in TripsNavigator, PassportNavigator, or DreamsNavigator.
   // TripsStack and PassportStack both have PhotoTrips; DreamsStack does not.
   // We check if the current navigator has PhotoTrips route before navigating.
   const handleImportPhotos = useCallback(() => {
     const routeNames = navigation.getState()?.routeNames ?? [];
     if (routeNames.includes('PhotoTrips')) {
-      // Current navigator (TripsStack or PassportStack) has PhotoTrips
       navigation.navigate('PhotoTrips', {
         countryCode: selectedCountryCode ?? undefined,
       });
     } else {
-      // We're in DreamsNavigator or a navigator without PhotoTrips - try parent
       const parentNav = navigation.getParent();
       const parentRouteNames = parentNav?.getState()?.routeNames ?? [];
       if (parentNav && parentRouteNames.includes('PhotoTrips')) {
@@ -98,111 +132,18 @@ export function TripFormScreen({ navigation, route }: Props) {
     }
   }, [navigation, selectedCountryCode]);
 
-  // Filter countries based on search
-  const filteredCountries = useMemo(() => {
-    if (!countries || !countrySearch) return [];
-    const query = countrySearch.toLowerCase();
-    return countries
-      .filter((c) => c.name.toLowerCase().includes(query) || c.code.toLowerCase().includes(query))
-      .slice(0, 10);
-  }, [countries, countrySearch]);
-
-  // Get selected country object
-  const selectedCountry = useMemo(() => {
-    if (!selectedCountryCode || !countries) return null;
-    return countries.find((c) => c.code === selectedCountryCode) || null;
-  }, [selectedCountryCode, countries]);
-
-  // Populate form when editing. Pre-fill country so the user can change it.
-  // System trips (e.g. Saved Places) have no country and the picker is hidden below.
-  useEffect(() => {
-    if (existingTrip && isEditing) {
-      setName(existingTrip.name);
-      setCoverImageUrl(existingTrip.cover_image_url || '');
-      if (existingTrip.country_code) {
-        setSelectedCountryCode(existingTrip.country_code);
-      }
-    }
-  }, [existingTrip, isEditing]);
-
-  // Update country when navigating with a new countryId
-  useEffect(() => {
-    if (initialCountryId && !isEditing) {
-      setSelectedCountryCode(initialCountryId);
-    }
-  }, [initialCountryId, isEditing]);
-
-  // System trips (Saved Places) cannot have their country changed.
-  const isSystemTrip = !!existingTrip?.is_system;
-  const showCountryPicker = !isEditing || (isEditing && !isSystemTrip);
-
-  const handleSelectCountry = (country: Country) => {
-    setSelectedCountryCode(country.code);
-    setCountrySearch('');
-    setShowDropdown(false);
-    setCountryError('');
-    Keyboard.dismiss();
-  };
-
-  const validate = (): boolean => {
-    let isValid = true;
-
-    // Name is required
-    if (!name.trim()) {
-      setNameError('Trip name is required');
-      isValid = false;
-    } else {
-      setNameError('');
-    }
-
-    // Country is required when the picker is visible (new trips, or editing a non-system trip).
-    if (showCountryPicker && !selectedCountryCode) {
-      setCountryError('Please select a country');
-      isValid = false;
-    } else {
-      setCountryError('');
-    }
-
-    return isValid;
-  };
-
-  const handleSave = async () => {
-    if (!validate()) return;
-
-    try {
-      if (isEditing && tripId) {
-        // Update existing trip. Only send country_code if it actually changed,
-        // so the backend doesn't redundantly resolve it on every name/image edit.
-        const originalCountryCode = existingTrip?.country_code;
-        const countryChanged =
-          !!selectedCountryCode && !isSystemTrip && selectedCountryCode !== originalCountryCode;
-        await updateTrip.mutateAsync({
-          id: tripId,
-          name: name.trim(),
-          cover_image_url: coverImageUrl.trim() || undefined,
-          ...(countryChanged
-            ? {
-                country_code: selectedCountryCode,
-                previousCountryCode: originalCountryCode,
-              }
-            : {}),
-        });
+  const onSave = useCallback(() => {
+    handleSave(selectedCountryCode, (newTripId) => {
+      if (isEditing) {
         navigation.goBack();
-      } else {
-        // Create new trip
-        const newTrip = await createTrip.mutateAsync({
-          name: name.trim(),
-          country_code: selectedCountryCode!,
-          cover_image_url: coverImageUrl.trim() || undefined,
-        });
-
+      } else if (newTripId) {
         // When inside TripsNavigator, replace with TripDetail.
         // When inside PassportNavigator (from CountryDetail), just go back —
         // the country screen will show the new trip via React Query refetch.
         const routeNames = navigation.getState()?.routeNames ?? [];
         if (routeNames.includes('TripDetail')) {
           navigation.replace('TripDetail', {
-            tripId: newTrip.id,
+            tripId: newTripId,
             prefillPlace,
             prefillPhotos,
           });
@@ -210,10 +151,8 @@ export function TripFormScreen({ navigation, route }: Props) {
           navigation.goBack();
         }
       }
-    } catch {
-      // Error is handled by the mutation's onError
-    }
-  };
+    });
+  }, [handleSave, selectedCountryCode, isEditing, navigation, prefillPlace, prefillPhotos]);
 
   const handleDelete = useCallback(() => {
     if (!tripId) return;
@@ -239,11 +178,6 @@ export function TripFormScreen({ navigation, route }: Props) {
     );
   }, [tripId, deleteTrip, navigation]);
 
-  const isDeleting = deleteTrip.isPending;
-  const isLoading = createTrip.isPending || updateTrip.isPending;
-  const isMutating = isLoading || isDeleting;
-  const isFetching = loadingTrip && isEditing;
-
   if (isFetching) {
     return (
       <View style={styles.loadingContainer}>
@@ -254,21 +188,22 @@ export function TripFormScreen({ navigation, route }: Props) {
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={{ flex: 1 }}
-      >
-        {/* Custom Header */}
-        <View style={styles.header}>
-          <View style={styles.headerRow}>
-            <GlassBackButton onPress={() => navigation.goBack()} />
-            <Text style={styles.headerTitle}>{isEditing ? 'Edit Trip' : 'New Trip'}</Text>
-            {/* Spacer to balance layout */}
-            <View style={styles.headerSpacer} />
-          </View>
+      {/* Custom Header */}
+      <View style={styles.header}>
+        <View style={styles.headerRow}>
+          <GlassBackButton onPress={() => navigation.goBack()} />
+          <Text style={styles.headerTitle}>{isEditing ? 'Edit Trip' : 'New Trip'}</Text>
+          <View style={styles.headerSpacer} />
         </View>
+      </View>
 
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={styles.keyboardAvoid}
+        keyboardVerticalOffset={0}
+      >
         <ScrollView
+          ref={scrollViewRef}
           style={styles.scrollView}
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
@@ -279,72 +214,20 @@ export function TripFormScreen({ navigation, route }: Props) {
               {isEditing ? 'Update your trip details' : 'Where are you heading next?'}
             </Text>
 
-            {/* Country Picker - shown for new trips and when editing a non-system trip. */}
+            {/* Country Picker - shown for new trips and when editing a non-system trip */}
             {showCountryPicker && (
-              <View style={[styles.section, styles.countryPickerSection]}>
-                <Text style={styles.label}>{isEditing ? 'COUNTRY' : 'DESTINATION'}</Text>
-
-                {/* Show selected country or search input */}
-                {selectedCountry ? (
-                  <TouchableOpacity
-                    style={styles.selectedCountry}
-                    onPress={() => {
-                      setSelectedCountryCode(null);
-                      setCountrySearch('');
-                    }}
-                  >
-                    <Text style={styles.selectedFlag}>{getFlagEmoji(selectedCountry.code)}</Text>
-                    <Text style={styles.selectedName}>{selectedCountry.name}</Text>
-                    <Text style={styles.changeText}>Change</Text>
-                  </TouchableOpacity>
-                ) : (
-                  <View style={styles.searchContainer}>
-                    <View style={styles.searchGlassWrapper}>
-                      <BlurView intensity={30} tint="light" style={styles.searchGlassContainer}>
-                        <SearchInput
-                          value={countrySearch}
-                          onChangeText={(text) => {
-                            setCountrySearch(text);
-                            setShowDropdown(text.length > 0);
-                          }}
-                          placeholder="Search countries..."
-                          onFocus={() => setShowDropdown(countrySearch.length > 0)}
-                          testID="country-search"
-                          style={styles.searchInput}
-                        />
-                      </BlurView>
-                    </View>
-
-                    {/* Autocomplete dropdown */}
-                    {showDropdown && filteredCountries.length > 0 && (
-                      <View style={styles.dropdown}>
-                        <ScrollView
-                          style={styles.dropdownList}
-                          keyboardShouldPersistTaps="handled"
-                          nestedScrollEnabled
-                        >
-                          {filteredCountries.map((item) => (
-                            <TouchableOpacity
-                              key={item.code}
-                              style={styles.dropdownItem}
-                              onPress={() => handleSelectCountry(item)}
-                              testID={`country-option-${item.code}`}
-                            >
-                              <Text style={styles.flagEmoji}>{getFlagEmoji(item.code)}</Text>
-                              <Text style={styles.countryName}>{item.name}</Text>
-                            </TouchableOpacity>
-                          ))}
-                        </ScrollView>
-                      </View>
-                    )}
-
-                    {loadingCountries && (
-                      <Text style={styles.loadingHint}>Loading countries...</Text>
-                    )}
-                  </View>
-                )}
-                {countryError ? <Text style={styles.errorText}>{countryError}</Text> : null}
-              </View>
+              <CountryPicker
+                selectedCountry={selectedCountry}
+                searchQuery={countrySearch}
+                onSearchChange={setCountrySearch}
+                showDropdown={showDropdown}
+                onShowDropdownChange={setShowDropdown}
+                filteredCountries={filteredCountries}
+                onSelectCountry={handleSelectCountry}
+                onClearSelection={clearSelection}
+                isLoading={loadingCountries}
+                error={countryError}
+              />
             )}
 
             {/* Photo Assist Card - only show for new trips */}
@@ -396,36 +279,51 @@ export function TripFormScreen({ navigation, route }: Props) {
                 disabled={isLoading}
               />
             </View>
+
+            {/* Tag Friends - social feature, hidden when the flag is off */}
+            {features.enableSocial && (
+              <TravelFriendsSection
+                selectedIds={selectedFriendIds}
+                invitedEmails={invitedEmails}
+                onToggleSelection={handleToggleFriend}
+                onToggleEmailInvite={handleToggleEmailInvite}
+                onSearchFocus={handleFriendsSearchFocus}
+                disabled={isLoading}
+              />
+            )}
+          </View>
+
+          {/* Save Button */}
+          <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 16) + 16 }]}>
+            <Button
+              title={isEditing ? 'Save Changes' : 'Create Trip'}
+              onPress={onSave}
+              loading={isLoading}
+              disabled={isMutating}
+              testID="trip-save-button"
+            />
+            {isEditing && (
+              <Button
+                title="Delete Trip"
+                onPress={handleDelete}
+                variant="destructive"
+                loading={isDeleting}
+                disabled={isMutating}
+                style={styles.deleteButton}
+                testID="trip-delete-button"
+              />
+            )}
           </View>
         </ScrollView>
-
-        {/* Save Button - Sticky Footer */}
-        <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 16) }]}>
-          <Button
-            title={isEditing ? 'Save Changes' : 'Create Trip'}
-            onPress={handleSave}
-            loading={isLoading}
-            disabled={isMutating}
-            testID="trip-save-button"
-          />
-          {isEditing && (
-            <Button
-              title="Delete Trip"
-              onPress={handleDelete}
-              variant="destructive"
-              loading={isDeleting}
-              disabled={isMutating}
-              style={styles.deleteButton}
-              testID="trip-delete-button"
-            />
-          )}
-        </View>
       </KeyboardAvoidingView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  keyboardAvoid: {
+    flex: 1,
+  },
   container: {
     flex: 1,
     backgroundColor: colors.warmCream,
@@ -446,10 +344,10 @@ const styles = StyleSheet.create({
     fontSize: 24,
     color: colors.midnightNavy,
     textAlign: 'center',
-    lineHeight: 44, // Match GlassBackButton height for vertical centering
+    lineHeight: 44,
   },
   headerSpacer: {
-    width: 44, // Same width as GlassBackButton to balance the layout
+    width: 44,
   },
   loadingContainer: {
     flex: 1,
@@ -481,9 +379,7 @@ const styles = StyleSheet.create({
   },
   section: {
     marginBottom: 28,
-  },
-  countryPickerSection: {
-    zIndex: 10,
+    zIndex: 1,
   },
   label: {
     fontFamily: fonts.oswald.medium,
@@ -494,98 +390,38 @@ const styles = StyleSheet.create({
     opacity: 0.7,
     textTransform: 'uppercase',
   },
-  searchContainer: {
-    position: 'relative',
-    zIndex: 10,
-  },
-  searchGlassWrapper: {
-    borderRadius: 16,
-    overflow: 'hidden',
-    shadowColor: colors.midnightNavy,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
-  },
-  searchGlassContainer: {
-    borderRadius: 16,
-    backgroundColor: 'rgba(253, 246, 237, 0.6)', // Light beige glass
-  },
-  searchInput: {
-    backgroundColor: 'transparent',
-    borderWidth: 0,
-  },
-  dropdown: {
-    position: 'absolute',
-    top: '100%',
-    left: 0,
-    right: 0,
-    marginTop: 4,
-    backgroundColor: 'rgba(255, 255, 255, 0.95)',
-    borderRadius: 16,
-    borderWidth: 0,
-    maxHeight: 250,
-    shadowColor: colors.shadow,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.1,
-    shadowRadius: 24,
-    elevation: 8,
-    zIndex: 100,
-  },
-  dropdownList: {
-    maxHeight: 250,
-  },
-  dropdownItem: {
+  photoAssistCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(23, 42, 58, 0.05)',
-  },
-  flagEmoji: {
-    fontSize: 24,
-    marginRight: 12,
-  },
-  countryName: {
-    fontSize: 16,
-    color: colors.midnightNavy,
-    fontFamily: fonts.openSans.regular,
-  },
-  selectedCountry: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(253, 246, 237, 0.6)', // Light beige glass
-    paddingVertical: 16,
-    paddingHorizontal: 16,
+    backgroundColor: 'rgba(228, 168, 81, 0.08)',
+    padding: 16,
     borderRadius: 16,
-    borderWidth: 0,
-    shadowColor: colors.midnightNavy,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
+    marginBottom: 28,
+    gap: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(228, 168, 81, 0.2)',
   },
-  selectedFlag: {
-    fontSize: 28,
-    marginRight: 12,
+  photoAssistIconContainer: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(228, 168, 81, 0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  selectedName: {
-    fontSize: 18,
-    fontFamily: fonts.playfair.bold,
-    color: colors.midnightNavy,
+  photoAssistContent: {
     flex: 1,
   },
-  changeText: {
-    fontSize: 14,
-    color: colors.adobeBrick, // Changed from sunsetGold for accessibility
+  photoAssistTitle: {
     fontFamily: fonts.openSans.semiBold,
+    fontSize: 15,
+    color: colors.midnightNavy,
   },
-  loadingHint: {
-    fontSize: 12,
-    color: colors.textSecondary,
-    marginTop: 8,
+  photoAssistDescription: {
     fontFamily: fonts.openSans.regular,
+    fontSize: 13,
+    color: colors.textSecondary,
+    marginTop: 2,
   },
   contextBanner: {
     flexDirection: 'row',
@@ -603,52 +439,11 @@ const styles = StyleSheet.create({
     color: colors.adobeBrick,
     fontFamily: fonts.openSans.semiBold,
   },
-  errorText: {
-    fontSize: 12,
-    color: colors.adobeBrick,
-    marginTop: 8,
-    marginLeft: 4,
-    fontFamily: fonts.openSans.regular,
-  },
   footer: {
     padding: 24,
     paddingTop: 16,
   },
   deleteButton: {
     marginTop: 12,
-  },
-  photoAssistCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(244, 194, 78, 0.08)',
-    padding: 16,
-    borderRadius: 16,
-    marginBottom: 24,
-    borderWidth: 1,
-    borderColor: 'rgba(244, 194, 78, 0.2)',
-    borderStyle: 'dashed',
-  },
-  photoAssistIconContainer: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: 'rgba(244, 194, 78, 0.15)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 14,
-  },
-  photoAssistContent: {
-    flex: 1,
-  },
-  photoAssistTitle: {
-    fontSize: 16,
-    fontFamily: fonts.playfair.bold,
-    color: colors.midnightNavy,
-    marginBottom: 2,
-  },
-  photoAssistDescription: {
-    fontSize: 13,
-    color: colors.textSecondary,
-    fontFamily: fonts.openSans.regular,
   },
 });

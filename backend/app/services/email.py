@@ -10,7 +10,7 @@ from pathlib import Path
 import httpx
 
 from app.core.config import get_settings
-from app.db.session import get_supabase_client
+from app.db.session import get_service_supabase_client
 
 logger = logging.getLogger(__name__)
 
@@ -248,7 +248,7 @@ async def schedule_welcome_emails(
     now = datetime.now(UTC)
 
     # Get supabase client for storing scheduled email records
-    db = get_supabase_client() if user_id else None
+    db = get_service_supabase_client() if user_id else None
 
     # Use async httpx client with API key passed per-request (no global state)
     async with httpx.AsyncClient() as client:
@@ -488,7 +488,7 @@ async def cancel_scheduled_emails(user_id: str) -> int:
         logger.warning("Resend API key not configured, skipping email cancellation")
         return 0
 
-    db = get_supabase_client()
+    db = get_service_supabase_client()
 
     # Fetch all pending scheduled emails for user
     try:

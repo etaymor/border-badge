@@ -182,16 +182,5 @@ export function useDeleteList() {
   });
 }
 
-/**
- * Get public share URL for a list
- */
-export function getPublicListUrl(slug: string): string {
-  const baseUrl = process.env.EXPO_PUBLIC_WEB_BASE_URL ?? process.env.EXPO_PUBLIC_WEB_URL ?? '';
-
-  if (!baseUrl) {
-    return '';
-  }
-
-  const normalizedBase = baseUrl.replace(/\/+$/, '');
-  return `${normalizedBase}/l/${slug}`;
-}
+// Re-export URL helper from utils for backward compatibility
+export { getPublicListUrl } from '@utils/urls';

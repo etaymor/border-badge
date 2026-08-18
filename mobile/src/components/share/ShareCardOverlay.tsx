@@ -13,7 +13,6 @@ import {
   Animated,
   Modal,
   Pressable,
-  Share,
   StyleSheet,
   TouchableOpacity,
   useWindowDimensions,
@@ -25,9 +24,12 @@ import ViewShot from 'react-native-view-shot';
 import { ErrorBoundary, Text } from '@components/ui';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
+import { useProfile } from '@hooks/useProfile';
 import { Analytics } from '@services/analytics';
 import { logger } from '@utils/logger';
 import type { MilestoneContext } from '@utils/milestones';
+import { Share } from '@utils/share';
+import { getPublicProfileUrl } from '@utils/urls';
 
 import { ShareCard, SHARE_CARD_WIDTH, SHARE_CARD_HEIGHT } from './ShareCard';
 
@@ -76,6 +78,11 @@ function ShareCardOverlayComponent({ visible, context, onDismiss }: ShareCardOve
   const [backgroundImage, setBackgroundImage] = useState<string | undefined>(undefined);
   const [isAnimating, setIsAnimating] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+
+  // Sharer's public profile: the share payload carries a link (with ?ref=
+  // attribution) alongside the image so a tap can lead back into Atlasi (U7).
+  const { data: profile } = useProfile();
+  const username = profile?.username;
 
   // Animation sequence
   useEffect(() => {
@@ -188,13 +195,18 @@ function ShareCardOverlayComponent({ visible, context, onDismiss }: ShareCardOve
           totalCount: context.newTotalCount,
           milestoneTypes: context.milestones.map((milestone) => milestone.type),
         });
-        await Share.share({ url: uri });
+        const profileUrl = username ? getPublicProfileUrl(username, username) : '';
+        await Share.share(
+          profileUrl
+            ? { url: uri, message: `Follow my travels on Atlasi: ${profileUrl}` }
+            : { url: uri }
+        );
       }
     } catch (error) {
       console.error('Share failed:', error);
       Alert.alert('Error', 'Failed to share. Please try again.');
     }
-  }, [context]);
+  }, [context, username]);
 
   // Save card to photos
   const handleSave = useCallback(async () => {

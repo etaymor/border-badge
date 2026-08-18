@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Request, status
 
 from app.api.utils import get_token_from_request
 from app.core.security import CurrentUser
+from app.db.postgrest import in_list
 from app.db.session import get_supabase_client
 from app.main import limiter
 from app.schemas.lists import (
@@ -123,7 +124,7 @@ async def create_list(
         entries = await db.get(
             "entry",
             {
-                "id": f"in.({','.join(str(eid) for eid in data.entry_ids)})",
+                "id": in_list([str(eid) for eid in data.entry_ids]),
                 "trip_id": f"eq.{trip_id}",
             },
         )
@@ -293,7 +294,7 @@ async def update_list_entries(
         entries = await db.get(
             "entry",
             {
-                "id": f"in.({','.join(str(eid) for eid in data.entry_ids)})",
+                "id": in_list([str(eid) for eid in data.entry_ids]),
                 "trip_id": f"eq.{lst['trip_id']}",
             },
         )
@@ -346,12 +347,11 @@ async def update_list_entries(
 
     # Remove old entries that are no longer in the list
     if entries_to_remove:
-        entries_to_remove_str = ",".join(entries_to_remove)
         await db.delete(
             "list_entries",
             {
                 "list_id": f"eq.{list_id}",
-                "entry_id": f"in.({entries_to_remove_str})",
+                "entry_id": in_list(list(entries_to_remove)),
             },
         )
 

@@ -1,5 +1,6 @@
 """Pytest configuration and fixtures."""
 
+import os
 import time
 from collections.abc import Callable
 from typing import Any
@@ -9,9 +10,16 @@ import jwt
 import pytest
 from fastapi.testclient import TestClient
 
-from app.core.config import get_settings
-from app.core.security import AuthUser
-from app.main import app
+# Social routers are registered at import time and ONLY when
+# ENABLE_SOCIAL_FEATURES is explicitly enabled (there is no dev fallback;
+# see app/api/__init__.py). Enable it before app.main is imported so the
+# social endpoint suites exercise registered routes. test_feature_flags
+# overrides this per-test and reloads the app to cover the disabled path.
+os.environ.setdefault("ENABLE_SOCIAL_FEATURES", "true")
+
+from app.core.config import get_settings  # noqa: E402
+from app.core.security import AuthUser  # noqa: E402
+from app.main import app  # noqa: E402
 
 # Valid UUIDs for test fixtures
 TEST_USER_ID = "550e8400-e29b-41d4-a716-446655440000"
@@ -71,6 +79,27 @@ def pin_environment_settings(monkeypatch) -> None:
     monkeypatch.setattr(settings, "supabase_url", "https://test.supabase.co")
     monkeypatch.setattr(settings, "google_maps_browser_api_key", "")
     monkeypatch.setattr(settings, "google_maps_map_id", "")
+    monkeypatch.setattr(settings, "base_url", "http://localhost:8000")
+
+
+@pytest.fixture(autouse=True)
+def stub_trip_tag_push(monkeypatch) -> None:
+    """Keep the trip-tag push (plan U10) out of endpoint tests by default.
+
+    `send_trip_tag_notification` is a real push sender now: it opens a
+    service-role Supabase client and calls the push edge function. Endpoint
+    tests that create tags run their BackgroundTasks synchronously, so
+    without this stub every such test would attempt real network calls.
+    Tests that assert on notification scheduling still `patch(...)` the same
+    attributes locally, which simply overrides this stub for their duration;
+    tests of the core sender itself patch inside `app.core.notifications`.
+    """
+    monkeypatch.setattr(
+        "app.api.trips.send_trip_tag_notification", AsyncMock(return_value=None)
+    )
+    monkeypatch.setattr(
+        "app.api.trip_tags.send_trip_tag_notification", AsyncMock(return_value=None)
+    )
 
 
 @pytest.fixture

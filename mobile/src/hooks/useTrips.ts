@@ -9,6 +9,14 @@ import { Analytics } from '@services/analytics';
 // Trip tag status enum matching backend
 export type TripTagStatus = 'pending' | 'approved' | 'declined';
 
+// User profile info for trip tag display
+export interface TripTagUser {
+  user_id: string;
+  username: string;
+  display_name?: string;
+  avatar_url?: string;
+}
+
 // Trip tag interface matching backend TripTag schema
 export interface TripTag {
   id: string;
@@ -19,6 +27,8 @@ export interface TripTag {
   notification_id?: string;
   created_at: string;
   responded_at?: string;
+  // User profile info (populated when fetching trip details)
+  user?: TripTagUser;
 }
 
 // Trip interface matching backend Trip schema
@@ -42,6 +52,8 @@ export interface UncategorizedTrip extends Trip {
 // Trip with tags matching backend TripWithTags schema
 export interface TripWithTags extends Trip {
   tags: TripTag[];
+  // Owner profile info (for displaying trip owner when viewing someone else's trip)
+  owner?: TripTagUser;
 }
 
 export interface CreateTripInput {
@@ -61,11 +73,11 @@ export interface UpdateTripInput {
 
 const TRIPS_QUERY_KEY = ['trips'];
 
-// Fetch all trips for the current user
+// Fetch all trips for the current user (includes tags and owner info)
 export function useTrips() {
   return useQuery({
     queryKey: TRIPS_QUERY_KEY,
-    queryFn: async (): Promise<Trip[]> => {
+    queryFn: async (): Promise<TripWithTags[]> => {
       const response = await api.get('/trips');
       return response.data;
     },
@@ -88,11 +100,11 @@ export function useTripsByCountry(countryId: string) {
   });
 }
 
-// Fetch a single trip by ID
+// Fetch a single trip by ID (includes tags)
 export function useTrip(tripId: string) {
   return useQuery({
     queryKey: [...TRIPS_QUERY_KEY, tripId],
-    queryFn: async (): Promise<Trip> => {
+    queryFn: async (): Promise<TripWithTags> => {
       const response = await api.get(`/trips/${tripId}`);
       return response.data;
     },
@@ -216,6 +228,55 @@ export function useRestoreTrip() {
     },
     onError: (error) => {
       const message = error instanceof Error ? error.message : 'Failed to restore trip';
+      Alert.alert('Error', message);
+    },
+  });
+}
+
+// Add a tag to an existing trip
+export function useAddTripTag() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      tripId,
+      taggedUserId,
+    }: {
+      tripId: string;
+      taggedUserId: string;
+    }): Promise<TripTag> => {
+      const response = await api.post(`/trip-tags/${tripId}/tags/${taggedUserId}`);
+      return response.data;
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: [...TRIPS_QUERY_KEY, variables.tripId] });
+    },
+    onError: (error) => {
+      const message = error instanceof Error ? error.message : 'Failed to tag friend';
+      Alert.alert('Error', message);
+    },
+  });
+}
+
+// Remove a tag from a trip
+export function useRemoveTripTag() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      tripId,
+      taggedUserId,
+    }: {
+      tripId: string;
+      taggedUserId: string;
+    }): Promise<void> => {
+      await api.delete(`/trip-tags/${tripId}/tags/${taggedUserId}`);
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: [...TRIPS_QUERY_KEY, variables.tripId] });
+    },
+    onError: (error) => {
+      const message = error instanceof Error ? error.message : 'Failed to remove tag';
       Alert.alert('Error', message);
     },
   });

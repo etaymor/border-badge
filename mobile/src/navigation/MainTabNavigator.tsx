@@ -3,8 +3,10 @@ import { CommonActions, getFocusedRouteNameFromRoute, RouteProp } from '@react-n
 
 import LiquidGlassTabBar from '@components/navigation/LiquidGlassTabBar';
 import { PersistentScanBanner } from '@components/photos/PersistentScanBanner';
+import { features } from '@config/features';
 
 import { DreamsNavigator } from './DreamsNavigator';
+import { FriendsNavigator } from './FriendsNavigator';
 import { HIDDEN_TAB_BAR_SCREENS } from './hiddenTabBarScreens';
 import { PassportNavigator } from './PassportNavigator';
 import { TripsNavigator } from './TripsNavigator';
@@ -207,13 +209,27 @@ function MainTabNavigatorImpl() {
           },
         })}
       />
-      {/* LAUNCH_SIMPLIFICATION: Friends tab hidden for initial launch
-      <Tab.Screen
-        name="Friends"
-        component={ProfileScreen}
-        options={{ title: 'Friends', headerShown: true, tabBarAccessibilityLabel: 'friends-tab' }}
-      />
-      */}
+      {features.enableSocial && (
+        <Tab.Screen
+          name="Friends"
+          component={FriendsNavigator}
+          options={({ route }) => ({
+            title: 'Friends',
+            tabBarAccessibilityLabel: 'friends-tab',
+            tabBarStyle: getTabBarStyle(route),
+          })}
+          listeners={({ navigation }) => ({
+            tabPress: () => {
+              navigation.dispatch(
+                CommonActions.reset({
+                  index: 0,
+                  routes: [{ name: 'Friends' }],
+                })
+              );
+            },
+          })}
+        />
+      )}
     </Tab.Navigator>
   );
 }

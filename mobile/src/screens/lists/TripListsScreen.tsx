@@ -14,17 +14,24 @@ import {
 import { Swipeable } from 'react-native-gesture-handler';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { TripPartners } from '@components/trips';
 import { GlassBackButton } from '@components/ui';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { ListSummary, getPublicListUrl, useDeleteList, useTripLists } from '@hooks/useLists';
+import { useProfile } from '@hooks/useProfile';
+import { TripTag, TripTagUser, useTrip } from '@hooks/useTrips';
 import type { TripsStackScreenProps } from '@navigation/types';
 import { Analytics } from '@services/analytics';
+import { useAuthStore } from '@stores/authStore';
 
 type Props = TripsStackScreenProps<'TripLists'>;
 
 interface ListItemProps {
   list: ListSummary;
+  tags?: TripTag[];
+  owner?: TripTagUser;
+  currentUserId?: string;
   onEdit: () => void;
   onShare: () => void;
   onDelete: () => void;
@@ -40,8 +47,17 @@ const formatDate = (dateString: string) => {
   });
 };
 
-const ListItem = memo(function ListItem({ list, onEdit, onShare, onDelete }: ListItemProps) {
+const ListItem = memo(function ListItem({
+  list,
+  tags,
+  owner,
+  currentUserId,
+  onEdit,
+  onShare,
+  onDelete,
+}: ListItemProps) {
   const swipeableRef = useRef<Swipeable>(null);
+  const hasPartners = (tags && tags.length > 0) || (owner && owner.user_id !== currentUserId);
 
   // Memoize formatted date
   const formattedDate = useMemo(() => formatDate(list.created_at), [list.created_at]);
@@ -72,6 +88,17 @@ const ListItem = memo(function ListItem({ list, onEdit, onShare, onDelete }: Lis
                 <Text style={styles.entryCountText}>{list.entry_count}</Text>
               </View>
             </View>
+            {hasPartners && (
+              <View style={styles.listItemPartners}>
+                <TripPartners
+                  tags={tags || []}
+                  owner={owner}
+                  currentUserId={currentUserId}
+                  avatarSize={20}
+                  maxVisible={3}
+                />
+              </View>
+            )}
             <Text style={styles.listDate}>Created {formattedDate}</Text>
           </View>
           <View style={styles.listItemActions}>
@@ -90,7 +117,10 @@ const ListItem = memo(function ListItem({ list, onEdit, onShare, onDelete }: Lis
 
 export function TripListsScreen({ route, navigation }: Props) {
   const { tripId, tripName } = route.params;
+  const currentUserId = useAuthStore((state) => state.session?.user.id);
   const { data: lists, isLoading, refetch } = useTripLists(tripId);
+  const { data: trip } = useTrip(tripId);
+  const { data: profile } = useProfile();
   const deleteList = useDeleteList();
 
   const handleCreateNew = useCallback(() => {
@@ -104,22 +134,26 @@ export function TripListsScreen({ route, navigation }: Props) {
     [navigation, tripId, tripName]
   );
 
-  const handleShare = useCallback(async (list: ListSummary) => {
-    const shareUrl = getPublicListUrl(list.slug);
-    try {
-      Analytics.shareList(list.id);
-      // On iOS, only pass URL so "Copy" action copies just the link
-      // Messaging apps will still receive the URL and users can add their own text
-      // On Android, we need to use message since url is not well-supported
-      await Share.share(
-        Platform.OS === 'ios'
-          ? { url: shareUrl }
-          : { message: `Check out my list "${list.name}": ${shareUrl}` }
-      );
-    } catch (error) {
-      console.error('Share error:', error);
-    }
-  }, []);
+  const handleShare = useCallback(
+    async (list: ListSummary) => {
+      // ref=<username>: share attribution logged by the public page (U7)
+      const shareUrl = getPublicListUrl(list.slug, profile?.username);
+      try {
+        Analytics.shareList(list.id);
+        // On iOS, only pass URL so "Copy" action copies just the link
+        // Messaging apps will still receive the URL and users can add their own text
+        // On Android, we need to use message since url is not well-supported
+        await Share.share(
+          Platform.OS === 'ios'
+            ? { url: shareUrl }
+            : { message: `Check out my list "${list.name}": ${shareUrl}` }
+        );
+      } catch (error) {
+        console.error('Share error:', error);
+      }
+    },
+    [profile?.username]
+  );
 
   const handleDelete = useCallback(
     (list: ListSummary) => {
@@ -149,12 +183,15 @@ export function TripListsScreen({ route, navigation }: Props) {
     ({ item }: { item: ListSummary }) => (
       <ListItem
         list={item}
+        tags={trip?.tags}
+        owner={trip?.owner}
+        currentUserId={currentUserId}
         onEdit={() => handleEdit(item.id)}
         onShare={() => handleShare(item)}
         onDelete={() => handleDelete(item)}
       />
     ),
-    [handleEdit, handleShare, handleDelete]
+    [handleEdit, handleShare, handleDelete, trip?.tags, trip?.owner, currentUserId]
   );
 
   if (isLoading) {
@@ -339,6 +376,9 @@ const styles = StyleSheet.create({
   listItemHeader: {
     flexDirection: 'row',
     alignItems: 'center',
+    marginBottom: 4,
+  },
+  listItemPartners: {
     marginBottom: 4,
   },
   listName: {

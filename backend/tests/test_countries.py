@@ -28,8 +28,15 @@ def test_list_countries_returns_empty_list(
     """Test listing countries returns empty list when no countries exist."""
     mock_supabase_client.get.return_value = []
 
-    with patch(
-        "app.api.countries.get_supabase_client", return_value=mock_supabase_client
+    with (
+        patch(
+            "app.api.countries.get_supabase_client",
+            return_value=mock_supabase_client,
+        ),
+        patch(
+            "app.api.countries.get_service_supabase_client",
+            return_value=mock_supabase_client,
+        ),
     ):
         response = client.get("/countries")
 
@@ -45,8 +52,15 @@ def test_list_countries_returns_countries(
     """Test listing countries returns available countries."""
     mock_supabase_client.get.return_value = [sample_country]
 
-    with patch(
-        "app.api.countries.get_supabase_client", return_value=mock_supabase_client
+    with (
+        patch(
+            "app.api.countries.get_supabase_client",
+            return_value=mock_supabase_client,
+        ),
+        patch(
+            "app.api.countries.get_service_supabase_client",
+            return_value=mock_supabase_client,
+        ),
     ):
         response = client.get("/countries")
 
@@ -71,8 +85,15 @@ def test_list_countries_with_search(
     }
     mock_supabase_client.get.return_value = [sample_country, other_country]
 
-    with patch(
-        "app.api.countries.get_supabase_client", return_value=mock_supabase_client
+    with (
+        patch(
+            "app.api.countries.get_supabase_client",
+            return_value=mock_supabase_client,
+        ),
+        patch(
+            "app.api.countries.get_service_supabase_client",
+            return_value=mock_supabase_client,
+        ),
     ):
         response = client.get("/countries?search=United")
 
@@ -93,8 +114,15 @@ def test_list_countries_with_special_char_search(
     """Ensure search terms with PostgREST syntax chars do not inject filters."""
     mock_supabase_client.get.return_value = []
 
-    with patch(
-        "app.api.countries.get_supabase_client", return_value=mock_supabase_client
+    with (
+        patch(
+            "app.api.countries.get_supabase_client",
+            return_value=mock_supabase_client,
+        ),
+        patch(
+            "app.api.countries.get_service_supabase_client",
+            return_value=mock_supabase_client,
+        ),
     ):
         response = client.get("/countries?search=US),code.eq.null")
 
@@ -112,8 +140,15 @@ def test_list_countries_with_region_filter(
     """Test filtering countries by region."""
     mock_supabase_client.get.return_value = [sample_country]
 
-    with patch(
-        "app.api.countries.get_supabase_client", return_value=mock_supabase_client
+    with (
+        patch(
+            "app.api.countries.get_supabase_client",
+            return_value=mock_supabase_client,
+        ),
+        patch(
+            "app.api.countries.get_service_supabase_client",
+            return_value=mock_supabase_client,
+        ),
     ):
         response = client.get("/countries?region=Americas")
 
@@ -133,8 +168,15 @@ def test_list_regions(
         {"region": "Americas"},  # Duplicate
     ]
 
-    with patch(
-        "app.api.countries.get_supabase_client", return_value=mock_supabase_client
+    with (
+        patch(
+            "app.api.countries.get_supabase_client",
+            return_value=mock_supabase_client,
+        ),
+        patch(
+            "app.api.countries.get_service_supabase_client",
+            return_value=mock_supabase_client,
+        ),
     ):
         response = client.get("/countries/regions")
 
@@ -164,8 +206,15 @@ def test_get_user_countries_authenticated(
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
-        with patch(
-            "app.api.countries.get_supabase_client", return_value=mock_supabase_client
+        with (
+            patch(
+                "app.api.countries.get_supabase_client",
+                return_value=mock_supabase_client,
+            ),
+            patch(
+                "app.api.countries.get_service_supabase_client",
+                return_value=mock_supabase_client,
+            ),
         ):
             response = client.get("/countries/user", headers=auth_headers)
         assert response.status_code == 200
@@ -201,8 +250,15 @@ def test_set_user_country(
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
-        with patch(
-            "app.api.countries.get_supabase_client", return_value=mock_supabase_client
+        with (
+            patch(
+                "app.api.countries.get_supabase_client",
+                return_value=mock_supabase_client,
+            ),
+            patch(
+                "app.api.countries.get_service_supabase_client",
+                return_value=mock_supabase_client,
+            ),
         ):
             response = client.post(
                 "/countries/user",
@@ -238,8 +294,15 @@ def test_delete_user_country(
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
-        with patch(
-            "app.api.countries.get_supabase_client", return_value=mock_supabase_client
+        with (
+            patch(
+                "app.api.countries.get_supabase_client",
+                return_value=mock_supabase_client,
+            ),
+            patch(
+                "app.api.countries.get_service_supabase_client",
+                return_value=mock_supabase_client,
+            ),
         ):
             response = client.delete(
                 f"/countries/user/{TEST_COUNTRY_ID}",
@@ -262,8 +325,15 @@ def test_delete_user_country_idempotent(
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
-        with patch(
-            "app.api.countries.get_supabase_client", return_value=mock_supabase_client
+        with (
+            patch(
+                "app.api.countries.get_supabase_client",
+                return_value=mock_supabase_client,
+            ),
+            patch(
+                "app.api.countries.get_service_supabase_client",
+                return_value=mock_supabase_client,
+            ),
         ):
             response = client.delete(
                 "/countries/user/550e8400-e29b-41d4-a716-446655440999",
@@ -288,8 +358,15 @@ def test_delete_user_country_by_code(
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
-        with patch(
-            "app.api.countries.get_supabase_client", return_value=mock_supabase_client
+        with (
+            patch(
+                "app.api.countries.get_supabase_client",
+                return_value=mock_supabase_client,
+            ),
+            patch(
+                "app.api.countries.get_service_supabase_client",
+                return_value=mock_supabase_client,
+            ),
         ):
             response = client.delete(
                 "/countries/user/by-code/US",
@@ -311,8 +388,15 @@ def test_delete_user_country_by_code_not_found(
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
-        with patch(
-            "app.api.countries.get_supabase_client", return_value=mock_supabase_client
+        with (
+            patch(
+                "app.api.countries.get_supabase_client",
+                return_value=mock_supabase_client,
+            ),
+            patch(
+                "app.api.countries.get_service_supabase_client",
+                return_value=mock_supabase_client,
+            ),
         ):
             response = client.delete(
                 "/countries/user/by-code/XX",
@@ -337,8 +421,15 @@ def test_delete_user_country_by_code_case_insensitive(
 
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
-        with patch(
-            "app.api.countries.get_supabase_client", return_value=mock_supabase_client
+        with (
+            patch(
+                "app.api.countries.get_supabase_client",
+                return_value=mock_supabase_client,
+            ),
+            patch(
+                "app.api.countries.get_service_supabase_client",
+                return_value=mock_supabase_client,
+            ),
         ):
             response = client.delete(
                 "/countries/user/by-code/us",
@@ -363,8 +454,15 @@ async def test_country_code_cache_hit(
 
     mock_supabase_client.get.return_value = [{"id": TEST_COUNTRY_ID}]
 
-    with patch(
-        "app.api.countries.get_supabase_client", return_value=mock_supabase_client
+    with (
+        patch(
+            "app.api.countries.get_supabase_client",
+            return_value=mock_supabase_client,
+        ),
+        patch(
+            "app.api.countries.get_service_supabase_client",
+            return_value=mock_supabase_client,
+        ),
     ):
         first = await get_country_id_by_code("us")
         second = await get_country_id_by_code("US")
@@ -384,8 +482,15 @@ async def test_country_code_cache_clear_forces_refresh(
 
     mock_supabase_client.get.return_value = [{"id": TEST_COUNTRY_ID}]
 
-    with patch(
-        "app.api.countries.get_supabase_client", return_value=mock_supabase_client
+    with (
+        patch(
+            "app.api.countries.get_supabase_client",
+            return_value=mock_supabase_client,
+        ),
+        patch(
+            "app.api.countries.get_service_supabase_client",
+            return_value=mock_supabase_client,
+        ),
     ):
         await get_country_id_by_code("US")
         clear_country_code_cache()
@@ -403,8 +508,15 @@ async def test_country_code_cache_miss_returns_none(
 
     mock_supabase_client.get.return_value = []
 
-    with patch(
-        "app.api.countries.get_supabase_client", return_value=mock_supabase_client
+    with (
+        patch(
+            "app.api.countries.get_supabase_client",
+            return_value=mock_supabase_client,
+        ),
+        patch(
+            "app.api.countries.get_service_supabase_client",
+            return_value=mock_supabase_client,
+        ),
     ):
         result = await get_country_id_by_code("ZZ")
 

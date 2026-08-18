@@ -1,4 +1,11 @@
-"""Affiliate links service for outbound redirect management."""
+"""Affiliate links service for outbound redirect management.
+
+TODO: Refactor - this file exceeds 500 lines (currently ~834 lines).
+Consider splitting into smaller modules:
+- affiliate_links_core.py: Core link generation and signing
+- affiliate_links_providers.py: Provider-specific adapters (Skimlinks, etc.)
+- affiliate_links_analytics.py: Analytics and tracking logic
+"""
 
 import asyncio
 import hashlib
@@ -7,8 +14,9 @@ import logging
 from urllib.parse import urlencode
 from uuid import UUID
 
+from app.api.utils import is_duplicate_key_error
 from app.core.config import get_settings
-from app.db.session import get_supabase_client
+from app.db.session import get_service_supabase_client
 from app.schemas.affiliate import (
     OutboundClick,
     OutboundClickCreate,
@@ -26,16 +34,9 @@ logger = logging.getLogger(__name__)
 
 
 def _get_signing_secret() -> str:
-    """Get the signing secret, generating a development fallback if needed."""
+    """Get the signing secret with production validation."""
     settings = get_settings()
-    secret = settings.affiliate_signing_secret
-    if not secret:
-        if settings.is_production:
-            raise ValueError("AFFILIATE_SIGNING_SECRET must be set in production")
-        # Use a consistent dev secret for testing
-        secret = "dev-affiliate-signing-secret-do-not-use-in-prod"
-        logger.warning("Using development fallback for affiliate signing secret")
-    return secret
+    return settings.AFFILIATE_SIGNING_SECRET
 
 
 def generate_signature(
@@ -141,7 +142,7 @@ async def get_link_by_id(link_id: str | UUID) -> OutboundLink | None:
     Returns:
         OutboundLink if found, None otherwise
     """
-    db = get_supabase_client()
+    db = get_service_supabase_client()
 
     rows = await db.get(
         "outbound_link",
@@ -176,7 +177,7 @@ async def get_link_by_entry_id(entry_id: str | UUID) -> OutboundLink | None:
     Returns:
         OutboundLink if found, None otherwise
     """
-    db = get_supabase_client()
+    db = get_service_supabase_client()
 
     rows = await db.get(
         "outbound_link",
@@ -211,7 +212,7 @@ async def create_link(data: OutboundLinkCreate) -> OutboundLink:
     Returns:
         Created OutboundLink
     """
-    db = get_supabase_client()
+    db = get_service_supabase_client()
 
     insert_data = {
         "entry_id": str(data.entry_id),
@@ -248,7 +249,7 @@ async def update_link(
     Returns:
         Updated OutboundLink if found, None otherwise
     """
-    db = get_supabase_client()
+    db = get_service_supabase_client()
 
     update_data = {}
     if data.destination_url is not None:
@@ -332,9 +333,11 @@ async def get_or_create_link_for_entry(
             )
         )
     except Exception as e:
-        # Handle race condition: another caller created the link concurrently
-        error_msg = str(e).lower()
-        if "duplicate" in error_msg or "unique" in error_msg or "conflict" in error_msg:
+        # Handle race condition: another caller created the link concurrently.
+        # is_duplicate_key_error understands DatabaseError's structured fields
+        # (SQLSTATE 23505 / HTTP 409); the extra "conflict" substring keeps
+        # older raw-text error shapes covered.
+        if is_duplicate_key_error(e) or "conflict" in str(e).lower():
             logger.debug(
                 f"Race condition on link creation for entry {entry_id}, re-fetching"
             )
@@ -356,7 +359,7 @@ async def log_click(data: OutboundClickCreate) -> OutboundClick:
     Returns:
         Created OutboundClick record
     """
-    db = get_supabase_client()
+    db = get_service_supabase_client()
 
     insert_data = {
         "link_id": str(data.link_id),
@@ -571,7 +574,7 @@ async def create_partner_mapping(data: PartnerMappingCreate) -> PartnerMapping:
     Returns:
         Created PartnerMapping
     """
-    db = get_supabase_client()
+    db = get_service_supabase_client()
 
     insert_data = {
         "entry_id": str(data.entry_id) if data.entry_id else None,
@@ -605,7 +608,7 @@ async def get_partner_mapping(
     Returns:
         PartnerMapping if found, None otherwise
     """
-    db = get_supabase_client()
+    db = get_service_supabase_client()
 
     rows = await db.get(
         "partner_mapping",
@@ -631,7 +634,7 @@ async def get_partner_mapping_by_id(mapping_id: str | UUID) -> PartnerMapping | 
     Returns:
         PartnerMapping if found, None otherwise
     """
-    db = get_supabase_client()
+    db = get_service_supabase_client()
 
     rows = await db.get(
         "partner_mapping",
@@ -656,7 +659,7 @@ async def get_mappings_for_entry(entry_id: str | UUID) -> list[PartnerMapping]:
     Returns:
         List of PartnerMapping objects, ordered by confidence descending
     """
-    db = get_supabase_client()
+    db = get_service_supabase_client()
 
     rows = await db.get(
         "partner_mapping",
@@ -682,7 +685,7 @@ async def get_mapping_by_google_place_id(
     Returns:
         PartnerMapping if found, None otherwise
     """
-    db = get_supabase_client()
+    db = get_service_supabase_client()
 
     rows = await db.get(
         "partner_mapping",
@@ -710,7 +713,7 @@ async def upsert_partner_mapping(data: PartnerMappingCreate) -> PartnerMapping:
     Returns:
         Created or updated PartnerMapping
     """
-    db = get_supabase_client()
+    db = get_service_supabase_client()
 
     upsert_data = {
         "entry_id": str(data.entry_id) if data.entry_id else None,
@@ -748,7 +751,7 @@ async def update_partner_mapping(
     Returns:
         Updated PartnerMapping if found, None otherwise
     """
-    db = get_supabase_client()
+    db = get_service_supabase_client()
 
     update_data = {}
     if data.partner_property_id is not None:
@@ -787,7 +790,7 @@ async def delete_partner_mapping(mapping_id: str | UUID) -> bool:
     Returns:
         True if deleted, False if not found
     """
-    db = get_supabase_client()
+    db = get_service_supabase_client()
 
     rows = await db.delete(
         "partner_mapping",
@@ -813,7 +816,7 @@ async def delete_mappings_for_entry(entry_id: str | UUID) -> int:
     Returns:
         Number of mappings deleted
     """
-    db = get_supabase_client()
+    db = get_service_supabase_client()
 
     rows = await db.delete(
         "partner_mapping",

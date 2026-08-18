@@ -47,7 +47,19 @@ export type MainTabParamList = {
   Passport: NavigatorScreenParams<PassportStackParamList>;
   Dreams: NavigatorScreenParams<DreamsStackParamList>;
   Trips: NavigatorScreenParams<TripsStackParamList>;
-  Friends: undefined;
+  Friends: NavigatorScreenParams<FriendsStackParamList>;
+};
+
+// Friends stack (nested in tab)
+export type FriendsStackParamList = {
+  FriendsHome: undefined;
+  // userId is optional: /u/:username universal links carry only the
+  // username; the screen resolves the id from the fetched profile.
+  UserProfile: { userId?: string; username: string };
+  FollowersList: undefined;
+  FollowingList: undefined;
+  BlockedUsers: undefined;
+  PendingTripTags: undefined;
 };
 
 // Dreams stack (nested in tab)
@@ -129,6 +141,7 @@ export type TripsStackParamList = {
   TripLists: { tripId: string; tripName?: string };
   ListCreate: { tripId: string; tripName?: string };
   ListEdit: { listId: string; tripId: string; tripName?: string };
+  PendingTripTags: undefined;
   SavedPlaces: undefined; // Uncategorized entries holding area
 };
 
@@ -166,6 +179,11 @@ export type PassportStackScreenProps<T extends keyof PassportStackParamList> = C
 
 export type DreamsStackScreenProps<T extends keyof DreamsStackParamList> = CompositeScreenProps<
   NativeStackScreenProps<DreamsStackParamList, T>,
+  MainTabScreenProps<keyof MainTabParamList>
+>;
+
+export type FriendsStackScreenProps<T extends keyof FriendsStackParamList> = CompositeScreenProps<
+  NativeStackScreenProps<FriendsStackParamList, T>,
   MainTabScreenProps<keyof MainTabParamList>
 >;
 

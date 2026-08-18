@@ -216,7 +216,7 @@ class TestPartnerMappingCrud:
     async def test_create_partner_mapping(self) -> None:
         """Test creating a partner mapping."""
         with patch(
-            "app.services.affiliate_links.get_supabase_client"
+            "app.services.affiliate_links.get_service_supabase_client"
         ) as mock_get_client:
             mock_db = AsyncMock()
             mock_get_client.return_value = mock_db
@@ -254,7 +254,7 @@ class TestPartnerMappingCrud:
     def test_get_partner_mapping(self) -> None:
         """Test fetching a partner mapping by entry ID and partner slug."""
         with patch(
-            "app.services.affiliate_links.get_supabase_client"
+            "app.services.affiliate_links.get_service_supabase_client"
         ) as mock_get_client:
             mock_db = AsyncMock()
             mock_get_client.return_value = mock_db
@@ -287,7 +287,7 @@ class TestPartnerMappingCrud:
     def test_get_partner_mapping_not_found(self) -> None:
         """Test fetching non-existent partner mapping returns None."""
         with patch(
-            "app.services.affiliate_links.get_supabase_client"
+            "app.services.affiliate_links.get_service_supabase_client"
         ) as mock_get_client:
             mock_db = AsyncMock()
             mock_get_client.return_value = mock_db
@@ -306,7 +306,7 @@ class TestPartnerMappingCrud:
     def test_get_mappings_for_entry(self) -> None:
         """Test fetching all mappings for an entry."""
         with patch(
-            "app.services.affiliate_links.get_supabase_client"
+            "app.services.affiliate_links.get_service_supabase_client"
         ) as mock_get_client:
             mock_db = AsyncMock()
             mock_get_client.return_value = mock_db
@@ -350,7 +350,7 @@ class TestPartnerMappingCrud:
     def test_upsert_partner_mapping_creates_new(self) -> None:
         """Test upserting creates a new mapping when none exists."""
         with patch(
-            "app.services.affiliate_links.get_supabase_client"
+            "app.services.affiliate_links.get_service_supabase_client"
         ) as mock_get_client:
             mock_db = AsyncMock()
             mock_get_client.return_value = mock_db
@@ -390,7 +390,7 @@ class TestPartnerMappingCrud:
     def test_update_partner_mapping(self) -> None:
         """Test updating a partner mapping."""
         with patch(
-            "app.services.affiliate_links.get_supabase_client"
+            "app.services.affiliate_links.get_service_supabase_client"
         ) as mock_get_client:
             mock_db = AsyncMock()
             mock_get_client.return_value = mock_db
@@ -425,7 +425,7 @@ class TestPartnerMappingCrud:
     def test_delete_partner_mapping(self) -> None:
         """Test deleting a partner mapping."""
         with patch(
-            "app.services.affiliate_links.get_supabase_client"
+            "app.services.affiliate_links.get_service_supabase_client"
         ) as mock_get_client:
             mock_db = AsyncMock()
             mock_get_client.return_value = mock_db
@@ -445,7 +445,7 @@ class TestPartnerMappingCrud:
     def test_delete_partner_mapping_not_found(self) -> None:
         """Test deleting non-existent mapping returns False."""
         with patch(
-            "app.services.affiliate_links.get_supabase_client"
+            "app.services.affiliate_links.get_service_supabase_client"
         ) as mock_get_client:
             mock_db = AsyncMock()
             mock_get_client.return_value = mock_db

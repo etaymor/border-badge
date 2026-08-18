@@ -1,5 +1,5 @@
 import { useCallback, useEffect } from 'react';
-import { LogBox } from 'react-native';
+import { Linking, LogBox } from 'react-native';
 import { enableFreeze } from 'react-native-screens';
 
 // Suspend off-screen native screens from re-rendering. Must run once at module
@@ -24,8 +24,10 @@ import {
   OpenSans_700Bold,
 } from '@expo-google-fonts/open-sans';
 import { Oswald_500Medium, Oswald_700Bold } from '@expo-google-fonts/oswald';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
-import { QueryClientProvider } from '@tanstack/react-query';
+import { createAsyncStoragePersister } from '@tanstack/query-async-storage-persister';
+import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useRef, useState } from 'react';
@@ -37,8 +39,12 @@ import { ResponsiveProvider } from '@contexts/ResponsiveContext';
 import { useAppStateTracking } from '@hooks/useAppStateTracking';
 import { useAuthSession } from '@hooks/useAuthSession';
 import { useCountriesSync } from '@hooks/useCountriesSync';
+import { useInviteLinkHandler } from '@hooks/useInviteLinkHandler';
 import { useNavigationPersistence } from '@hooks/useNavigationPersistence';
 import { useShareExtensionHandler } from '@hooks/useShareExtensionHandler';
+import { socialKeys } from '@hooks/queryKeys';
+import { fetchSocialHomePage, SOCIAL_HOME_DEFAULT_LIMIT } from '@hooks/useSocialHome';
+import { linking, shouldHandleUrlWithNavigation } from '@navigation/linking';
 import { RootNavigator } from '@navigation/RootNavigator';
 import type { RootStackParamList } from '@navigation/types';
 import { queryClient } from './src/queryClient';
@@ -49,6 +55,7 @@ import {
   syncShareExtensionUsageFromAppGroup,
 } from '@services/shareExtensionBridge';
 import { env } from '@config/env';
+import { features } from '@config/features';
 import { useAuthStore, selectSession } from '@stores/authStore';
 import { useOnboardingStore, selectHomeCountry } from '@stores/onboardingStore';
 import { useFrameMetrics, PerfOverlay } from '@utils/perf';
@@ -59,32 +66,17 @@ SplashScreen.preventAutoHideAsync();
 // Navigation container ref for programmatic navigation
 const navigationRef = createNavigationContainerRef<RootStackParamList>();
 
-/**
- * Deep linking configuration for the app.
- * Handles atlasi:// URLs from the Share Extension.
- */
-const linking = {
-  prefixes: ['atlasi://'],
-  config: {
-    screens: {
-      Main: {
-        screens: {
-          Passport: {
-            screens: {
-              ShareCapture: {
-                path: 'share',
-                parse: {
-                  url: (value: string) => decodeURIComponent(value),
-                },
-              },
-              CountryDetail: 'country/:countryId',
-            },
-          },
-        },
-      },
-    },
-  },
-};
+// Persists the React Query cache (incl. the prefetched social home payload)
+// across launches for instant cold-start rendering.
+const queryPersister = createAsyncStoragePersister({
+  storage: AsyncStorage,
+  key: 'atlasi-query-cache',
+  throttleTime: 1000,
+});
+
+// Deep linking configuration lives in @navigation/linking: universal
+// links (/u, /t, /l) are handled by React Navigation; share-extension, auth
+// callback, and invite URLs are filtered out for the manual handlers below.
 
 // Initialize analytics, RevenueCat, and sync API URL to App Group for Share Extension
 function useAppInitialization() {
@@ -130,18 +122,63 @@ export default function App() {
   // Initialize third-party services
   useAppInitialization();
 
+  // Prefetch the social home feed so the Friends tab renders instantly.
+  // Only runs when social features are enabled.
+  useEffect(() => {
+    if (!features.enableSocial || !session?.user?.id) {
+      return;
+    }
+
+    queryClient
+      .prefetchInfiniteQuery({
+        queryKey: socialKeys.socialHomePage(SOCIAL_HOME_DEFAULT_LIMIT),
+        queryFn: ({ pageParam }) =>
+          fetchSocialHomePage(SOCIAL_HOME_DEFAULT_LIMIT, (pageParam as string | null) ?? null),
+        initialPageParam: null,
+      })
+      .catch((error) => {
+        console.warn('Prefetch social home failed:', error);
+      });
+  }, [session?.user?.id]);
+
   // Auth session management
   const { isAppReady } = useAuthSession();
 
   // Share extension deep link handling
-  const { handleNavigationReady, checkAppGroupForSharedURL } = useShareExtensionHandler(
+  const { handleNavigationReady: handleShareNavigationReady, checkAppGroupForSharedURL } =
+    useShareExtensionHandler(navigationRef, session);
+
+  // Invite deep link handling (/invite?code=...)
+  const { handleNavigationReady: handleInviteNavigationReady } = useInviteLinkHandler(
     navigationRef,
     session
   );
 
+  const handleNavigationReady = useCallback(() => {
+    handleShareNavigationReady();
+    handleInviteNavigationReady();
+  }, [handleShareNavigationReady, handleInviteNavigationReady]);
+
   // Navigation state persistence
   const { isNavigationReady, initialNavigationState, handleNavigationStateChange } =
     useNavigationPersistence(session);
+
+  // Cold-start precedence: when the app is launched from a universal
+  // link that React Navigation should handle (/u, /t, /l), the link wins
+  // over restored navigation state — passing `initialState` would otherwise
+  // suppress linking's initial-URL handling entirely.
+  const [initialUrlChecked, setInitialUrlChecked] = useState(false);
+  const [linkingOwnsInitialUrl, setLinkingOwnsInitialUrl] = useState(false);
+  useEffect(() => {
+    Linking.getInitialURL()
+      .then((url) => {
+        setLinkingOwnsInitialUrl(!!url && shouldHandleUrlWithNavigation(url));
+        setInitialUrlChecked(true);
+      })
+      .catch(() => {
+        setInitialUrlChecked(true);
+      });
+  }, []);
 
   // App foreground/background tracking
   useAppStateTracking(session, checkAppGroupForSharedURL, homeCountry);
@@ -165,19 +202,26 @@ export default function App() {
     });
   }, []);
 
-  if (!fontsLoaded || !isNavigationReady) {
+  if (!fontsLoaded || !isNavigationReady || !initialUrlChecked) {
     return null;
   }
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <QueryClientProvider client={queryClient}>
+      <PersistQueryClientProvider
+        client={queryClient}
+        persistOptions={{
+          persister: queryPersister,
+          maxAge: 1000 * 60 * 60 * 24, // 24 hours
+          buster: 'v2',
+        }}
+      >
         <SafeAreaProvider>
           <ResponsiveProvider>
             <NavigationContainer
               ref={navigationRef}
               linking={linking}
-              initialState={initialNavigationState}
+              initialState={linkingOwnsInitialUrl ? undefined : initialNavigationState}
               onStateChange={handleNavigationStateChange}
               onReady={handleNavigationReady}
             >
@@ -194,7 +238,7 @@ export default function App() {
             )}
           </ResponsiveProvider>
         </SafeAreaProvider>
-      </QueryClientProvider>
+      </PersistQueryClientProvider>
     </GestureHandlerRootView>
   );
 }

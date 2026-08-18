@@ -16,7 +16,11 @@ import { TripsListScreen } from '@screens/trips/TripsListScreen';
 import * as useTripsModule from '@hooks/useTrips';
 import * as useCountriesModule from '@hooks/useCountries';
 import * as useUserCountriesModule from '@hooks/useUserCountries';
+import * as authStoreModule from '@stores/authStore';
 import type { TripsStackScreenProps } from '@navigation/types';
+
+// Must match the default user_id in createMockTrip so the "My Trips" tab shows them
+const CURRENT_USER_ID = 'user-123';
 
 // --- Mock TripCard to count renders per trip id -------------------------------
 
@@ -84,6 +88,13 @@ function mockData() {
     data: [],
     isLoading: false,
   } as unknown as ReturnType<typeof useUserCountriesModule.useUserCountries>);
+
+  jest.spyOn(authStoreModule, 'useAuthStore').mockImplementation((selector) => {
+    const state = {
+      session: { user: { id: CURRENT_USER_ID } },
+    } as authStoreModule.AuthState;
+    return (selector as (s: authStoreModule.AuthState) => unknown)(state);
+  });
 }
 
 describe('TripsListScreen render-count hygiene', () => {

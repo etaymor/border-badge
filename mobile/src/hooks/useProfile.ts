@@ -10,6 +10,7 @@ import { useOnboardingStore } from '@stores/onboardingStore';
 export interface Profile {
   id: string;
   email: string;
+  username: string;
   display_name?: string;
   avatar_url?: string;
   home_country_code?: string;
@@ -21,6 +22,7 @@ export interface Profile {
 }
 
 export interface UpdateProfileInput {
+  username?: string;
   display_name?: string;
   avatar_url?: string;
   home_country_code?: string;

@@ -7,25 +7,28 @@ import {
   Image,
   Pressable,
   RefreshControl,
-  SectionList,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from 'react-native';
+import { FlashList } from '@shopify/flash-list';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { TripCard } from '@components/ui';
+import { NotificationBell, SegmentedTabs, TripCard } from '@components/ui';
+import { features } from '@config/features';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { useCountries } from '@hooks/useCountries';
 import { usePhotoTrips } from '@hooks/usePhotoTrips';
 import { useScreenEntrance } from '@hooks/useScreenEntrance';
 import { useStableCallback } from '@hooks/useStableCallback';
-import { Trip, useTrips, useUncategorizedTrip } from '@hooks/useTrips';
+import { usePendingTripTagCount } from '@hooks/useTripTags';
+import { TripWithTags, useTrips, useUncategorizedTrip } from '@hooks/useTrips';
 import { useUserCountries } from '@hooks/useUserCountries';
 import { getFlagEmoji } from '@utils/flags';
 import type { TripsStackScreenProps } from '@navigation/types';
+import { useAuthStore } from '@stores/authStore';
 
 import { PhotoTripsCallout } from '../lists/components/PhotoTripsCallout';
 
@@ -35,13 +38,14 @@ const backpackIllustration = require('../../../assets/illustations/backpack-illu
 
 type Props = TripsStackScreenProps<'TripsList'>;
 
-// Memoized components and helpers for SectionList performance
-const keyExtractor = (item: Trip) => item.id;
-
 interface TripSection {
   title: string;
-  data: Trip[];
+  data: TripWithTags[];
 }
+
+type TripsListRenderable =
+  | { type: 'header'; title: string; key: string }
+  | { type: 'trip'; trip: TripWithTags; key: string };
 
 const SectionHeader = memo(function SectionHeader({ title }: { title: string }) {
   return (
@@ -52,7 +56,26 @@ const SectionHeader = memo(function SectionHeader({ title }: { title: string }) 
   );
 });
 
-function EmptyState({ onAddTrip }: { onAddTrip: () => void }) {
+interface EmptyStateProps {
+  variant: 'my' | 'tagged';
+  onAddTrip: () => void;
+}
+
+function EmptyState({ variant, onAddTrip }: EmptyStateProps) {
+  if (variant === 'tagged') {
+    return (
+      <View style={styles.emptyContainer}>
+        <View style={styles.emptyIconCircle}>
+          <Text style={styles.emptyIcon}>👥</Text>
+        </View>
+        <Text style={styles.emptyTitle}>No Tagged Trips</Text>
+        <Text style={styles.emptySubtitle}>
+          When friends tag you on their adventures, they&apos;ll appear here.
+        </Text>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.emptyContainer}>
       <Image source={backpackIllustration} style={styles.emptyIllustration} resizeMode="contain" />
@@ -88,9 +111,11 @@ function SavedPlacesBadge({ entryCount, onPress }: { entryCount: number; onPress
 }
 
 export function TripsListScreen({ navigation }: Props) {
+  const currentUserId = useAuthStore((state) => state.session?.user.id);
   const { data: trips, isLoading, isRefetching, refetch, error } = useTrips();
   const { data: countries } = useCountries();
   const { data: userCountries } = useUserCountries();
+  const { data: pendingTagCount } = usePendingTripTagCount();
   const { data: uncategorizedTrip } = useUncategorizedTrip();
   const {
     trips: photoTrips,
@@ -99,6 +124,11 @@ export function TripsListScreen({ navigation }: Props) {
     isLoading: isPhotoTripsLoading,
   } = usePhotoTrips();
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedTab, setSelectedTab] = useState<'my' | 'tagged'>('my');
+
+  const handleNotificationsPress = useCallback(() => {
+    navigation.navigate('PendingTripTags');
+  }, [navigation]);
 
   // Staggered entrance animations for premium feel
   // 0: Title, 1: Search bar, 2: Photo callout, 3: FAB
@@ -118,12 +148,23 @@ export function TripsListScreen({ navigation }: Props) {
     return new Map(countries.map((c) => [c.code, c]));
   }, [countries]);
 
-  // Separate trips into sections based on whether the country has been visited
-  const sections = useMemo((): TripSection[] => {
+  // Filter trips by ownership based on selected tab
+  const tripsForTab = useMemo(() => {
     if (!trips?.length) return [];
 
+    if (selectedTab === 'my') {
+      return trips.filter((trip) => trip.user_id === currentUserId);
+    } else {
+      return trips.filter((trip) => trip.user_id !== currentUserId);
+    }
+  }, [trips, selectedTab, currentUserId]);
+
+  // Separate trips into sections based on whether the country has been visited
+  const sections = useMemo((): TripSection[] => {
+    if (!tripsForTab?.length) return [];
+
     const query = searchQuery.toLowerCase().trim();
-    const filteredTrips = trips.filter((trip) => {
+    const filteredTrips = tripsForTab.filter((trip) => {
       if (!query) return true;
       const country = trip.country_code ? countriesMap.get(trip.country_code) : undefined; // O(1) Map lookup instead of O(n) find
       const countryName = country?.name.toLowerCase() || '';
@@ -132,8 +173,8 @@ export function TripsListScreen({ navigation }: Props) {
 
     if (filteredTrips.length === 0) return [];
 
-    const visitedTrips: Trip[] = [];
-    const plannedTrips: Trip[] = [];
+    const visitedTrips: TripWithTags[] = [];
+    const plannedTrips: TripWithTags[] = [];
 
     filteredTrips.forEach((trip) => {
       if (trip.country_code && visitedCountryCodes.has(trip.country_code)) {
@@ -151,7 +192,20 @@ export function TripsListScreen({ navigation }: Props) {
       result.push({ title: 'Upcoming Plans', data: plannedTrips });
     }
     return result;
-  }, [trips, visitedCountryCodes, searchQuery, countriesMap]);
+  }, [tripsForTab, visitedCountryCodes, searchQuery, countriesMap]);
+
+  const flatData = useMemo<TripsListRenderable[]>(() => {
+    if (!sections.length) return [];
+
+    const rows: TripsListRenderable[] = [];
+    sections.forEach((section) => {
+      rows.push({ type: 'header', title: section.title, key: `header-${section.title}` });
+      section.data.forEach((trip) => {
+        rows.push({ type: 'trip', trip, key: `trip-${trip.id}` });
+      });
+    });
+    return rows;
+  }, [sections]);
 
   const hasTrips = sections.reduce((sum, s) => sum + s.data.length, 0) > 0;
 
@@ -192,34 +246,62 @@ export function TripsListScreen({ navigation }: Props) {
     [stableTripPress]
   );
 
-  const renderItem = useCallback(
-    ({ item }: { item: Trip }) => {
-      const flagEmoji = item.country_code ? getFlagEmoji(item.country_code) : '';
+  const renderFlatItem = useCallback(
+    ({ item }: { item: TripsListRenderable }) => {
+      if (item.type === 'header') {
+        return <SectionHeader title={item.title} />;
+      }
+
+      const flagEmoji = item.trip.country_code ? getFlagEmoji(item.trip.country_code) : '';
       return (
         <View style={styles.tripCardWrapper}>
-          <TripCard trip={item} flagEmoji={flagEmoji} onPress={getTripPressHandler(item.id)} />
+          <TripCard
+            trip={item.trip}
+            flagEmoji={flagEmoji}
+            onPress={getTripPressHandler(item.trip.id)}
+            tags={item.trip.tags}
+            owner={item.trip.owner}
+            currentUserId={currentUserId}
+          />
         </View>
       );
     },
-    [getTripPressHandler]
+    [getTripPressHandler, currentUserId]
   );
 
-  const renderSectionHeader = useCallback(
-    ({ section }: { section: TripSection }) => <SectionHeader title={section.title} />,
-    []
-  );
+  const handleTabSelect = useCallback((index: number) => {
+    setSelectedTab(index === 0 ? 'my' : 'tagged');
+  }, []);
 
   const renderHeader = useMemo(
     () => (
       <>
-        {/* Header Title with Saved Places Badge - animates first */}
+        {/* Header Title with Notification Bell + Saved Places Badge - animates first */}
         <Animated.View style={[styles.headerContainer, getAnimatedStyle(0)]}>
-          <Text style={styles.headerTitle}>My Trips</Text>
+          <View style={styles.headerRow}>
+            <View style={styles.headerSpacer} />
+            <Text style={styles.headerTitle}>My Trips</Text>
+            <View style={styles.headerRight}>
+              {features.enableSocial && (
+                <NotificationBell count={pendingTagCount ?? 0} onPress={handleNotificationsPress} />
+              )}
+            </View>
+          </View>
           <SavedPlacesBadge
             entryCount={uncategorizedTrip?.entry_count ?? 0}
             onPress={handleSavedPlacesPress}
           />
         </Animated.View>
+
+        {/* Tab Selector - Tagged trips are a social feature */}
+        {features.enableSocial && (
+          <SegmentedTabs
+            tabs={['My Trips', 'Tagged']}
+            selectedIndex={selectedTab === 'my' ? 0 : 1}
+            onSelect={handleTabSelect}
+            testID="trip-tabs"
+          />
+        )}
 
         {/* Search Bar with Liquid Glass - animates second */}
         <Animated.View style={[styles.searchRow, getAnimatedStyle(1)]}>
@@ -261,6 +343,10 @@ export function TripsListScreen({ navigation }: Props) {
     ),
     [
       searchQuery,
+      pendingTagCount,
+      handleNotificationsPress,
+      selectedTab,
+      handleTabSelect,
       uncategorizedTrip?.entry_count,
       handleSavedPlacesPress,
       photoTrips.length,
@@ -294,13 +380,13 @@ export function TripsListScreen({ navigation }: Props) {
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
-      <SectionList
-        sections={sections}
-        keyExtractor={keyExtractor}
-        renderItem={renderItem}
-        renderSectionHeader={renderSectionHeader}
+      <FlashList
+        data={flatData}
+        keyExtractor={(item) => item.key}
+        renderItem={renderFlatItem}
         ListHeaderComponent={renderHeader}
         contentContainerStyle={[styles.listContent, !hasTrips && styles.listContentEmpty]}
+        showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl
             refreshing={isRefetching}
@@ -308,10 +394,9 @@ export function TripsListScreen({ navigation }: Props) {
             tintColor={colors.sunsetGold}
           />
         }
-        stickySectionHeadersEnabled={false}
         ListEmptyComponent={
-          !isLoading && sections.reduce((sum, section) => sum + section.data.length, 0) === 0 ? (
-            <EmptyState onAddTrip={handleAddTrip} />
+          !isLoading && flatData.length === 0 ? (
+            <EmptyState variant={selectedTab} onAddTrip={handleAddTrip} />
           ) : null
         }
       />
@@ -334,13 +419,22 @@ const styles = StyleSheet.create({
     backgroundColor: colors.warmCream,
   },
   headerContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
     paddingTop: 16,
-    paddingBottom: 8,
+    paddingBottom: 16,
     paddingHorizontal: 16,
     position: 'relative',
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  headerSpacer: {
+    width: 40,
+  },
+  headerRight: {
+    width: 40,
+    alignItems: 'flex-end',
   },
   headerTitle: {
     fontFamily: fonts.playfair.bold,
@@ -351,7 +445,8 @@ const styles = StyleSheet.create({
   },
   savedPlacesBadge: {
     position: 'absolute',
-    right: 16,
+    // Sits left of the NotificationBell (which occupies the headerRight slot)
+    right: 60,
     top: 16,
     width: 40,
     height: 40,
@@ -377,7 +472,7 @@ const styles = StyleSheet.create({
   },
   searchRow: {
     paddingTop: 8,
-    paddingBottom: 16,
+    paddingBottom: 8,
     paddingHorizontal: 16,
   },
   searchGlassWrapper: {
@@ -452,7 +547,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingTop: 24,
+    paddingTop: 12,
     paddingBottom: 16,
   },
   sectionHeaderText: {
@@ -480,6 +575,21 @@ const styles = StyleSheet.create({
     width: 120,
     height: 120,
     marginBottom: 24,
+  },
+  emptyIconCircle: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: 'rgba(244, 194, 78, 0.1)', // Light Sunset Gold
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: 'rgba(244, 194, 78, 0.3)',
+    borderStyle: 'dashed',
+  },
+  emptyIcon: {
+    fontSize: 48,
   },
   emptyTitle: {
     fontSize: 24,

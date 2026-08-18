@@ -1,25 +1,34 @@
-"""Trip and trip_tags endpoints."""
+"""Trip CRUD and sharing endpoints."""
 
+import asyncio
 import logging
-from datetime import UTC, date, datetime
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query, Request, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    HTTPException,
+    Query,
+    Request,
+    status,
+)
 
-from app.api.utils import get_token_from_request
+from app.api.trips_helpers import format_daterange, trip_from_row
+from app.api.utils import get_token_from_request, is_block_violation_error
 from app.core.config import get_settings
 from app.core.media import build_media_url
 from app.core.notifications import send_trip_tag_notification
 from app.core.security import CurrentUser
-from app.db.session import get_supabase_client
+from app.db.postgrest import in_list
+from app.db.session import get_service_supabase_client, get_supabase_client
 from app.main import limiter
 from app.schemas.public import TripShareResponse
 from app.schemas.trips import (
     Trip,
     TripCreate,
     TripTag,
-    TripTagAction,
     TripTagStatus,
+    TripTagUser,
     TripUpdate,
     TripWithTags,
     UncategorizedTrip,
@@ -30,33 +39,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-def format_daterange(start: date | None, end: date | None) -> str | None:
-    """Format start/end dates as a PostgreSQL daterange literal.
-
-    - Returns ``None`` when both bounds are missing (no date range).
-    - Supports open-ended ranges when only one bound is provided.
-    - Validates that the start date is not after the end date.
-    """
-    if start is None and end is None:
-        return None
-
-    if start is not None and end is not None:
-        if start > end:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="date_start must be on or before date_end",
-            )
-        return f"[{start.isoformat()},{end.isoformat()}]"
-
-    if start is not None:
-        # Open-ended range going forward in time
-        return f"[{start.isoformat()},infinity]"
-
-    # Only end is provided: open-ended range going back in time
-    return f"[-infinity,{end.isoformat()}]"
-
-
-@router.get("", response_model=list[Trip])
+@router.get("", response_model=list[TripWithTags])
 async def list_trips(
     request: Request,
     user: CurrentUser,
@@ -66,10 +49,11 @@ async def list_trips(
     ),
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
-) -> list[Trip]:
+) -> list[TripWithTags]:
     """List all trips accessible to the current user (owned or approved tags).
 
     Optionally filter by country_code to get trips for a specific country.
+    Returns trips with their tags and owner info for display.
     By default, system trips (Saved Places) are excluded.
     """
     token = get_token_from_request(request)
@@ -77,7 +61,7 @@ async def list_trips(
 
     # First query: Get trips without entries (avoid N+1 for fallback cover images)
     params: dict[str, str | int | bool] = {
-        "select": "*, country:country_id(code)",
+        "select": "*, country:country_id(code), trip_tags(*)",
         "order": "created_at.desc",
         "limit": limit,
         "offset": offset,
@@ -97,6 +81,9 @@ async def list_trips(
             return []  # No matching country, return empty list
     rows = await db.get("trip", params)
 
+    if not rows:
+        return []
+
     # Collect trip IDs that need fallback cover images
     trips_needing_cover = [row["id"] for row in rows if not row.get("cover_image_url")]
 
@@ -109,31 +96,72 @@ async def list_trips(
         )
 
         for media in media_rows or []:
-            trip_id = media.get("trip_id")
+            media_trip_id = media.get("trip_id")
             file_path = media.get("file_path")
-            if trip_id and file_path:
-                fallback_covers[trip_id] = build_media_url(file_path)
+            if media_trip_id and file_path:
+                fallback_covers[media_trip_id] = build_media_url(file_path)
 
-    # Build result trips
-    result_trips = []
+    # Collect all user IDs we need to fetch: owners + tagged users
+    user_ids_to_fetch: set[str] = set()
     for row in rows:
-        # Get country code
-        country_code = (
-            row.get("country", {}).get("code") if row.get("country") else None
+        owner_id = row.get("user_id")
+        if owner_id:
+            user_ids_to_fetch.add(owner_id)
+        tag_data = row.get("trip_tags")
+        if tag_data and isinstance(tag_data, list):
+            for tag in tag_data:
+                user_ids_to_fetch.add(tag["tagged_user_id"])
+
+    # Fetch all user profiles in one query
+    user_profiles: dict[str, TripTagUser] = {}
+    if user_ids_to_fetch:
+        profiles = await db.get(
+            "user_profile",
+            {
+                "select": "user_id,username,display_name,avatar_url",
+                "user_id": in_list(list(user_ids_to_fetch)),
+            },
         )
+        if profiles:
+            user_profiles = {
+                p["user_id"]: TripTagUser(
+                    user_id=p["user_id"],
+                    username=p["username"],
+                    display_name=p.get("display_name"),
+                    avatar_url=p.get("avatar_url"),
+                )
+                for p in profiles
+            }
+
+    # Build trips with tags and owner info
+    result: list[TripWithTags] = []
+    for row in rows:
+        country_code_val = (
+            row.get("country", {}).get("code", "") if row.get("country") else ""
+        )
+        owner_id = row.get("user_id")
+        owner = user_profiles.get(owner_id) if owner_id else None
+
+        # Build tags with user profile info
+        tags: list[TripTag] = []
+        tag_data = row.pop("trip_tags", None)
+        if tag_data and isinstance(tag_data, list):
+            for tag in tag_data:
+                user_profile = user_profiles.get(tag["tagged_user_id"])
+                tags.append(TripTag(**tag, user=user_profile))
 
         # Determine cover image: use explicit cover, or fallback from second query
         cover_image_url = row.get("cover_image_url")
         if not cover_image_url:
             cover_image_url = fallback_covers.get(row["id"])
 
-        # Remove joined fields before passing to Pydantic
-        trip_dict = {k: v for k, v in row.items() if k != "country"}
+        trip_dict = {k: v for k, v in row.items() if k not in ("country", "trip_tags")}
         trip_dict["cover_image_url"] = cover_image_url
 
-        result_trips.append(Trip(**trip_dict, country_code=country_code))
+        trip = Trip(**trip_dict, country_code=country_code_val)
+        result.append(TripWithTags(**trip.model_dump(), tags=tags, owner=owner))
 
-    return result_trips
+    return result
 
 
 @router.get("/uncategorized", response_model=UncategorizedTrip)
@@ -181,11 +209,15 @@ async def create_trip(
     request: Request,
     data: TripCreate,
     user: CurrentUser,
+    background_tasks: BackgroundTasks,
 ) -> TripWithTags:
-    """
-    Create a new trip.
+    """Create a new trip.
 
-    Optionally tag other users who will receive pending invitations.
+    Optionally tag other users who will receive pending invitations. Tagged
+    users must exist and must not have a block in either direction with the
+    caller; invalid targets are skipped (the trip itself is still created).
+    Notifications are sent as background tasks only after the tag insert
+    succeeds.
     """
     token = get_token_from_request(request)
     db = get_supabase_client(user_token=token)
@@ -221,28 +253,107 @@ async def create_trip(
 
     # Create trip tags for tagged users
     if data.tagged_user_ids:
-        for tagged_user_id in data.tagged_user_ids:
-            if str(tagged_user_id) == user.id:
-                continue  # Don't tag yourself
-
-            # Send notification (returns notification_id for future use)
-            notification_id = await send_trip_tag_notification(
-                trip_id=trip.id,
-                trip_name=trip.name,
-                initiator_id=user.id,
-                tagged_user_id=tagged_user_id,
+        # Deduplicate and drop self-tags, preserving order. The self-filter can
+        # empty the list (caller tagged only themselves); the guard below skips
+        # the lookups too -- in_list() raises on an empty list, and the trip
+        # row is already inserted, so a crash here would 500 a created trip.
+        candidate_ids: list[str] = list(
+            dict.fromkeys(
+                tagged_id_str
+                for tagged_id_str in map(str, data.tagged_user_ids)
+                if tagged_id_str != str(user.id)
             )
+        )
 
-            tag_data = {
-                "trip_id": str(trip.id),
-                "tagged_user_id": str(tagged_user_id),
-                "status": TripTagStatus.PENDING.value,
-                "initiated_by": user.id,
-                "notification_id": notification_id,
+        existing_ids: set[str] = set()
+        blocked_ids: set[str] = set()
+        if candidate_ids:
+            candidate_id_list = in_list(candidate_ids)
+
+            # Target-existence check in one query
+            existing_profiles = await db.get(
+                "user_profile",
+                {
+                    "select": "user_id",
+                    "user_id": candidate_id_list,
+                },
+            )
+            existing_ids = {p["user_id"] for p in existing_profiles or []}
+
+            # Bidirectional block check, batched: two user_block queries via
+            # the service client (a JWT-scoped user_block query cannot see
+            # "someone blocked me" rows under RLS). Nonexistent and blocked
+            # targets are skipped, not errors: the trip itself is already
+            # created, and skipping keeps blocks unobservable.
+            service_db = get_service_supabase_client()
+            blocks_out, blocks_in = await asyncio.gather(
+                service_db.get(
+                    "user_block",
+                    {
+                        "select": "blocked_id",
+                        "blocker_id": f"eq.{user.id}",
+                        "blocked_id": candidate_id_list,
+                    },
+                ),
+                service_db.get(
+                    "user_block",
+                    {
+                        "select": "blocker_id",
+                        "blocked_id": f"eq.{user.id}",
+                        "blocker_id": candidate_id_list,
+                    },
+                ),
+            )
+            blocked_ids = {row["blocked_id"] for row in blocks_out or []} | {
+                row["blocker_id"] for row in blocks_in or []
             }
-            tag_rows = await db.post("trip_tags", tag_data)
-            if tag_rows:
-                tags.append(TripTag(**tag_rows[0]))
+
+        taggable_ids: list[str] = [
+            tagged_id_str
+            for tagged_id_str in candidate_ids
+            if tagged_id_str in existing_ids and tagged_id_str not in blocked_ids
+        ]
+
+        if taggable_ids:
+            # Batch insert: one call for the whole tag list. Notifications go
+            # out as background tasks only after the insert succeeds.
+            tag_payloads = [
+                {
+                    "trip_id": str(trip.id),
+                    "tagged_user_id": tagged_id_str,
+                    "status": TripTagStatus.PENDING.value,
+                    "initiated_by": user.id,
+                    "notification_id": None,
+                }
+                for tagged_id_str in taggable_ids
+            ]
+            try:
+                tag_rows = await db.post("trip_tags", tag_payloads)
+            except Exception as e:
+                if not is_block_violation_error(e):
+                    raise
+                # A block raced past the pre-check and the
+                # enforce_no_trip_tag_when_blocked trigger rejected the
+                # (all-or-nothing) batch. Same skip semantics as the
+                # pre-check: retry per row, dropping only the blocked pairs.
+                tag_rows = []
+                for payload in tag_payloads:
+                    try:
+                        rows = await db.post("trip_tags", [payload])
+                    except Exception as row_error:
+                        if is_block_violation_error(row_error):
+                            continue
+                        raise
+                    tag_rows.extend(rows or [])
+            for tag_row in tag_rows or []:
+                tags.append(TripTag(**tag_row))
+                background_tasks.add_task(
+                    send_trip_tag_notification,
+                    trip_id=trip.id,
+                    trip_name=trip.name,
+                    initiator_id=user.id,
+                    tagged_user_id=tag_row["tagged_user_id"],
+                )
 
     return TripWithTags(**trip.model_dump(), tags=tags)
 
@@ -253,7 +364,7 @@ async def get_trip(
     trip_id: UUID,
     user: CurrentUser,
 ) -> TripWithTags:
-    """Get trip details with tags (single query with embedded data)."""
+    """Get trip details with tags, user profiles, and owner info."""
     token = get_token_from_request(request)
     db = get_supabase_client(user_token=token)
 
@@ -273,18 +384,56 @@ async def get_trip(
 
     row = trips[0]
     country_code = row.get("country", {}).get("code", "") if row.get("country") else ""
+    owner_id = row.get("user_id")
 
     # Extract embedded trip_tags
     tag_data = row.pop("trip_tags", None)
-    tags = []
+    tags: list[TripTag] = []
+
+    # Collect all user IDs we need to fetch: tagged users + owner
+    user_ids_to_fetch: set[str] = set()
+    if owner_id:
+        user_ids_to_fetch.add(owner_id)
+
     if tag_data and isinstance(tag_data, list):
-        tags = [TripTag(**tag) for tag in tag_data]
+        for tag in tag_data:
+            user_ids_to_fetch.add(tag["tagged_user_id"])
+
+    # Fetch all user profiles in one query
+    user_profiles: dict[str, TripTagUser] = {}
+    if user_ids_to_fetch:
+        profiles = await db.get(
+            "user_profile",
+            {
+                "select": "user_id,username,display_name,avatar_url",
+                "user_id": in_list(list(user_ids_to_fetch)),
+            },
+        )
+        if profiles:
+            user_profiles = {
+                p["user_id"]: TripTagUser(
+                    user_id=p["user_id"],
+                    username=p["username"],
+                    display_name=p.get("display_name"),
+                    avatar_url=p.get("avatar_url"),
+                )
+                for p in profiles
+            }
+
+    # Build tags with user profile info
+    if tag_data and isinstance(tag_data, list):
+        for tag in tag_data:
+            user_profile = user_profiles.get(tag["tagged_user_id"])
+            tags.append(TripTag(**tag, user=user_profile))
+
+    # Get owner profile
+    owner = user_profiles.get(owner_id) if owner_id else None
 
     trip = Trip(
         **{k: v for k, v in row.items() if k != "country"}, country_code=country_code
     )
 
-    return TripWithTags(**trip.model_dump(), tags=tags)
+    return TripWithTags(**trip.model_dump(), tags=tags, owner=owner)
 
 
 @router.patch("/{trip_id}", response_model=Trip)
@@ -346,10 +495,7 @@ async def update_trip(
         start = update_data.pop("date_start", None)
         end = update_data.pop("date_end", None)
         if start is not None or end is not None:
-            update_data["date_range"] = format_daterange(
-                start,
-                end,
-            )
+            update_data["date_range"] = format_daterange(start, end)
 
     rows = await db.patch(
         "trip",
@@ -362,11 +508,7 @@ async def update_trip(
             detail="Trip not found or not authorized",
         )
 
-    row = rows[0]
-    country_code = row.get("country", {}).get("code", "") if row.get("country") else ""
-    return Trip(
-        **{k: v for k, v in row.items() if k != "country"}, country_code=country_code
-    )
+    return trip_from_row(rows[0])
 
 
 @router.delete("/{trip_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -425,80 +567,7 @@ async def restore_trip(
             detail="Trip not found or not deleted",
         )
 
-    row = rows[0]
-    country_code = row.get("country", {}).get("code", "") if row.get("country") else ""
-    return Trip(
-        **{k: v for k, v in row.items() if k != "country"}, country_code=country_code
-    )
-
-
-@router.post("/{trip_id}/approve", response_model=TripTagAction)
-async def approve_trip_tag(
-    request: Request,
-    trip_id: UUID,
-    user: CurrentUser,
-) -> TripTagAction:
-    """Approve a trip tag invitation."""
-    token = get_token_from_request(request)
-    return await _update_tag_status(trip_id, user.id, TripTagStatus.APPROVED, token)
-
-
-@router.post("/{trip_id}/decline", response_model=TripTagAction)
-async def decline_trip_tag(
-    request: Request,
-    trip_id: UUID,
-    user: CurrentUser,
-) -> TripTagAction:
-    """Decline a trip tag invitation."""
-    token = get_token_from_request(request)
-    return await _update_tag_status(trip_id, user.id, TripTagStatus.DECLINED, token)
-
-
-async def _update_tag_status(
-    trip_id: UUID,
-    user_id: str,
-    new_status: TripTagStatus,
-    token: str | None,
-) -> TripTagAction:
-    """Update trip tag status for the current user."""
-    db = get_supabase_client(user_token=token)
-
-    # Find the user's tag for this trip
-    tags = await db.get(
-        "trip_tags",
-        {"trip_id": f"eq.{trip_id}", "tagged_user_id": f"eq.{user_id}"},
-    )
-
-    if not tags:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Tag not found",
-        )
-
-    tag = tags[0]
-
-    # Use optimistic locking - include status in WHERE clause to prevent race conditions
-    responded_at = datetime.now(UTC).isoformat()
-    rows = await db.patch(
-        "trip_tags",
-        {"status": new_status.value, "responded_at": responded_at},
-        {
-            "id": f"eq.{tag['id']}",
-            "status": f"eq.{TripTagStatus.PENDING.value}",  # Only update if still pending
-        },
-    )
-
-    if not rows:
-        # Either tag doesn't exist or status already changed
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Tag has already been responded to",
-        )
-
-    return TripTagAction(
-        status=new_status,
-        responded_at=datetime.fromisoformat(rows[0]["responded_at"]),
-    )
+    return trip_from_row(rows[0])
 
 
 @router.post("/{trip_id}/share", response_model=TripShareResponse)

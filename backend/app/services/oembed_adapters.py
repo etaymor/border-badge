@@ -1,4 +1,11 @@
-"""oEmbed adapters for TikTok and Instagram with caching."""
+"""oEmbed adapters for TikTok and Instagram with caching.
+
+TODO: Refactor - this file exceeds 500 lines (currently ~507 lines).
+Consider splitting into smaller modules:
+- oembed_base.py: Base adapter class and caching logic
+- oembed_tiktok.py: TikTok-specific adapter
+- oembed_instagram.py: Instagram-specific adapter
+"""
 
 import html
 import logging
@@ -10,7 +17,7 @@ from urllib.parse import urlencode
 import httpx
 
 from app.core.config import get_settings
-from app.db.session import get_supabase_client
+from app.db.session import get_service_supabase_client
 from app.schemas.social_ingest import OEmbedCacheEntry, OEmbedResponse, SocialProvider
 
 logger = logging.getLogger(__name__)
@@ -56,7 +63,7 @@ async def get_cached_oembed(canonical_url: str) -> OEmbedResponse | None:
     Returns:
         Cached oEmbed response if found, None otherwise
     """
-    db = get_supabase_client()
+    db = get_service_supabase_client()
 
     rows = await db.get(
         "oembed_cache",
@@ -108,7 +115,7 @@ async def cache_oembed(
     Returns:
         The created/updated cache entry
     """
-    db = get_supabase_client()
+    db = get_service_supabase_client()
 
     expires_at = datetime.now(UTC) + timedelta(hours=ttl_hours)
 

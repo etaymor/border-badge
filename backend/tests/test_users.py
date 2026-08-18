@@ -1,0 +1,534 @@
+"""Tests for user-related endpoints (search, profile, username check)."""
+
+from typing import Any
+from unittest.mock import AsyncMock, patch
+
+from fastapi.testclient import TestClient
+
+from app.core.security import AuthUser, get_current_user
+from app.main import app
+from tests.conftest import (
+    OTHER_USER_ID,
+    TEST_USER_ID,
+    mock_auth_dependency,
+)
+
+# ============================================================================
+# Username Availability Tests
+# ============================================================================
+
+
+def test_check_username_available(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+) -> None:
+    """Test checking an available username."""
+    mock_supabase_client.rpc.return_value = []  # Nothing taken
+
+    with patch(
+        "app.api.users.get_service_supabase_client", return_value=mock_supabase_client
+    ):
+        response = client.get("/users/check-username", params={"username": "newuser"})
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["available"] is True
+    assert data["reason"] is None
+
+
+def test_check_username_taken_with_suggestions(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+) -> None:
+    """Test checking a taken username returns suggestions."""
+    # The RPC returns the subset of candidates that is taken.
+    mock_supabase_client.rpc.return_value = [
+        {"taken_username": "newuser"},
+        {"taken_username": "newuser_2"},
+    ]
+
+    with patch(
+        "app.api.users.get_service_supabase_client", return_value=mock_supabase_client
+    ):
+        response = client.get("/users/check-username", params={"username": "newuser"})
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["available"] is False
+    assert data["reason"] == "Username is already taken"
+    # Free candidates in order, minus the taken one, capped at 3
+    assert data["suggestions"] == ["newuser_1", "newuser_3", "newuser_4"]
+
+
+def test_check_username_single_rpc_contract(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+) -> None:
+    """Base + all suggestion candidates are checked in ONE RPC round-trip.
+
+    The old implementation issued up to six serial ilike queries per request;
+    the contract now is exactly one check_username_candidates RPC call and no
+    table reads (plan U5).
+    """
+    mock_supabase_client.rpc.return_value = [{"taken_username": "newuser"}]
+
+    with patch(
+        "app.api.users.get_service_supabase_client", return_value=mock_supabase_client
+    ):
+        response = client.get("/users/check-username", params={"username": "NewUser"})
+
+    assert response.status_code == 200
+    assert mock_supabase_client.rpc.await_count == 1
+    assert mock_supabase_client.get.await_count == 0
+
+    rpc_name, rpc_params = mock_supabase_client.rpc.await_args.args
+    assert rpc_name == "check_username_candidates"
+    # Lowercased base plus every numbered candidate, in one payload
+    assert rpc_params == {
+        "p_candidates": [
+            "newuser",
+            "newuser_1",
+            "newuser_2",
+            "newuser_3",
+            "newuser_4",
+            "newuser_5",
+        ]
+    }
+
+
+def test_check_username_invalid_format(
+    client: TestClient,
+) -> None:
+    """Test checking a username with invalid characters."""
+    response = client.get("/users/check-username", params={"username": "user@name!"})
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["available"] is False
+    assert "letters, numbers, and underscores" in data["reason"]
+
+
+def test_check_username_too_short(
+    client: TestClient,
+) -> None:
+    """Test checking a username that's too short."""
+    response = client.get("/users/check-username", params={"username": "ab"})
+
+    assert response.status_code == 422  # Validation error
+
+
+# ============================================================================
+# User Search Tests
+# ============================================================================
+
+
+def test_search_users_requires_auth(client: TestClient) -> None:
+    """Test that searching users requires authentication."""
+    response = client.get("/users/search", params={"q": "test"})
+    assert response.status_code == 403
+
+
+def test_search_users_by_prefix(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+) -> None:
+    """Test searching users by username prefix."""
+    sample_profile: dict[str, Any] = {
+        "id": "profile-id",
+        "user_id": OTHER_USER_ID,
+        "username": "traveler",
+        "avatar_url": "https://example.com/avatar.jpg",
+    }
+
+    mock_supabase_client.rpc.side_effect = [
+        [sample_profile],  # search_users_excluding_blocked results
+        [{"user_id": OTHER_USER_ID, "count": 25}],  # Country counts
+    ]
+    mock_supabase_client.get.side_effect = [
+        [{"following_id": OTHER_USER_ID}],  # Following check
+    ]
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with patch(
+            "app.api.users.get_supabase_client", return_value=mock_supabase_client
+        ):
+            response = client.get(
+                "/users/search", headers=auth_headers, params={"q": "trav"}
+            )
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["username"] == "traveler"
+        assert data[0]["country_count"] == 25
+        assert data[0]["is_following"] is True
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_search_users_delegates_block_exclusion_to_rpc(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+) -> None:
+    """Search runs through the SECURITY DEFINER RPC that excludes the caller
+    and blocked pairs (both directions) in SQL, not through a raw table read."""
+    mock_supabase_client.rpc.return_value = []
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with patch(
+            "app.api.users.get_supabase_client", return_value=mock_supabase_client
+        ):
+            response = client.get(
+                "/users/search", headers=auth_headers, params={"q": "test"}
+            )
+        assert response.status_code == 200
+        assert response.json() == []
+        # The block/self exclusion lives in the RPC (migration 0089)
+        rpc_call = mock_supabase_client.rpc.call_args_list[0]
+        assert rpc_call[0][0] == "search_users_excluding_blocked"
+        assert rpc_call[0][1] == {"p_query": "test", "p_limit": 10}
+        # No direct user_profile read for search results
+        mock_supabase_client.get.assert_not_called()
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_search_users_empty_results(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+) -> None:
+    """Test search with no matching users."""
+    mock_supabase_client.rpc.return_value = []
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with patch(
+            "app.api.users.get_supabase_client", return_value=mock_supabase_client
+        ):
+            response = client.get(
+                "/users/search", headers=auth_headers, params={"q": "nonexistent"}
+            )
+        assert response.status_code == 200
+        assert response.json() == []
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_search_users_invalid_query(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+) -> None:
+    """Test search with invalid characters returns empty."""
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with patch(
+            "app.api.users.get_supabase_client", return_value=mock_supabase_client
+        ):
+            response = client.get(
+                "/users/search", headers=auth_headers, params={"q": "@#$%"}
+            )
+        assert response.status_code == 200
+        assert response.json() == []
+    finally:
+        app.dependency_overrides.clear()
+
+
+# ============================================================================
+# Email Lookup Tests
+# ============================================================================
+
+
+def test_email_lookup_requires_auth(client: TestClient) -> None:
+    """Test that email lookup requires authentication."""
+    response = client.get(
+        "/users/lookup-by-email", params={"email": "test@example.com"}
+    )
+    assert response.status_code == 403
+
+
+def test_email_lookup_found(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+) -> None:
+    """Test email lookup when user is found."""
+    lookup_result = [
+        {
+            "user_id": OTHER_USER_ID,
+            "username": "founduser",
+            "avatar_url": None,
+        }
+    ]
+
+    mock_supabase_client.rpc.side_effect = [
+        lookup_result,  # Email lookup RPC (block exclusion happens in SQL)
+        [{"user_id": OTHER_USER_ID, "count": 10}],  # Country count
+    ]
+    mock_supabase_client.get.side_effect = [
+        [],  # Not following
+    ]
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with (
+            patch(
+                "app.api.users.get_service_supabase_client",
+                return_value=mock_supabase_client,
+            ),
+            patch(
+                "app.api.users.get_supabase_client", return_value=mock_supabase_client
+            ),
+        ):
+            response = client.get(
+                "/users/lookup-by-email",
+                headers=auth_headers,
+                params={"email": "found@example.com"},
+            )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["username"] == "founduser"
+        assert data["country_count"] == 10
+        assert data["is_following"] is False
+        # The lookup delegates self/block exclusion to the SQL RPC and passes
+        # the requester id explicitly (service-role call has no auth.uid()).
+        rpc_call = mock_supabase_client.rpc.call_args_list[0]
+        assert rpc_call[0][0] == "lookup_user_by_email_excluding_blocked"
+        assert rpc_call[0][1] == {
+            "email_to_lookup": "found@example.com",
+            "p_requester_id": TEST_USER_ID,
+        }
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_email_lookup_not_found(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+) -> None:
+    """Email lookup misses return null.
+
+    The RPC returns zero rows for "no such user", "that's you", AND "blocked
+    in either direction", so the response shape cannot leak which one it was.
+    """
+    mock_supabase_client.rpc.side_effect = [
+        [],  # Email lookup RPC: no visible match
+    ]
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with (
+            patch(
+                "app.api.users.get_service_supabase_client",
+                return_value=mock_supabase_client,
+            ),
+            patch(
+                "app.api.users.get_supabase_client", return_value=mock_supabase_client
+            ),
+        ):
+            response = client.get(
+                "/users/lookup-by-email",
+                headers=auth_headers,
+                params={"email": "notfound@example.com"},
+            )
+        assert response.status_code == 200
+        assert response.json() is None
+        # Not-found short-circuits: the single RPC is the only database call
+        assert mock_supabase_client.rpc.call_count == 1
+        mock_supabase_client.get.assert_not_called()
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_email_lookup_invalid_format(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+) -> None:
+    """Test email lookup with invalid email format."""
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with patch(
+            "app.api.users.get_supabase_client", return_value=mock_supabase_client
+        ):
+            response = client.get(
+                "/users/lookup-by-email",
+                headers=auth_headers,
+                params={"email": "notanemail"},
+            )
+        assert response.status_code == 200
+        assert response.json() is None
+    finally:
+        app.dependency_overrides.clear()
+
+
+# ============================================================================
+# User Profile Tests
+# ============================================================================
+
+
+def test_get_user_profile_requires_auth(client: TestClient) -> None:
+    """Test that getting user profile requires authentication."""
+    response = client.get("/users/someuser/profile")
+    assert response.status_code == 403
+
+
+def test_get_user_profile_success(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+) -> None:
+    """Test getting a user's public profile."""
+    sample_profile: dict[str, Any] = {
+        "id": "profile-id",
+        "user_id": OTHER_USER_ID,
+        "username": "worldtraveler",
+        "display_name": "World Traveler",
+        "avatar_url": "https://example.com/avatar.jpg",
+    }
+
+    # Block checks now use 2 separate queries for safety (avoids SQL injection in 'or' filter)
+    mock_supabase_client.get.side_effect = [
+        [sample_profile],  # Profile lookup
+        [],  # Block check 1: current user blocked target - not blocked
+        [],  # Block check 2: target blocked current user - not blocked
+        [{"id": "is-following"}],  # Is following check
+    ]
+    mock_supabase_client.rpc.return_value = [
+        {
+            "country_count": 3,
+            "follower_count": 2,
+            "following_count": 1,
+        }
+    ]
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with patch(
+            "app.api.users.get_supabase_client", return_value=mock_supabase_client
+        ):
+            response = client.get("/users/worldtraveler/profile", headers=auth_headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert data["username"] == "worldtraveler"
+        assert data["display_name"] == "World Traveler"
+        assert data["country_count"] == 3
+        assert data["follower_count"] == 2
+        assert data["following_count"] == 1
+        assert data["is_following"] is True
+        assert data["is_blocked"] is False
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_get_user_profile_not_found(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+) -> None:
+    """Test getting a nonexistent user's profile."""
+    mock_supabase_client.get.return_value = []  # Profile not found
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with patch(
+            "app.api.users.get_supabase_client", return_value=mock_supabase_client
+        ):
+            response = client.get("/users/nonexistent/profile", headers=auth_headers)
+        assert response.status_code == 404
+        assert "User not found" in response.json()["detail"]
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_get_user_profile_blocked_returns_404(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+) -> None:
+    """Test getting a blocked user's profile returns 404 (hides existence)."""
+    sample_profile: dict[str, Any] = {
+        "id": "profile-id",
+        "user_id": OTHER_USER_ID,
+        "username": "blockeduser",
+        "display_name": "Blocked User",
+        "avatar_url": None,
+    }
+
+    # Block checks now use 2 separate queries for safety (avoids SQL injection in 'or' filter)
+    mock_supabase_client.get.side_effect = [
+        [sample_profile],  # Profile lookup
+        [{"id": "block-id"}],  # Block check 1: current user blocked target - IS blocked
+        [],  # Block check 2: target blocked current user (not needed for this test)
+    ]
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with patch(
+            "app.api.users.get_supabase_client", return_value=mock_supabase_client
+        ):
+            response = client.get("/users/blockeduser/profile", headers=auth_headers)
+        # Returns 404 to hide that user exists (security)
+        assert response.status_code == 404
+        assert "User not found" in response.json()["detail"]
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_get_user_profile_not_following(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    mock_user: AuthUser,
+    auth_headers: dict[str, str],
+) -> None:
+    """Test getting a user's profile when not following them."""
+    sample_profile: dict[str, Any] = {
+        "id": "profile-id",
+        "user_id": OTHER_USER_ID,
+        "username": "stranger",
+        "display_name": "Stranger",
+        "avatar_url": None,
+    }
+
+    # Block checks now use 2 separate queries for safety (avoids SQL injection in 'or' filter)
+    mock_supabase_client.get.side_effect = [
+        [sample_profile],  # Profile lookup
+        [],  # Block check 1: current user blocked target - not blocked
+        [],  # Block check 2: target blocked current user - not blocked
+        [],  # Is following check - NOT following
+    ]
+    mock_supabase_client.rpc.return_value = [
+        {
+            "country_count": 0,
+            "follower_count": 0,
+            "following_count": 0,
+        }
+    ]
+
+    app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
+    try:
+        with patch(
+            "app.api.users.get_supabase_client", return_value=mock_supabase_client
+        ):
+            response = client.get("/users/stranger/profile", headers=auth_headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert data["username"] == "stranger"
+        assert data["is_following"] is False
+    finally:
+        app.dependency_overrides.clear()

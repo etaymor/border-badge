@@ -1,3 +1,9 @@
+// TODO: Refactor - this file exceeds 500 lines (currently ~576 lines).
+// Consider extracting:
+// - TripHeader component for cover image and trip info
+// - TripEntriesList component for entries section
+// - TripActionBar component for bottom action buttons
+
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { Image as ExpoImage } from 'expo-image';
@@ -25,7 +31,9 @@ import { EntryGridCard } from '@components/entries';
 import { ShareExtensionCallout } from '@components/share/ShareExtensionCallout';
 import { ShareExtensionTutorialSheet } from '@components/share/ShareExtensionTutorialSheet';
 import { SharedTripImage } from '@components/transitions/SharedTripImage';
+import { TripPartners } from '@components/trips';
 import { ConfirmDialog, GlassBackButton, Snackbar } from '@components/ui';
+import { useAuthStore } from '@stores/authStore';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { useCountryPhotoInfo } from '@hooks/useCountryPhotoInfo';
@@ -64,6 +72,7 @@ function EmptyState({ onAddEntry, isVisited }: { onAddEntry: () => void; isVisit
 export function TripDetailScreen({ route, navigation }: Props) {
   const { tripId, prefillPlace, prefillPhotos } = route.params;
   const insets = useSafeAreaInsets();
+  const currentUserId = useAuthStore((state) => state.session?.user.id);
   const hasNavigatedToPrefill = useRef(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showUndoSnackbar, setShowUndoSnackbar] = useState(false);
@@ -115,6 +124,8 @@ export function TripDetailScreen({ route, navigation }: Props) {
   }, [prefillPlace, prefillPhotos, tripId, navigation]);
 
   const hasCoverPhoto = !!trip?.cover_image_url && !coverImageError;
+  const hasPartners =
+    (trip?.tags && trip.tags.length > 0) || (trip?.owner && trip.owner.user_id !== currentUserId);
 
   const handleAddEntry = useCallback(() => {
     navigation.navigate('EntryForm', { tripId });
@@ -298,8 +309,21 @@ export function TripDetailScreen({ route, navigation }: Props) {
             style={styles.gradient}
           />
 
-          {/* Trip name at bottom of hero */}
-          <Text style={styles.tripNameOverlay}>{trip.name}</Text>
+          {/* Partners avatars + Trip name at bottom of hero */}
+          <View style={styles.heroContent}>
+            {hasPartners && (
+              <View style={styles.partnersOverlay}>
+                <TripPartners
+                  tags={trip.tags || []}
+                  owner={trip.owner}
+                  currentUserId={currentUserId}
+                  avatarSize={24}
+                  maxVisible={4}
+                />
+              </View>
+            )}
+            <Text style={styles.tripNameOverlay}>{trip.name}</Text>
+          </View>
 
           {/* Header row - glass buttons */}
           <View style={[styles.headerRow, { top: insets.top + 8 }]}>
@@ -349,8 +373,19 @@ export function TripDetailScreen({ route, navigation }: Props) {
               </Pressable>
             </View>
           </View>
-          {/* Trip name */}
+          {/* Trip name + Partners avatars below */}
           <Text style={styles.tripNameNoCover}>{trip.name}</Text>
+          {hasPartners && (
+            <View style={styles.partnersNoCover}>
+              <TripPartners
+                tags={trip.tags || []}
+                owner={trip.owner}
+                currentUserId={currentUserId}
+                avatarSize={28}
+                maxVisible={4}
+              />
+            </View>
+          )}
         </View>
       )}
 
@@ -483,11 +518,16 @@ const styles = StyleSheet.create({
     bottom: 0,
     height: 240, // Taller gradient
   },
-  tripNameOverlay: {
+  heroContent: {
     position: 'absolute',
-    bottom: 32,
+    bottom: 24,
     left: 24,
     right: 24,
+  },
+  partnersOverlay: {
+    marginBottom: 8,
+  },
+  tripNameOverlay: {
     color: '#fff',
     fontFamily: fonts.playfair.bold,
     fontSize: 36,
@@ -548,6 +588,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingVertical: 8,
     letterSpacing: -0.5,
+  },
+  partnersNoCover: {
+    paddingHorizontal: 24,
+    paddingBottom: 8,
   },
 
   // Journal Header

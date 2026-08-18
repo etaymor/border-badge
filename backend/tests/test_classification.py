@@ -280,7 +280,7 @@ def test_classify_traveler_works_without_auth(
 
     with (
         patch(
-            "app.api.classification.get_supabase_client",
+            "app.api.classification.get_service_supabase_client",
             return_value=mock_supabase_client,
         ),
         patch("app.api.classification.get_settings") as mock_settings,
@@ -324,7 +324,7 @@ def test_classify_traveler_returns_fallback_without_api_key(
     try:
         with (
             patch(
-                "app.api.classification.get_supabase_client",
+                "app.api.classification.get_service_supabase_client",
                 return_value=mock_supabase_client,
             ),
             patch("app.api.classification.get_settings") as mock_settings,
@@ -366,7 +366,7 @@ def test_classify_traveler_invalid_country_codes(
     app.dependency_overrides[get_current_user] = mock_auth_dependency(mock_user)
     try:
         with patch(
-            "app.api.classification.get_supabase_client",
+            "app.api.classification.get_service_supabase_client",
             return_value=mock_supabase_client,
         ):
             response = client.post(
@@ -434,7 +434,7 @@ def test_classify_traveler_with_successful_llm_response(
     try:
         with (
             patch(
-                "app.api.classification.get_supabase_client",
+                "app.api.classification.get_service_supabase_client",
                 return_value=mock_supabase_client,
             ),
             patch("app.api.classification.get_settings") as mock_settings,
@@ -493,7 +493,7 @@ def test_classify_traveler_handles_code_fenced_llm_response(
     try:
         with (
             patch(
-                "app.api.classification.get_supabase_client",
+                "app.api.classification.get_service_supabase_client",
                 return_value=mock_supabase_client,
             ),
             patch("app.api.classification.get_settings") as mock_settings,

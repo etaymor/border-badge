@@ -15,11 +15,12 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
-import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { GlassBackButton } from '@components/ui';
+import { features } from '@config/features';
 import { colors } from '@constants/colors';
 import { ALL_REGIONS } from '@constants/regions';
 // LAUNCH_SIMPLIFICATION: Tracking preference imports hidden
@@ -40,6 +41,7 @@ import { useSubscriptionStore } from '@stores/subscriptionStore';
 import { validateDisplayName } from '@utils/displayNameValidation';
 import { getFlagEmoji } from '@utils/flags';
 import { Share } from '@utils/share';
+import { getPublicProfileUrl } from '@utils/urls';
 import type { PassportStackScreenProps } from '@navigation/types';
 
 import { ProfileAvatar } from './components/ProfileAvatar';
@@ -140,6 +142,11 @@ export function ProfileSettingsScreen({ navigation }: Props) {
 
   const handleGoBack = useCallback(() => {
     navigation.goBack();
+  }, [navigation]);
+
+  const handleOpenBlockedUsers = useCallback(() => {
+    // BlockedUsersScreen lives in the Friends stack; hop tabs to reach it.
+    navigation.navigate('Friends', { screen: 'BlockedUsers' });
   }, [navigation]);
 
   const handleStartEditing = useCallback(() => {
@@ -321,6 +328,33 @@ export function ProfileSettingsScreen({ navigation }: Props) {
     setClipboardDetectionEnabled(true);
   }, [setClipboardDetectionEnabled]);
 
+  // Share profile handler
+  const handleShareProfile = useCallback(async () => {
+    if (!profile?.username) return;
+
+    // ref=<username>: share attribution logged by the public page (U7)
+    const profileUrl = getPublicProfileUrl(profile.username, profile.username);
+    if (!profileUrl) {
+      if (__DEV__) {
+        console.warn('EXPO_PUBLIC_WEB_BASE_URL not configured');
+      }
+      return;
+    }
+
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    try {
+      await Share.share({
+        message: `Check out my travel profile on Atlasi: ${profileUrl}`,
+        url: profileUrl,
+      });
+    } catch (error) {
+      // User cancelled or share failed
+      if (__DEV__ && error instanceof Error && error.message !== 'User cancelled') {
+        console.warn('Share failed:', error);
+      }
+    }
+  }, [profile?.username]);
+
   // Photo library permission handlers
   const handleRequestPhotoPermission = useCallback(async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -404,7 +438,10 @@ export function ProfileSettingsScreen({ navigation }: Props) {
   }, [handleDeleteAccount, handleOpenTerms, handleOpenPrivacy]);
 
   // Memoized values
-  const initials = useMemo(() => getInitials(profile?.display_name), [profile?.display_name]);
+  const initials = useMemo(
+    () => getInitials(profile?.display_name || profile?.username),
+    [profile?.display_name, profile?.username]
+  );
   const formattedEmail = useMemo(() => session?.user.email || 'Not set', [session?.user.email]);
   const memberSince = useMemo(() => formatMemberSince(profile?.created_at), [profile?.created_at]);
   const homeCountryDisplay = useMemo(() => {
@@ -531,12 +568,25 @@ export function ProfileSettingsScreen({ navigation }: Props) {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        {/* Header with back button and menu */}
+        {/* Header with back button, share, and menu */}
         <View style={styles.header}>
           <GlassBackButton onPress={handleGoBack} testID="profile-back-button" />
           <Text style={[styles.headerTitle, isSmallScreen && styles.headerTitleSmall]}>
             Profile
           </Text>
+          {features.enableSocial && profile?.username ? (
+            <TouchableOpacity
+              onPress={handleShareProfile}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              activeOpacity={0.8}
+              style={styles.headerShareButton}
+              accessibilityLabel="Share profile"
+            >
+              <BlurView intensity={30} tint="light" style={styles.headerShareGlass}>
+                <Ionicons name="share-outline" size={22} color={colors.midnightNavy} />
+              </BlurView>
+            </TouchableOpacity>
+          ) : null}
           <TouchableOpacity
             onPress={showOptionsMenu}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
@@ -551,7 +601,11 @@ export function ProfileSettingsScreen({ navigation }: Props) {
           </TouchableOpacity>
         </View>
 
-        <ProfileAvatar initials={initials} isSmallScreen={isSmallScreen} />
+        <ProfileAvatar
+          initials={initials}
+          username={profile?.username ?? ''}
+          isSmallScreen={isSmallScreen}
+        />
 
         <ProfileNameSection
           isEditing={isEditing}
@@ -594,6 +648,27 @@ export function ProfileSettingsScreen({ navigation }: Props) {
           onOpenPhotoEnableModal={handleOpenPhotoEnableModal}
           onOpenPhotoInfoModal={handleOpenPhotoInfoModal}
         />
+
+        {features.enableSocial ? (
+          <View style={styles.blockedTravelersSection}>
+            <Pressable
+              onPress={handleOpenBlockedUsers}
+              style={({ pressed }) => [
+                styles.blockedTravelersRow,
+                pressed && styles.blockedTravelersRowPressed,
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel="Blocked travelers"
+              testID="blocked-travelers-row"
+            >
+              <View style={styles.blockedTravelersLabelGroup}>
+                <Ionicons name="shield-outline" size={18} color={colors.midnightNavy} />
+                <Text style={styles.blockedTravelersLabel}>Blocked Travelers</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={colors.stormGray} />
+            </Pressable>
+          </View>
+        ) : null}
 
         <View style={styles.contactSupportSection}>
           <Pressable
@@ -716,6 +791,20 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.6)',
   },
+  headerShareButton: {
+    borderRadius: 22,
+    overflow: 'hidden',
+  },
+  headerShareGlass: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.25)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.6)',
+  },
   divider: {
     height: 1,
     backgroundColor: colors.paperBeige,
@@ -747,5 +836,34 @@ const styles = StyleSheet.create({
   },
   contactSupportTextSmall: {
     fontSize: 14,
+  },
+  blockedTravelersSection: {
+    paddingTop: 16,
+    paddingHorizontal: 24,
+  },
+  blockedTravelersRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.paperBeige,
+    backgroundColor: colors.cloudWhite,
+  },
+  blockedTravelersRowPressed: {
+    opacity: 0.7,
+    backgroundColor: 'rgba(26, 26, 46, 0.05)',
+  },
+  blockedTravelersLabelGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  blockedTravelersLabel: {
+    fontFamily: fonts.openSans.semiBold,
+    fontSize: 16,
+    color: colors.midnightNavy,
   },
 });

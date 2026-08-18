@@ -7,6 +7,7 @@ import { api, clearTokens, storeOnboardingComplete, storeTokens } from '@service
 import { AdEvents } from '@services/adEvents';
 import { Analytics } from '@services/analytics';
 import { migrateGuestData, captureOnboardingSnapshot } from '@services/guestMigration';
+import { registerForPushNotifications } from '@services/pushNotifications';
 import { supabase } from '@services/supabase';
 import { useAuthStore } from '@stores/authStore';
 import { getAuthErrorMessage, getSafeLogMessage } from '@utils/authErrors';
@@ -120,6 +121,12 @@ export function useAppleSignIn() {
     },
     onSuccess: async (data, params) => {
       if (data.session) {
+        // Register for push notifications
+        // Non-blocking - don't await to avoid delaying auth flow
+        registerForPushNotifications().catch((err) =>
+          console.warn('Push notification registration failed:', err)
+        );
+
         // Check if returning user using shared helper
         const onboarded = await hasUserOnboarded(data.session.user.id);
 

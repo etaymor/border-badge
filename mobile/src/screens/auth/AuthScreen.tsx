@@ -1,3 +1,9 @@
+// TODO: Refactor - this file exceeds 500 lines (currently ~627 lines).
+// Consider extracting:
+// - useAuthForm hook for form state, validation, and submission
+// - SocialAuthButtons component for Apple/Google buttons
+// - AuthHeader component for header and branding
+
 import { Ionicons } from '@expo/vector-icons';
 import { CommonActions } from '@react-navigation/native';
 import { BlurView } from 'expo-blur';

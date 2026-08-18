@@ -18,7 +18,7 @@ def test_webhook_trial_period_sets_trial_status(
     base_event["event"]["period_type"] = "TRIAL"
 
     with patch(
-        "app.api.webhooks.get_supabase_client",
+        "app.api.webhooks.get_service_supabase_client",
         return_value=mock_supabase_client,
     ):
         response = client.post(
@@ -45,7 +45,7 @@ def test_webhook_normal_period_keeps_premium(
     base_event["event"]["period_type"] = "NORMAL"
 
     with patch(
-        "app.api.webhooks.get_supabase_client",
+        "app.api.webhooks.get_service_supabase_client",
         return_value=mock_supabase_client,
     ):
         response = client.post(
@@ -72,7 +72,7 @@ def test_webhook_missing_period_type_defaults_premium(
     del base_event["event"]["period_type"]
 
     with patch(
-        "app.api.webhooks.get_supabase_client",
+        "app.api.webhooks.get_service_supabase_client",
         return_value=mock_supabase_client,
     ):
         response = client.post(

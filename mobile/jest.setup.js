@@ -587,6 +587,28 @@ jest.mock('@services/countriesDb', () => ({
   clearHomeCountry: jest.fn().mockResolvedValue(undefined),
 }));
 
+// Mock FlashList with a FlatList fallback, keeping the real module's other
+// exports (useRecyclingState etc.) intact.
+jest.mock('@shopify/flash-list', () => {
+  const React = require('react');
+  const { FlatList } = require('react-native');
+  const actual = jest.requireActual('@shopify/flash-list');
+  const FlashList = React.forwardRef((props, ref) =>
+    React.createElement(FlatList, { ...props, ref })
+  );
+  FlashList.displayName = 'FlashListMock';
+  return { ...actual, FlashList };
+});
+
+// Ensure Alert.alert is always defined in the test environment
+const { Alert } = require('react-native');
+if (Alert && typeof Alert.alert === 'function') {
+  Alert.alert = jest.fn();
+} else {
+  const ReactNative = require('react-native');
+  ReactNative.Alert = { alert: jest.fn() };
+}
+
 // Reset all mocks between tests
 beforeEach(() => {
   jest.clearAllMocks();

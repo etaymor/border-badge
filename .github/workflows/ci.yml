@@ -50,6 +50,8 @@ jobs:
 
       - name: Run tests
         run: poetry run pytest -v
+        env:
+          ENABLE_SOCIAL_FEATURES: "true"
 
   mobile-test:
     name: Mobile Tests

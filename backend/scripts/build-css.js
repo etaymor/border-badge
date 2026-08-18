@@ -29,6 +29,8 @@ const CSS_FILES = [
   'pages/list.css',
   'pages/landing.css',
   'pages/legal.css',
+  'pages/profile.css',
+
   'pages/contact.css',
   'pages/blog.css',
   'responsive.css',

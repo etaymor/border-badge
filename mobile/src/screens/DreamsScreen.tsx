@@ -1,3 +1,9 @@
+// TODO: Refactor - this file exceeds 500 lines (currently ~641 lines).
+// Consider extracting:
+// - useDreamsSearch hook for search state and filtering logic
+// - DreamCard component for individual card rendering
+// - EmptyDreamsState component for empty state UI
+
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import * as Haptics from 'expo-haptics';
@@ -20,6 +26,7 @@ import { colors } from '@constants/colors';
 import { RECOGNITION_GROUPS } from '@constants/regions';
 import { fonts } from '@constants/typography';
 import { useCountries } from '@hooks/useCountries';
+import { useResponsive } from '@hooks/useResponsive';
 import { useStableCallback } from '@hooks/useStableCallback';
 import { useTrips } from '@hooks/useTrips';
 import { useAddUserCountry, useRemoveUserCountry, useUserCountries } from '@hooks/useUserCountries';
@@ -31,6 +38,7 @@ import {
   countActiveFilters,
   type ExploreFilters,
 } from '../types/filters';
+import { PHONE_COLUMNS, TABLET_COLUMNS, GRID_GAP } from './passport/passportConstants';
 
 // Animation timing constants
 const AIRPLANE_PULSE_DELAY_MS = 150;
@@ -77,6 +85,8 @@ interface SnackbarState {
 
 export function DreamsScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
+  const { isTablet } = useResponsive();
+  const numColumns = isTablet ? TABLET_COLUMNS : PHONE_COLUMNS;
   const { data: userCountries, isLoading: loadingUserCountries } = useUserCountries();
   const { data: countries, isLoading: loadingCountries } = useCountries();
   const { data: trips } = useTrips();
@@ -570,11 +580,12 @@ export function DreamsScreen({ navigation }: Props) {
   return (
     <View style={styles.container}>
       <FlatList
+        key={`dreams-grid-${numColumns}`}
         data={sortedCountries}
         renderItem={renderItem}
         keyExtractor={getItemKey}
-        numColumns={2}
-        columnWrapperStyle={styles.columnWrapper}
+        numColumns={numColumns}
+        columnWrapperStyle={{ gap: GRID_GAP, marginBottom: GRID_GAP, paddingHorizontal: 16 }}
         ListHeaderComponent={ListHeader}
         ListEmptyComponent={ListEmpty}
         contentContainerStyle={styles.listContent}
@@ -645,11 +656,6 @@ const styles = StyleSheet.create({
   listContent: {
     paddingBottom: 100,
     flexGrow: 1,
-  },
-  columnWrapper: {
-    gap: 12,
-    marginBottom: 12,
-    paddingHorizontal: 16,
   },
   // Search Row with Liquid Glass
   searchRow: {

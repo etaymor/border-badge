@@ -9,6 +9,7 @@ import { PhotoTripsScreen } from '@screens/photos/PhotoTripsScreen';
 import { TripDetailScreen } from '@screens/trips/TripDetailScreen';
 import { TripFormScreen } from '@screens/trips/TripFormScreen';
 import { TripsListScreen } from '@screens/trips/TripsListScreen';
+import { PendingTripTagsScreen } from '@screens/notifications/PendingTripTagsScreen';
 import SavedPlacesScreen from '@screens/trips/SavedPlacesScreen';
 import { colors } from '@constants/colors';
 
@@ -77,6 +78,11 @@ export function TripsNavigator() {
         options={{ headerShown: false }}
       />
       <Stack.Screen name="ListEdit" component={ListEditScreen} options={{ headerShown: false }} />
+      <Stack.Screen
+        name="PendingTripTags"
+        component={PendingTripTagsScreen}
+        options={{ headerShown: false }}
+      />
       <Stack.Screen
         name="SavedPlaces"
         component={SavedPlacesScreen}

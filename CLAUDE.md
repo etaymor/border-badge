@@ -249,6 +249,116 @@ See `docs/place-extraction-algorithm.md`. Set `LLM_PLACE_EXTRACTION_ENABLED=true
 
 See `docs/SUBSCRIPTION.md`. Free-tier limits: 5 share-extension uses/month, 1 photo-import trip lifetime, 10 entries/trip. Use the `usePremiumGate` hook to gate features.
 
+## Test User Seeding
+
+A Python script creates test users with realistic content for demoing friend functionality, feeds, trips, and social features.
+
+### Quick Commands
+
+```bash
+cd backend
+
+# Create 8 test users with trips, entries, follows, and trip tags
+poetry run python scripts/seed_test_users.py
+
+# Connect test users to your real account (follow relationships + pending trip tags)
+poetry run python scripts/seed_test_users.py --real-user-id "YOUR-UUID-HERE"
+
+# Cleanup only (remove all test users and their data)
+poetry run python scripts/seed_test_users.py --cleanup-only
+
+# Verbose output
+poetry run python scripts/seed_test_users.py -v
+```
+
+### Test Users Created
+
+| Username | Email | Home | Travel Style |
+|----------|-------|------|--------------|
+| alex_chen | alex_chen+test@example.com | US | Backpacker |
+| sofia_travels | sofia_travels+test@example.com | ES | Luxury |
+| yuki_adventures | yuki_adventures+test@example.com | JP | Photographer |
+| marcus_j | marcus_j+test@example.com | GB | Food Explorer |
+| priya_world | priya_world+test@example.com | IN | Cultural |
+| lars_nordic | lars_nordic+test@example.com | SE | Outdoor |
+| bella_costa | bella_costa+test@example.com | BR | Beach & Party |
+| david_explores | david_explores+test@example.com | KR | Digital Nomad |
+
+**Password for all test users:** `TestUser123!`
+
+### What Gets Created
+
+- **8 users** with unique travel personas and home countries
+- **2-3 trips per user** with realistic destinations and dates
+- **3-5 entries per trip** (places, food, stays, experiences)
+- **Follow network** between test users (first 4 follow each other, others follow some)
+- **Trip tags** between users (some approved)
+- **Country visits** in `user_countries` table
+
+### Real User Integration (`--real-user-id`)
+
+When you provide your real user ID:
+- 4 test users follow you (populates your followers)
+- You follow 4 test users (populates your feed)
+- 2 test users tag you on trips with pending status (for testing tag acceptance)
+
+### How Test Users Are Identified
+
+Test users are auto-detected by the `+test@` pattern in their email. The `handle_new_user` trigger sets `is_test=true` on their `user_profile`.
+
+### Script Structure
+
+```
+backend/scripts/
+├── seed_test_users.py      # Main runner script
+└── seed/
+    ├── __init__.py
+    ├── personas.py         # 8 test user definitions with trips/entries
+    ├── auth.py             # Supabase Admin API (create/delete users)
+    ├── database.py         # DB operations (trips, entries, follows, tags)
+    └── cleanup.py          # Delete test data in FK order
+```
+
+### Cleanup Order
+
+The script cleans up in foreign key order to avoid constraint violations:
+1. `trip_tags` → 2. `entry` → 3. `trip` → 4. `user_countries` → 5. `user_follow` → 6. `pending_invite` → 7. auth users (via Admin API)
+
+## Feature Flags
+
+### Social Features (`ENABLE_SOCIAL_FEATURES`)
+
+Controls visibility and availability of all social functionality. **Defaults to `false` for safety.**
+
+| Component | When Disabled | When Enabled |
+|-----------|---------------|--------------|
+| Friends Tab | Hidden | Visible |
+| Activity Feed | Not rendered | Active |
+| Follow/Unfollow | API returns 404 | Working |
+| User Search | API returns 404 | Working |
+| Blocks | API returns 404 | Working |
+| Invites | API returns 404 | Working |
+| Notifications | API returns 404 | Active |
+
+**Environment Variables:**
+
+| Platform | Variable | Default |
+|----------|----------|---------|
+| Mobile | `EXPO_PUBLIC_ENABLE_SOCIAL=true\|false` | `false` |
+| Backend | `ENABLE_SOCIAL_FEATURES=true\|false` | `false` |
+
+**To enable social features:**
+
+1. Set `EXPO_PUBLIC_ENABLE_SOCIAL=true` in mobile `.env.local` and rebuild the app
+2. Set `ENABLE_SOCIAL_FEATURES=true` in backend `.env` and restart the server
+3. Both must be enabled for full functionality
+
+**Implementation Details:**
+
+- Mobile: Friends tab conditionally rendered in `MainTabNavigator.tsx` based on `features.enableSocial`
+- Backend: Social routers conditionally registered in `api/__init__.py` based on `settings.enable_social_features`
+- Data retention: All social data is retained in the database when flag is disabled, just not accessible
+
 ## Notes for AI Assistants
 
 1. **NO EMOJIS OR ICONS:** Never add emojis or icons to the UI without explicit permission. This includes emoji characters, icon libraries (Ionicons, etc.), or any visual symbols. All iconography must be custom-designed and approved by the user. Standard system icons (like arrow-forward on buttons) that already exist in the codebase are acceptable.
@@ -262,6 +372,12 @@ See `docs/SUBSCRIPTION.md`. Free-tier limits: 5 share-extension uses/month, 1 ph
 9. **Navigation freezing:** `App.tsx` calls `enableFreeze()` and stacks set `freezeOnBlur`. Do NOT add `detachPreviousScreen` to `PassportNavigator` or `RootNavigator` — on these 2-deep stacks it collapses `react-native-screen-transitions`' `activeScreensLimit` from 2→1 and freezes the screen that must co-animate during the pop, killing the pop animation and flashing on return. A tripwire test (`mainStackDetach.test.tsx`) guards this; `OnboardingNavigator` keeps its detach (forward-mostly, no symptom).
 10. **React Compiler is enabled** (`experiments.reactCompiler`). Never write to a ref during render (`ref.current = fn` in the render body) — the compiler may memoize around it and hand back stale closures. Use `useStableCallback` (ref synced in an effect) for stable-identity callbacks; see `mobile/src/hooks/useStableCallback.ts`.
 11. **Production console stripping:** `babel.config.js` strips `console.*` (except `error`/`warn`) from production bundles only. Use `console.error`/`console.warn` for logs that must survive in production.
+12. **RLS:** Always consider Row-Level Security when working with database.
+13. **Media Upload:** Three-step flow (request URL → upload to storage → confirm status).
+14. **Consent Workflow:** Trip tags must be approved before appearing on tagged user's profile.
+15. **Design System:** Reference `STYLEGUIDE.md` for colors and typography.
+16. **Test Users:** Use the seed script to create test data for social features - see "Test User Seeding" section.
+17. **Feature Flags:** Social features are behind a feature flag - see "Feature Flags" section above.
 
 ## Pre-Commit Checklist (REQUIRED)
 

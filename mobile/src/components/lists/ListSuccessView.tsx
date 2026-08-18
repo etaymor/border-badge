@@ -7,6 +7,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, withAlpha } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { getPublicListUrl, ListDetail } from '@hooks/useLists';
+import { useProfile } from '@hooks/useProfile';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const navIconBook = require('../../../assets/nav-icons/nav_icon_book.png');
@@ -26,7 +27,9 @@ export function ListSuccessView({
   title = 'Ready to share',
   subtitle = 'Your curated list is ready for the world to see.',
 }: ListSuccessViewProps) {
-  const shareUrl = getPublicListUrl(list.slug);
+  // ref=<username>: share attribution logged by the public page (U7)
+  const { data: profile } = useProfile();
+  const shareUrl = getPublicListUrl(list.slug, profile?.username);
   const [copied, setCopied] = useState(false);
   const insets = useSafeAreaInsets();
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);

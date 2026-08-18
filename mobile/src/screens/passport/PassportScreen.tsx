@@ -20,19 +20,28 @@ import {
 import { ShareExtensionTutorialSheet } from '@components/share/ShareExtensionTutorialSheet';
 import { ClipboardEnableModal } from '@screens/profile/components/ClipboardEnableModal';
 import { useSettingsStore, selectClipboardDetectionEnabled } from '@stores/settingsStore';
+import { useResponsive } from '@hooks/useResponsive';
 import type { DetectedClipboardUrl } from '@hooks/useClipboardListener';
 import { usePassportData } from '@hooks/usePassportData';
 import { usePassportAnimations } from '@hooks/usePassportAnimations';
 import { buildMilestoneContext, type MilestoneContext } from '@utils/milestones';
 import type { PassportStackScreenProps } from '@navigation/types';
+import { getGridDimensions } from './passportConstants';
 import { styles } from './passportStyles';
 import type { CountryDisplayItem, ListItem, UnvisitedCountry } from './passportTypes';
 
 type Props = PassportStackScreenProps<'PassportHome'>;
 
 export function PassportScreen({ navigation }: Props) {
-  // Data hook
-  const data = usePassportData();
+  // Responsive layout
+  const { screenWidth, isTablet } = useResponsive();
+  const gridDimensions = useMemo(
+    () => getGridDimensions(screenWidth, isTablet),
+    [screenWidth, isTablet]
+  );
+
+  // Data hook with responsive columns
+  const data = usePassportData({ columns: gridDimensions.columns });
   const {
     isLoading,
     stats,
@@ -55,8 +64,8 @@ export function PassportScreen({ navigation }: Props) {
     userCountries,
   } = data;
 
-  // Animation hook
-  const animations = usePassportAnimations(isLoading);
+  // Animation hook with responsive row heights
+  const animations = usePassportAnimations(isLoading, gridDimensions.rowHeights);
   const {
     fadeAnim,
     viewabilityConfig,

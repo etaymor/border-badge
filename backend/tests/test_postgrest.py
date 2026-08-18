@@ -74,9 +74,10 @@ class TestQuoteValue:
         assert _quote_value("") == ""
 
     def test_whitespace_only(self):
-        """Whitespace-only values should not be quoted (no special chars)."""
+        """Spaces-only values are not quoted; tabs/newlines are quoted as special chars."""
         assert _quote_value("   ") == "   "
-        assert _quote_value("\t\n") == "\t\n"
+        # Tabs and newlines are special chars that require quoting
+        assert _quote_value("\t\n") == '"\t\n"'
 
     def test_unicode_values(self):
         """Unicode values without special chars should not be quoted."""

@@ -23,7 +23,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from app.core.config import get_settings
-from app.db.session import get_supabase_client
+from app.db.session import get_service_supabase_client
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +74,7 @@ async def get_search_cache(cache_key: str) -> list[dict] | None:
     if not _persistent_cache_enabled():
         return None
     try:
-        db = get_supabase_client()
+        db = get_service_supabase_client()
         rows = await db.get(
             "places_search_cache",
             {
@@ -103,7 +103,7 @@ async def set_search_cache(cache_key: str, places: list[dict]) -> None:
         return
     expires_at = (_now() + timedelta(days=SEARCH_CACHE_TTL_DAYS)).isoformat()
     try:
-        db = get_supabase_client()
+        db = get_service_supabase_client()
         await db.upsert(
             "places_search_cache",
             [
@@ -132,7 +132,7 @@ async def get_place_details_cache(google_place_id: str) -> dict | None:
     if not google_place_id or not _persistent_cache_enabled():
         return None
     try:
-        db = get_supabase_client()
+        db = get_service_supabase_client()
         rows = await db.get(
             "cached_google_place",
             {
@@ -175,7 +175,7 @@ async def set_place_details_cache(
     now_iso = now.isoformat()
     expires_at = (now + timedelta(days=PLACE_DETAILS_CACHE_TTL_DAYS)).isoformat()
     try:
-        db = get_supabase_client()
+        db = get_service_supabase_client()
         # Merge with any existing blob so neither writer evicts the other's
         # fields. Missing/expired existing row -> {} -> plain insert of details.
         existing = await get_place_details_cache(google_place_id) or {}

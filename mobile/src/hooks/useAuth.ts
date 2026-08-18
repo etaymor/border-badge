@@ -12,6 +12,10 @@ import { AdEvents } from '@services/adEvents';
 import { Analytics } from '@services/analytics';
 import { migrateGuestData, captureOnboardingSnapshot } from '@services/guestMigration';
 import { clearPhotoCache } from '@services/photoImport/photoCacheDb';
+import {
+  registerForPushNotifications,
+  unregisterPushNotifications,
+} from '@services/pushNotifications';
 import { queryClient } from '../queryClient';
 import { supabase } from '@services/supabase';
 import { useAuthStore } from '@stores/authStore';
@@ -27,6 +31,7 @@ interface PasswordAuthInput {
   email: string;
   password: string;
   displayName?: string;
+  username?: string;
 }
 
 /**
@@ -42,7 +47,11 @@ export function useSignUpWithPassword() {
   const setNeedsPostSignupFlow = useAuthStore((s) => s.setNeedsPostSignupFlow);
 
   return useMutation({
-    mutationFn: async ({ email, password, displayName }: PasswordAuthInput) => {
+    mutationFn: async ({ email, password, displayName, username }: PasswordAuthInput) => {
+      const userData: Record<string, string> = {};
+      if (displayName) userData.display_name = displayName;
+      if (username) userData.username = username;
+
       // Set BEFORE signUp so the flag is in place before Supabase's
       // onAuthStateChange fires and triggers a RootNavigator re-render.
       // Without this, onAuthStateChange sets the session before onSuccess
@@ -54,7 +63,7 @@ export function useSignUpWithPassword() {
         email,
         password,
         options: {
-          data: displayName ? { display_name: displayName } : undefined,
+          data: Object.keys(userData).length > 0 ? userData : undefined,
         },
       });
 
@@ -108,6 +117,12 @@ export function useSignUpWithPassword() {
         } catch (error) {
           console.warn('Failed to schedule welcome emails:', error);
         }
+
+        // Request push notification permission and register token
+        // Non-blocking - don't await to avoid delaying auth flow
+        registerForPushNotifications().catch((err) =>
+          console.warn('Push notification registration failed:', err)
+        );
 
         // New sign-up, so onboarding not completed
         setHasCompletedOnboarding(false);
@@ -181,6 +196,12 @@ export function useSignInWithPassword() {
           throw new Error('Failed to store authentication tokens. Please try again.');
         }
 
+        // Register for push notifications (returning users may not have registered)
+        // Non-blocking - don't await to avoid delaying auth flow
+        registerForPushNotifications().catch((err) =>
+          console.warn('Push notification registration failed:', err)
+        );
+
         // Check if returning user
         const onboarded = await hasUserOnboarded(data.session.user.id);
 
@@ -221,6 +242,10 @@ export function useSignOut() {
 
   return useMutation({
     mutationFn: async () => {
+      // Unregister the device push token BEFORE signing out - the server-side
+      // delete needs the auth token. Errors are swallowed inside
+      // unregisterPushNotifications, so a failure never blocks sign-out.
+      await unregisterPushNotifications();
       const { error } = await supabase.auth.signOut();
       // Ignore "Auth session missing" error - user is effectively signed out
       // This can happen if the session was already cleared or expired

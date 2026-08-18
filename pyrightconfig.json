@@ -1,0 +1,12 @@
+{
+  "include": ["backend/app"],
+  "exclude": [
+    "mobile",
+    "supabase",
+    "docs",
+    "instructions",
+    "**/__pycache__",
+    "**/node_modules",
+    "**/.expo"
+  ]
+}

@@ -7,7 +7,7 @@ import httpx
 from app.core.config import get_settings
 from app.core.thumbnails import generate_thumbnail, upload_thumbnail_to_storage
 from app.core.urls import safe_google_photo_url
-from app.db.session import get_http_client, get_supabase_client
+from app.db.session import get_http_client, get_service_supabase_client
 
 logger = logging.getLogger(__name__)
 
@@ -116,7 +116,7 @@ async def create_media_record_for_google_photo(
         True if record created, False on failure
     """
     try:
-        db = get_supabase_client()  # Service role for insert
+        db = get_service_supabase_client()  # Service role for insert
 
         result = await db.post(
             "media_files",

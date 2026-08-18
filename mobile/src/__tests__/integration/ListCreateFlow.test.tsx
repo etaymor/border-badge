@@ -389,7 +389,8 @@ describe('ListCreateFlow Integration', () => {
 
     it('handles empty slug', () => {
       const url = getPublicListUrl('');
-      expect(url).toBe('https://example.com/l/');
+      // Returns empty string for invalid inputs
+      expect(url).toBe('');
     });
   });
 

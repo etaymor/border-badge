@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { Animated, Easing, type ViewToken } from 'react-native';
-import { ROW_HEIGHTS } from '../screens/passport/passportConstants';
 import type { ListItem } from '../screens/passport/passportTypes';
 import { useReducedMotion } from './useReducedMotion';
 
@@ -18,7 +17,14 @@ export const ROW_STAGGER_DELAY = 12;
 /** Maximum total duration for stagger sequence (ms) - passport specific */
 export const STAGGER_MAX_DURATION_PASSPORT = 280;
 
-export function usePassportAnimations(_isLoading: boolean) {
+type RowHeights = {
+  'section-header': number;
+  'stamp-row': number;
+  'unvisited-row': number;
+  'empty-state': number;
+};
+
+export function usePassportAnimations(_isLoading: boolean, rowHeights: RowHeights) {
   // Check for reduced motion preference (WCAG 2.1 Level AA)
   const reduceMotion = useReducedMotion();
 
@@ -260,20 +266,23 @@ export function usePassportAnimations(_isLoading: boolean) {
   ).current;
 
   // Compute layout data for O(1) getItemLayout lookups
-  const computeLayoutData = useCallback((flatListData: ListItem[]) => {
-    const offsets: number[] = [];
-    const lengths: number[] = [];
-    let cumulativeOffset = 0;
+  const computeLayoutData = useCallback(
+    (flatListData: ListItem[]) => {
+      const offsets: number[] = [];
+      const lengths: number[] = [];
+      let cumulativeOffset = 0;
 
-    for (const item of flatListData) {
-      offsets.push(cumulativeOffset);
-      const length = ROW_HEIGHTS[item.type];
-      lengths.push(length);
-      cumulativeOffset += length;
-    }
+      for (const item of flatListData) {
+        offsets.push(cumulativeOffset);
+        const length = rowHeights[item.type];
+        lengths.push(length);
+        cumulativeOffset += length;
+      }
 
-    return { offsets, lengths };
-  }, []);
+      return { offsets, lengths };
+    },
+    [rowHeights]
+  );
 
   // Get item key for FlatList
   const getItemKey = useCallback((item: ListItem) => item.key, []);

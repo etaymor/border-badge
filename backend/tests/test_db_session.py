@@ -2,7 +2,11 @@
 
 import pytest
 
-from app.db.session import SupabaseClient
+from app.db.session import (
+    SupabaseClient,
+    get_service_supabase_client,
+    get_supabase_client,
+)
 
 
 class DummySettings:
@@ -40,6 +44,32 @@ def test_user_scoped_headers_use_anon_key_and_user_token(monkeypatch) -> None:
     assert client.headers["Authorization"] == f"Bearer {user_token}"
 
 
+def test_get_supabase_client_without_token_raises(monkeypatch) -> None:
+    """KTD10: service-role access is explicit-only.
+
+    A tokenless get_supabase_client() used to silently fall back to the
+    service role key (an invisible RLS bypass). It must now raise;
+    get_service_supabase_client() is the explicit path.
+    """
+    dummy = DummySettings()
+    monkeypatch.setattr("app.db.session.get_settings", lambda: dummy)
+
+    with pytest.raises(ValueError, match="get_service_supabase_client"):
+        get_supabase_client()
+    with pytest.raises(ValueError, match="get_service_supabase_client"):
+        get_supabase_client(user_token=None)
+    with pytest.raises(ValueError, match="get_service_supabase_client"):
+        get_supabase_client(user_token="")
+
+    # The explicit service factory still works and keeps service headers.
+    service_client = get_service_supabase_client()
+    assert service_client.headers["apikey"] == dummy.supabase_service_role_key
+
+    # And the user-scoped path is unchanged.
+    user_client = get_supabase_client(user_token="user-jwt")
+    assert user_client.headers["Authorization"] == "Bearer user-jwt"
+
+
 class _DummyResponse:
     """Simple stub response for RPC tests."""
 
@@ -63,6 +93,69 @@ class _DummyRPCClient:
     async def post(self, url: str, headers: dict[str, str], json: dict[str, object]):
         self.calls.append({"url": url, "headers": headers, "json": json})
         return self.response
+
+
+def test_handle_http_error_does_not_leak_postgrest_detail(monkeypatch) -> None:
+    """Client-facing detail must be generic; PostgREST specifics go to logs only."""
+    import httpx
+    from fastapi import HTTPException
+
+    dummy = DummySettings()
+    monkeypatch.setattr("app.db.session.get_settings", lambda: dummy)
+    client = SupabaseClient()
+
+    secret_detail = 'invalid input syntax for type uuid: "boom" in table user_follow'
+    response = httpx.Response(
+        400,
+        json={"message": secret_detail, "code": "22P02"},
+        request=httpx.Request("POST", "https://example.supabase.co/rest/v1/rpc/x"),
+    )
+    error = httpx.HTTPStatusError(
+        "Bad Request", request=response.request, response=response
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        client._handle_http_error(error)
+
+    assert exc_info.value.status_code == 400
+    assert secret_detail not in str(exc_info.value.detail)
+    assert "22P02" not in str(exc_info.value.detail)
+    assert "user_follow" not in str(exc_info.value.detail)
+
+
+def test_handle_http_error_carries_structured_fields(monkeypatch) -> None:
+    """The raised DatabaseError keeps the PostgREST specifics server-side
+    (pg_code / message / constraint) while the detail stays generic, so
+    endpoints can classify errors without string-matching the detail."""
+    import httpx
+
+    from app.db.session import DatabaseError
+
+    dummy = DummySettings()
+    monkeypatch.setattr("app.db.session.get_settings", lambda: dummy)
+    client = SupabaseClient()
+
+    message = 'duplicate key value violates unique constraint "user_follow_pkey"'
+    response = httpx.Response(
+        409,
+        json={"message": message, "code": "23505", "details": None},
+        request=httpx.Request("POST", "https://example.supabase.co/rest/v1/x"),
+    )
+    error = httpx.HTTPStatusError(
+        "Conflict", request=response.request, response=response
+    )
+
+    with pytest.raises(DatabaseError) as exc_info:
+        client._handle_http_error(error)
+
+    exc = exc_info.value
+    assert exc.status_code == 409
+    assert exc.detail == "Database error"
+    assert exc.pg_code == "23505"
+    assert exc.message == message
+    assert exc.constraint == "user_follow_pkey"
+    # str() must never leak the specifics
+    assert "duplicate" not in str(exc.detail).lower()
 
 
 @pytest.mark.asyncio

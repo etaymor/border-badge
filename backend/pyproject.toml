@@ -19,6 +19,7 @@ mistune = "^3.1"
 pyyaml = "^6.0.2"
 pillow = "^11.0.0"
 pillow-heif = "^0.21.0"
+email-validator = "^2.3.0"
 rapidfuzz = "^3.6"
 resend = "^2.0.0"
 python-multipart = "^0.0.21"
@@ -35,6 +36,10 @@ pytest = "^8.3.0"
 rcssmin = "^1.2.2"
 pytest-asyncio = "^0.24.0"
 ruff = "^0.8.0"
+pytest-cov = "^7.0.0"
+# Driver for the real-Postgres SQL test suite (tests/sql, marker: sql).
+# Tests importorskip it, so environments without it still run green.
+psycopg = {extras = ["binary"], version = "^3.2"}
 
 [build-system]
 requires = ["poetry-core"]
@@ -69,3 +74,6 @@ indent-style = "space"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+markers = [
+    "sql: SQL-layer tests that require SUPABASE_DB_URL pointing at a migrated database",
+]

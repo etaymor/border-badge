@@ -17,6 +17,15 @@ class TripTagStatus(str, Enum):
     DECLINED = "declined"
 
 
+class TripTagUser(BaseModel):
+    """User profile info for trip tag display."""
+
+    user_id: UUID
+    username: str
+    display_name: str | None = None
+    avatar_url: str | None = None
+
+
 class TripTag(BaseModel):
     """Trip tag response model."""
 
@@ -28,6 +37,8 @@ class TripTag(BaseModel):
     notification_id: str | None = None
     created_at: datetime
     responded_at: datetime | None = None
+    # User profile info (populated when fetching trip details)
+    user: TripTagUser | None = None
 
 
 class TripBase(BaseModel):
@@ -103,9 +114,11 @@ class UncategorizedTrip(Trip):
 
 
 class TripWithTags(Trip):
-    """Trip with nested tags."""
+    """Trip with nested tags and owner info."""
 
     tags: list[TripTag] = []
+    # Owner profile info (populated when fetching trip details)
+    owner: TripTagUser | None = None
 
 
 class TripTagAction(BaseModel):
@@ -113,3 +126,22 @@ class TripTagAction(BaseModel):
 
     status: TripTagStatus
     responded_at: datetime
+
+
+class PendingTripTagDetail(BaseModel):
+    """Response model for pending trip tag with trip and initiator details."""
+
+    id: UUID
+    trip_id: UUID
+    trip_name: str
+    trip_country_code: str
+    initiated_by: UUID | None = None
+    initiated_by_username: str | None = None
+    initiated_by_avatar_url: str | None = None
+    created_at: datetime
+
+
+class PendingTripTagCount(BaseModel):
+    """Pending trip tag count response."""
+
+    count: int
