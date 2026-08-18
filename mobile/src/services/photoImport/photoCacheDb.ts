@@ -80,7 +80,8 @@ let dbInitPromise: Promise<SQLite.SQLiteDatabase> | null = null;
 /**
  * Tail of the app-level photo-cache write queue.
  *
- * Every writer in this module and in photoCacheDbSuggestions.ts shares one
+ * Every writer in this module and in photoCacheDbSuggestions.ts and
+ * photoTagDb.ts shares one
  * SQLite connection handle, and `withTransactionAsync` takes NO lock on it.
  * When two transactions overlap on the same handle the second `BEGIN` fails and
  * its automatic `ROLLBACK` discards the FIRST writer's uncommitted work; a bare

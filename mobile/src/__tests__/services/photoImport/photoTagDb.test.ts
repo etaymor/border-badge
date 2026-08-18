@@ -394,4 +394,69 @@ describe('photoTagDb', () => {
       expect(stats.byStatus).toEqual({ ok: 15, 'no-local-image': 3 });
     });
   });
+
+  // The tag tables share one SQLite connection with cached_photos, and
+  // photoCacheDb serializes every writer behind an app-level mutex. A tag
+  // writer that skips it can have its statements swept into a concurrent
+  // transaction and lost when that transaction rolls back.
+  describe('write-lock serialization', () => {
+    /** Hold the photo-cache write lock until the returned release is called. */
+    const holdLock = async (): Promise<() => void> => {
+      let release!: () => void;
+      const held = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let acquired!: () => void;
+      const isAcquired = new Promise<void>((resolve) => {
+        acquired = resolve;
+      });
+      void photoCacheDb.withPhotoCacheWriteLock(async () => {
+        acquired();
+        await held;
+      });
+      await isAcquired;
+      return release;
+    };
+
+    /**
+     * Drain enough microtasks that a writer which does NOT take the lock would
+     * have reached its transaction by now - otherwise the assertion passes on
+     * the unrelated `getDb()` await instead of on the lock.
+     */
+    const settle = async (): Promise<void> => {
+      for (let i = 0; i < 50; i += 1) await Promise.resolve();
+    };
+
+    it('makes upsertTags wait for an in-flight photo-cache writer', async () => {
+      await photoCacheDb.getDb(); // warm the singleton so only the write remains
+      const release = await holdLock();
+      mockDb.withTransactionAsync.mockClear();
+
+      const pending = photoTagDb.upsertTags([baseTag()]);
+      await settle();
+
+      expect(mockDb.withTransactionAsync).not.toHaveBeenCalled();
+
+      release();
+      await pending;
+
+      expect(callWith('INSERT OR REPLACE INTO photo_ml_tags')).toBeDefined();
+    });
+
+    it('makes upsertVerdicts wait for an in-flight photo-cache writer', async () => {
+      await photoCacheDb.getDb();
+      const release = await holdLock();
+      mockDb.withTransactionAsync.mockClear();
+
+      const pending = photoTagDb.upsertVerdicts([baseVerdict()]);
+      await settle();
+
+      expect(mockDb.withTransactionAsync).not.toHaveBeenCalled();
+
+      release();
+      await pending;
+
+      expect(callWith('INSERT OR REPLACE INTO photo_quiz_verdicts')).toBeDefined();
+    });
+  });
 });

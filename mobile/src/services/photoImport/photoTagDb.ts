@@ -19,7 +19,7 @@
  * are purged by `clearPhotoCache`.
  */
 
-import { getDb, SQLITE_PARAM_LIMIT } from './photoCacheDb';
+import { getDb, SQLITE_PARAM_LIMIT, withPhotoCacheWriteLock } from './photoCacheDb';
 
 /**
  * Version of the native signal set. Bump ONLY when the Swift module changes what
@@ -172,35 +172,42 @@ export async function upsertTags(tags: PhotoMlTag[]): Promise<void> {
 
   const database = await getDb();
 
-  await database.withTransactionAsync(async () => {
-    for (let i = 0; i < tags.length; i += UPSERT_BATCH_SIZE) {
-      const batch = tags.slice(i, i + UPSERT_BATCH_SIZE);
-      const placeholders = batch.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
-      const values = batch.flatMap((t) => [
-        t.id,
-        t.taggerVersion,
-        t.status,
-        t.isScreenshot ? 1 : 0,
-        t.faceCount,
-        t.maxFaceArea,
-        t.totalFaceArea,
-        t.humanCount,
-        t.maxHumanArea,
-        t.totalHumanArea,
-        serializeLabels(t.labels),
-        t.aestheticScore,
-        t.isUtility === null ? null : t.isUtility ? 1 : 0,
-        t.computedAt,
-      ]);
+  // Shares one connection handle with photoCacheDb, whose writers take an
+  // app-level mutex; an unserialized transaction here would collide with them
+  // and both writers would lose their work to the rollback.
+  await withPhotoCacheWriteLock(async () => {
+    await database.withTransactionAsync(async () => {
+      for (let i = 0; i < tags.length; i += UPSERT_BATCH_SIZE) {
+        const batch = tags.slice(i, i + UPSERT_BATCH_SIZE);
+        const placeholders = batch
+          .map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+          .join(', ');
+        const values = batch.flatMap((t) => [
+          t.id,
+          t.taggerVersion,
+          t.status,
+          t.isScreenshot ? 1 : 0,
+          t.faceCount,
+          t.maxFaceArea,
+          t.totalFaceArea,
+          t.humanCount,
+          t.maxHumanArea,
+          t.totalHumanArea,
+          serializeLabels(t.labels),
+          t.aestheticScore,
+          t.isUtility === null ? null : t.isUtility ? 1 : 0,
+          t.computedAt,
+        ]);
 
-      await database.runAsync(
-        `INSERT OR REPLACE INTO photo_ml_tags
+        await database.runAsync(
+          `INSERT OR REPLACE INTO photo_ml_tags
          (id, tagger_version, status, is_screenshot, face_count, max_face_area, total_face_area,
           human_count, max_human_area, total_human_area, labels_json, aesthetic_score, is_utility, computed_at)
          VALUES ${placeholders}`,
-        values
-      );
-    }
+          values
+        );
+      }
+    });
   });
 }
 
@@ -316,26 +323,29 @@ export async function upsertVerdicts(verdicts: PhotoQuizVerdict[]): Promise<void
 
   const database = await getDb();
 
-  await database.withTransactionAsync(async () => {
-    for (let i = 0; i < verdicts.length; i += UPSERT_BATCH_SIZE) {
-      const batch = verdicts.slice(i, i + UPSERT_BATCH_SIZE);
-      const placeholders = batch.map(() => '(?, ?, ?, ?, ?, ?)').join(', ');
-      const values = batch.flatMap((v) => [
-        v.id,
-        v.eligible ? 1 : 0,
-        v.reason,
-        v.landscape,
-        v.classifierVersion,
-        v.classifiedAt,
-      ]);
+  // Serialized for the same reason as upsertTags: one shared connection handle.
+  await withPhotoCacheWriteLock(async () => {
+    await database.withTransactionAsync(async () => {
+      for (let i = 0; i < verdicts.length; i += UPSERT_BATCH_SIZE) {
+        const batch = verdicts.slice(i, i + UPSERT_BATCH_SIZE);
+        const placeholders = batch.map(() => '(?, ?, ?, ?, ?, ?)').join(', ');
+        const values = batch.flatMap((v) => [
+          v.id,
+          v.eligible ? 1 : 0,
+          v.reason,
+          v.landscape,
+          v.classifierVersion,
+          v.classifiedAt,
+        ]);
 
-      await database.runAsync(
-        `INSERT OR REPLACE INTO photo_quiz_verdicts
+        await database.runAsync(
+          `INSERT OR REPLACE INTO photo_quiz_verdicts
          (id, eligible, reason, landscape, classifier_version, classified_at)
          VALUES ${placeholders}`,
-        values
-      );
-    }
+          values
+        );
+      }
+    });
   });
 }
 
