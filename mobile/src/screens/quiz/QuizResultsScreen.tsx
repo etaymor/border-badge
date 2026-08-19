@@ -43,10 +43,11 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeIn, FadeInUp } from 'react-native-reanimated';
 
 import { Button } from '@components/ui/Button';
+import { GlassIconButton } from '@components/ui/GlassIconButton';
 import { Screen } from '@components/ui/Screen';
 import { colors, withAlpha } from '@constants/colors';
 import { fonts } from '@constants/typography';
@@ -84,6 +85,11 @@ import { sortQuestionsByPosition } from './questionOrder';
 
 type Props = RootStackScreenProps<'QuizResults'>;
 
+/** Swap picker grid: three columns that fill the row exactly at any width. */
+const CANDIDATE_COLUMNS = 3;
+const CANDIDATE_GAP = 8;
+const PICKER_GUTTER = 24;
+
 /** Per-thumbnail delay so the recap populates rapidly, not all at once. */
 const THUMB_STAGGER = DURATION_FAST / 2;
 
@@ -106,6 +112,9 @@ export function QuizResultsScreen({ navigation, route }: Props) {
   const reduceMotion = useReducedMotion();
   const insets = useSafeAreaInsets();
   const { height: windowHeight, width: windowWidth } = useWindowDimensions();
+  const candidateSize = Math.floor(
+    (windowWidth - PICKER_GUTTER * 2 - CANDIDATE_GAP * (CANDIDATE_COLUMNS - 1)) / CANDIDATE_COLUMNS
+  );
 
   const {
     data: quiz,
@@ -449,73 +458,87 @@ export function QuizResultsScreen({ navigation, route }: Props) {
 
       {/* Pinned above the scroll: the way out must not scroll away. */}
       <View style={styles.topBar} pointerEvents="box-none">
-        <QuizTopBar
-          title="Guess Where"
-          onClose={handleBack}
-          icon="back"
-          testID="quiz-results-top-bar"
-        />
+        <QuizTopBar onClose={handleBack} icon="back" testID="quiz-results-top-bar" />
       </View>
 
       <Modal visible={swapTargetId !== null} animationType="slide" onRequestClose={closeSwapPicker}>
-        <Screen>
-          <View style={styles.pickerContainer} testID="quiz-swap-picker">
-            <Text style={styles.sectionTitle}>Pick a Replacement Photo</Text>
-            <Text style={styles.body}>You will answer it before the challenge can be shared.</Text>
-            {swapLoadFailed ? (
-              <View style={styles.pickerError} testID="quiz-swap-error">
-                <Text style={styles.body}>
-                  We could not load your photos right now. Please try again.
-                </Text>
-                <Button title="Try Again" variant="ghost" onPress={loadCandidates} />
-              </View>
-            ) : swapCandidates === null ? (
-              <View style={styles.pickerLoading}>
-                <ActivityIndicator size="large" color={colors.sunsetGold} />
-              </View>
-            ) : swapCandidates.length === 0 ? (
-              <Text style={styles.body}>No other eligible photos were found in your library.</Text>
-            ) : (
-              <ScrollView contentContainerStyle={styles.candidateGrid}>
-                {swapCandidates.map((candidate, index) => (
-                  <Pressable
-                    key={candidate.id}
-                    onPress={() => handlePickCandidate(candidate)}
-                    disabled={swapMutation.isPending}
-                    testID={`quiz-swap-candidate-${index}`}
-                  >
-                    <Image
-                      source={{ uri: candidate.uri }}
-                      style={styles.candidateThumb}
-                      contentFit="cover"
-                      recyclingKey={candidate.id}
-                      cachePolicy="memory-disk"
-                    />
-                  </Pressable>
-                ))}
-              </ScrollView>
-            )}
-            {canRemove && swapTarget ? (
-              <Button
-                title="Remove This Photo"
-                variant="destructive"
-                onPress={() => {
-                  const questionId = swapTarget.id;
-                  closeSwapPicker();
-                  handleRemove(questionId);
-                }}
-                disabled={swapMutation.isPending}
-                testID={`quiz-remove-${swapTarget.position}`}
-              />
-            ) : null}
-            <Button
-              title="Cancel"
-              variant="ghost"
-              onPress={closeSwapPicker}
-              disabled={swapMutation.isPending}
+        {/* RN renders a Modal outside the app's provider, so the bar inside it
+            would measure zero insets and ride under the status bar. Its own
+            provider measures the real ones. */}
+        <SafeAreaProvider>
+          <Screen safeArea={false}>
+            <QuizTopBar
+              title="Swap Photo"
+              onClose={closeSwapPicker}
+              icon="back"
+              variant="light"
+              testID="quiz-swap-top-bar"
+              rightActions={
+                canRemove && swapTarget ? (
+                  <GlassIconButton
+                    icon="trash-outline"
+                    onPress={() => {
+                      const questionId = swapTarget.id;
+                      closeSwapPicker();
+                      handleRemove(questionId);
+                    }}
+                    accessibilityLabel="Remove this photo from the challenge"
+                    testID={`quiz-remove-${swapTarget.position}`}
+                  />
+                ) : null
+              }
             />
-          </View>
-        </Screen>
+            <View
+              style={[styles.pickerContainer, { paddingBottom: insets.bottom + 16 }]}
+              testID="quiz-swap-picker"
+            >
+              <Text style={styles.body}>
+                You will answer it before the challenge can be shared.
+              </Text>
+              {swapLoadFailed ? (
+                <View style={styles.pickerError} testID="quiz-swap-error">
+                  <Text style={styles.body}>
+                    We could not load your photos right now. Please try again.
+                  </Text>
+                  <Button title="Try Again" variant="ghost" onPress={loadCandidates} />
+                </View>
+              ) : swapCandidates === null ? (
+                <View style={styles.pickerLoading}>
+                  <ActivityIndicator size="large" color={colors.sunsetGold} />
+                </View>
+              ) : swapCandidates.length === 0 ? (
+                <Text style={styles.body}>
+                  No other eligible photos were found in your library.
+                </Text>
+              ) : (
+                <ScrollView
+                  style={styles.candidateScroll}
+                  contentContainerStyle={styles.candidateGrid}
+                >
+                  {swapCandidates.map((candidate, index) => (
+                    <Pressable
+                      key={candidate.id}
+                      onPress={() => handlePickCandidate(candidate)}
+                      disabled={swapMutation.isPending}
+                      testID={`quiz-swap-candidate-${index}`}
+                    >
+                      <Image
+                        source={{ uri: candidate.uri }}
+                        style={[
+                          styles.candidateThumb,
+                          { width: candidateSize, height: candidateSize },
+                        ]}
+                        contentFit="cover"
+                        recyclingKey={candidate.id}
+                        cachePolicy="memory-disk"
+                      />
+                    </Pressable>
+                  ))}
+                </ScrollView>
+              )}
+            </View>
+          </Screen>
+        </SafeAreaProvider>
       </Modal>
     </Screen>
   );
@@ -641,12 +664,6 @@ const styles = StyleSheet.create({
   },
   // The one sanctioned stamp moment: a small artwork accent, revealed only
   // after the answer is already spoken by the row text.
-  sectionTitle: {
-    fontFamily: fonts.playfair.bold,
-    fontSize: 20,
-    color: colors.textPrimary,
-    marginTop: 8,
-  },
   footer: {
     gap: 8,
     marginTop: 10,
@@ -663,8 +680,8 @@ const styles = StyleSheet.create({
   },
   pickerContainer: {
     flex: 1,
-    paddingHorizontal: 24,
-    paddingVertical: 16,
+    paddingHorizontal: PICKER_GUTTER,
+    paddingTop: 4,
     gap: 12,
   },
   pickerLoading: {
@@ -676,14 +693,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 12,
   },
+  candidateScroll: {
+    flex: 1,
+  },
   candidateGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
+    gap: CANDIDATE_GAP,
+    paddingBottom: 8,
   },
   candidateThumb: {
-    width: 100,
-    height: 100,
     borderRadius: 8,
     backgroundColor: withAlpha(colors.midnightNavy, 0.08),
   },

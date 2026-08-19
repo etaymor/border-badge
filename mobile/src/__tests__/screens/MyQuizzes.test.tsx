@@ -209,12 +209,13 @@ describe('MyQuizzesScreen', () => {
     renderList();
 
     await waitFor(() => expect(screen.getByTestId('quiz-row-q-draft')).toBeTruthy());
-    // State labels.
-    expect(screen.getByText('Draft')).toBeTruthy();
-    expect(screen.getByText('Ready to play')).toBeTruthy();
-    expect(screen.getByText('Ready to share')).toBeTruthy();
-    expect(screen.getByText('Shared')).toBeTruthy();
-    expect(screen.getByText('Revoked')).toBeTruthy();
+    // The state pills are gone: each card's action row is what names its
+    // stage now, so no lifecycle label should be on screen.
+    expect(screen.queryByText('Draft')).toBeNull();
+    expect(screen.queryByText('Ready to play')).toBeNull();
+    expect(screen.queryByText('Ready to share')).toBeNull();
+    expect(screen.queryByText('Shared')).toBeNull();
+    expect(screen.queryByText('Revoked')).toBeNull();
 
     // Draft: resume + delete.
     expect(screen.getByTestId('quiz-resume-q-draft')).toBeTruthy();

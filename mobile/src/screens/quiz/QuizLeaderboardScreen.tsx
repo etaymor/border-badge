@@ -45,6 +45,7 @@ import Animated, {
 } from 'react-native-reanimated';
 
 import { Button } from '@components/ui/Button';
+import { GlassIconButton } from '@components/ui/GlassIconButton';
 import { Screen } from '@components/ui/Screen';
 import { colors, withAlpha } from '@constants/colors';
 import { fonts } from '@constants/typography';
@@ -257,10 +258,6 @@ export function QuizLeaderboardScreen({ navigation, route }: Props) {
         </View>
 
         <View style={styles.sheet}>
-          {canShare && (
-            <Button title="Share Challenge" onPress={handleShare} testID="leaderboard-share" />
-          )}
-
           {isLoading ? (
             <View style={styles.loading}>
               <ActivityIndicator size="large" color={colors.sunsetGold} />
@@ -284,6 +281,14 @@ export function QuizLeaderboardScreen({ navigation, route }: Props) {
               <Text style={styles.body}>
                 Share your challenge and check back here for the standings.
               </Text>
+              {canShare && (
+                <Button
+                  title="Share Challenge"
+                  onPress={handleShare}
+                  style={styles.emptyShare}
+                  testID="leaderboard-share-empty"
+                />
+              )}
             </View>
           ) : (
             entries.map((entry, index) => (
@@ -303,7 +308,22 @@ export function QuizLeaderboardScreen({ navigation, route }: Props) {
 
       {/* Pinned above the scroll: the way out must not scroll away. */}
       <View style={styles.topBar} pointerEvents="box-none">
-        <QuizTopBar title="Guess Where" onClose={handleDone} testID="leaderboard-top-bar" />
+        <QuizTopBar
+          onClose={handleDone}
+          icon="back"
+          testID="leaderboard-top-bar"
+          rightActions={
+            canShare ? (
+              <GlassIconButton
+                icon="share-outline"
+                onPress={handleShare}
+                variant="dark"
+                accessibilityLabel="Share challenge"
+                testID="leaderboard-share"
+              />
+            ) : null
+          }
+        />
       </View>
     </Screen>
   );
@@ -382,6 +402,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 24,
     gap: 6,
+  },
+  emptyShare: {
+    alignSelf: 'stretch',
+    marginTop: 10,
   },
   emptyTrophy: {
     width: 72,

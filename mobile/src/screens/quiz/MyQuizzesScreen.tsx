@@ -54,23 +54,6 @@ import { guessWhereMark } from './sampleAssets';
 
 type Props = RootStackScreenProps<'MyQuizzes'>;
 
-const STATE_LABELS: Record<string, string> = {
-  building: 'Draft',
-  awaiting_owner_play: 'Ready to play',
-  playable: 'Ready to share',
-  shared: 'Shared',
-  revoked: 'Revoked',
-};
-
-/** State pill colors: each lifecycle stage reads at a glance. */
-const STATE_PILLS: Record<string, { bg: string; text: string }> = {
-  building: { bg: withAlpha(colors.stormGray, 0.15), text: colors.stormGray },
-  awaiting_owner_play: { bg: withAlpha(colors.sunsetGold, 0.25), text: colors.textPrimary },
-  playable: { bg: withAlpha(colors.mossGreen, 0.18), text: colors.mossGreen },
-  shared: { bg: withAlpha(colors.lakeBlue, 0.35), text: colors.textPrimary },
-  revoked: { bg: withAlpha(colors.stormGray, 0.15), text: colors.stormGray },
-};
-
 // Pre-play states: resumable and safely deletable (nothing is shared yet).
 const DELETABLE_STATES = new Set(['building', 'awaiting_owner_play']);
 
@@ -223,22 +206,6 @@ function ActionRow({ quiz, onPress }: { quiz: QuizSummary; onPress: () => void }
   );
 }
 
-function StatePill({ quiz, overlay }: { quiz: QuizSummary; overlay?: boolean }) {
-  const pill = STATE_PILLS[quiz.state] ?? STATE_PILLS.building;
-  return (
-    <View
-      style={[styles.statePill, overlay ? styles.statePillOverlay : { backgroundColor: pill.bg }]}
-    >
-      <Text
-        style={[styles.statePillText, { color: overlay ? colors.textPrimary : pill.text }]}
-        testID={`quiz-state-${quiz.id}`}
-      >
-        {STATE_LABELS[quiz.state] ?? quiz.state}
-      </Text>
-    </View>
-  );
-}
-
 /** The newest challenge, photo-first: cover on top, state pill over it. */
 function FeaturedQuizCard({
   quiz,
@@ -274,9 +241,6 @@ function FeaturedQuizCard({
           transition={DURATION_FAST}
           testID={`quiz-cover-${quiz.id}`}
         />
-        <View style={styles.featuredPillSlot}>
-          <StatePill quiz={quiz} overlay />
-        </View>
       </View>
       <View style={styles.featuredBody}>
         <View style={styles.featuredTitleRow}>
@@ -324,9 +288,6 @@ function QuizRow({ quiz, navigation }: { quiz: QuizSummary; navigation: Props['n
         <View style={styles.rowHeader}>
           <Text style={styles.rowTitle}>{createdAt || 'Challenge'}</Text>
           <OverflowAction quiz={quiz} onDelete={handleDelete} onRevoke={handleRevoke} />
-        </View>
-        <View style={styles.rowPillLine}>
-          <StatePill quiz={quiz} />
         </View>
         {meta ? <Text style={styles.rowMeta}>{meta}</Text> : null}
         <ActionRow quiz={quiz} onPress={handlePrimary} />
@@ -464,11 +425,6 @@ const styles = StyleSheet.create({
   featuredPhoto: {
     ...StyleSheet.absoluteFillObject,
   },
-  featuredPillSlot: {
-    position: 'absolute',
-    top: 14,
-    right: 14,
-  },
   featuredBody: {
     paddingHorizontal: 20,
     paddingTop: 16,
@@ -525,21 +481,6 @@ const styles = StyleSheet.create({
     lineHeight: 25,
     color: colors.textPrimary,
   },
-  rowPillLine: {
-    flexDirection: 'row',
-  },
-  statePill: {
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-  },
-  statePillOverlay: {
-    backgroundColor: colors.warmCream,
-  },
-  statePillText: {
-    fontFamily: fonts.body.semiBold,
-    fontSize: 12,
-  },
   rowMeta: {
     fontFamily: fonts.body.regular,
     fontSize: 13,
@@ -555,7 +496,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 12,
+    paddingVertical: 6,
   },
   actionLabel: {
     fontFamily: fonts.body.semiBold,
