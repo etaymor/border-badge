@@ -426,7 +426,7 @@ export function QuizCreationScreen({ navigation }: Props) {
           <ActivityIndicator size="large" color={colors.sunsetGold} />
         </View>
         <View style={styles.topBar} pointerEvents="box-none">
-          <QuizTopBar title="Guess Where" onClose={handleBack} testID="quiz-creation-top-bar" />
+          <QuizTopBar onClose={handleBack} icon="back" testID="quiz-creation-top-bar" />
         </View>
       </View>
     );
@@ -437,7 +437,7 @@ export function QuizCreationScreen({ navigation }: Props) {
       <StatusBar barStyle="light-content" />
       <View style={styles.heroRegion}>{hero}</View>
       <View style={styles.topBar} pointerEvents="box-none">
-        <QuizTopBar title="Guess Where" onClose={handleClose} testID="quiz-creation-top-bar" />
+        <QuizTopBar onClose={handleClose} icon="back" testID="quiz-creation-top-bar" />
       </View>
 
       <View style={[styles.sheet, { paddingBottom: insets.bottom + 20 }]}>

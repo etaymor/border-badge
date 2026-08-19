@@ -60,7 +60,6 @@ import {
 } from '@hooks/useQuizzes';
 import { useReducedMotion } from '@hooks/useReducedMotion';
 import { useStableCallback } from '@hooks/useStableCallback';
-import { useCountries } from '@hooks/useCountries';
 import { QUIZ_MIN_PHOTOS, type GeoEligibleCandidate } from '@services/quiz/candidateSelection';
 import {
   loadPlayState,
@@ -70,11 +69,8 @@ import {
 } from '@services/quiz/quizPlay';
 import type { RootStackScreenProps } from '@navigation/types';
 
-import { getStampImage } from '../../assets/stampImages';
-
 import { PhotoHero } from './components/PhotoHero';
 import { QuizTopBar } from './components/QuizTopBar';
-import { RowAction } from './components/RowAction';
 import { VerdictMark } from './components/VerdictMark';
 import { SerifScore } from './components/SerifScore';
 import {
@@ -123,7 +119,6 @@ export function QuizResultsScreen({ navigation, route }: Props) {
   const revokeMutation = useRevokeQuiz(quizId);
 
   const [playState, setPlayState] = useState<QuizPlayState | null>(null);
-  const [reviewOpen, setReviewOpen] = useState(false);
   const [swapTargetId, setSwapTargetId] = useState<string | null>(null);
   const [swapCandidates, setSwapCandidates] = useState<GeoEligibleCandidate[] | null>(null);
   // Distinguishes a candidate-load failure from an empty library so the swap
@@ -132,13 +127,6 @@ export function QuizResultsScreen({ navigation, route }: Props) {
   // Country name -> ISO2, from the module-cached countries hook. Powers the
   // small stamp accents in the opened review; absent names (including the
   // pre-load window, when `countries` is still empty) just skip the art.
-  const { data: countries } = useCountries();
-  const countryCodeByName = useMemo(
-    () =>
-      Object.fromEntries(countries.map((country) => [country.name.toLowerCase(), country.code])),
-    [countries]
-  );
-
   // The local play state mirrors the seeding session's graded answers; it
   // drives the per-photo review and the "answer the swapped photo" gate.
   useEffect(() => {
@@ -170,6 +158,7 @@ export function QuizResultsScreen({ navigation, route }: Props) {
   const state = quiz?.state ?? results?.state;
   const scoreToBeat = quiz?.score_to_beat ?? results?.score_to_beat;
   const editable = state === 'awaiting_owner_play' || state === 'playable';
+  const swapTarget = questions.find((question) => question.id === swapTargetId) ?? null;
   const canRemove = questions.length > QUIZ_MIN_PHOTOS;
   const unansweredCount = playState
     ? questions.filter((question) => !playState.answers[question.id]).length
@@ -226,10 +215,6 @@ export function QuizResultsScreen({ navigation, route }: Props) {
     navigation.navigate('QuizPlay', { quizId });
   });
 
-  const toggleReview = useStableCallback(() => {
-    setReviewOpen((open) => !open);
-  });
-
   const handleShare = useStableCallback(async () => {
     if (!scoreToBeat) return; // Unreachable: share renders only with a score.
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
@@ -270,10 +255,6 @@ export function QuizResultsScreen({ navigation, route }: Props) {
         },
       });
     });
-  });
-
-  const handleDone = useStableCallback(() => {
-    navigation.popToTop();
   });
 
   const handleBack = useStableCallback(() => {
@@ -391,7 +372,17 @@ export function QuizResultsScreen({ navigation, route }: Props) {
                   }
                   style={styles.recapCell}
                 >
-                  <View style={styles.recapThumb} testID={`quiz-recap-thumb-${question.position}`}>
+                  <Pressable
+                    onPress={editable ? () => openSwapPicker(question.id) : undefined}
+                    disabled={!editable}
+                    accessibilityRole={editable ? 'button' : undefined}
+                    accessibilityLabel={editable ? 'Swap this photo' : undefined}
+                    style={({ pressed }) => [
+                      styles.recapThumb,
+                      pressed && editable && styles.pressedDim,
+                    ]}
+                    testID={`quiz-recap-thumb-${question.position}`}
+                  >
                     <Image
                       source={{ uri: question.image_url }}
                       style={styles.recapPhoto}
@@ -415,81 +406,11 @@ export function QuizResultsScreen({ navigation, route }: Props) {
                         />
                       )
                     ) : null}
-                  </View>
+                  </Pressable>
                 </Animated.View>
               );
             })}
           </View>
-
-          {reviewOpen && (
-            <View style={styles.reviewList}>
-              {questions.map((question) => {
-                const answer = playState?.answers[question.id];
-                const stampCode =
-                  answer && !answer.verdictUnknown
-                    ? countryCodeByName[answer.correctOption.toLowerCase()]
-                    : undefined;
-                const stamp = stampCode ? getStampImage(stampCode) : null;
-                return (
-                  <View
-                    key={question.id}
-                    style={styles.reviewRow}
-                    testID={`quiz-review-${question.position}`}
-                  >
-                    <View style={styles.reviewBody}>
-                      {answer ? (
-                        answer.verdictUnknown ? (
-                          <Text style={styles.reviewNote}>
-                            Answered - verdict syncs with your score.
-                          </Text>
-                        ) : (
-                          <>
-                            <Text
-                              style={answer.placeCorrect ? styles.reviewRight : styles.reviewWrong}
-                            >
-                              {answer.placeCorrect
-                                ? `Right: ${answer.correctOption}`
-                                : `It was ${answer.correctOption} — you picked ` +
-                                  `${question.options[answer.selectedOptionIndex] ?? 'another country'}`}
-                            </Text>
-                          </>
-                        )
-                      ) : (
-                        <Text style={styles.reviewPending}>
-                          New photo - answer it before sharing
-                        </Text>
-                      )}
-                      {editable && (
-                        <View style={styles.reviewActions}>
-                          <RowAction
-                            title="Swap"
-                            onPress={() => openSwapPicker(question.id)}
-                            testID={`quiz-swap-${question.position}`}
-                          />
-                          {canRemove && (
-                            <RowAction
-                              title="Remove"
-                              tone="destructive"
-                              onPress={() => handleRemove(question.id)}
-                              testID={`quiz-remove-${question.position}`}
-                            />
-                          )}
-                        </View>
-                      )}
-                    </View>
-                    {stamp && (
-                      <Image
-                        source={stamp}
-                        style={styles.stampAccent}
-                        contentFit="contain"
-                        testID={`quiz-review-stamp-${question.position}`}
-                      />
-                    )}
-                  </View>
-                );
-              })}
-            </View>
-          )}
 
           <Animated.View entering={footerEntering} style={styles.footer}>
             {state === 'revoked' ? (
@@ -513,13 +434,6 @@ export function QuizResultsScreen({ navigation, route }: Props) {
                 testID="quiz-share"
               />
             )}
-            <Button
-              title={reviewOpen ? 'Hide Answers' : 'Review Answers'}
-              variant="outline"
-              onPress={toggleReview}
-              style={styles.primaryCta}
-              testID="quiz-review-toggle"
-            />
             {state === 'shared' && (
               <Button
                 title="Revoke Link"
@@ -529,14 +443,18 @@ export function QuizResultsScreen({ navigation, route }: Props) {
                 testID="quiz-revoke"
               />
             )}
-            <Button title="Done" variant="ghost" onPress={handleDone} testID="quiz-done" />
           </Animated.View>
         </View>
       </ScrollView>
 
       {/* Pinned above the scroll: the way out must not scroll away. */}
       <View style={styles.topBar} pointerEvents="box-none">
-        <QuizTopBar title="Guess Where" onClose={handleDone} testID="quiz-results-top-bar" />
+        <QuizTopBar
+          title="Guess Where"
+          onClose={handleBack}
+          icon="back"
+          testID="quiz-results-top-bar"
+        />
       </View>
 
       <Modal visible={swapTargetId !== null} animationType="slide" onRequestClose={closeSwapPicker}>
@@ -577,6 +495,19 @@ export function QuizResultsScreen({ navigation, route }: Props) {
                 ))}
               </ScrollView>
             )}
+            {canRemove && swapTarget ? (
+              <Button
+                title="Remove This Photo"
+                variant="destructive"
+                onPress={() => {
+                  const questionId = swapTarget.id;
+                  closeSwapPicker();
+                  handleRemove(questionId);
+                }}
+                disabled={swapMutation.isPending}
+                testID={`quiz-remove-${swapTarget.position}`}
+              />
+            ) : null}
             <Button
               title="Cancel"
               variant="ghost"
@@ -680,6 +611,9 @@ const styles = StyleSheet.create({
     aspectRatio: 1,
     padding: 4,
   },
+  pressedDim: {
+    opacity: 0.6,
+  },
   recapThumb: {
     flex: 1,
     borderRadius: 10,
@@ -705,52 +639,8 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: colors.cloudWhite,
   },
-  reviewList: {
-    gap: 10,
-  },
-  reviewRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    backgroundColor: colors.backgroundCard,
-    borderRadius: 20,
-    padding: 14,
-  },
-  reviewBody: {
-    flex: 1,
-    gap: 2,
-  },
-  reviewRight: {
-    fontFamily: fonts.playfair.bold,
-    fontSize: 16,
-    color: colors.sunsetGold,
-  },
-  reviewWrong: {
-    fontFamily: fonts.playfair.bold,
-    fontSize: 16,
-    color: colors.adobeBrick,
-  },
-  reviewNote: {
-    fontFamily: fonts.body.regular,
-    fontSize: 13,
-    color: colors.textSecondary,
-  },
-  reviewPending: {
-    fontFamily: fonts.body.semiBold,
-    fontSize: 14,
-    color: colors.adobeBrick,
-  },
-  reviewActions: {
-    flexDirection: 'row',
-    gap: 4,
-  },
   // The one sanctioned stamp moment: a small artwork accent, revealed only
   // after the answer is already spoken by the row text.
-  stampAccent: {
-    width: 44,
-    height: 44,
-    opacity: 0.9,
-  },
   sectionTitle: {
     fontFamily: fonts.playfair.bold,
     fontSize: 20,

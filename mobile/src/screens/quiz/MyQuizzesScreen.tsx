@@ -34,6 +34,7 @@ import {
 } from 'react-native';
 
 import { Button } from '@components/ui/Button';
+import { GlassIconButton } from '@components/ui/GlassIconButton';
 import { Screen } from '@components/ui/Screen';
 import { colors, withAlpha } from '@constants/colors';
 import { fonts } from '@constants/typography';
@@ -250,8 +251,20 @@ function FeaturedQuizCard({
   const createdAt = formatCreatedAt(quiz.created_at);
   const meta = metaLine(quiz);
 
+  const action = primaryActionFor(quiz.state);
+
   return (
-    <View style={styles.featuredCard} testID={`quiz-row-${quiz.id}`}>
+    /* The whole card is the tap target for its primary action; the nested
+       ellipsis and action row still win the touch when hit directly. A
+       revoked challenge has no action, so it stays inert. */
+    <Pressable
+      onPress={action ? handlePrimary : undefined}
+      disabled={!action}
+      accessibilityRole={action ? 'button' : undefined}
+      accessibilityLabel={action ? `${action.label} challenge` : undefined}
+      style={({ pressed }) => [styles.featuredCard, pressed && action && styles.pressedDim]}
+      testID={`quiz-row-${quiz.id}`}
+    >
       <View style={styles.featuredPhotoFrame}>
         <Image
           source={{ uri: quiz.cover_image_url ?? undefined }}
@@ -273,7 +286,7 @@ function FeaturedQuizCard({
         {meta ? <Text style={styles.rowMeta}>{meta}</Text> : null}
         <ActionRow quiz={quiz} onPress={handlePrimary} />
       </View>
-    </View>
+    </Pressable>
   );
 }
 
@@ -283,8 +296,17 @@ function QuizRow({ quiz, navigation }: { quiz: QuizSummary; navigation: Props['n
   const createdAt = formatCreatedAt(quiz.created_at);
   const meta = metaLine(quiz);
 
+  const action = primaryActionFor(quiz.state);
+
   return (
-    <View style={styles.row} testID={`quiz-row-${quiz.id}`}>
+    <Pressable
+      onPress={action ? handlePrimary : undefined}
+      disabled={!action}
+      accessibilityRole={action ? 'button' : undefined}
+      accessibilityLabel={action ? `${action.label} challenge` : undefined}
+      style={({ pressed }) => [styles.row, pressed && action && styles.pressedDim]}
+      testID={`quiz-row-${quiz.id}`}
+    >
       {quiz.cover_image_url ? (
         <Image
           source={{ uri: quiz.cover_image_url }}
@@ -309,7 +331,7 @@ function QuizRow({ quiz, navigation }: { quiz: QuizSummary; navigation: Props['n
         {meta ? <Text style={styles.rowMeta}>{meta}</Text> : null}
         <ActionRow quiz={quiz} onPress={handlePrimary} />
       </View>
-    </View>
+    </Pressable>
   );
 }
 
@@ -329,23 +351,32 @@ export function MyQuizzesScreen({ navigation }: Props) {
   });
 
   return (
-    <Screen>
+    /* safeArea={false}: QuizTopBar applies the top inset itself, and Screen's
+       SafeAreaView would apply it a second time. */
+    <Screen safeArea={false}>
       <QuizTopBar
         title="Guess Where"
         onClose={handleBack}
         variant="light"
         testID="quiz-list-top-bar"
+        rightActions={
+          <>
+            <GlassIconButton
+              icon="help-circle-outline"
+              onPress={handleHowItWorks}
+              accessibilityLabel="How it works"
+              testID="quiz-how-it-works"
+            />
+            <GlassIconButton
+              icon="add"
+              onPress={handleCreate}
+              accessibilityLabel="New challenge"
+              testID="quiz-create-new"
+            />
+          </>
+        }
       />
       <ScrollView contentContainerStyle={styles.content}>
-        <Text style={styles.heading}>Your Challenges</Text>
-        <Button title="New Challenge" onPress={handleCreate} testID="quiz-create-new" />
-        <Button
-          title="How It Works"
-          variant="ghost"
-          onPress={handleHowItWorks}
-          testID="quiz-how-it-works"
-        />
-
         {isLoading ? (
           <View style={styles.loading}>
             <ActivityIndicator size="large" color={colors.sunsetGold} />
@@ -387,13 +418,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 16,
     gap: 14,
-  },
-  heading: {
-    fontFamily: fonts.playfair.bold,
-    fontSize: 32,
-    lineHeight: 40,
-    color: colors.textPrimary,
-    textAlign: 'center',
   },
   body: {
     fontFamily: fonts.body.regular,

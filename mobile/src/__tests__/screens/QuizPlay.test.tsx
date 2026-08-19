@@ -84,8 +84,6 @@ import {
   type QuizPlayState,
   type StoredQuizAnswer,
 } from '@services/quiz/quizPlay';
-import { getAllCountries } from '@services/countriesDb';
-import { invalidateCountriesCache } from '@hooks/useCountries';
 import { useReducedMotion } from '@hooks/useReducedMotion';
 import { deriveOrientation, QuizPlayScreen } from '@screens/quiz/QuizPlayScreen';
 import { QuizResultsScreen } from '@screens/quiz/QuizResultsScreen';
@@ -757,61 +755,17 @@ describe('QuizResultsScreen', () => {
     expect(screen.queryByText('Only you see this.')).toBeNull();
   });
 
-  it('keeps country names out of the recap until Review Answers is opened', async () => {
+  it('keeps country names out of the recap', async () => {
     mockQuizDetail(makeDetail({ state: 'playable', score_to_beat: { correct: 3, total: 5 } }));
     mockLoadPlayState.mockResolvedValue(makePlayState(['q0', 'q1', 'q2', 'q3', 'q4']));
 
     renderResultsScreen();
 
-    // The recap thumbnails carry corner verdict marks - but no reveal text.
+    // The recap thumbnails carry corner verdict marks - but never the answer.
     await waitFor(() =>
       expect(screen.getByTestId('quiz-recap-thumb-0-verdict-correct')).toBeTruthy()
     );
     expect(screen.queryByText(/France/)).toBeNull();
-
-    fireEvent.press(screen.getByTestId('quiz-review-toggle'));
-
-    // Opening the review reveals the serif country lines for every photo.
-    expect(screen.getAllByText('Right: France')).toHaveLength(5);
-  });
-
-  it('names the correct country and the owner pick on a miss once answers are open', async () => {
-    mockQuizDetail(makeDetail({ state: 'playable', score_to_beat: { correct: 3, total: 5 } }));
-    const playState = makePlayState(['q0', 'q1', 'q2', 'q3', 'q4']);
-    playState.answers.q1 = makeAnswer('q1', { placeCorrect: false, selectedOptionIndex: 1 });
-    mockLoadPlayState.mockResolvedValue(playState);
-
-    renderResultsScreen();
-
-    await waitFor(() =>
-      expect(screen.getByTestId('quiz-recap-thumb-1-verdict-incorrect')).toBeTruthy()
-    );
-    fireEvent.press(screen.getByTestId('quiz-review-toggle'));
-
-    expect(screen.getByText('It was France — you picked Spain')).toBeTruthy();
-  });
-
-  it('stamps reviewed rows with country artwork when the country is known', async () => {
-    // The screen reads countries through useCountries' module-level cache;
-    // reset it so this test's one-off mock is what the mount reads.
-    invalidateCountriesCache();
-    (getAllCountries as jest.Mock).mockResolvedValueOnce([
-      { code: 'FR', name: 'France', region: 'Europe', subregion: null, recognition: null },
-    ]);
-    mockQuizDetail(makeDetail({ state: 'playable', score_to_beat: { correct: 3, total: 5 } }));
-    mockLoadPlayState.mockResolvedValue(makePlayState(['q0', 'q1', 'q2', 'q3', 'q4']));
-
-    renderResultsScreen();
-
-    await waitFor(() => expect(screen.getByTestId('quiz-review-toggle')).toBeTruthy());
-    fireEvent.press(screen.getByTestId('quiz-review-toggle'));
-
-    // The stamp accent is post-answer only, inside the opened review rows.
-    await waitFor(() => expect(screen.getByTestId('quiz-review-stamp-0')).toBeTruthy());
-
-    // Drop the France entry from the shared cache so later mounts see the
-    // default empty countries again, as they did before this test ran.
-    invalidateCountriesCache();
   });
 
   it('forces answering a swapped-in photo before share is available', async () => {
@@ -854,12 +808,9 @@ describe('QuizResultsScreen', () => {
 
     const { navigation } = renderResultsScreen();
 
-    // Swap chips live inside the opened Review Answers rows (pre-share only).
-    await waitFor(() => expect(screen.getByTestId('quiz-review-toggle')).toBeTruthy());
-    fireEvent.press(screen.getByTestId('quiz-review-toggle'));
-
-    await waitFor(() => expect(screen.getByTestId('quiz-swap-2')).toBeTruthy());
-    fireEvent.press(screen.getByTestId('quiz-swap-2'));
+    // Tapping a recap thumbnail opens the swap picker (pre-share only).
+    await waitFor(() => expect(screen.getByTestId('quiz-recap-thumb-2')).toBeTruthy());
+    fireEvent.press(screen.getByTestId('quiz-recap-thumb-2'));
 
     await waitFor(() => expect(screen.getByTestId('quiz-swap-candidate-0')).toBeTruthy());
     fireEvent.press(screen.getByTestId('quiz-swap-candidate-0'));
@@ -899,7 +850,7 @@ describe('QuizResultsScreen', () => {
     await waitFor(() =>
       expect(within(screen.getByTestId('quiz-score-to-beat')).getByText('6')).toBeTruthy()
     );
-    fireEvent.press(screen.getByTestId('quiz-review-toggle'));
+    fireEvent.press(screen.getByTestId('quiz-recap-thumb-5'));
     await waitFor(() => expect(screen.getByTestId('quiz-remove-5')).toBeTruthy());
     fireEvent.press(screen.getByTestId('quiz-remove-5'));
 
@@ -926,10 +877,10 @@ describe('QuizResultsScreen', () => {
     renderResultsScreen({ ...COMPLETE_RESULTS, state: 'shared' });
 
     await waitFor(() => expect(screen.getByTestId('quiz-score-to-beat')).toBeTruthy());
-    // Even inside the opened review, the pre-share-only chips are gone.
-    fireEvent.press(screen.getByTestId('quiz-review-toggle'));
-    await waitFor(() => expect(screen.getByTestId('quiz-review-0')).toBeTruthy());
-    expect(screen.queryByTestId('quiz-swap-0')).toBeNull();
+    // The recap thumbnails are inert once shared: the picker never opens, so
+    // neither swap nor remove is reachable.
+    fireEvent.press(screen.getByTestId('quiz-recap-thumb-0'));
+    expect(screen.queryByTestId('quiz-swap-picker')).toBeNull();
     expect(screen.queryByTestId('quiz-remove-0')).toBeNull();
     // Re-sharing an already-shared quiz stays possible (idempotent slug).
     expect(screen.getByTestId('quiz-share')).toBeTruthy();

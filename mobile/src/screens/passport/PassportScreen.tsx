@@ -324,30 +324,30 @@ export function PassportScreen({ navigation }: Props) {
   const showPasteButton = !clipboardDetectionEnabled;
 
   // List header
+  // Guess Where lives on the home surface (Q3), above the country search; it
+  // steps aside while the user is searching countries.
   const ListHeader = useMemo(
     () => (
-      <>
-        <PassportListHeader
-          stats={stats}
-          searchQuery={searchQuery}
-          isLoading={isLoading}
-          filtersActive={filtersActive}
-          activeFilterCount={activeFilterCount}
-          onSearchChange={setSearchQuery}
-          onExplorePress={handleExplorePress}
-          onProfilePress={handleProfilePress}
-          onPastePress={handlePastePress}
-          showPasteButton={showPasteButton}
-        />
-        {/* Guess Where lives on the home surface (Q3); it steps aside while
-            the user is searching countries. */}
-        {searchQuery.length === 0 && (
-          <GuessWhereCard
-            onOpenIntro={handleOpenGuessWhereIntro}
-            onOpenChallenges={handleOpenChallenges}
-          />
-        )}
-      </>
+      <PassportListHeader
+        stats={stats}
+        searchQuery={searchQuery}
+        isLoading={isLoading}
+        filtersActive={filtersActive}
+        activeFilterCount={activeFilterCount}
+        onSearchChange={setSearchQuery}
+        onExplorePress={handleExplorePress}
+        onProfilePress={handleProfilePress}
+        onPastePress={handlePastePress}
+        showPasteButton={showPasteButton}
+        guessWhereSlot={
+          searchQuery.length === 0 ? (
+            <GuessWhereCard
+              onOpenIntro={handleOpenGuessWhereIntro}
+              onOpenChallenges={handleOpenChallenges}
+            />
+          ) : null
+        }
+      />
     ),
     [
       stats,
