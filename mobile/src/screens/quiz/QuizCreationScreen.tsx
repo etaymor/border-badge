@@ -75,6 +75,7 @@ import { PhotoHero } from './components/PhotoHero';
 import { QuizTopBar } from './components/QuizTopBar';
 import { DURATION_BASE } from './components/motionTokens';
 import { introPoster } from './sampleAssets';
+import { useQuizCreationAnalytics } from './useQuizCreationAnalytics';
 
 type Props = RootStackScreenProps<'QuizCreation'>;
 
@@ -154,7 +155,8 @@ function SlotPlaceholderMark() {
   );
 }
 
-export function QuizCreationScreen({ navigation }: Props) {
+export function QuizCreationScreen({ navigation, route }: Props) {
+  const entryPoint = route.params?.entryPoint ?? 'unknown';
   const insets = useSafeAreaInsets();
   const reduceMotion = useReducedMotion();
   const {
@@ -179,10 +181,19 @@ export function QuizCreationScreen({ navigation }: Props) {
   const abortRef = useRef<AbortController | null>(null);
   const preflightRef = useRef(false);
 
+  const analytics = useQuizCreationAnalytics({
+    entryPoint,
+    phase,
+    progress,
+    permissionStatus,
+    limitedAccess: permissionStatus === 'limited',
+  });
+
   const limitedAccess = permissionStatus === 'limited';
 
   const handleOutcome = useStableCallback((result: QuizCreationOutcome) => {
     setOutcome(result);
+    analytics.trackOutcome(result);
     switch (result.status) {
       case 'created':
         // REPLACE, not navigate: the wizard is done. Left on the stack, backing
@@ -212,9 +223,17 @@ export function QuizCreationScreen({ navigation }: Props) {
   });
 
   const startCreation = useStableCallback(() => {
+    // Capture the launching phase before it changes: it is what separates a
+    // first attempt from a retry after a decline.
+    const retryFrom = phase;
     setPhase('working');
     setOutcome(null);
     const scanExpected = !freshness?.fresh;
+    analytics.trackStarted({
+      isResume: draftPickUris.length > 0,
+      scanExpected,
+      retryFrom,
+    });
     // Resuming a draft already has its photos: seed the grid with them rather
     // than blanking it until the first upload tick arrives. A fresh start (or
     // a retry after a decline) has nothing to show, and must not show the
@@ -237,7 +256,9 @@ export function QuizCreationScreen({ navigation }: Props) {
         onSuccess: handleOutcome,
         onError: () => {
           // Unexpected failure: surface the retryable branch, never the decline.
-          setOutcome({ status: 'service-error', stage: 'classify' });
+          const failure = { status: 'service-error', stage: 'classify' } as const;
+          setOutcome(failure);
+          analytics.trackOutcome(failure);
           setPhase('service-error');
         },
       }
@@ -253,6 +274,7 @@ export function QuizCreationScreen({ navigation }: Props) {
 
     if (permissionStatus === 'denied') {
       setPhase('permission-denied');
+      analytics.trackView({ initialPhase: 'permission-denied', hasDraft: false, freshness: null });
       return;
     }
 
@@ -267,23 +289,38 @@ export function QuizCreationScreen({ navigation }: Props) {
       if (cancelled) return;
       setFreshness(currentFreshness);
       if (draft && draft.picks.length > 0) {
-        setDraftUploadCounts({
-          uploaded: draft.picks.filter((pick) => pick.uploaded).length,
-          total: draft.picks.length,
-        });
+        const uploaded = draft.picks.filter((pick) => pick.uploaded).length;
+        setDraftUploadCounts({ uploaded, total: draft.picks.length });
         setDraftHeroUri(draft.picks[0]?.uri ?? null);
         setDraftPickUris(draft.picks.map((pick) => pick.uri));
         setPhase('resume-draft');
+        analytics.trackView({
+          initialPhase: 'resume-draft',
+          hasDraft: true,
+          draftUploadedCount: uploaded,
+          draftTotalCount: draft.picks.length,
+          freshness: currentFreshness,
+        });
       } else if (permissionStatus === 'granted' || permissionStatus === 'limited') {
         setPhase('intro');
+        analytics.trackView({
+          initialPhase: 'intro',
+          hasDraft: false,
+          freshness: currentFreshness,
+        });
       } else {
         setPhase('permission-request');
+        analytics.trackView({
+          initialPhase: 'permission-request',
+          hasDraft: false,
+          freshness: currentFreshness,
+        });
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [permissionLoading, permissionStatus]);
+  }, [permissionLoading, permissionStatus, analytics]);
 
   // Abandoning the screen mid-flight keeps the persisted draft resumable (KTD7).
   useEffect(() => {
@@ -294,6 +331,7 @@ export function QuizCreationScreen({ navigation }: Props) {
 
   const handleRequestPermission = useStableCallback(async () => {
     const granted = await requestPermission();
+    analytics.trackPermissionResult(granted);
     if (granted === 'granted' || granted === 'limited') {
       const currentFreshness = await getLibraryFreshness().catch(() => null);
       setFreshness(currentFreshness);
@@ -304,6 +342,7 @@ export function QuizCreationScreen({ navigation }: Props) {
   });
 
   const handleCancel = useStableCallback(() => {
+    analytics.markCancelButton();
     abortRef.current?.abort();
     navigation.goBack();
   });
