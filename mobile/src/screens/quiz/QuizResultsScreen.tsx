@@ -69,6 +69,7 @@ import {
   type StoredQuizAnswer,
 } from '@services/quiz/quizPlay';
 import type { RootStackScreenProps } from '@navigation/types';
+import { Analytics } from '@services/analytics';
 
 import { PhotoHero } from './components/PhotoHero';
 import { QuizTopBar } from './components/QuizTopBar';
@@ -227,9 +228,15 @@ export function QuizResultsScreen({ navigation, route }: Props) {
   const handleShare = useStableCallback(async () => {
     if (!scoreToBeat) return; // Unreachable: share renders only with a score.
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+    // Which half failed: minting the link, or opening the sheet with it. They
+    // are different bugs, and only the first can carry a server error code.
+    let stage: 'mint' | 'sheet' = 'mint';
     try {
       const shared = await shareMutation.mutateAsync();
+      stage = 'sheet';
       await presentChallengeShare(shared.share_url, {
+        quizId,
+        source: 'results',
         score: scoreToBeat,
         photoCount: questions.length || null,
       });
@@ -245,6 +252,18 @@ export function QuizResultsScreen({ navigation, route }: Props) {
           : detail && typeof detail === 'object' && 'message' in detail
             ? (detail as { message?: unknown }).message
             : null;
+      // Only the machine-readable code travels to analytics; the message is
+      // free server text and stays on the device.
+      const errorCode =
+        detail && typeof detail === 'object' && 'code' in detail
+          ? (detail as { code?: unknown }).code
+          : null;
+      Analytics.quizShareFailed({
+        quizId,
+        source: 'results',
+        stage,
+        errorCode: typeof errorCode === 'string' ? errorCode : null,
+      });
       Alert.alert(
         'Error',
         typeof serverMessage === 'string' && serverMessage.length > 0

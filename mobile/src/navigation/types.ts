@@ -9,14 +9,30 @@ export type { EntryType };
 // Gated feature types for paywall modal
 export type GatedFeature = 'shareExtension' | 'photoImport' | 'entries';
 
+/**
+ * Where a Guess Where surface was opened from. Carried as an optional nav
+ * param so the quiz funnel can be broken down by entry point in PostHog -
+ * the five entries are otherwise indistinguishable once they land.
+ */
+export type QuizEntryPoint =
+  | 'passport_card'
+  | 'my_quizzes'
+  | 'profile_settings'
+  | 'onboarding_first_quiz'
+  | 'guess_where_intro'
+  | 'unknown';
+
+/** Which share affordance opened the OS share sheet for a challenge. */
+export type QuizShareSource = 'results' | 'leaderboard_top_bar' | 'leaderboard_empty';
+
 // Root stack contains auth, onboarding, and main tab navigator
 export type RootStackParamList = {
   Auth: NavigatorScreenParams<AuthStackParamList>;
   Onboarding: NavigatorScreenParams<OnboardingStackParamList>;
   Main: NavigatorScreenParams<MainTabParamList>;
   PaywallModal: { feature?: GatedFeature };
-  QuizCreation: undefined;
-  GuessWhereIntro: undefined;
+  QuizCreation: { entryPoint?: QuizEntryPoint } | undefined;
+  GuessWhereIntro: { entryPoint?: QuizEntryPoint } | undefined;
   QuizPlay: { quizId: string };
   QuizResults: {
     quizId: string;
@@ -30,7 +46,7 @@ export type RootStackParamList = {
       state: string;
     };
   };
-  MyQuizzes: undefined;
+  MyQuizzes: { entryPoint?: QuizEntryPoint } | undefined;
   QuizLeaderboard: { quizId: string };
 };
 

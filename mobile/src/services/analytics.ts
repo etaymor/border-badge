@@ -7,6 +7,7 @@
 import PostHog from 'posthog-react-native';
 
 import { isProduction } from '@config/env';
+import type { QuizEntryPoint, QuizShareSource } from '@navigation/types';
 import { stableHashOrNull } from '@utils/stableHash';
 
 let posthog: PostHog | null = null;
@@ -619,8 +620,28 @@ export const Analytics = {
       total: props.total,
     }),
 
-  /** The OS share sheet was opened for a challenge invitation. */
-  quizShareInitiated: () => track('quiz_share_initiated'),
+  /**
+   * The OS share sheet was opened for a challenge invitation. `source` is what
+   * separates the first share on the results screen from every later re-share
+   * off the leaderboard - `quiz_shared` only fires when a slug is minted, so
+   * without this the two are indistinguishable in aggregate.
+   */
+  quizShareInitiated: (props: {
+    quizId: string;
+    source: QuizShareSource;
+    isReshare: boolean;
+    scoreCorrect: number | null;
+    scoreTotal: number | null;
+    photoCount: number | null;
+  }) =>
+    track('quiz_share_initiated', {
+      quiz_id: props.quizId,
+      source: props.source,
+      is_reshare: props.isReshare,
+      score_correct: props.scoreCorrect ?? null,
+      score_total: props.scoreTotal ?? null,
+      photo_count: props.photoCount ?? null,
+    }),
 
   /**
    * The share sheet reported the share actually happened. iOS-only signal:
@@ -628,7 +649,18 @@ export const Analytics = {
    * is deliberately never fired there (matching reality beats inflating the
    * funnel).
    */
-  quizShareCompleted: () => track('quiz_share_completed'),
+  quizShareCompleted: (props: {
+    quizId: string;
+    source: QuizShareSource;
+    isReshare: boolean;
+    photoCount: number | null;
+  }) =>
+    track('quiz_share_completed', {
+      quiz_id: props.quizId,
+      source: props.source,
+      is_reshare: props.isReshare,
+      photo_count: props.photoCount ?? null,
+    }),
 
   /**
    * How the free on-device prediction compared with the paid eligibility gate,
@@ -685,6 +717,319 @@ export const Analytics = {
       coverage_total: props.coverageTotal,
       coverage_current_version: props.coverageCurrentVersion,
       no_local_image: props.noLocalImage,
+    }),
+
+  // ---------------------------------------------------------------------
+  // Guess Where funnel instrumentation
+  //
+  // Owner-side only. The guest half of the loop (page view -> play -> install
+  // tap) is Google Analytics on the public page plus the per-quiz `quiz_funnel`
+  // counters in Postgres, which already join back to the creator via
+  // quiz.owner_id. `quiz_id` is emitted raw here on purpose: it is our own
+  // resource id and the cross-surface join key.
+  // ---------------------------------------------------------------------
+
+  // -- Creation funnel: view -> started -> quiz_created (above), with failed
+  //    and abandoned explaining every drop.
+
+  viewQuizCreation: (props: {
+    entryPoint: QuizEntryPoint;
+    initialPhase: string;
+    permissionStatus: string;
+    limitedAccess: boolean;
+    hasDraft: boolean;
+    draftUploadedCount?: number | null;
+    draftTotalCount?: number | null;
+    libraryFresh?: boolean | null;
+    freshnessReason?: string | null;
+    cachedPhotoCount?: number | null;
+  }) =>
+    track('view_quiz_creation', {
+      entry_point: props.entryPoint,
+      initial_phase: props.initialPhase,
+      permission_status: props.permissionStatus,
+      limited_access: props.limitedAccess,
+      has_draft: props.hasDraft,
+      draft_uploaded_count: props.draftUploadedCount ?? null,
+      draft_total_count: props.draftTotalCount ?? null,
+      library_fresh: props.libraryFresh ?? null,
+      freshness_reason: props.freshnessReason ?? null,
+      cached_photo_count: props.cachedPhotoCount ?? null,
+    }),
+
+  /**
+   * A build actually kicked off. `attempt_index` is 1-based WITHIN one mount,
+   * so a user who retries after a decline shows up as a single visit with
+   * several attempts rather than as several visitors.
+   */
+  quizCreationStarted: (props: {
+    entryPoint: QuizEntryPoint;
+    attemptIndex: number;
+    isResume: boolean;
+    scanExpected: boolean;
+    limitedAccess: boolean;
+    retryFrom?: string | null;
+  }) =>
+    track('quiz_creation_started', {
+      entry_point: props.entryPoint,
+      attempt_index: props.attemptIndex,
+      is_resume: props.isResume,
+      scan_expected: props.scanExpected,
+      limited_access: props.limitedAccess,
+      retry_from: props.retryFrom ?? null,
+    }),
+
+  quizPhotoPermissionResult: (props: { status: string; entryPoint: QuizEntryPoint }) =>
+    track('quiz_photo_permission_result', {
+      status: props.status,
+      entry_point: props.entryPoint,
+    }),
+
+  /**
+   * The build reached a terminal NON-success state. Deliberately a different
+   * event from `quiz_creation_abandoned`: a thin library is a gate-tuning
+   * problem, a walk-out is a patience problem. `dominant_reason` is the number
+   * to watch - it says whether the eligibility gate or the user's actual
+   * library killed the run.
+   */
+  quizCreationFailed: (props: {
+    entryPoint: QuizEntryPoint;
+    reason: 'thin_library' | 'service_error' | 'interrupted';
+    attemptIndex: number;
+    durationMs: number;
+    limitedAccess: boolean;
+    eligibleCount?: number | null;
+    hasGeoCandidates?: boolean | null;
+    dominantReason?: string | null;
+    stage?: string | null;
+    uploadedCount?: number | null;
+    totalCount?: number | null;
+    examined?: number | null;
+    foundCount?: number | null;
+  }) =>
+    track('quiz_creation_failed', {
+      entry_point: props.entryPoint,
+      reason: props.reason,
+      attempt_index: props.attemptIndex,
+      duration_ms: props.durationMs,
+      limited_access: props.limitedAccess,
+      eligible_count: props.eligibleCount ?? null,
+      has_geo_candidates: props.hasGeoCandidates ?? null,
+      dominant_reason: props.dominantReason ?? null,
+      stage: props.stage ?? null,
+      uploaded_count: props.uploadedCount ?? null,
+      total_count: props.totalCount ?? null,
+      examined: props.examined ?? null,
+      found_count: props.foundCount ?? null,
+    }),
+
+  /**
+   * The user left mid-build without any outcome arriving. `via_cancel_button`
+   * false means the swipe-back / unmount path, which is the one that was
+   * entirely silent before.
+   */
+  quizCreationAbandoned: (props: {
+    entryPoint: QuizEntryPoint;
+    phase: string;
+    attemptIndex: number;
+    durationMs: number;
+    step?: string | null;
+    foundCount: number;
+    examined: number;
+    uploadedCount: number;
+    viaCancelButton: boolean;
+  }) =>
+    track('quiz_creation_abandoned', {
+      entry_point: props.entryPoint,
+      phase: props.phase,
+      attempt_index: props.attemptIndex,
+      duration_ms: props.durationMs,
+      step: props.step ?? null,
+      found_count: props.foundCount,
+      examined: props.examined,
+      uploaded_count: props.uploadedCount,
+      via_cancel_button: props.viaCancelButton,
+    }),
+
+  // -- Play funnel
+
+  viewQuizPlay: (props: {
+    quizId: string;
+    questionCount: number;
+    resumedAtNumber: number;
+    alreadyComplete: boolean;
+  }) =>
+    track('view_quiz_play', {
+      quiz_id: props.quizId,
+      question_count: props.questionCount,
+      resumed_at_number: props.resumedAtNumber,
+      is_resume: props.resumedAtNumber > 1,
+      already_complete: props.alreadyComplete,
+    }),
+
+  /**
+   * Left mid-play. The app has never had the per-question drop-off the web
+   * gets from `quiz_answer`; this is its equivalent, and an owner who never
+   * finishes can never share.
+   */
+  quizPlayAbandoned: (props: {
+    quizId: string;
+    answeredCount: number;
+    total: number;
+    activeNumber: number;
+    durationMs: number;
+    exit: 'back_button' | 'unmount';
+  }) =>
+    track('quiz_play_abandoned', {
+      quiz_id: props.quizId,
+      answered_count: props.answeredCount,
+      total: props.total,
+      active_number: props.activeNumber,
+      duration_ms: props.durationMs,
+      exit: props.exit,
+      completion_rate: props.total > 0 ? Math.round((props.answeredCount / props.total) * 100) : 0,
+    }),
+
+  /** `stalled` is the 15s answer watchdog: a player who cannot progress. */
+  quizPlayFailed: (props: {
+    quizId: string;
+    stage: 'load' | 'answer' | 'complete' | 'stalled';
+    statusCode?: number | null;
+    activeNumber?: number | null;
+  }) =>
+    track('quiz_play_failed', {
+      quiz_id: props.quizId,
+      stage: props.stage,
+      status_code: props.statusCode ?? null,
+      active_number: props.activeNumber ?? null,
+    }),
+
+  // -- Results, share and the owner-visible end of the viral loop
+
+  viewQuizResults: (props: {
+    quizId: string;
+    arrivedFrom: 'play' | 'list';
+    state: string;
+    questionCount: number;
+    scoreCorrect: number | null;
+    scoreTotal: number | null;
+    editable: boolean;
+    needsAnswers: boolean;
+  }) =>
+    track('view_quiz_results', {
+      quiz_id: props.quizId,
+      arrived_from: props.arrivedFrom,
+      state: props.state,
+      question_count: props.questionCount,
+      score_correct: props.scoreCorrect ?? null,
+      score_total: props.scoreTotal ?? null,
+      editable: props.editable,
+      needs_answers: props.needsAnswers,
+    }),
+
+  /** Only `error_code` (the server's `detail.code`) - never the free-text message. */
+  quizShareFailed: (props: {
+    quizId: string;
+    source: QuizShareSource;
+    stage: 'mint' | 'sheet';
+    errorCode: string | null;
+  }) =>
+    track('quiz_share_failed', {
+      quiz_id: props.quizId,
+      source: props.source,
+      stage: props.stage,
+      error_code: props.errorCode ?? null,
+    }),
+
+  viewQuizLeaderboard: (props: {
+    quizId: string;
+    entryCount: number;
+    hiddenCount: number;
+    scoreCorrect: number | null;
+    scoreTotal: number | null;
+  }) =>
+    track('view_quiz_leaderboard', {
+      quiz_id: props.quizId,
+      entry_count: props.entryCount,
+      hidden_count: props.hiddenCount,
+      score_correct: props.scoreCorrect ?? null,
+      score_total: props.scoreTotal ?? null,
+      is_empty: props.entryCount === 0,
+    }),
+
+  /**
+   * Someone new played a shared challenge. With the guest half of the funnel
+   * living in Google Analytics, this is the ONLY owner-side proof in PostHog
+   * that the loop closed. Never carries display names or session ids.
+   */
+  quizLeaderboardPlayersArrived: (props: {
+    quizId: string;
+    freshCount: number;
+    entryCount: number;
+  }) =>
+    track('quiz_leaderboard_players_arrived', {
+      quiz_id: props.quizId,
+      fresh_count: props.freshCount,
+      entry_count: props.entryCount,
+    }),
+
+  // -- Management and entry points
+
+  viewMyQuizzes: (props: {
+    entryPoint: QuizEntryPoint;
+    quizCount: number;
+    sharedCount: number;
+    draftCount: number;
+    loadFailed: boolean;
+  }) =>
+    track('view_my_quizzes', {
+      entry_point: props.entryPoint,
+      quiz_count: props.quizCount,
+      shared_count: props.sharedCount,
+      draft_count: props.draftCount,
+      load_failed: props.loadFailed,
+    }),
+
+  viewGuessWhereIntro: (props: { entryPoint: QuizEntryPoint; reduceMotion: boolean }) =>
+    track('view_guess_where_intro', {
+      entry_point: props.entryPoint,
+      reduce_motion: props.reduceMotion,
+    }),
+
+  /** Counterpart to quizRevoked, which was previously the only one of the pair. */
+  quizDeleted: (props: { quizId: string; state: string }) =>
+    track('quiz_deleted', { quiz_id: props.quizId, state: props.state }),
+
+  /**
+   * Which of the two swappable passport cards was shown. `watermark_unreadable`
+   * matters because an unreadable import watermark reads as "has imported" -
+   * without the flag this event's denominator would quietly lie.
+   */
+  passportEntryCardShown: (props: {
+    card: 'guess_where' | 'photo_sync';
+    hasQuizzes: boolean;
+    quizCount: number;
+    hasInitialImport: boolean;
+    watermarkUnreadable: boolean;
+  }) =>
+    track('passport_entry_card_shown', {
+      card: props.card,
+      has_quizzes: props.hasQuizzes,
+      quiz_count: props.quizCount,
+      has_initial_import: props.hasInitialImport,
+      watermark_unreadable: props.watermarkUnreadable,
+    }),
+
+  /**
+   * A scan was requested from the photo-import idle screen, which is where the
+   * "unlocks Guess Where challenges" promise is made. Deliberately distinct
+   * from the service-level `photo_import_scan_started`, which fires too deep in
+   * the pipeline to know what promised the scan.
+   */
+  photoSyncScanTapped: (props: { isRefresh: boolean; isFirstRun: boolean }) =>
+    track('photo_sync_scan_tapped', {
+      is_refresh: props.isRefresh,
+      is_first_run: props.isFirstRun,
     }),
 
   // Post-paywall "make your first quiz" offer

@@ -58,7 +58,8 @@ import {
 } from '@hooks/useQuizzes';
 import { useReducedMotion } from '@hooks/useReducedMotion';
 import { useStableCallback } from '@hooks/useStableCallback';
-import type { RootStackScreenProps } from '@navigation/types';
+import type { QuizShareSource, RootStackScreenProps } from '@navigation/types';
+import { Analytics } from '@services/analytics';
 
 import { PhotoHero } from './components/PhotoHero';
 import { QuizTopBar } from './components/QuizTopBar';
@@ -201,11 +202,16 @@ export function QuizLeaderboardScreen({ navigation, route }: Props) {
   const shareUrl = quiz?.share_url ?? null;
   const canShare = !!shareUrl && !!scoreToBeat;
 
-  const handleShare = useStableCallback(async () => {
+  // Both share affordances land here; the `source` argument is what keeps the
+  // top-bar icon and the empty-state button apart in the funnel. Neither mints
+  // a link - this screen only ever re-shares one the results screen made.
+  const shareChallenge = useStableCallback(async (source: QuizShareSource) => {
     if (!shareUrl || !scoreToBeat) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
     try {
       await presentChallengeShare(shareUrl, {
+        quizId,
+        source,
         score: scoreToBeat,
         photoCount: quiz?.questions.length || null,
       });
@@ -214,8 +220,22 @@ export function QuizLeaderboardScreen({ navigation, route }: Props) {
         '[QuizLeaderboard] Share failed:',
         error instanceof Error ? error.message : error
       );
+      Analytics.quizShareFailed({
+        quizId,
+        source,
+        stage: 'sheet',
+        errorCode: null,
+      });
       Alert.alert('Error', 'Could not open the share sheet. Please try again.');
     }
+  });
+
+  const handleShareTopBar = useStableCallback(() => {
+    void shareChallenge('leaderboard_top_bar');
+  });
+
+  const handleShareEmpty = useStableCallback(() => {
+    void shareChallenge('leaderboard_empty');
   });
 
   // The hero photo: one challenge photo (the first question's, same choice as
@@ -284,7 +304,7 @@ export function QuizLeaderboardScreen({ navigation, route }: Props) {
               {canShare && (
                 <Button
                   title="Share Challenge"
-                  onPress={handleShare}
+                  onPress={handleShareEmpty}
                   style={styles.emptyShare}
                   testID="leaderboard-share-empty"
                 />
@@ -316,7 +336,7 @@ export function QuizLeaderboardScreen({ navigation, route }: Props) {
             canShare ? (
               <GlassIconButton
                 icon="share-outline"
-                onPress={handleShare}
+                onPress={handleShareTopBar}
                 variant="dark"
                 accessibilityLabel="Share challenge"
                 testID="leaderboard-share"

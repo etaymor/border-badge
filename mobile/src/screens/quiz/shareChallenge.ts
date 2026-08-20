@@ -10,6 +10,7 @@
 
 import { Platform } from 'react-native';
 
+import type { QuizShareSource } from '@navigation/types';
 import { Analytics } from '@services/analytics';
 import { Share } from '@utils/share';
 
@@ -19,6 +20,13 @@ export interface ChallengeScore {
 }
 
 export interface ChallengeShareDetails {
+  quizId: string;
+  /**
+   * Which affordance opened the sheet. Required, because `quiz_shared` only
+   * fires when a slug is minted - without this, a first share from the results
+   * screen and a re-share off the leaderboard are indistinguishable.
+   */
+  source: QuizShareSource;
   /** The owner's score-to-beat; null when the surface does not know it. */
   score: ChallengeScore | null;
   /** How many photos the challenge holds; falls back to score.total. */
@@ -45,8 +53,19 @@ export async function presentChallengeShare(
   details: ChallengeShareDetails
 ): Promise<void> {
   const message = buildChallengeMessage(details);
+  // The results screen is the only surface that shares a freshly minted link;
+  // every other entry is re-sharing one that already exists.
+  const isReshare = details.source !== 'results';
+  const photoCount = details.photoCount ?? details.score?.total ?? null;
   // Funnel: the sheet is opening (whether the user then shares or dismisses).
-  Analytics.quizShareInitiated();
+  Analytics.quizShareInitiated({
+    quizId: details.quizId,
+    source: details.source,
+    isReshare,
+    scoreCorrect: details.score?.correct ?? null,
+    scoreTotal: details.score?.total ?? null,
+    photoCount,
+  });
   if (Platform.OS === 'ios') {
     // The challenge link is its own activity item (Q10): destinations unfurl
     // it into a rich preview instead of finding a raw URL glued into a
@@ -58,7 +77,12 @@ export async function presentChallengeShare(
     // RN's Share.sharedAction constant (undefined under jest-expo, hence the
     // string).
     if (result.action === 'sharedAction') {
-      Analytics.quizShareCompleted();
+      Analytics.quizShareCompleted({
+        quizId: details.quizId,
+        source: details.source,
+        isReshare,
+        photoCount,
+      });
     }
   } else {
     // Android's Share.share has no url slot; the link rides on its own line at
