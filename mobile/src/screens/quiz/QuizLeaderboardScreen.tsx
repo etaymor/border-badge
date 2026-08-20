@@ -24,7 +24,7 @@
 
 import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -152,20 +152,61 @@ export function QuizLeaderboardScreen({ navigation, route }: Props) {
   // render is never "an arrival", so a revisit never replays the wash.
   const [board, setBoard] = useState<{ names: Set<string>; fresh: Set<string> } | null>(null);
 
+  // Mirrors `board.names`. The comparison has to happen in the effect body, not
+  // inside a setState updater: updaters must be pure, and React may call them
+  // more than once - which would also double-fire the arrival event below.
+  const prevNamesRef = useRef<Set<string> | null>(null);
+  const viewFiredRef = useRef(false);
+
   useEffect(() => {
     if (!data) return;
     const names = new Set(data.leaderboard.map((entry) => entry.display_name));
-    setBoard((prev) => {
-      if (!prev) return { names, fresh: new Set<string>() };
-      const fresh = new Set([...names].filter((name) => !prev.names.has(name)));
+    const prev = prevNamesRef.current;
+    prevNamesRef.current = names;
+
+    // Track screen view once, on the first resolved board.
+    if (!viewFiredRef.current) {
+      viewFiredRef.current = true;
+      Analytics.viewQuizLeaderboard({
+        quizId,
+        entryCount: data.leaderboard.length,
+        hiddenCount: data.leaderboard.filter((entry) => entry.hidden).length,
+        scoreCorrect: data.score_to_beat?.correct ?? null,
+        scoreTotal: data.score_to_beat?.total ?? null,
+      });
+    }
+
+    if (!prev) {
+      setBoard({ names, fresh: new Set<string>() });
+      return;
+    }
+
+    const fresh = new Set([...names].filter((name) => !prev.has(name)));
+    if (fresh.size > 0) {
+      // Someone new played a shared challenge. With the guest half of the
+      // funnel living in Google Analytics, this is the only owner-side proof
+      // in PostHog that the loop closed.
+      Analytics.quizLeaderboardPlayersArrived({
+        quizId,
+        freshCount: fresh.size,
+        entryCount: data.leaderboard.length,
+      });
+    }
+
+    setBoard((current) => {
       // Same board (refetch with no arrivals): keep the previous object so
       // rows do not re-render for nothing.
-      if (fresh.size === 0 && prev.fresh.size === 0 && names.size === prev.names.size) {
-        return prev;
+      if (
+        current &&
+        fresh.size === 0 &&
+        current.fresh.size === 0 &&
+        names.size === current.names.size
+      ) {
+        return current;
       }
       return { names, fresh };
     });
-  }, [data]);
+  }, [data, quizId]);
 
   const handleHide = useStableCallback((entry: QuizOwnerLeaderboardEntry) => {
     if (hideMutation.isPending) return;

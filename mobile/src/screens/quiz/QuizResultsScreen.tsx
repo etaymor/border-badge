@@ -30,7 +30,7 @@ import * as Haptics from 'expo-haptics';
 // decodes each at its full 12MP source resolution regardless of display size.
 // expo-image downsamples to the view and bounds its own cache.
 import { Image } from 'expo-image';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -174,6 +174,27 @@ export function QuizResultsScreen({ navigation, route }: Props) {
     ? questions.filter((question) => !playState.answers[question.id]).length
     : 0;
   const needsAnswers = editable && unansweredCount > 0;
+
+  // Track screen view once the quiz detail resolves - the score and state are
+  // only trustworthy then. `arrived_from` is the same distinction the reveal
+  // choreography already draws: fresh from a play-through, or opened from the
+  // list. Must stay above the early return below; all hooks do.
+  const viewFiredRef = useRef(false);
+  useEffect(() => {
+    if (viewFiredRef.current || !scoreToBeat) return;
+    viewFiredRef.current = true;
+    Analytics.viewQuizResults({
+      quizId,
+      arrivedFrom: results ? 'play' : 'list',
+      state: state ?? 'unknown',
+      questionCount: questions.length,
+      scoreCorrect: scoreToBeat.correct,
+      scoreTotal: scoreToBeat.total,
+      editable,
+      needsAnswers,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scoreToBeat, state, questions.length, editable, needsAnswers]);
 
   const loadCandidates = useStableCallback(async () => {
     setSwapCandidates(null);

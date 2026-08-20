@@ -23,6 +23,7 @@
 
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
+import { useEffect, useRef } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -47,6 +48,7 @@ import {
 } from '@hooks/useQuizzes';
 import { useStableCallback } from '@hooks/useStableCallback';
 import type { RootStackScreenProps } from '@navigation/types';
+import { Analytics } from '@services/analytics';
 
 import { QuizTopBar } from './components';
 import { DURATION_FAST } from './components/motionTokens';
@@ -296,8 +298,27 @@ function QuizRow({ quiz, navigation }: { quiz: QuizSummary; navigation: Props['n
   );
 }
 
-export function MyQuizzesScreen({ navigation }: Props) {
+export function MyQuizzesScreen({ navigation, route }: Props) {
   const { data: quizzes, isLoading, isError, refetch } = useMyQuizzes();
+  const entryPoint = route.params?.entryPoint ?? 'unknown';
+
+  // Track screen view once the list settles, so the counts are real rather
+  // than a snapshot of the loading state. Fires once per mount - the ref
+  // guard matters because this screen is returned to from four destinations.
+  const viewFiredRef = useRef(false);
+  useEffect(() => {
+    if (viewFiredRef.current || isLoading) return;
+    viewFiredRef.current = true;
+    const list = quizzes ?? [];
+    Analytics.viewMyQuizzes({
+      entryPoint,
+      quizCount: list.length,
+      sharedCount: list.filter((quiz) => quiz.state === 'shared').length,
+      draftCount: list.filter((quiz) => DELETABLE_STATES.has(quiz.state)).length,
+      loadFailed: isError,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoading, isError, quizzes]);
 
   const handleCreate = useStableCallback(() => {
     navigation.navigate('QuizCreation', { entryPoint: 'my_quizzes' });

@@ -64,6 +64,7 @@ import {
 } from '@services/quiz/quizPlay';
 import type { QuizAnswerResult } from '@hooks/useQuizzes';
 import type { RootStackScreenProps } from '@navigation/types';
+import { Analytics } from '@services/analytics';
 
 import { GuessOption } from './components/GuessOption';
 import { BOTTOM_SCRIM_COLORS, BOTTOM_SCRIM_LOCATIONS } from './components/PhotoHero';
@@ -206,6 +207,8 @@ export function QuizPlayScreen({ navigation, route }: Props) {
     });
   });
 
+  const viewFiredRef = useRef(false);
+
   // Ensure the (persisted or fresh) owner play session exactly once.
   useEffect(() => {
     if (sessionStartedRef.current) return;
@@ -224,13 +227,29 @@ export function QuizPlayScreen({ navigation, route }: Props) {
   useEffect(() => {
     if (phase !== 'loading' || !quiz || !playState) return;
     const next = questions.find((question) => !playState.answers[question.id]);
+
+    // Track screen view here rather than on mount: this is the first point at
+    // which the question count and the resume position are both real. A quiz
+    // that never loads emits quiz_play_failed{stage:'load'} and no view, which
+    // is clearer than a view carrying null counts.
+    if (!viewFiredRef.current) {
+      viewFiredRef.current = true;
+      const answered = Object.keys(playState.answers).length;
+      Analytics.viewQuizPlay({
+        quizId,
+        questionCount: questions.length,
+        resumedAtNumber: answered + 1,
+        alreadyComplete: !next && questions.length > 0,
+      });
+    }
+
     if (next) {
       setActiveQuestionId(next.id);
       setPhase('country');
     } else if (questions.length > 0) {
       completePlay(playState);
     }
-  }, [phase, quiz, questions, playState, completePlay]);
+  }, [phase, quiz, questions, playState, completePlay, quizId]);
 
   // Warm the NEXT photo while the player is still answering this one. Without
   // this, every advance paid for a cold download + decode, which is the whole

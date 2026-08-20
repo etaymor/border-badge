@@ -26,6 +26,7 @@ import { fonts } from '@constants/typography';
 import { useReducedMotion } from '@hooks/useReducedMotion';
 import { useStableCallback } from '@hooks/useStableCallback';
 import type { RootStackScreenProps } from '@navigation/types';
+import { Analytics } from '@services/analytics';
 
 import { GuessOption } from './components/GuessOption';
 import { QuizTopBar } from './components/QuizTopBar';
@@ -122,9 +123,18 @@ function IntroVideoBackground({
   );
 }
 
-export function GuessWhereIntroScreen({ navigation }: Props) {
+export function GuessWhereIntroScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
   const reduceMotion = useReducedMotion();
+  const entryPoint = route.params?.entryPoint ?? 'unknown';
+
+  // Track screen view. Empty deps, not useFocusEffect: the intro pushes
+  // QuizCreation on top of itself, so a focus effect would re-count on
+  // every back-navigation.
+  useEffect(() => {
+    Analytics.viewGuessWhereIntro({ entryPoint, reduceMotion });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [demoVisible, setDemoVisible] = useState(false);
   const [guessed, setGuessed] = useState<number | null>(null);
   const [options] = useState<string[]>(() => shuffled(demoOptions));
