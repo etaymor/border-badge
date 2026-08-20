@@ -30,6 +30,7 @@ declare global {
 const mockAlert = global.__mockAlert.alert;
 
 import { Image as MockedExpoImage } from 'expo-image';
+import { Analytics } from '@services/analytics';
 import { api } from '@services/api';
 import * as ShareModule from '@utils/share';
 import type { QuizDetail, QuizQuestion } from '@hooks/useQuizzes';
@@ -38,6 +39,27 @@ import type { RootStackScreenProps } from '@navigation/types';
 // ---------------------------------------------------------------------------
 // Mocks
 // ---------------------------------------------------------------------------
+
+// Partial analytics mock. It has to cover every helper this module tree can
+// reach - useQuizzes and shareChallenge both emit on these paths - because a
+// missing key surfaces as "undefined is not a function", not as a skipped
+// event.
+jest.mock('@services/analytics', () => ({
+  Analytics: {
+    viewQuizPlay: jest.fn(),
+    quizPlayAbandoned: jest.fn(),
+    quizPlayFailed: jest.fn(),
+    viewQuizResults: jest.fn(),
+    quizCreated: jest.fn(),
+    quizFirstRunCompleted: jest.fn(),
+    quizShared: jest.fn(),
+    quizRevoked: jest.fn(),
+    quizDeleted: jest.fn(),
+    quizShareInitiated: jest.fn(),
+    quizShareCompleted: jest.fn(),
+    quizShareFailed: jest.fn(),
+  },
+}));
 
 // The creation orchestration drags in the photo-import stack; U5 never runs it.
 jest.mock('@services/quiz/quizCreation', () => ({
@@ -184,8 +206,8 @@ function renderPlayScreen() {
     name: 'QuizPlay',
     params: { quizId: QUIZ_ID },
   } as RootStackScreenProps<'QuizPlay'>['route'];
-  render(<QuizPlayScreen navigation={navigation} route={route} />);
-  return { navigation };
+  const rendered = render(<QuizPlayScreen navigation={navigation} route={route} />);
+  return { navigation, ...rendered };
 }
 
 function renderResultsScreen(results: typeof COMPLETE_RESULTS | 'none' = COMPLETE_RESULTS) {
@@ -340,6 +362,67 @@ describe('QuizPlayScreen stall recovery', () => {
   // path that sets it without reaching the next question freezes the game with
   // the tapped option still lit and no way out but killing the app. Nothing may
   // hold that lock indefinitely.
+  it('reports how far a player got when they back out mid-game', async () => {
+    mockQuizDetail(makeDetail({ questions: [makeQuestion(0), makeQuestion(1), makeQuestion(2)] }));
+    mockEnsurePlaySession.mockResolvedValue(makePlayState([]));
+
+    renderPlayScreen();
+    await waitFor(() => expect(screen.getByTestId('quiz-option-0')).toBeTruthy());
+
+    fireEvent.press(screen.getByTestId('quiz-play-back'));
+
+    expect(Analytics.quizPlayAbandoned).toHaveBeenCalledTimes(1);
+    expect(Analytics.quizPlayAbandoned).toHaveBeenCalledWith(
+      expect.objectContaining({
+        quizId: QUIZ_ID,
+        answeredCount: 0,
+        total: 3,
+        activeNumber: 1,
+        exit: 'back_button',
+      })
+    );
+  });
+
+  it('counts a back-out and the unmount that follows it exactly once', async () => {
+    mockQuizDetail(makeDetail({ questions: [makeQuestion(0), makeQuestion(1)] }));
+    mockEnsurePlaySession.mockResolvedValue(makePlayState([]));
+
+    const { unmount } = renderPlayScreen();
+    await waitFor(() => expect(screen.getByTestId('quiz-option-0')).toBeTruthy());
+
+    fireEvent.press(screen.getByTestId('quiz-play-back'));
+    unmount();
+
+    expect(Analytics.quizPlayAbandoned).toHaveBeenCalledTimes(1);
+  });
+
+  it('never counts the completion hand-off to results as abandonment', async () => {
+    // Completing replaces this screen with the results screen; that unmount
+    // is the happy path, not a walk-out.
+    mockQuizDetail(makeDetail({ questions: [makeQuestion(0)] }));
+    mockEnsurePlaySession.mockResolvedValue(makePlayState([]));
+    mockPostRoutes({
+      [`/quiz/${QUIZ_ID}/answer`]: () => ({
+        place_correct: true,
+        correct_option_index: 0,
+        correct_option: OPTIONS[0],
+        score: { correct: 1, total: 1 },
+      }),
+      [`/quiz/${QUIZ_ID}/complete`]: () => COMPLETE_RESULTS,
+    });
+
+    const { navigation, unmount } = renderPlayScreen();
+    await waitFor(() => expect(screen.getByTestId('quiz-option-0')).toBeTruthy());
+    fireEvent.press(screen.getByTestId('quiz-option-0'));
+
+    await waitFor(() =>
+      expect(navigation.replace).toHaveBeenCalledWith('QuizResults', expect.anything())
+    );
+    unmount();
+
+    expect(Analytics.quizPlayAbandoned).not.toHaveBeenCalled();
+  });
+
   it('recovers into the retryable error state when an answer never settles', async () => {
     // Fake ONLY the clock the watchdog needs. React's scheduler drives render
     // continuations through setImmediate in this environment; mounting the
@@ -369,6 +452,11 @@ describe('QuizPlayScreen stall recovery', () => {
       });
 
       await waitFor(() => expect(screen.getByTestId('quiz-play-error')).toBeTruthy());
+      // A stalled answer is a player who cannot finish, and therefore
+      // cannot share - it has to be visible, not just console.warn'd.
+      expect(Analytics.quizPlayFailed).toHaveBeenCalledWith(
+        expect.objectContaining({ quizId: QUIZ_ID, stage: 'stalled' })
+      );
     } finally {
       jest.useRealTimers();
     }

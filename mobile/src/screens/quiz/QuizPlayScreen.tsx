@@ -29,7 +29,7 @@ import * as Haptics from 'expo-haptics';
 // uses expo-image, which downsamples to the view and manages a bounded cache.
 import { Image, type ImageLoadEventData } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -196,18 +196,32 @@ export function QuizPlayScreen({ navigation, route }: Props) {
     : 0;
   const answeredCount = playState ? Object.keys(playState.answers).length : 0;
 
+  useEffect(() => {
+    progressRef.current = { answeredCount, total: questions.length, activeNumber };
+  }, [answeredCount, questions.length, activeNumber]);
+
   const completePlay = useStableCallback((state: QuizPlayState) => {
     if (!quizId) return;
     setPhase('completing');
     completeMutation.mutate(state.sessionId, {
       onSuccess: (results) => {
+        completedRef.current = true;
         navigation.replace('QuizResults', { quizId, results });
       },
-      onError: () => setPhase('error'),
+      onError: () => {
+        Analytics.quizPlayFailed({ quizId, stage: 'complete' });
+        setPhase('error');
+      },
     });
   });
 
   const viewFiredRef = useRef(false);
+  // Abandon bookkeeping. Mirrors, because the unmount closure below must read
+  // the values as they were at exit, not as they were when it was created.
+  const abandonFiredRef = useRef(false);
+  const completedRef = useRef(false);
+  const startedAtRef = useRef(Date.now());
+  const progressRef = useRef({ answeredCount: 0, total: 0, activeNumber: 0 });
 
   // Ensure the (persisted or fresh) owner play session exactly once.
   useEffect(() => {
@@ -269,8 +283,11 @@ export function QuizPlayScreen({ navigation, route }: Props) {
   // retry's refetch, isError stays true while in flight, and flipping back to
   // 'error' then would make retry a no-op.
   useEffect(() => {
-    if (quizLoadFailed && !quizFetching && phase === 'loading') setPhase('error');
-  }, [quizLoadFailed, quizFetching, phase]);
+    if (quizLoadFailed && !quizFetching && phase === 'loading') {
+      Analytics.quizPlayFailed({ quizId, stage: 'load' });
+      setPhase('error');
+    }
+  }, [quizLoadFailed, quizFetching, phase, quizId]);
 
   const goToNext = useStableCallback((state: QuizPlayState) => {
     setPendingAnswerKey(null);
@@ -358,6 +375,12 @@ export function QuizPlayScreen({ navigation, route }: Props) {
               false
             );
           } else {
+            Analytics.quizPlayFailed({
+              quizId,
+              stage: 'answer',
+              statusCode: (error as { response?: { status?: number } })?.response?.status ?? null,
+              activeNumber,
+            });
             setPendingAnswerKey(null);
             setPhase('error');
           }
@@ -382,6 +405,7 @@ export function QuizPlayScreen({ navigation, route }: Props) {
         `mutation=${answerMutation.isPending ? 'pending' : 'idle'} ` +
         `question=${activeQuestion?.id ?? 'none'} session=${playState ? 'yes' : 'no'}`
     );
+    Analytics.quizPlayFailed({ quizId, stage: 'stalled', activeNumber });
     setPendingAnswerKey(null);
     setPhase('error');
   });
@@ -403,7 +427,34 @@ export function QuizPlayScreen({ navigation, route }: Props) {
     }
   });
 
+  /**
+   * One report per visit, whichever way the player leaves. An owner who
+   * never finishes can never share, so this is the app-side equivalent of
+   * the per-question drop-off the web gets from quiz_answer.
+   */
+  const reportAbandon = useCallback(
+    (exit: 'back_button' | 'unmount') => {
+      if (abandonFiredRef.current || completedRef.current || !quizId) return;
+      abandonFiredRef.current = true;
+      Analytics.quizPlayAbandoned({
+        quizId,
+        answeredCount: progressRef.current.answeredCount,
+        total: progressRef.current.total,
+        activeNumber: progressRef.current.activeNumber,
+        durationMs: Date.now() - startedAtRef.current,
+        exit,
+      });
+    },
+    [quizId]
+  );
+
+  // The swipe-back gesture never reaches a handler.
+  useEffect(() => {
+    return () => reportAbandon('unmount');
+  }, [reportAbandon]);
+
   const handleBack = useStableCallback(() => {
+    reportAbandon('back_button');
     navigation.goBack();
   });
 
@@ -571,7 +622,12 @@ export function QuizPlayScreen({ navigation, route }: Props) {
                 pointerEvents="none"
               />
               <View style={styles.topBarRow}>
-                <GlassBackButton onPress={handleBack} variant="dark" size="small" />
+                <GlassBackButton
+                  onPress={handleBack}
+                  variant="dark"
+                  size="small"
+                  testID="quiz-play-back"
+                />
                 <ProgressSegments
                   total={questions.length}
                   filled={answeredCount}
