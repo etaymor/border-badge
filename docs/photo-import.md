@@ -33,7 +33,8 @@ The photo import feature allows users to scan their device photo library and aut
 - `usePlaceSuggestions.ts` - Suggestion-fetch policy: SQLite cache read/write discipline, premium gating, analytics, candidate-stale guarding. Chunking and dispatch live in `suggestionDispatch` (below)
 - `useEntryCreation.ts` - Create entries from confirmed suggestions
 - `usePhotoImportWorkflow.ts` - Orchestrates multi-phase workflow
-- `useWorkflowAnalytics.ts`, `useAutoStartWorkflow.ts`, `useClusterItems.ts`, `useScanLifecycle.ts`, `useWorkflowNavigation.ts`
+- `useClusterItems.ts` - Turns a candidate's clusters + dispatch results into the suggestion list rows, in canonical cluster order. Clusters whose top place is the same `place_id` merge into one `merged-suggestion` card **progressively** — the moment the second cluster matches, anchored at the earliest cluster's slot (so one row disappears at that moment; that's the accepted tradeoff, reversing the 2026-08-15 plan's KTD22 deferral-until-settle). The backend never merges: it returns one suggestion per cluster. Manual split sub-clusters never merge; a cluster the user already confirmed is never re-merged.
+- `useWorkflowAnalytics.ts`, `useAutoStartWorkflow.ts`, `useScanLifecycle.ts`, `useWorkflowNavigation.ts`
 
 ### Mobile Hooks (`mobile/src/hooks/`)
 

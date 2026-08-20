@@ -168,6 +168,43 @@ describe('SuggestionsPhase progress header (R28)', () => {
     expect(header.props.accessibilityValue).toEqual({ min: 0, max: 100, now: 67 });
   });
 
+  it('counts clusters, not rows, so a progressive same-place merge does not shrink the denominator', () => {
+    // c-1 and c-2 matched the same place mid-fetch and collapsed into ONE
+    // merged row; c-3 is still pending. Counting rows would read "1 of 2" and
+    // the "of M" would tick down every time two cards merge. The header must
+    // keep counting locations: 2 settled of 3.
+    const suggestion = buildSuggestion('c-1');
+    const items: ClusterDisplayItem[] = [
+      {
+        type: 'merged-suggestion',
+        data: {
+          primaryClusterId: 'c-1',
+          clusterIds: ['c-1', 'c-2'],
+          photoIds: ['c-1-p1', 'c-2-p1'],
+          previewUris: ['https://example.com/c-1.jpg', 'https://example.com/c-2.jpg'],
+          previewAssetIds: ['c-1-p1', 'c-2-p1'],
+          photoCount: 2,
+          place: suggestion.places[0],
+          allPlaces: suggestion.places,
+          timeRange: {
+            start: new Date('2026-01-01T10:00:00Z'),
+            end: new Date('2026-01-01T12:00:00Z'),
+          },
+        },
+      },
+      { type: 'pending', cluster: buildCluster('c-3') },
+    ];
+
+    const { getByLabelText } = renderPhase({
+      clusterIds: ['c-1', 'c-2', 'c-3'],
+      items,
+      fetching: true,
+    });
+
+    const header = getByLabelText('Processing 2 of 3 locations');
+    expect(header.props.accessibilityValue).toEqual({ min: 0, max: 100, now: 67 });
+  });
+
   it('carries a progress role and a polite live region', () => {
     const items: ClusterDisplayItem[] = [{ type: 'pending', cluster: buildCluster('c-1') }];
 

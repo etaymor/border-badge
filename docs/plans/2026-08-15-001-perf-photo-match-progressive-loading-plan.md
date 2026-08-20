@@ -62,6 +62,7 @@ Two conditions make this riskier than a pure latency change. The area has a hist
 - R11. A row keeps its position for the whole session. Resolving never reorders the list and never removes a row.
 - R12. Retry is not offered on a pending row.
 - R23. Clusters that resolve to the same place are merged into one card only after every owner has settled, never progressively.
+  - **Superseded 2026-08-20:** merging is now progressive (the moment both clusters have matched, anchored at the earliest canonical slot). The separate-cards-until-settle behaviour read as a duplicate bug in use. See `useClusterItems.ts`.
 - R28. Row state changes are announced once at the list header, not per row.
 
 **Resilience and recovery**
@@ -124,7 +125,7 @@ Two conditions make this riskier than a pure latency change. The area has a hist
 
 - KTD5. **Emit every row in canonical cluster order, for the whole session.** Appending failed and no-place-found rows after matched ones makes rows teleport once results stream. Emit all states in cluster order so a resolving row changes appearance in place.
 
-- KTD22. **Suppress same-place merging until every owner has settled.** Merging is the one existing list behavior that *removes* a row: when a second cluster resolves to a place a first already claimed, its row disappears into a merged card, and if the user already confirmed the first card the second arrives for a place just saved. Rows never moving (R11) is the more valuable guarantee than progressive merging. One predictable collapse at settle is acceptable; rows vanishing mid-scroll is not.
+- KTD22. **Suppress same-place merging until every owner has settled.** *(Superseded 2026-08-20 — reversed; merging is progressive. Kept for the record.)* Merging is the one existing list behavior that *removes* a row: when a second cluster resolves to a place a first already claimed, its row disappears into a merged card, and if the user already confirmed the first card the second arrives for a place just saved. Rows never moving (R11) is the more valuable guarantee than progressive merging. One predictable collapse at settle is acceptable; rows vanishing mid-scroll is not.
 
 - KTD6. **Replace the fatal re-throw with a partial result, and pair it with an allow-list cache write.** The current fatal path marks "this batch plus everything after it" using the loop index as a dispatch frontier, which concurrency destroys. Mark only the rejected batch, stop dispatching, let in-flight batches land, and resolve partially. Safe only together with KTD14.
 
@@ -677,7 +678,7 @@ Do not change the semaphore-outside-timeout ordering; that placement is delibera
 1. Add a `pending` display-item variant carrying its cluster, sourced from the controller's **enqueued** set minus resolved minus dismissed. Sourcing it from the in-flight set would render only the clusters in the live batches — roughly fifteen of a hundred — leaving the screen mostly empty, which is the reported defect.
 2. Keep the reconciliation sweep, keyed on all owners settled.
 3. Specify the pending card fully: title in the vocabulary the failed card already uses for its retrying state, subtitle carrying the cluster's photo count and date so the row stays identifiable, a small activity indicator in the actions slot, and **no action buttons** — a pending row's only interactions are swipe-to-skip and opening the photo. Build it on the failed-card layout with the shared suggestion-card styles; the cluster's photos are already local, so a photoless skeleton would be a downgrade.
-4. Suppress same-place merging until every owner has settled per KTD22, then collapse once. Progressive merging removes rows mid-scroll and can produce a card for a place the user just saved.
+4. Suppress same-place merging until every owner has settled per KTD22, then collapse once. Progressive merging removes rows mid-scroll and can produce a card for a place the user just saved. *(Superseded 2026-08-20: merging is now progressive; see R23 note.)*
 5. Add the branch to the item-type switch and the key extractor. Do not silence the key-extractor type error with an empty-string default — it compiles and produces duplicate keys.
 6. Give the pending type its own recycling pool via the existing item-type callback, and convert the alternatives-viewed tracking on the suggestion card to recycling-keyed state; it is currently a plain ref and leaks provenance across recycled cells.
 7. Announce state changes at the header only per R28: give the progress header a progress role and a polite live region matching the scan banner's existing phrasing, give the pending card a label naming its state and photo count, and mark individual rows non-announcing so a hundred simultaneous resolutions cannot flood the reader.

@@ -2,7 +2,9 @@
  * Hook to build the merged list of cluster display items for the suggestions phase.
  *
  * Combines cached suggestions with API results and groups clusters that resolved
- * to the same place.
+ * to the same place. Grouping is progressive: two clusters collapse into one
+ * merged card as soon as both have matched, anchored at the earlier cluster's
+ * slot — not deferred until the whole fetch settles.
  *
  * KTD5 / R11 — CANONICAL ORDER: every item is emitted in the candidate's own
  * `locationClusterIds` order, whatever state the cluster is in. Rows therefore
@@ -43,13 +45,12 @@ interface UseClusterItemsOptions {
    * every owner's signal together, because the screen only knows about the
    * fetches it started itself.
    *
-   * It has TWO roles (KTD3 + KTD22): the Phase-1 reconciliation sweep (once
-   * dispatch has settled, a cluster with neither a response nor a failure entry
-   * becomes `lookup-failed`), and the same-place merge gate (merging is
-   * suppressed until settle, R23). It no longer withholds already-answered
-   * no-place-found rows — an empty response is terminal and renders at once —
-   * and it no longer withholds unresolved clusters either: those are `pending`
-   * rows now (R10).
+   * Its ONE role (KTD3) is the Phase-1 reconciliation sweep: once dispatch has
+   * settled, a cluster with neither a response nor a failure entry becomes
+   * `lookup-failed`. It no longer gates same-place merging (that is progressive
+   * now, see Phase 2), no longer withholds already-answered no-place-found rows
+   * — an empty response is terminal and renders at once — and no longer
+   * withholds unresolved clusters either: those are `pending` rows now (R10).
    */
   fetchingSuggestions: boolean;
   /**
@@ -81,10 +82,10 @@ export function useClusterItems({
   // queued behind the live batches. Pending rows come from HERE, never from
   // `inFlightClusterIds`.
   const enqueuedClusterIds = suggestionDispatch.enqueuedClusterIds ?? EMPTY_ENQUEUED_CLUSTER_IDS;
-  // R1/KTD13 + KTD22: "all owners settled". The consumer's `fetchingSuggestions`
+  // R1/KTD13: "all owners settled". The consumer's `fetchingSuggestions`
   // already ORs the screen's own flag with `ownerCount > 0`; the explicit
   // `ownerCount` term keeps this honest if a future caller passes a narrower
-  // signal. Gates BOTH the Phase-1 reconciliation sweep and the same-place merge.
+  // signal. Gates the Phase-1 reconciliation sweep only.
   const allOwnersSettled = !fetchingSuggestions && (suggestionDispatch.ownerCount ?? 0) === 0;
 
   // Memoize the merged suggestions Map separately to avoid rebuilding on every clusterItems recomputation
@@ -251,18 +252,16 @@ export function useClusterItems({
         continue;
       }
 
-      // KTD22 / R23: same-place merging is SUPPRESSED until every owner has
-      // settled. Merging is the one list behavior that REMOVES a row — the
-      // second cluster to claim a place disappears into the first's card — and
-      // doing that progressively makes rows vanish mid-scroll, or surfaces a
-      // merged card for a place the user already confirmed and saved. Rows
-      // never moving is worth more than merging early; one predictable collapse
-      // at settle is not.
-      if (!allOwnersSettled) {
-        items.push({ type: 'suggestion', data: entry.suggestion, cluster: entry.cluster });
-        continue;
-      }
-
+      // Same-place merging runs PROGRESSIVELY: the moment a second cluster's
+      // top place matches one already claimed, both collapse into one
+      // `merged-suggestion` anchored at the EARLIEST canonical slot. This is
+      // the one list behavior that removes a row (the later cluster's pending
+      // or single card disappears into the earlier card), which the original
+      // KTD22/R23 deferred until settle to keep rows from moving mid-scroll.
+      // That deferral showed two near-identical cards for one venue for the
+      // whole loading phase — read as a duplicate bug (2026-08-20) — so the
+      // gate was dropped. Dismissal still wins (Phase 1 skips dismissed
+      // clusters), so a place the user already confirmed is never re-merged.
       const groupKey = groupKeyFor(clusterId, entry.suggestion.places[0].place_id);
       if (processedGroupKeys.has(groupKey)) continue;
       processedGroupKeys.add(groupKey);

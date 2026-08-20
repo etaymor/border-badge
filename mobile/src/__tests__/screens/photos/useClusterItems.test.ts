@@ -24,8 +24,9 @@
  *    its own slot, without moving its neighbours
  *  - R2: once every owner has settled, an enqueued cluster that never answered
  *    becomes lookup-failed (retry enabled) rather than staying pending forever
- *  - KTD22/R23: same-place merging is suppressed until every owner has settled,
- *    then collapses once
+ *  - same-place merging is PROGRESSIVE (KTD22/R23 reversed 2026-08-20): two
+ *    clusters collapse into one merged card the moment both have matched,
+ *    anchored at the earlier canonical slot; settle collapses nothing further
  */
 
 import { renderHook } from '@testing-library/react-native';
@@ -85,8 +86,7 @@ const buildCandidate = (clusterIds: string[]): TripCandidateDisplay => ({
  * Build a fake `suggestionDispatch` snapshot exposing only the fields
  * useClusterItems reads: isDispatching, partialResults, data, failedClusterIds
  * (U9) and — for U8 — `enqueuedClusterIds` (the source of pending rows, R10)
- * plus `ownerCount` (the all-owners-settled gate for the reconciliation sweep
- * and the KTD22 merge suppression).
+ * plus `ownerCount` (the all-owners-settled gate for the reconciliation sweep).
  */
 const buildMutation = (opts: {
   isPending?: boolean;
@@ -576,11 +576,12 @@ describe('useClusterItems three-state model', () => {
     expect(classify({ type: 'photos-only' })).toBe('empty');
   });
 
-  it('keeps two clusters that resolved to the same place as separate cards until settle, then merges once (KTD22/R23)', () => {
-    // Merging is the ONE list behavior that removes a row: the second cluster to
-    // claim a place disappears into the first's card. Doing that progressively
-    // makes rows vanish under a scrolling finger. Suppress it until every owner
-    // has settled, then collapse in a single predictable step.
+  it('merges two clusters that resolved to the same place as soon as both are matched, mid-flight (KTD22 reversed)', () => {
+    // The original KTD22 deferred this merge until every owner had settled so
+    // no row would ever be removed mid-scroll. In practice that showed two
+    // near-identical cards for one venue ("same photo and location") for the
+    // whole loading phase, which read as a duplicate bug. Merge the moment the
+    // second cluster lands; settle must not collapse anything further.
     const ids = ['c-a', 'c-b'];
     const clusters = ids.map(buildCluster);
     const sharedPlace = buildPlace({ place_id: 'ChIJ_shared', name: 'Shared Venue' });
@@ -600,12 +601,14 @@ describe('useClusterItems three-state model', () => {
       }),
       fetching: true,
     });
-    // Two independent cards, each in its own slot. No merge, no row removed.
-    expect(midFlight).toHaveLength(2);
-    expect(midFlight.map((i) => i.type)).toEqual(['suggestion', 'suggestion']);
-    expect(midFlight.map((i) => (i.type === 'suggestion' ? i.data.cluster_id : 'other'))).toEqual(
-      ids
-    );
+    // One merged card, anchored at the earlier cluster's slot, while the fetch
+    // is still running.
+    expect(midFlight).toHaveLength(1);
+    expect(midFlight[0].type).toBe('merged-suggestion');
+    if (midFlight[0].type === 'merged-suggestion') {
+      expect(midFlight[0].data.clusterIds).toEqual(ids);
+      expect(midFlight[0].data.primaryClusterId).toBe('c-a');
+    }
 
     const settled = renderItems({
       clusterIds: ids,
@@ -613,11 +616,110 @@ describe('useClusterItems three-state model', () => {
       mutation: buildMutation({ suggestions, enqueued: ids, ownerCount: 0 }),
       fetching: false,
     });
-    // One collapse, once.
+    // Settle changes nothing: same single card, same members.
     expect(settled).toHaveLength(1);
     expect(settled[0].type).toBe('merged-suggestion');
     if (settled[0].type === 'merged-suggestion') {
       expect(settled[0].data.clusterIds).toEqual(ids);
+    }
+  });
+
+  it('never swallows a pending row into a merge — merging waits for a real match', () => {
+    // Only c-a has answered; c-b is still enqueued. c-b keeps its own pending
+    // slot (R10/R11) and c-a renders as a plain single card.
+    const ids = ['c-a', 'c-b'];
+    const clusters = ids.map(buildCluster);
+    const sharedPlace = buildPlace({ place_id: 'ChIJ_shared' });
+
+    const items = renderItems({
+      clusterIds: ids,
+      clusters,
+      mutation: buildMutation({
+        isPending: true,
+        partialResults: [buildSuggestion('c-a', [sharedPlace])],
+        enqueued: ids,
+        ownerCount: 1,
+      }),
+      fetching: true,
+    });
+
+    expect(items.map((i) => i.type)).toEqual(['suggestion', 'pending']);
+  });
+
+  it('anchors the merged card at the earliest canonical slot even when the later cluster resolves first', () => {
+    // c-b answers before c-a. c-b shows as its own card in its own slot while
+    // c-a is pending; once c-a lands the pair collapses into ONE card whose
+    // primary is c-a (canonical order), and c-b's row disappears.
+    const ids = ['c-a', 'c-b'];
+    const clusters = ids.map(buildCluster);
+    const sharedPlace = buildPlace({ place_id: 'ChIJ_shared' });
+
+    const before = renderItems({
+      clusterIds: ids,
+      clusters,
+      mutation: buildMutation({
+        isPending: true,
+        partialResults: [buildSuggestion('c-b', [sharedPlace])],
+        enqueued: ids,
+        ownerCount: 1,
+      }),
+      fetching: true,
+    });
+    expect(before.map((i) => i.type)).toEqual(['pending', 'suggestion']);
+
+    const after = renderItems({
+      clusterIds: ids,
+      clusters,
+      mutation: buildMutation({
+        isPending: true,
+        // Arrival order: c-b first, then c-a. Anchor must follow canonical
+        // order, not arrival order.
+        partialResults: [
+          buildSuggestion('c-b', [sharedPlace]),
+          buildSuggestion('c-a', [sharedPlace]),
+        ],
+        enqueued: ids,
+        ownerCount: 1,
+      }),
+      fetching: true,
+    });
+    expect(after).toHaveLength(1);
+    expect(after[0].type).toBe('merged-suggestion');
+    if (after[0].type === 'merged-suggestion') {
+      expect(after[0].data.primaryClusterId).toBe('c-a');
+      expect(after[0].data.clusterIds).toEqual(ids);
+    }
+  });
+
+  it('does not merge a cluster the user already confirmed into another card mid-flight', () => {
+    // Confirming c-saved auto-dismissed it. When c-other later resolves to the
+    // same place while the fetch is still running, it renders as its OWN card
+    // (dismissal is evaluated first) — never a merged card that re-surfaces the
+    // photos the user already saved.
+    const ids = ['c-saved', 'c-other'];
+    const clusters = ids.map(buildCluster);
+    const sharedPlace = buildPlace({ place_id: 'ChIJ_shared' });
+
+    const items = renderItems({
+      clusterIds: ids,
+      clusters,
+      mutation: buildMutation({
+        isPending: true,
+        partialResults: [
+          buildSuggestion('c-saved', [sharedPlace]),
+          buildSuggestion('c-other', [sharedPlace]),
+        ],
+        enqueued: ids,
+        ownerCount: 1,
+      }),
+      dismissed: new Set(['c-saved']),
+      fetching: true,
+    });
+
+    expect(items).toHaveLength(1);
+    expect(items[0].type).toBe('suggestion');
+    if (items[0].type === 'suggestion') {
+      expect(items[0].data.cluster_id).toBe('c-other');
     }
   });
 

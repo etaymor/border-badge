@@ -121,10 +121,16 @@ export function SuggestionsPhase({
   // own counters while the list rendered a different set of rows, so the two
   // disagreed: the controller counts only the uncached clusters it dispatched,
   // the list shows every cluster including cached and dismissed ones. Both now
-  // derive from the rendered rows, so "N of M" is literally "M rows, N of them
-  // no longer pending".
+  // derive from the rendered rows, so "N of M" is literally "M clusters across
+  // the rendered rows, N of them no longer pending". Counted in CLUSTERS, not
+  // rows: a merged-suggestion row stands for every cluster it absorbed, and
+  // merging is progressive, so counting rows would make "of M" tick DOWN as
+  // same-place cards collapse mid-fetch. Pending rows are always one cluster.
   const pendingCount = clusterItems.filter((item) => item.type === 'pending').length;
-  const totalCount = clusterItems.length;
+  let totalCount = 0;
+  for (const item of clusterItems) {
+    totalCount += item.type === 'merged-suggestion' ? item.data.clusterIds.length : 1;
+  }
   const settledCount = totalCount - pendingCount;
   const percentage = totalCount > 0 ? Math.round((settledCount / totalCount) * 100) : 0;
 
@@ -248,7 +254,13 @@ export function SuggestionsPhase({
         viewabilityConfig={VIEWABILITY_CONFIG}
         // Recycling pools are keyed by item type, so `pending` gets its own pool
         // and a resolved card is never handed a pending cell's layout.
-        getItemType={(item) => item.type}
+        // `suggestion` and `merged-suggestion` SHARE a pool: both render
+        // SwipeToSkipCard > PlaceSuggestionCard with the same layout, and a
+        // single card grows into a merged one IN PLACE (same key — the primary
+        // cluster id) when a second cluster matches its place mid-fetch. A
+        // separate pool would re-create the cell on that transition and reset
+        // the card's picked alternative (useRecyclingState) back to option 1.
+        getItemType={(item) => (item.type === 'merged-suggestion' ? 'suggestion' : item.type)}
         ListEmptyComponent={
           // The old "Finding nearby places..." spinner is unreachable now: every
           // accepted cluster is a pending ROW, so a running dispatch always has
