@@ -172,6 +172,10 @@
       body: JSON.stringify(body),
     }).then(function (response) {
       if (response.status === 404 || response.status === 410) {
+        // Revoked (or never shared). Worth counting separately from an error:
+        // the guest did nothing wrong, and mid-run revocations are a distinct
+        // reason a shared challenge stops converting.
+        trackEvent('quiz_unavailable', { mid_run: index > 0 });
         showView('gone');
         throw { handled: true };
       }
@@ -214,6 +218,10 @@
       .then(function (session) {
         token = session.token;
         store(tokenKey, token);
+        trackEvent('quiz_start', {
+          total: questions.length,
+          resumed: (session.answered || []).length > 0,
+        });
 
         var answered = session.answered || [];
         score = answered.filter(function (a) {
@@ -231,7 +239,10 @@
         }
         renderQuestion();
       })
-      .catch(handleFailure)
+      .catch(function (err) {
+        if (err) err.stage = 'session';
+        handleFailure(err);
+      })
       .then(function () {
         startButton.disabled = false;
       });
@@ -240,6 +251,7 @@
   function handleFailure(err) {
     if (err && err.handled) return;
     console.error('[quiz] request failed', err);
+    trackEvent('quiz_error', { stage: (err && err.stage) || 'request' });
     showError('Something went wrong. Check your connection and try again.');
   }
 
@@ -320,6 +332,7 @@
           advance();
           return;
         }
+        if (err) err.stage = 'answer';
         button.classList.remove('is-picked');
         setOptionsDisabled(false);
         handleFailure(err);
@@ -377,6 +390,7 @@
       })
       .catch(function (err) {
         if (err && err.handled) return; // revoked: the gone view took over
+        if (err) err.stage = 'complete';
         handleFailure(err);
         showCompleteRetry();
       });
@@ -445,6 +459,10 @@
     api('/name', { token: token, display_name: displayName })
       .then(function (results) {
         store(nameKey, displayName);
+        trackEvent('quiz_name_submitted', {
+          score: lastResults ? lastResults.score : null,
+          total: questions.length,
+        });
         if (postScoreEl) postScoreEl.hidden = true;
         // The response is complete-shaped with the fresh name's row flagged
         // is_you: re-rendering splices the player in with the highlight.
@@ -521,12 +539,14 @@
     var text = shareText();
     var url = window.location.origin + apiBase;
     if (navigator.share) {
+      trackEvent('quiz_score_reshared', { method: 'share_sheet' });
       navigator.share({ text: text, url: url }).catch(function () {
         /* user dismissed the sheet: not an error */
       });
       return;
     }
     if (navigator.clipboard && navigator.clipboard.writeText) {
+      trackEvent('quiz_score_reshared', { method: 'clipboard' });
       navigator.clipboard.writeText(text + ' ' + url).then(confirmCopied, function () {
         showError('Could not copy the share message.');
       });
