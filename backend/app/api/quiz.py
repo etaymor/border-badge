@@ -290,7 +290,7 @@ async def check_photo_eligibility(
         reserved = reserved.get("reserve_daily_classification")
     if not reserved:
         logger.warning(
-            "Quiz classification daily cap reached: reserve of %d denied " "(cap %d)",
+            "Quiz classification daily cap reached: reserve of %d denied (cap %d)",
             batch_size,
             settings.quiz_classification_daily_cap,
         )
@@ -1302,8 +1302,7 @@ async def share_quiz(quiz_id: UUID, user: CurrentUser) -> QuizShareResponse:
             detail={
                 "code": "QUIZ_OWNER_ANSWERS_INCOMPLETE",
                 "message": (
-                    "Answer every question (including swapped photos) "
-                    "before sharing."
+                    "Answer every question (including swapped photos) before sharing."
                 ),
             },
         )

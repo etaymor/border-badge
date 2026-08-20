@@ -554,9 +554,9 @@ class TestMultiPlaceResolutionTimeout:
                             use_cache=False,
                         )
 
-        assert (
-            resolve_called_with_start_time
-        ), "extract_from_frames should pass start_time to _resolve_multimodal_places"
+        assert resolve_called_with_start_time, (
+            "extract_from_frames should pass start_time to _resolve_multimodal_places"
+        )
 
 
 class TestCountryMismatchFallback:

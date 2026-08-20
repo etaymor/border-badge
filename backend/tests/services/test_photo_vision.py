@@ -85,9 +85,9 @@ class TestVisionResultHasBusinessName:
                 detected_text=[word],
                 confidence="low",
             )
-            assert (
-                result.has_business_name is False
-            ), f"'{word}' should not be a business name"
+            assert result.has_business_name is False, (
+                f"'{word}' should not be a business name"
+            )
 
     def test_returns_false_for_empty_detected_text(self) -> None:
         """Empty detected text should return False."""
@@ -363,9 +363,9 @@ class TestParseResponse:
             )
             result = PhotoClassifier._parse_response(content)
             assert result is not None
-            assert (
-                result.confidence == level
-            ), f"Confidence '{level}' should be accepted"
+            assert result.confidence == level, (
+                f"Confidence '{level}' should be accepted"
+            )
 
     def test_invalid_json_logs_warning(self, caplog) -> None:
         """Invalid JSON should log a warning."""
@@ -745,9 +745,9 @@ class TestVisionConcurrencyBounds:
         assert peak_total <= 8, "process-wide ceiling was exceeded"
         assert peak_by_request, "no per-request activity recorded"
         assert max(peak_by_request.values()) <= 5
-        assert (
-            max(peak_by_request.values()) < peak_total
-        ), "a single request held every process slot"
+        assert max(peak_by_request.values()) < peak_total, (
+            "a single request held every process slot"
+        )
 
 
 class TestVisionNullOutcomeRecording:

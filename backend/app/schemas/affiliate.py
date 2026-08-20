@@ -1,7 +1,7 @@
 """Schemas for affiliate outbound redirect service."""
 
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator
@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field, field_validator
 from app.core.validators import validate_link
 
 
-class OutboundLinkStatus(str, Enum):
+class OutboundLinkStatus(StrEnum):
     """Status of an outbound link."""
 
     ACTIVE = "active"
@@ -17,7 +17,7 @@ class OutboundLinkStatus(str, Enum):
     ARCHIVED = "archived"
 
 
-class ResolutionPath(str, Enum):
+class ResolutionPath(StrEnum):
     """How the destination URL was resolved."""
 
     DIRECT_PARTNER = "direct_partner"

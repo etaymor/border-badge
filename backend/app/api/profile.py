@@ -151,7 +151,7 @@ async def delete_account(
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=(
-                    "Failed to delete account. Please try again or " "contact support."
+                    "Failed to delete account. Please try again or contact support."
                 ),
             ) from exc
 

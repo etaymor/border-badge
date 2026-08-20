@@ -56,7 +56,7 @@ from collections.abc import Awaitable, Callable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
-from typing import Any, TypeVar
+from typing import Any
 
 import httpx
 
@@ -76,8 +76,6 @@ from .constants import (
 from .exceptions import QuotaExhaustedError, RateLimitError, SlotUnavailableError
 
 logger = logging.getLogger(__name__)
-
-T = TypeVar("T")
 
 
 class CircuitOpenError(RateLimitError):
@@ -314,7 +312,7 @@ def raise_if_circuit_open() -> None:
 # ---------------------------------------------------------------------------
 
 
-async def with_google_retry(
+async def with_google_retry[T](
     operation: Callable[[], Awaitable[T]],
     *,
     site: str,
@@ -418,7 +416,6 @@ async def with_google_retry(
         # strips — leaving `raise None` -> TypeError, i.e. a clean 429 turning
         # into a 500 for the caller.
         raise RuntimeError(
-            f"with_google_retry exhausted its attempts without an error "
-            f"(site={site})"
+            f"with_google_retry exhausted its attempts without an error (site={site})"
         )
     raise last_error

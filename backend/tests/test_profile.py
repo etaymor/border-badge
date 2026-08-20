@@ -588,7 +588,7 @@ def test_delete_account_rate_limiting(
 
             # First 5 should succeed
             for i in range(5):
-                assert responses[i].status_code == 200, f"Request {i+1} failed"
+                assert responses[i].status_code == 200, f"Request {i + 1} failed"
 
             # 6th should be rate limited
             assert responses[5].status_code == 429

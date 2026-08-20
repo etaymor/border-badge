@@ -622,7 +622,7 @@ class SearchMixin:
                 rating = p.get("rating", 0)
                 review_count = p.get("userRatingCount", 0)
                 logger.debug(
-                    f"  [{i+1}] {name} | type={primary_type} | "
+                    f"  [{i + 1}] {name} | type={primary_type} | "
                     f"rating={rating} | reviews={review_count}"
                 )
             return places

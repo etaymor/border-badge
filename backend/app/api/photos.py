@@ -187,8 +187,7 @@ def _consume_cost_budget(
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail=(
-                "Photo import cost budget exceeded. "
-                "Please wait a moment and try again."
+                "Photo import cost budget exceeded. Please wait a moment and try again."
             ),
             headers={"Retry-After": str(item.get_expiry())},
         )

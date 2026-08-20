@@ -34,7 +34,7 @@ facebook-business = "^24.0.1"
 pytest = "^8.3.0"
 rcssmin = "^1.2.2"
 pytest-asyncio = "^0.24.0"
-ruff = "^0.8.0"
+ruff = "^0.15.0"
 
 [build-system]
 requires = ["poetry-core"]

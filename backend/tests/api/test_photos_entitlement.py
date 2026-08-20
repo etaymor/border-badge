@@ -57,8 +57,7 @@ MIGRATION = (
 MISSING_COLUMN_ERROR = HTTPException(
     status_code=400,
     detail=(
-        "Database error: column user_profile.usage_photo_import_trip_id "
-        "does not exist"
+        "Database error: column user_profile.usage_photo_import_trip_id does not exist"
     ),
 )
 

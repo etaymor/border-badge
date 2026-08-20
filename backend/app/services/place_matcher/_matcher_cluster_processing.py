@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from typing import Any, TypeVar
+from typing import Any
 
 import httpx
 
@@ -46,12 +46,10 @@ logger = logging.getLogger(__name__)
 # diagnostic capture run can be sliced out of the logs with this prefix.
 DIAGNOSTIC_TRACE_EVENT = "place_matcher_diagnostic_trace"
 
-_T = TypeVar("_T")
 
-
-def _guarded_setting(
-    settings: Any, name: str, default: _T, types: type | tuple[type, ...]
-) -> _T:
+def _guarded_setting[T](
+    settings: Any, name: str, default: T, types: type | tuple[type, ...]
+) -> T:
     """Read a tuning flag off settings, falling back on a wrong-typed value.
 
     The isinstance guard is load-bearing, not defensive noise: a ``MagicMock``

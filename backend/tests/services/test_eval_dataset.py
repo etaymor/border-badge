@@ -49,36 +49,36 @@ class TestEvalDatasetIntegrity:
             expected = sample.get("expected_place_id")
             assert expected, f"{sample.get('id')}: missing expected_place_id"
             place_ids = {p.get("id") for p in sample.get("places", [])}
-            assert (
-                expected in place_ids
-            ), f"{sample['id']}: expected_place_id {expected!r} not in places[]"
+            assert expected in place_ids, (
+                f"{sample['id']}: expected_place_id {expected!r} not in places[]"
+            )
 
     def test_cluster_geometry_complete(self, path: Path) -> None:
         for sample in _load(path):
             centroid = sample.get("cluster", {}).get("centroid", {})
-            assert (
-                "latitude" in centroid and "longitude" in centroid
-            ), f"{sample['id']}: cluster.centroid must carry latitude/longitude"
+            assert "latitude" in centroid and "longitude" in centroid, (
+                f"{sample['id']}: cluster.centroid must carry latitude/longitude"
+            )
             for place in sample.get("places", []):
-                assert place.get("displayName", {}).get(
-                    "text"
-                ), f"{sample['id']}: place {place.get('id')} missing displayName.text"
+                assert place.get("displayName", {}).get("text"), (
+                    f"{sample['id']}: place {place.get('id')} missing displayName.text"
+                )
                 loc = place.get("location", {})
-                assert (
-                    "latitude" in loc and "longitude" in loc
-                ), f"{sample['id']}: place {place.get('id')} missing location"
+                assert "latitude" in loc and "longitude" in loc, (
+                    f"{sample['id']}: place {place.get('id')} missing location"
+                )
 
     def test_vision_fields_valid(self, path: Path) -> None:
         for sample in _load(path):
             for vision in _vision_dicts(sample):
                 category = vision.get("category")
-                assert (
-                    category in VISION_CATEGORIES
-                ), f"{sample['id']}: invalid vision category {category!r}"
+                assert category in VISION_CATEGORIES, (
+                    f"{sample['id']}: invalid vision category {category!r}"
+                )
                 confidence = vision.get("confidence")
-                assert (
-                    confidence in VISION_CONFIDENCE_LEVELS
-                ), f"{sample['id']}: invalid vision confidence {confidence!r}"
+                assert confidence in VISION_CONFIDENCE_LEVELS, (
+                    f"{sample['id']}: invalid vision confidence {confidence!r}"
+                )
 
 
 def test_paris_recall_safety_guard_row_exists() -> None:

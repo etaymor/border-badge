@@ -419,7 +419,7 @@ def build_blog_index_seo(base_url: str) -> SEOContext:
         canonical_url=f"{base_url}/blog",
         og_title="The Atlasi Blog",
         og_description=(
-            "Guides and comparisons of the best travel tracking and" " journaling apps."
+            "Guides and comparisons of the best travel tracking and journaling apps."
         ),
         og_image=f"{base_url}{DEFAULT_OG_IMAGE_PATH}",
         og_type="website",

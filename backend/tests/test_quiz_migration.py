@@ -110,9 +110,9 @@ def test_state_check_lists_exactly_the_five_lifecycle_states(sql: str):
 
 
 def test_state_is_text_not_enum(sql: str):
-    assert not re.search(
-        r"CREATE\s+TYPE", sql, re.IGNORECASE
-    ), "lifecycle state must be TEXT + CHECK, not a Postgres enum"
+    assert not re.search(r"CREATE\s+TYPE", sql, re.IGNORECASE), (
+        "lifecycle state must be TEXT + CHECK, not a Postgres enum"
+    )
 
 
 def test_slug_unique_index_is_partial(sql: str):
@@ -121,22 +121,22 @@ def test_slug_unique_index_is_partial(sql: str):
         r"ON public\.quiz\s*\(slug\)\s*"
         r"WHERE slug IS NOT NULL"
     )
-    assert re.search(
-        pattern, sql
-    ), "slug needs a partial unique index so many NULL slugs coexist"
+    assert re.search(pattern, sql), (
+        "slug needs a partial unique index so many NULL slugs coexist"
+    )
 
 
 def test_slug_column_is_nullable_and_hex_constrained(sql: str):
     # Nullable: no NOT NULL on the slug column definition.
     match = re.search(r"^\s*slug\s+TEXT(.*)$", sql, re.MULTILINE | re.IGNORECASE)
     assert match, "quiz table must have a slug TEXT column"
-    assert (
-        "NOT NULL" not in match.group(1).upper()
-    ), "slug must be nullable until share time"
+    assert "NOT NULL" not in match.group(1).upper(), (
+        "slug must be nullable until share time"
+    )
     # token_hex(16) shape only: 32 lowercase hex chars.
-    assert re.search(
-        r"slug\s*~\s*'\^\[0-9a-f\]\{32\}\$'", sql
-    ), "slug CHECK must restrict values to token_hex(16) output"
+    assert re.search(r"slug\s*~\s*'\^\[0-9a-f\]\{32\}\$'", sql), (
+        "slug CHECK must restrict values to token_hex(16) output"
+    )
 
 
 def test_score_to_beat_pair_set_and_cleared_together(sql: str):
@@ -144,15 +144,15 @@ def test_score_to_beat_pair_set_and_cleared_together(sql: str):
         r"CHECK\s*\(\s*\(\s*score_to_beat_correct IS NULL AND score_to_beat_total IS NULL\s*\)"
         r"\s*OR\s*\(\s*score_to_beat_correct IS NOT NULL AND score_to_beat_total IS NOT NULL"
     )
-    assert re.search(
-        pattern, sql
-    ), "score-to-beat (correct, total) must be both null or both non-null"
+    assert re.search(pattern, sql), (
+        "score-to-beat (correct, total) must be both null or both non-null"
+    )
 
 
 def test_answer_unique_per_session_and_question(sql: str):
-    assert re.search(
-        r"UNIQUE\s*\(\s*session_id\s*,\s*question_id\s*\)", sql
-    ), "quiz_answer needs UNIQUE (session_id, question_id) so each question grades at most once"
+    assert re.search(r"UNIQUE\s*\(\s*session_id\s*,\s*question_id\s*\)", sql), (
+        "quiz_answer needs UNIQUE (session_id, question_id) so each question grades at most once"
+    )
 
 
 def test_child_tables_cascade_from_quiz(sql: str):
@@ -191,9 +191,9 @@ def test_classified_count_column_added_idempotently(sql: str):
 def test_funnel_counters_keyed_by_quiz_and_event(sql: str):
     """U12: one counter row per (quiz, event) so started-vs-completed per quiz
     is a single filtered read (KTD9: also the leaderboard harvest signal)."""
-    assert re.search(
-        r"PRIMARY KEY\s*\(\s*quiz_id\s*,\s*event\s*\)", sql
-    ), "quiz_funnel needs PRIMARY KEY (quiz_id, event)"
+    assert re.search(r"PRIMARY KEY\s*\(\s*quiz_id\s*,\s*event\s*\)", sql), (
+        "quiz_funnel needs PRIMARY KEY (quiz_id, event)"
+    )
 
 
 def test_funnel_event_check_in_0060_lists_its_original_four_events(sql: str):
@@ -274,9 +274,9 @@ def test_seed_session_id_column_added_idempotently(sql: str):
         "seed_session_id must not carry an FK -- a missing session disables "
         "rescoring but must never block session cleanup"
     )
-    assert (
-        "NOT NULL" not in match.group(1).upper()
-    ), "seed_session_id must be nullable (legacy rows seeded before it existed)"
+    assert "NOT NULL" not in match.group(1).upper(), (
+        "seed_session_id must be nullable (legacy rows seeded before it existed)"
+    )
 
 
 def test_version_column_added_idempotently(sql: str):
@@ -301,12 +301,12 @@ def test_daily_classification_counter_table_shape(sql: str):
     )
     assert match, "missing quiz_daily_classification table"
     body = match.group(1)
-    assert re.search(
-        r"day\s+DATE PRIMARY KEY", body
-    ), "quiz_daily_classification needs day DATE PRIMARY KEY"
-    assert re.search(
-        r"classified_count\s+INTEGER NOT NULL DEFAULT 0", body
-    ), "quiz_daily_classification needs classified_count INTEGER NOT NULL DEFAULT 0"
+    assert re.search(r"day\s+DATE PRIMARY KEY", body), (
+        "quiz_daily_classification needs day DATE PRIMARY KEY"
+    )
+    assert re.search(r"classified_count\s+INTEGER NOT NULL DEFAULT 0", body), (
+        "quiz_daily_classification needs classified_count INTEGER NOT NULL DEFAULT 0"
+    )
 
 
 def test_reserve_daily_classification_is_an_atomic_capped_reserve(sql: str):
@@ -323,20 +323,20 @@ def test_reserve_daily_classification_is_an_atomic_capped_reserve(sql: str):
     assert match, "missing reserve_daily_classification(p_count, p_cap)"
     fn = match.group(0)
     assert re.search(r"RETURNS\s+BOOLEAN", fn, re.IGNORECASE)
-    assert re.search(
-        r"ON CONFLICT\s*\(\s*day\s*\)\s*DO NOTHING", fn, re.IGNORECASE
-    ), "the day row must be created idempotently (ON CONFLICT (day) DO NOTHING)"
+    assert re.search(r"ON CONFLICT\s*\(\s*day\s*\)\s*DO NOTHING", fn, re.IGNORECASE), (
+        "the day row must be created idempotently (ON CONFLICT (day) DO NOTHING)"
+    )
     assert re.search(
         r"UPDATE public\.quiz_daily_classification[\s\S]*?"
         r"WHERE day = CURRENT_DATE AND classified_count \+ p_count <= p_cap",
         fn,
     ), "the UPDATE must be cap-guarded so a reserve past the cap matches no row"
-    assert re.search(
-        r"RETURN reserved IS NOT NULL", fn
-    ), "the function must report whether the reservation succeeded"
-    assert re.search(
-        r"SET\s+search_path\s*=\s*public", fn, re.IGNORECASE
-    ), "reserve_daily_classification must SET search_path = public"
+    assert re.search(r"RETURN reserved IS NOT NULL", fn), (
+        "the function must report whether the reservation succeeded"
+    )
+    assert re.search(r"SET\s+search_path\s*=\s*public", fn, re.IGNORECASE), (
+        "reserve_daily_classification must SET search_path = public"
+    )
 
 
 def test_reserve_daily_classification_is_service_role_only(sql: str):
@@ -468,9 +468,9 @@ def test_code_vocabulary_matches_the_database_constraint():
 
 @pytest.fixture(scope="module")
 def drop_year_sql() -> str:
-    assert (
-        DROP_YEAR_MIGRATION_PATH.exists()
-    ), f"missing migration: {DROP_YEAR_MIGRATION_PATH}"
+    assert DROP_YEAR_MIGRATION_PATH.exists(), (
+        f"missing migration: {DROP_YEAR_MIGRATION_PATH}"
+    )
     return DROP_YEAR_MIGRATION_PATH.read_text()
 
 
@@ -499,9 +499,9 @@ def test_0062_drops_the_paired_year_check_before_the_columns(drop_year_sql: str)
 def test_0062_drops_every_year_column_idempotently(
     drop_year_sql: str, table: str, column: str
 ):
-    assert (
-        f"DROP COLUMN IF EXISTS {column}" in drop_year_sql
-    ), f"{table}.{column} must be dropped idempotently"
+    assert f"DROP COLUMN IF EXISTS {column}" in drop_year_sql, (
+        f"{table}.{column} must be dropped idempotently"
+    )
 
 
 def test_no_year_columns_survive_across_the_migration_set(sql: str, drop_year_sql: str):

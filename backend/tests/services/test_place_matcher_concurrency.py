@@ -248,9 +248,9 @@ class TestSlotWaitCeiling:
         await holder
 
         assert probe.calls == 0, "the outbound call was made anyway"
-        assert (
-            not rate_limit.rate_limit_breaker.is_open()
-        ), "our own bound fed the upstream circuit breaker"
+        assert not rate_limit.rate_limit_breaker.is_open(), (
+            "our own bound fed the upstream circuit breaker"
+        )
 
     @pytest.mark.asyncio
     async def test_pure_cache_hit_consumes_no_global_slot(self, monkeypatch) -> None:

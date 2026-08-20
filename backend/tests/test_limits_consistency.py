@@ -60,9 +60,9 @@ def test_free_limits_consistency():
         f"Share extension limits don't match: "
         f"TypeScript={ts_share}, Python={py_share}, Swift={swift_share}"
     )
-    assert (
-        ts_photo == py_photo
-    ), f"Photo import limits don't match: TypeScript={ts_photo}, Python={py_photo}"
+    assert ts_photo == py_photo, (
+        f"Photo import limits don't match: TypeScript={ts_photo}, Python={py_photo}"
+    )
     assert ts_entries == py_entries, (
         f"Entries per trip limits don't match: "
         f"TypeScript={ts_entries}, Python={py_entries}"

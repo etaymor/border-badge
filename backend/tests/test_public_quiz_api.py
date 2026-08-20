@@ -1229,7 +1229,7 @@ class TestRateLimits:
             "get_public_quiz_leaderboard",
             "quiz_install_redirect",
         ):
-            assert any(
-                handler in key for key in limiter._route_limits
-            ), f"{handler} is not rate limited"
+            assert any(handler in key for key in limiter._route_limits), (
+                f"{handler} is not rate limited"
+            )
         assert any("hide_quiz_session" in key for key in limiter._route_limits)

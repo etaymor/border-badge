@@ -264,12 +264,12 @@ def test_revoked_quiz_serves_content_free_gone_page(
 
 
 def _assert_noindex(response: Any) -> None:
-    assert "noindex" in response.headers.get(
-        "X-Robots-Tag", ""
-    ), "missing X-Robots-Tag: noindex"
-    assert re.search(
-        r'<meta\s+name="robots"\s+content="[^"]*noindex', response.text
-    ), "missing meta robots noindex tag"
+    assert "noindex" in response.headers.get("X-Robots-Tag", ""), (
+        "missing X-Robots-Tag: noindex"
+    )
+    assert re.search(r'<meta\s+name="robots"\s+content="[^"]*noindex', response.text), (
+        "missing meta robots noindex tag"
+    )
 
 
 def test_noindex_on_shared_quiz_page(
@@ -478,6 +478,6 @@ def test_robots_txt_has_no_quiz_disallow(client: TestClient) -> None:
 
 def test_quiz_page_route_is_rate_limited() -> None:
     """The route must be registered with the shared limiter (mirrors /t/)."""
-    assert any(
-        "view_quiz_page" in key for key in limiter._route_limits
-    ), "GET /q/{slug} is not registered with the rate limiter"
+    assert any("view_quiz_page" in key for key in limiter._route_limits), (
+        "GET /q/{slug} is not registered with the rate limiter"
+    )

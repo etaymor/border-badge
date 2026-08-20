@@ -133,21 +133,19 @@ class RequestMetrics:
     cluster_count: int = 0
     failed_cluster_count: int = 0
     phase_ms: dict[str, float] = field(
-        default_factory=lambda: {phase: 0.0 for phase in PHASES}
+        default_factory=lambda: dict.fromkeys(PHASES, 0.0)
     )
-    cache: dict[str, int] = field(
-        default_factory=lambda: {source: 0 for source in SOURCES}
-    )
+    cache: dict[str, int] = field(default_factory=lambda: dict.fromkeys(SOURCES, 0))
     outbound_by_method: dict[str, int] = field(
-        default_factory=lambda: {method: 0 for method in METHODS}
+        default_factory=lambda: dict.fromkeys(METHODS, 0)
     )
     retries: dict[str, int] = field(
-        default_factory=lambda: {kind: 0 for kind in RETRY_KINDS}
+        default_factory=lambda: dict.fromkeys(RETRY_KINDS, 0)
     )
     # U3: ranking inputs that were dropped after the retry budget was spent,
     # attributed to the call site that could not supply them.
     dropped_ranking_inputs: dict[str, int] = field(
-        default_factory=lambda: {site: 0 for site in SITES}
+        default_factory=lambda: dict.fromkeys(SITES, 0)
     )
     # Vision aggregates (R18 vision-null rate). Populated by the classifier.
     vision_clusters_attempted: int = 0
@@ -157,7 +155,7 @@ class RequestMetrics:
     vision_total_ms: float = 0.0
     # Why the null images were null (U12). Sums to vision_images_null.
     vision_null_reasons: dict[str, int] = field(
-        default_factory=lambda: {reason: 0 for reason in VISION_NULL_REASONS}
+        default_factory=lambda: dict.fromkeys(VISION_NULL_REASONS, 0)
     )
 
     # Live/peak outbound concurrency. asyncio is single-threaded here, so a

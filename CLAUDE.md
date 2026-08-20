@@ -286,6 +286,11 @@ poetry run ruff format --check . # Must pass
 poetry run pytest              # Must pass all tests
 ```
 
+Always run ruff through `poetry run` (currently pinned to `^0.15.0` in
+`backend/pyproject.toml`, which is what CI installs). A bare `ruff` picks up the
+Homebrew binary, which drifts to a different version and reports a different set
+of lint rules and formatting.
+
 ### iOS Share Extension (if modifying Swift code)
 
 ```bash

@@ -91,9 +91,9 @@ class TestLoadEmailTemplate:
 
             # All templates should have some content and end with Emerson
             assert len(content) > 50, f"Template {template_name}.txt is too short"
-            assert (
-                "Emerson" in content
-            ), f"Template {template_name}.txt missing signature"
+            assert "Emerson" in content, (
+                f"Template {template_name}.txt missing signature"
+            )
 
     def test_template_caching_works(self) -> None:
         """Test that templates are cached after first load."""
