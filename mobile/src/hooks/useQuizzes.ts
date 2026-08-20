@@ -324,7 +324,10 @@ export function useDeleteQuiz() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (quizId: string): Promise<string> => {
+    // The lifecycle state rides along purely so the event can carry it; the
+    // caller always has it, and reading it back off the cache after the row is
+    // gone would be a race.
+    mutationFn: async ({ quizId }: { quizId: string; state: string }): Promise<string> => {
       await api.delete(`/quiz/${quizId}`);
       // If the deleted quiz IS the locally persisted creation draft, drop
       // that mirror too - otherwise the next creation would resume a
@@ -335,7 +338,10 @@ export function useDeleteQuiz() {
       }
       return quizId;
     },
-    onSuccess: (quizId) => {
+    onSuccess: (quizId, variables) => {
+      // Counterpart to quizRevoked: without this, the two ways a challenge
+      // leaves the list are counted asymmetrically.
+      Analytics.quizDeleted({ quizId, state: variables.state });
       queryClient.invalidateQueries({ queryKey: [...QUIZZES_QUERY_KEY, quizId] });
       queryClient.invalidateQueries({ queryKey: QUIZ_LIST_QUERY_KEY });
     },

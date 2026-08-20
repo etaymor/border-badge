@@ -614,7 +614,7 @@ describe('useQuizzes', () => {
         wrapper: createWrapper(queryClient),
       });
       await act(async () => {
-        await result.current.mutateAsync(quizId);
+        await result.current.mutateAsync({ quizId, state: 'building' });
       });
     }
 

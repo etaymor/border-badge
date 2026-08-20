@@ -1034,7 +1034,13 @@ export const Analytics = {
 
   // Post-paywall "make your first quiz" offer
   firstQuizOfferShown: () => track('first_quiz_offer_shown'),
-  firstQuizOfferAccepted: () => track('first_quiz_offer_accepted'),
+  /**
+   * Accept goes straight to the creation wizard, so an accept from a device
+   * that has never scanned its camera roll lands on the permission wall.
+   * `has_initial_import` is how many of those there are.
+   */
+  firstQuizOfferAccepted: (props: { hasInitialImport: boolean }) =>
+    track('first_quiz_offer_accepted', { has_initial_import: props.hasInitialImport }),
   firstQuizOfferSkipped: () => track('first_quiz_offer_skipped'),
 
   // Review Request Events

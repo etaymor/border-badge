@@ -22,6 +22,12 @@ export interface UseHasInitialImportResult {
   /** True once any scan has written the watermark. */
   hasInitialImport: boolean;
   isLoading: boolean;
+  /**
+   * The watermark could not be read, so `hasInitialImport` is the safe
+   * fallback rather than an observation. Analytics has to say so, or the
+   * card-impression denominator quietly lies.
+   */
+  isError: boolean;
   /** Refetch the watermark (e.g. on returning from PhotoImport). */
   refresh: () => void;
 }
@@ -45,6 +51,7 @@ export function useHasInitialImport(): UseHasInitialImportResult {
     // synced. On error, fall back to the pre-existing behaviour instead.
     hasInitialImport: query.data != null || query.isError,
     isLoading: query.isLoading,
+    isError: query.isError,
     refresh,
   };
 }

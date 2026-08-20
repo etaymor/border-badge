@@ -38,8 +38,9 @@ type Props = OnboardingStackScreenProps<'FirstQuizOffer'>;
 export function FirstQuizOfferScreen(_props: Props) {
   const { getAnimatedStyle, getButtonStyle } = useScreenEntrance({ elementCount: 5 });
   const finishOnboarding = useFinishOnboarding();
-  // Accept routes through photo import when the camera roll has never been
-  // scanned (useFirstQuizLaunch owns that branch), so say so here first.
+  // Accept goes STRAIGHT to the creation wizard - there is no photo-import
+  // branch - so on a device that has never scanned, the wizard opens on its
+  // permission step. Say so here first, and count how often it happens.
   const { hasInitialImport, isLoading: importStateLoading } = useHasInitialImport();
   const setPendingFirstQuizLaunch = useAuthStore((s) => s.setPendingFirstQuizLaunch);
   const [isFinishing, setIsFinishing] = useState(false);
@@ -51,7 +52,7 @@ export function FirstQuizOfferScreen(_props: Props) {
   const handleAccept = async () => {
     if (isFinishing) return;
     setIsFinishing(true);
-    Analytics.firstQuizOfferAccepted();
+    Analytics.firstQuizOfferAccepted({ hasInitialImport });
     // Armed BEFORE the finish flips the navigator: the flag must already be
     // set when Main mounts and useFirstQuizLaunch runs.
     setPendingFirstQuizLaunch(true);

@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import { Alert, Animated, FlatList } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -27,6 +27,7 @@ import type { DetectedClipboardUrl } from '@hooks/useClipboardListener';
 import { useHasInitialImport } from '@hooks/useHasInitialImport';
 import { useMyQuizzes } from '@hooks/useQuizzes';
 import { usePassportData } from '@hooks/usePassportData';
+import { Analytics } from '@services/analytics';
 import { usePassportAnimations } from '@hooks/usePassportAnimations';
 import { buildMilestoneContext, type MilestoneContext } from '@utils/milestones';
 import type { PassportStackScreenProps } from '@navigation/types';
@@ -76,9 +77,32 @@ export function PassportScreen({ navigation }: Props) {
   // Existing challenges override that: the watermark is device-local, so after
   // a reinstall (or on a second device) a user with challenges would otherwise
   // lose their only home entry point to them.
-  const { hasInitialImport, isLoading: importStateLoading, refresh } = useHasInitialImport();
+  const {
+    hasInitialImport,
+    isLoading: importStateLoading,
+    isError: importStateError,
+    refresh,
+  } = useHasInitialImport();
   const { data: quizzes } = useMyQuizzes();
-  const showGuessWhere = hasInitialImport || (!!quizzes && quizzes.length > 0);
+  const quizCount = quizzes?.length ?? 0;
+  const showGuessWhere = hasInitialImport || quizCount > 0;
+
+  // Which of the two swappable cards the slot actually rendered. Gated on the
+  // same condition the slot is (the screen holds both back until the watermark
+  // resolves, so neither flashes), and fired once per mount rather than from
+  // useFocusEffect - this is a tab, and focus would re-count on every switch.
+  const cardShownRef = useRef(false);
+  useEffect(() => {
+    if (cardShownRef.current || importStateLoading) return;
+    cardShownRef.current = true;
+    Analytics.passportEntryCardShown({
+      card: showGuessWhere ? 'guess_where' : 'photo_sync',
+      hasQuizzes: quizCount > 0,
+      quizCount,
+      hasInitialImport,
+      watermarkUnreadable: importStateError,
+    });
+  }, [importStateLoading, showGuessWhere, quizCount, hasInitialImport, importStateError]);
 
   // No AppState focus manager is wired up, so re-read the watermark to pick up
   // an import that completed while this screen was away. Only while the sync

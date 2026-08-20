@@ -130,11 +130,14 @@ function useQuizCardActions(quiz: QuizSummary, navigation: Props['navigation']) 
           text: 'Delete',
           style: 'destructive',
           onPress: () => {
-            deleteMutation.mutate(quiz.id, {
-              onError: () => {
-                Alert.alert('Error', 'Could not delete the challenge. Please try again.');
-              },
-            });
+            deleteMutation.mutate(
+              { quizId: quiz.id, state: quiz.state },
+              {
+                onError: () => {
+                  Alert.alert('Error', 'Could not delete the challenge. Please try again.');
+                },
+              }
+            );
           },
         },
       ]

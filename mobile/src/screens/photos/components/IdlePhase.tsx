@@ -16,6 +16,7 @@ import { Ionicons } from '@expo/vector-icons';
 
 import { Button } from '@components/ui';
 import { colors } from '@constants/colors';
+import { Analytics } from '@services/analytics';
 import { formatLastScanTime } from '../photoImportHelpers';
 import { styles } from '../photoImportStyles';
 
@@ -35,6 +36,15 @@ export function IdlePhase({
   homeCountryName,
   onStartScan,
 }: IdlePhaseProps) {
+  // This screen is where the "unlocks Guess Where challenges" promise is made,
+  // so the tap is worth counting here rather than relying on the service-level
+  // photo_import_scan_started, which fires too deep in the pipeline to know
+  // what promised the scan.
+  const startScan = (forceRefresh: boolean) => {
+    Analytics.photoSyncScanTapped({ isRefresh: forceRefresh, isFirstRun: !lastImportTime });
+    onStartScan(forceRefresh);
+  };
+
   return (
     <View style={styles.idleContainer}>
       {autoStart && lastImportTime ? (
@@ -82,11 +92,11 @@ export function IdlePhase({
           )}
           <Button
             title={lastImportTime ? 'Check for New Photos' : 'Start Scan'}
-            onPress={() => onStartScan(false)}
+            onPress={() => startScan(false)}
             style={styles.scanButton}
           />
           {lastImportTime && (
-            <TouchableOpacity onPress={() => onStartScan(true)} style={styles.refreshLink}>
+            <TouchableOpacity onPress={() => startScan(true)} style={styles.refreshLink}>
               <Ionicons name="refresh-outline" size={16} color={colors.sunsetGold} />
               <Text style={styles.refreshLinkText}>Refresh All Photos</Text>
             </TouchableOpacity>

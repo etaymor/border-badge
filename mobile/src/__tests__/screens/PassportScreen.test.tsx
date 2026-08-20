@@ -84,6 +84,7 @@ function mockHooksWithData({
   jest.spyOn(useHasInitialImportModule, 'useHasInitialImport').mockReturnValue({
     hasInitialImport,
     isLoading: importStateLoading,
+    isError: false,
     refresh: jest.fn(),
   });
 

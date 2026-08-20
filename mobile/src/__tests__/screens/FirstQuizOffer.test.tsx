@@ -100,6 +100,9 @@ describe('FirstQuizOfferScreen (post-paywall new-user offer)', () => {
     expect(useAuthStore.getState().pendingFirstQuizLaunch).toBe(true);
     expect(useAuthStore.getState().hasCompletedOnboarding).toBe(true);
     expect(Analytics.firstQuizOfferAccepted).toHaveBeenCalledTimes(1);
+    // A brand-new device has never scanned, so this accept lands on the
+    // wizard's permission step - which is exactly what the flag counts.
+    expect(Analytics.firstQuizOfferAccepted).toHaveBeenCalledWith({ hasInitialImport: false });
   });
 
   it('warns that the camera roll gets scanned first when nothing is imported', async () => {
@@ -192,7 +195,9 @@ describe('useFirstQuizLaunch (consumed from inside Main)', () => {
     const { rerender } = renderHook(() => useFirstQuizLaunch());
 
     expect(mockNavigate).toHaveBeenCalledTimes(1);
-    expect(mockNavigate).toHaveBeenCalledWith('QuizCreation');
+    expect(mockNavigate).toHaveBeenCalledWith('QuizCreation', {
+      entryPoint: 'onboarding_first_quiz',
+    });
     expect(useAuthStore.getState().pendingFirstQuizLaunch).toBe(false);
 
     rerender(undefined);
