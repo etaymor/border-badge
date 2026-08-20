@@ -23,6 +23,7 @@ import { Text } from '@components/ui';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { useFinishOnboarding } from '@hooks/useFinishOnboarding';
+import { useHasInitialImport } from '@hooks/useHasInitialImport';
 import { useScreenEntrance } from '@hooks/useScreenEntrance';
 import type { OnboardingStackScreenProps } from '@navigation/types';
 import { Analytics } from '@services/analytics';
@@ -37,6 +38,9 @@ type Props = OnboardingStackScreenProps<'FirstQuizOffer'>;
 export function FirstQuizOfferScreen(_props: Props) {
   const { getAnimatedStyle, getButtonStyle } = useScreenEntrance({ elementCount: 5 });
   const finishOnboarding = useFinishOnboarding();
+  // Accept routes through photo import when the camera roll has never been
+  // scanned (useFirstQuizLaunch owns that branch), so say so here first.
+  const { hasInitialImport, isLoading: importStateLoading } = useHasInitialImport();
   const setPendingFirstQuizLaunch = useAuthStore((s) => s.setPendingFirstQuizLaunch);
   const [isFinishing, setIsFinishing] = useState(false);
 
@@ -79,6 +83,12 @@ export function FirstQuizOfferScreen(_props: Props) {
             Guess Where deals your travel photos out as a challenge - friends guess the country, you
             hold the score to beat. It takes about a minute, and you play it first.
           </Text>
+          {!importStateLoading && !hasInitialImport ? (
+            <Text variant="body" style={styles.syncNote} testID="first-quiz-offer-sync-note">
+              First we&apos;ll scan your camera roll - it builds your trips, too. Photos stay on
+              your phone.
+            </Text>
+          ) : null}
         </Animated.View>
       </View>
 
@@ -145,6 +155,14 @@ const styles = StyleSheet.create({
     fontSize: 16,
     lineHeight: 24,
     color: colors.stormGray,
+    marginBottom: 24,
+  },
+  syncNote: {
+    fontFamily: fonts.openSans.regular,
+    fontSize: 14,
+    lineHeight: 20,
+    color: colors.stormGray,
+    marginTop: -12,
     marginBottom: 24,
   },
   footer: {

@@ -259,7 +259,9 @@ describe('MyQuizzesScreen', () => {
 
     await waitFor(() => expect(screen.getByTestId('quiz-resume-q-draft')).toBeTruthy());
     fireEvent.press(screen.getByTestId('quiz-resume-q-draft'));
-    expect(navigation.navigate).toHaveBeenLastCalledWith('QuizCreation');
+    expect(navigation.navigate).toHaveBeenLastCalledWith('QuizCreation', {
+      entryPoint: 'my_quizzes',
+    });
 
     fireEvent.press(screen.getByTestId('quiz-play-q-await'));
     expect(navigation.navigate).toHaveBeenLastCalledWith('QuizPlay', { quizId: 'q-await' });
@@ -330,7 +332,9 @@ describe('MyQuizzesScreen', () => {
 
     // The create-another entry point (R17).
     fireEvent.press(screen.getByTestId('quiz-create-new'));
-    expect(navigation.navigate).toHaveBeenLastCalledWith('QuizCreation');
+    expect(navigation.navigate).toHaveBeenLastCalledWith('QuizCreation', {
+      entryPoint: 'my_quizzes',
+    });
   });
 
   it('renders a cover thumbnail only for rows that serve one', async () => {

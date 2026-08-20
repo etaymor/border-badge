@@ -364,7 +364,7 @@ export function ProfileSettingsScreen({ navigation }: Props) {
 
   const handleOpenMyQuizzes = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    navigation.navigate('MyQuizzes');
+    navigation.navigate('MyQuizzes', { entryPoint: 'profile_settings' });
   }, [navigation]);
 
   const handleOpenTerms = useCallback(() => {

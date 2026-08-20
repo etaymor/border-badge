@@ -2,6 +2,11 @@
  * Idle phase UI for the photo import screen.
  *
  * Shows privacy notice (first time), scan button, and refresh option.
+ *
+ * One scan serves two features - trips discovered from the camera roll and
+ * Guess Where - so the first-run copy names both payoffs, and the privacy
+ * bullets name both upload triggers. Entry points that promise both (e.g.
+ * PhotoSyncCard on the passport home) land here, and the promise has to hold.
  */
 
 import React from 'react';
@@ -55,7 +60,7 @@ export function IdlePhase({
                 {homeCountryName ?? 'your home country'} is scanned
               </Text>
               <Text style={styles.privacyBullet}>
-                {'\u2022'} Nothing is uploaded until you choose to save a place
+                {'\u2022'} Nothing is uploaded until you save a place or share a challenge
               </Text>
               <Text style={styles.privacyBullet}>
                 {'\u2022'} The scan runs entirely on your device
@@ -68,7 +73,7 @@ export function IdlePhase({
           <Text style={styles.idleDescription}>
             {lastImportTime
               ? 'Check for new photos since your last scan, or refresh to re-scan your entire library.'
-              : 'Scan your photo library to find travel photos and create entries automatically based on where they were taken.'}
+              : 'One scan of your library builds trips from where your photos were taken, and unlocks Guess Where challenges.'}
           </Text>
           {lastImportTime && (
             <Text style={styles.lastScanText}>

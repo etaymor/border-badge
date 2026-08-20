@@ -116,6 +116,16 @@ function freshFreshness() {
   };
 }
 
+function neverSyncedFreshness() {
+  return {
+    fresh: false,
+    reason: 'never-synced',
+    lastSuccessAt: null,
+    cachedPhotoCount: 0,
+    permission: 'granted',
+  };
+}
+
 function staleFreshness() {
   return {
     fresh: false,
@@ -166,6 +176,9 @@ describe('QuizCreationScreen', () => {
 
     await waitFor(() => expect(screen.getByTestId('quiz-permission-request')).toBeTruthy());
     expect(screen.getByText('Allow Photo Access')).toBeTruthy();
+    // One scan feeds trips as well, and this is the moment the user decides
+    // whether to grant at all - so the second payoff is named here.
+    expect(screen.getByText(/builds your trips/i)).toBeTruthy();
     expect(mockMutate).not.toHaveBeenCalled();
   });
 
@@ -199,6 +212,17 @@ describe('QuizCreationScreen', () => {
 
     await waitFor(() => expect(screen.getByTestId('quiz-freshness-line')).toBeTruthy());
     expect(screen.getByText(/check your library for new photos/)).toBeTruthy();
+  });
+
+  it('names the trips payoff on the very first scan (Q5)', async () => {
+    mockGetLibraryFreshness.mockResolvedValue(neverSyncedFreshness());
+
+    await renderScreen();
+
+    await waitFor(() => expect(screen.getByTestId('quiz-freshness-line')).toBeTruthy());
+    // Only the first-ever scan gets the pitch; a stale library already has
+    // trips, so it keeps the plain incremental-check line above.
+    expect(screen.getByText(/builds your trips/i)).toBeTruthy();
   });
 
   it('pre-flights a picks-bearing draft straight to the resume confirm (Q5)', async () => {

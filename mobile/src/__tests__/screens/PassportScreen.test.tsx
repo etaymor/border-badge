@@ -3,7 +3,7 @@
  * Tests share functionality, stats calculation, and error cases.
  */
 
-import { render, screen } from '../utils/testUtils';
+import { fireEvent, render, screen } from '../utils/testUtils';
 import {
   createMockCountry,
   createMockUserCountry,
@@ -15,6 +15,8 @@ import * as useCountriesModule from '@hooks/useCountries';
 import * as useUserCountriesModule from '@hooks/useUserCountries';
 import * as useProfileModule from '@hooks/useProfile';
 import * as useTripsModule from '@hooks/useTrips';
+import * as useHasInitialImportModule from '@hooks/useHasInitialImport';
+import * as useQuizzesModule from '@hooks/useQuizzes';
 import type { Country } from '@hooks/useCountries';
 import type { UserCountry } from '@hooks/useUserCountries';
 
@@ -62,6 +64,11 @@ interface MockHooksOptions {
   trips?: ReturnType<typeof useTripsModule.useTrips>['data'];
   profile?: { tracking_preference?: string; travel_motives?: string[]; persona_tags?: string[] };
   isLoading?: boolean;
+  /** Whether the camera roll has ever been scanned (drives the home slot). */
+  hasInitialImport?: boolean;
+  importStateLoading?: boolean;
+  /** Existing challenges keep the Guess Where card regardless of the cache. */
+  quizCount?: number;
 }
 
 function mockHooksWithData({
@@ -70,7 +77,23 @@ function mockHooksWithData({
   trips = [],
   profile = {},
   isLoading = false,
+  hasInitialImport = true,
+  importStateLoading = false,
+  quizCount = 0,
 }: MockHooksOptions = {}) {
+  jest.spyOn(useHasInitialImportModule, 'useHasInitialImport').mockReturnValue({
+    hasInitialImport,
+    isLoading: importStateLoading,
+    refresh: jest.fn(),
+  });
+
+  jest.spyOn(useQuizzesModule, 'useMyQuizzes').mockReturnValue({
+    data: Array.from({ length: quizCount }, (_, i) => ({ id: `quiz-${i}` })),
+    isLoading: false,
+    error: null,
+    refetch: jest.fn(),
+  } as unknown as ReturnType<typeof useQuizzesModule.useMyQuizzes>);
+
   jest.spyOn(useCountriesModule, 'useCountries').mockReturnValue({
     data: countries,
     isLoading,
@@ -223,6 +246,58 @@ describe('PassportScreen', () => {
 
       // Should have both visited (1) and dreams (1)
       expect(screen.getAllByText('1').length).toBeGreaterThanOrEqual(1);
+    });
+  });
+
+  // Guess Where is built out of the user's own photos, so the slot below the
+  // stats grid sells photo sync until the camera roll has been scanned once.
+  describe('Photo sync slot', () => {
+    it('shows the photo sync card instead of Guess Where before any import', () => {
+      const countries = createMockCountriesForRegions();
+      mockHooksWithData({ countries, hasInitialImport: false });
+      render(<PassportScreen navigation={mockNavigation} route={mockRoute} />);
+
+      expect(screen.getByTestId('photo-sync-card')).toBeTruthy();
+      expect(screen.queryByTestId('guess-where-card')).toBeNull();
+    });
+
+    it('shows the Guess Where card once photos have been imported', () => {
+      const countries = createMockCountriesForRegions();
+      mockHooksWithData({ countries, hasInitialImport: true });
+      render(<PassportScreen navigation={mockNavigation} route={mockRoute} />);
+
+      expect(screen.getByTestId('guess-where-card')).toBeTruthy();
+      expect(screen.queryByTestId('photo-sync-card')).toBeNull();
+    });
+
+    it('renders neither card while the import watermark is still loading', () => {
+      const countries = createMockCountriesForRegions();
+      mockHooksWithData({ countries, hasInitialImport: false, importStateLoading: true });
+      render(<PassportScreen navigation={mockNavigation} route={mockRoute} />);
+
+      expect(screen.queryByTestId('photo-sync-card')).toBeNull();
+      expect(screen.queryByTestId('guess-where-card')).toBeNull();
+    });
+
+    // The watermark is device-local, so a reinstall must not hide the only
+    // home entry point to challenges the user already owns.
+    it('keeps the Guess Where card for a user with challenges but an empty cache', () => {
+      const countries = createMockCountriesForRegions();
+      mockHooksWithData({ countries, hasInitialImport: false, quizCount: 2 });
+      render(<PassportScreen navigation={mockNavigation} route={mockRoute} />);
+
+      expect(screen.getByTestId('guess-where-card')).toBeTruthy();
+      expect(screen.queryByTestId('photo-sync-card')).toBeNull();
+    });
+
+    it('opens the photo import flow from the sync card', () => {
+      const countries = createMockCountriesForRegions();
+      mockHooksWithData({ countries, hasInitialImport: false });
+      render(<PassportScreen navigation={mockNavigation} route={mockRoute} />);
+
+      fireEvent.press(screen.getByTestId('photo-sync-card'));
+
+      expect(mockNavigate).toHaveBeenCalledWith('PhotoImport', { autoStart: true });
     });
   });
 });

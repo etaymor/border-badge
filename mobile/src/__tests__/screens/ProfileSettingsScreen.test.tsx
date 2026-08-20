@@ -147,7 +147,9 @@ describe('ProfileSettingsScreen', () => {
       render(<ProfileSettingsScreen navigation={mockNavigation} route={mockRoute} />);
 
       fireEvent.press(screen.getByTestId('profile-my-quizzes'));
-      expect(mockNavigation.navigate).toHaveBeenCalledWith('MyQuizzes');
+      expect(mockNavigation.navigate).toHaveBeenCalledWith('MyQuizzes', {
+        entryPoint: 'profile_settings',
+      });
     });
   });
 

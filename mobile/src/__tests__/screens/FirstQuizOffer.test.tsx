@@ -7,6 +7,7 @@
  *
  *   Paywall -> FirstQuizOffer -> (accept) QuizCreation on top of Main
  *                             -> (skip)   Main home, exactly as today
+
  *
  * Under test:
  * - PaywallScreen hands off to FirstQuizOffer instead of finishing the flow
@@ -44,15 +45,22 @@ jest.mock('@hooks/useCountries', () => ({
   invalidateCountriesCache: jest.fn(),
 }));
 
+jest.mock('@services/photoImport/photoCacheDb', () => ({
+  getLastImportTime: jest.fn(),
+}));
+
 const mockPresentPaywall = jest.fn();
 jest.mock('@hooks/usePaywallPresentation', () => ({
   usePaywallPresentation: () => ({ presentPaywall: mockPresentPaywall }),
 }));
 
 import { useFirstQuizLaunch } from '@hooks/useFirstQuizLaunch';
+import { getLastImportTime } from '@services/photoImport/photoCacheDb';
 import { FirstQuizOfferScreen } from '@screens/onboarding/FirstQuizOfferScreen';
 import { PaywallScreen } from '@screens/onboarding/PaywallScreen';
 import { Analytics } from '@services/analytics';
+
+const mockGetLastImportTime = getLastImportTime as jest.MockedFunction<typeof getLastImportTime>;
 
 function renderOffer() {
   const props = {
@@ -65,6 +73,7 @@ function renderOffer() {
 describe('FirstQuizOfferScreen (post-paywall new-user offer)', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockGetLastImportTime.mockResolvedValue(null);
     useAuthStore.setState({
       session: null,
       hasCompletedOnboarding: false,
@@ -91,6 +100,22 @@ describe('FirstQuizOfferScreen (post-paywall new-user offer)', () => {
     expect(useAuthStore.getState().pendingFirstQuizLaunch).toBe(true);
     expect(useAuthStore.getState().hasCompletedOnboarding).toBe(true);
     expect(Analytics.firstQuizOfferAccepted).toHaveBeenCalledTimes(1);
+  });
+
+  it('warns that the camera roll gets scanned first when nothing is imported', async () => {
+    mockGetLastImportTime.mockResolvedValue(null);
+    renderOffer();
+
+    expect(await screen.findByTestId('first-quiz-offer-sync-note')).toBeTruthy();
+  });
+
+  it('omits the scan note once photos have been imported', async () => {
+    mockGetLastImportTime.mockResolvedValue(1_700_000_000_000);
+    renderOffer();
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('first-quiz-offer-sync-note')).toBeNull();
+    });
   });
 
   it('skip finishes onboarding to home without arming the launch', async () => {

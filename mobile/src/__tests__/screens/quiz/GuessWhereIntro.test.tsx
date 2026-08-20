@@ -152,7 +152,9 @@ describe('GuessWhereIntroScreen', () => {
     it('primary CTA replaces to QuizCreation', () => {
       const { navigation } = renderScreen();
       fireEvent.press(screen.getByText('Create Your Challenge'));
-      expect(navigation.replace).toHaveBeenCalledWith('QuizCreation');
+      expect(navigation.replace).toHaveBeenCalledWith('QuizCreation', {
+        entryPoint: 'guess_where_intro',
+      });
     });
   });
 

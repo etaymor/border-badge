@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import { Alert, Animated, FlatList } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
@@ -9,6 +10,7 @@ import {
   PassportEmptyState,
   PassportListHeader,
   PassportSectionHeader,
+  PhotoSyncCard,
   StampRow,
 } from '@components/passport';
 import { ExploreFilterSheet, PassportSkeleton } from '@components/ui';
@@ -22,6 +24,8 @@ import { ShareExtensionTutorialSheet } from '@components/share/ShareExtensionTut
 import { ClipboardEnableModal } from '@screens/profile/components/ClipboardEnableModal';
 import { useSettingsStore, selectClipboardDetectionEnabled } from '@stores/settingsStore';
 import type { DetectedClipboardUrl } from '@hooks/useClipboardListener';
+import { useHasInitialImport } from '@hooks/useHasInitialImport';
+import { useMyQuizzes } from '@hooks/useQuizzes';
 import { usePassportData } from '@hooks/usePassportData';
 import { usePassportAnimations } from '@hooks/usePassportAnimations';
 import { buildMilestoneContext, type MilestoneContext } from '@utils/milestones';
@@ -66,6 +70,25 @@ export function PassportScreen({ navigation }: Props) {
     computeLayoutData,
     getItemKey,
   } = animations;
+
+  // Guess Where is built out of the user's own photos, so the slot below the
+  // stats grid sells photo sync until the camera roll has been scanned once.
+  // Existing challenges override that: the watermark is device-local, so after
+  // a reinstall (or on a second device) a user with challenges would otherwise
+  // lose their only home entry point to them.
+  const { hasInitialImport, isLoading: importStateLoading, refresh } = useHasInitialImport();
+  const { data: quizzes } = useMyQuizzes();
+  const showGuessWhere = hasInitialImport || (!!quizzes && quizzes.length > 0);
+
+  // No AppState focus manager is wired up, so re-read the watermark to pick up
+  // an import that completed while this screen was away. Only while the sync
+  // card is up: once it has flipped it never flips back, and invalidating on
+  // every focus would defeat the hook's own staleTime.
+  useFocusEffect(
+    useCallback(() => {
+      if (!showGuessWhere) refresh();
+    }, [showGuessWhere, refresh])
+  );
 
   // Clipboard detection setting
   const clipboardDetectionEnabled = useSettingsStore(selectClipboardDetectionEnabled);
@@ -176,11 +199,15 @@ export function PassportScreen({ navigation }: Props) {
   }, [navigation]);
 
   const handleOpenGuessWhereIntro = useCallback(() => {
-    navigation.navigate('GuessWhereIntro');
+    navigation.navigate('GuessWhereIntro', { entryPoint: 'passport_card' });
   }, [navigation]);
 
   const handleOpenChallenges = useCallback(() => {
-    navigation.navigate('MyQuizzes');
+    navigation.navigate('MyQuizzes', { entryPoint: 'passport_card' });
+  }, [navigation]);
+
+  const handleOpenPhotoImport = useCallback(() => {
+    navigation.navigate('PhotoImport', { autoStart: true });
   }, [navigation]);
 
   const handlePastePress = useCallback(() => {
@@ -340,12 +367,16 @@ export function PassportScreen({ navigation }: Props) {
         onPastePress={handlePastePress}
         showPasteButton={showPasteButton}
         guessWhereSlot={
-          searchQuery.length === 0 ? (
+          // Nothing renders until the watermark resolves, so the wrong card
+          // never flashes at the user this branch exists for.
+          searchQuery.length > 0 || importStateLoading ? null : showGuessWhere ? (
             <GuessWhereCard
               onOpenIntro={handleOpenGuessWhereIntro}
               onOpenChallenges={handleOpenChallenges}
             />
-          ) : null
+          ) : (
+            <PhotoSyncCard onPress={handleOpenPhotoImport} />
+          )
         }
       />
     ),
@@ -362,6 +393,9 @@ export function PassportScreen({ navigation }: Props) {
       showPasteButton,
       handleOpenGuessWhereIntro,
       handleOpenChallenges,
+      handleOpenPhotoImport,
+      showGuessWhere,
+      importStateLoading,
     ]
   );
 

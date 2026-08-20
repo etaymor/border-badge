@@ -145,7 +145,7 @@ export function GuessWhereIntroScreen({ navigation }: Props) {
   });
 
   const handleCreate = useStableCallback(() => {
-    navigation.replace('QuizCreation');
+    navigation.replace('QuizCreation', { entryPoint: 'guess_where_intro' });
   });
 
   const handleToggleDemo = useStableCallback(() => {

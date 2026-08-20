@@ -336,7 +336,9 @@ export function QuizCreationScreen({ navigation }: Props) {
             ? ` - ${freshness.cachedPhotoCount.toLocaleString()} photos`
             : ''
         }.`
-    : 'We will check your library for new photos first.';
+    : freshness?.reason === 'never-synced'
+      ? 'We will scan your library first - the same scan builds your trips, too.'
+      : 'We will check your library for new photos first.';
 
   // Live build state (service contract: pickUris = the locked game in slot
   // order, APPEND-ONLY across the whole run; hero = the most recent find;
@@ -471,7 +473,10 @@ export function QuizCreationScreen({ navigation }: Props) {
         {phase === 'permission-request' && (
           <View style={styles.sheetContent} testID="quiz-permission-request">
             <Text style={styles.title}>Your Photos, Their Guesses</Text>
-            <Text style={styles.body}>A challenge is built from your own travel photos.</Text>
+            <Text style={styles.body}>
+              A challenge is built from your own travel photos. The same scan builds your trips,
+              too.
+            </Text>
             <Text style={styles.hint}>
               We read them on your device and upload only the ones your challenge uses.
             </Text>

@@ -22,6 +22,6 @@ export function useFirstQuizLaunch() {
   useEffect(() => {
     if (!pendingFirstQuizLaunch) return;
     setPendingFirstQuizLaunch(false);
-    navigation.navigate('QuizCreation');
+    navigation.navigate('QuizCreation', { entryPoint: 'onboarding_first_quiz' });
   }, [pendingFirstQuizLaunch, setPendingFirstQuizLaunch, navigation]);
 }

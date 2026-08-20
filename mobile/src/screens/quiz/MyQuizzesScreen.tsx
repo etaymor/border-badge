@@ -102,7 +102,7 @@ function useQuizCardActions(quiz: QuizSummary, navigation: Props['navigation']) 
   const handlePrimary = useStableCallback(() => {
     switch (quiz.state) {
       case 'building':
-        navigation.navigate('QuizCreation');
+        navigation.navigate('QuizCreation', { entryPoint: 'my_quizzes' });
         break;
       case 'awaiting_owner_play':
         navigation.navigate('QuizPlay', { quizId: quiz.id });
@@ -300,7 +300,7 @@ export function MyQuizzesScreen({ navigation }: Props) {
   const { data: quizzes, isLoading, isError, refetch } = useMyQuizzes();
 
   const handleCreate = useStableCallback(() => {
-    navigation.navigate('QuizCreation');
+    navigation.navigate('QuizCreation', { entryPoint: 'my_quizzes' });
   });
 
   const handleBack = useStableCallback(() => {
@@ -308,7 +308,7 @@ export function MyQuizzesScreen({ navigation }: Props) {
   });
 
   const handleHowItWorks = useStableCallback(() => {
-    navigation.navigate('GuessWhereIntro');
+    navigation.navigate('GuessWhereIntro', { entryPoint: 'my_quizzes' });
   });
 
   return (
