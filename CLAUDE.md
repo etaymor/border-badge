@@ -204,6 +204,7 @@ System trips (e.g. "Saved Places") use the `is_system` flag and have nullable `c
 | `docs/ONBOARDING_PAYWALL_FIX.md`          | Onboarding reorder design doc |
 | `docs/ios-share-extension.md`             | iOS Share Extension build doc |
 | `docs/place-extraction-algorithm.md`      | LLM extraction algorithm      |
+| `docs/analytics.md`                       | Analytics tool split + events |
 
 ## Share Extension Architecture (IMPORTANT)
 
