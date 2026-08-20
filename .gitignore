@@ -48,6 +48,14 @@ web-build/
 .env.local
 .env.*.local
 *.local.env
+# Timestamped/dated backups written next to .env. Without these, a file like
+# .env.bak-1787018997 is a full copy of every live secret, and `git add` will
+# happily stage it.
+.env.bak*
+.env.*.bak
+.env.backup*
+.env.save
+.env.orig
 
 # IDE
 .idea/
