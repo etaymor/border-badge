@@ -1335,9 +1335,10 @@ List the authenticated user's quizzes, newest first.
 }
 ```
 
-`slug`, `share_url`, and the score-to-beat pair are `null` when they have not
-been set. `cover_image_url` is `null` while a draft has no questions, and
-`revoked_at` is `null` until revocation.
+`slug` and `share_url` are served only while the quiz is `shared` (a revoked
+slug serves nothing publicly), and `score_to_beat` is `null` until the owner
+completes their own play. `cover_image_url` is `null` while a draft has no
+questions, and `revoked_at` is `null` until revocation.
 
 #### `POST /quiz/eligibility`
 
