@@ -1,6 +1,7 @@
 """User profile endpoints."""
 
 import logging
+from datetime import UTC, datetime
 
 import httpx
 from fastapi import APIRouter, HTTPException, Request, status
@@ -11,6 +12,10 @@ from app.core.security import CurrentUser
 from app.db.session import get_http_client, get_supabase_client
 from app.main import limiter
 from app.schemas.profile import Profile, ProfileUpdate
+from app.services.quiz_storage import (
+    QuizStorageDeletionError,
+    delete_quiz_storage_objects,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -100,9 +105,55 @@ async def delete_account(
     Supabase Storage cleanup requires a separate process (e.g., scheduled job or
     storage lifecycle policy) to remove orphaned files.
 
+    Exception: quiz photos live under quiz-owned storage prefixes with
+    no media_files rows, so nothing else can ever collect them. Every owned
+    quiz's prefix -- drafts included -- is emptied and verified BEFORE the
+    auth-admin delete; a storage failure aborts the whole account deletion
+    loudly, because the account (and its retry surfaces) must outlive any
+    undeleted photo (R15).
+
     Rate limited to 5 requests per hour for security.
     """
     settings = get_settings()
+
+    # Quiz tables are backend-only (no RLS user policies): service role.
+    quiz_db = get_supabase_client()
+    owned_quizzes = await quiz_db.get(
+        "quiz", {"owner_id": f"eq.{user.id}", "select": "id,state"}
+    )
+    for quiz in owned_quizzes:
+        if quiz.get("state") == "shared":
+            # Take a still-shared quiz off the public surface BEFORE its
+            # photos are swept: the public page serves only state == 'shared',
+            # and the auth-cascade delete below (which would end the share)
+            # runs after the sweep and may fail. Conditional shared -> revoked
+            # write, mirroring POST /quiz/{id}/revoke.
+            now = datetime.now(UTC).isoformat()
+            await quiz_db.patch(
+                "quiz",
+                {"state": "revoked", "revoked_at": now, "updated_at": now},
+                {
+                    "id": f"eq.{quiz['id']}",
+                    "owner_id": f"eq.{user.id}",
+                    "state": "eq.shared",
+                },
+            )
+        try:
+            await delete_quiz_storage_objects(quiz["id"])
+        except QuizStorageDeletionError as exc:
+            logger.error(
+                "Account deletion aborted for user %s: quiz %s storage "
+                "sweep failed: %s",
+                user.id,
+                quiz["id"],
+                exc,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=(
+                    "Failed to delete account. Please try again or contact support."
+                ),
+            ) from exc
 
     # Use Supabase Admin Auth API to delete the user
     # This will cascade delete all user data via RLS policies

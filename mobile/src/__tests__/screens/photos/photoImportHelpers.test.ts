@@ -18,8 +18,7 @@ import type { ClusterDisplayItem } from '../../../screens/photos/photoImportHelp
 // spy on it for the useClusterItems degrade path.
 import * as photoImportHelpers from '../../../screens/photos/photoImportHelpers';
 import { useClusterItems } from '../../../screens/photos/useClusterItems';
-import type { useSuggestPlacesChunked } from '../../../hooks/usePhotoImport';
-import type { FailedClusterIds } from '../../../hooks/usePhotoImport';
+import type { FailedClusterIds, SuggestionDispatchState } from '../../../hooks/usePhotoImport';
 import type {
   ClusterSuggestion,
   LocationClusterDisplay,
@@ -74,20 +73,20 @@ const buildMutation = (opts: {
   partialResults?: ClusterSuggestion[];
   suggestions?: ClusterSuggestion[];
   failedClusterIds?: FailedClusterIds;
-}): ReturnType<typeof useSuggestPlacesChunked> => {
+}): SuggestionDispatchState => {
   const { isPending = false, partialResults = [], suggestions, failedClusterIds } = opts;
   return {
-    isPending,
+    isDispatching: isPending,
     partialResults,
     data: suggestions ? { suggestions } : undefined,
     failedClusterIds: failedClusterIds ?? new Map(),
-  } as unknown as ReturnType<typeof useSuggestPlacesChunked>;
+  } as unknown as SuggestionDispatchState;
 };
 
 const renderItems = (params: {
   clusterIds: string[];
   clusters: LocationClusterDisplay[];
-  mutation: ReturnType<typeof useSuggestPlacesChunked>;
+  mutation: SuggestionDispatchState;
   cachedSuggestions?: ClusterSuggestion[];
   dismissed?: Set<string>;
   fetching?: boolean;
@@ -99,7 +98,7 @@ const renderItems = (params: {
     useClusterItems({
       selectedCandidate: buildCandidate(params.clusterIds),
       clusterDisplays,
-      suggestPlacesMutation: params.mutation,
+      suggestionDispatch: params.mutation,
       cachedSuggestions: params.cachedSuggestions ?? [],
       dismissedClusterIdsInternal: params.dismissed ?? new Set(),
       fetchingSuggestions: params.fetching ?? false,

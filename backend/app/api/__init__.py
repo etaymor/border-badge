@@ -17,6 +17,8 @@ from app.api import (
     places,
     profile,
     public,
+    public_quiz,
+    quiz,
     subscriptions,
     trips,
     webhooks,
@@ -28,6 +30,9 @@ router = APIRouter()
 # Public routes first so unauthenticated landing/list/trip pages resolve before
 # authenticated API routers.
 router.include_router(public.router, tags=["public"])
+# Anonymous quiz play JSON endpoints live under the same /q/{slug} space as
+# the public quiz page, so they sit with the public routes.
+router.include_router(public_quiz.router, tags=["public-quiz"])
 # Blog sits with the other public HTML pages. Every path is under a literal
 # /blog segment, so it cannot collide with an authenticated router regardless of
 # order, but grouping it here keeps the "public pages first" invariant legible.
@@ -47,6 +52,7 @@ router.include_router(ingest.router, tags=["ingest"])
 router.include_router(admin.router, tags=["admin"])
 router.include_router(welcome.router, tags=["welcome"])
 router.include_router(photos.router, tags=["photos"])
+router.include_router(quiz.router, tags=["quiz"])
 router.include_router(
     subscriptions.router, prefix="/subscriptions", tags=["subscriptions"]
 )

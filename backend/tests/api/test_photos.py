@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from app.schemas.photos import (
+    MAX_CLUSTERS_PER_REQUEST,
     MAX_PHOTOS_PER_CLUSTER,
     PhotoCluster,
     PlaceSuggestionRequest,
@@ -202,23 +203,25 @@ class TestRequestLevelVisionPayloadSize:
         Earlier clusters keep their vision data; later ones get trimmed.
         """
         big_b64 = base64.b64encode(b"\x00" * 149_000).decode()  # ~199k chars each
+        count = MAX_CLUSTERS_PER_REQUEST
         clusters = [
             _make_cluster(
                 id=f"c-{i}",
                 vision_images_base64=[big_b64, big_b64, big_b64],
             )
-            for i in range(50)  # 50 clusters x 3 images x 199k = ~30M chars
+            # A full request at the cluster ceiling: 25 x 3 images x 199k = ~15M chars
+            for i in range(count)
         ]
         # Must NOT raise — truncates instead
         req = PlaceSuggestionRequest(clusters=clusters)
-        assert len(req.clusters) == 50
+        assert len(req.clusters) == count
 
         # Early clusters should keep their vision images
         assert req.clusters[0].vision_images_base64 is not None
 
         # Later clusters should have vision images truncated
         has_vision = sum(1 for c in req.clusters if c.vision_images_base64 is not None)
-        assert has_vision < 50  # Some clusters lost their vision data
+        assert has_vision < count  # Some clusters lost their vision data
 
 
 class TestSuggestPlaces:

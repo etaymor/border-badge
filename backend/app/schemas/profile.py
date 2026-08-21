@@ -1,13 +1,13 @@
 """Schemas for user profile endpoints."""
 
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from uuid import UUID
 
 from pydantic import BaseModel
 
 
-class TrackingPreference(str, Enum):
+class TrackingPreference(StrEnum):
     """Country tracking preference options."""
 
     CLASSIC = "classic"

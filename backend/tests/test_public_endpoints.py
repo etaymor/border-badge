@@ -1087,9 +1087,9 @@ def test_pages_carry_a_nonced_style_donor_for_maps(client: TestClient) -> None:
     for path in ("/", "/privacy"):
         response = client.get(path)
         nonce = _style_src_nonce(response.headers[CSP_HEADER])
-        assert re.search(
-            rf'<style nonce="{re.escape(nonce)}"', response.text
-        ), f"{path} has no style[nonce] for the Maps API to copy"
+        assert re.search(rf'<style nonce="{re.escape(nonce)}"', response.text), (
+            f"{path} has no style[nonce] for the Maps API to copy"
+        )
 
 
 def test_non_share_routes_csp_has_no_unsafe_eval(client: TestClient) -> None:

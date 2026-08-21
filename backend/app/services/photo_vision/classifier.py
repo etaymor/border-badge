@@ -3,13 +3,19 @@
 import asyncio
 import json
 import logging
+import time
+import weakref
 from dataclasses import dataclass, field
 
 import httpx
 
 from app.core.config import get_settings
-from app.core.http_client import get_http_client
-from app.core.llm_utils import OPENROUTER_API_URL, extract_content
+from app.core.http_client import VISION_POOL_TIMEOUT_SECONDS, get_vision_client
+from app.core.llm_utils import (
+    OPENROUTER_API_URL,
+    VISION_MAX_TOKENS,
+    extract_content,
+)
 
 from .constants import (
     CLASSIFICATION_RESPONSE_FORMAT,
@@ -19,6 +25,14 @@ from .constants import (
     GENERIC_VENUE_WORDS,
     VISION_CATEGORIES,
     VISION_CONFIDENCE_LEVELS,
+    VISION_NULL_EMPTY_RESPONSE,
+    VISION_NULL_EXCEPTION,
+    VISION_NULL_HTTP_ERROR,
+    VISION_NULL_NO_API_KEY,
+    VISION_NULL_REQUEST_ERROR,
+    VISION_NULL_SLOT_UNAVAILABLE,
+    VISION_NULL_TIMEOUT,
+    VISION_NULL_UNKNOWN,
 )
 
 logger = logging.getLogger(__name__)
@@ -79,17 +93,30 @@ class VisionResult:
 
 
 class PhotoClassifier:
-    """Classify photos using Gemini Flash Lite via OpenRouter.
+    """Classify photos using the configured multimodal model via OpenRouter.
 
     Sends 1 representative photo per cluster for vision analysis.
     Returns category, detected text, and confidence level.
 
-    Cost: ~$0.00008 per photo at 768px (well within $0.25 budget).
+    Cost: ~$0.00023 per photo at 768px on Gemini 2.5 Flash Lite (measured
+    2026-08-15; well within the $0.25 budget).
     """
 
     def __init__(self, timeout: float = 5.0) -> None:
         self._timeout = timeout
         self._settings = get_settings()
+        # U12: why each null happened, aggregated per classifier instance
+        # (one per request). Counts of static reason names only — R27.
+        self._null_reasons: dict[str, int] = {}
+
+    @property
+    def null_reasons(self) -> dict[str, int]:
+        """Counts of null classifications by reason, for this instance."""
+        return dict(self._null_reasons)
+
+    def _record_null(self, reason: str) -> None:
+        """Attribute one null classification to the outcome that caused it."""
+        self._null_reasons[reason] = self._null_reasons.get(reason, 0) + 1
 
     async def classify(self, image_base64: str) -> VisionResult | None:
         """Classify a photo using vision AI.
@@ -102,10 +129,15 @@ class PhotoClassifier:
         """
         if not self._settings.openrouter_api_key:
             logger.debug("Vision classification skipped: no OpenRouter API key")
+            self._record_null(VISION_NULL_NO_API_KEY)
             return None
 
         try:
-            client = get_http_client()
+            # The PRIVATE vision pool, not the shared app client. The shared
+            # client backs every Supabase REST call and its keepalive budget
+            # (20) sits below what a single import's vision fan-out uses, so
+            # importing used to evict the app's database connections.
+            client = get_vision_client()
             response = await client.post(
                 OPENROUTER_API_URL,
                 json={
@@ -132,7 +164,7 @@ class PhotoClassifier:
                         },
                     ],
                     "temperature": 0.1,
-                    "max_tokens": 300,
+                    "max_tokens": VISION_MAX_TOKENS,
                     "response_format": CLASSIFICATION_RESPONSE_FORMAT,
                 },
                 headers={
@@ -141,7 +173,10 @@ class PhotoClassifier:
                     "HTTP-Referer": self._settings.base_url,
                     "X-Title": "Border Badge",
                 },
-                timeout=self._timeout,
+                # Pool wait keeps its own (short) budget rather than inheriting
+                # the model timeout: waiting for a free connection is a local
+                # saturation failure, not a slow model.
+                timeout=httpx.Timeout(self._timeout, pool=VISION_POOL_TIMEOUT_SECONDS),
             )
 
             if response.status_code != 200:
@@ -152,20 +187,27 @@ class PhotoClassifier:
                     )
                 else:
                     logger.debug(f"Vision API error: status={response.status_code}")
+                self._record_null(VISION_NULL_HTTP_ERROR)
                 return None
 
             data = response.json()
             content = extract_content(data)
             if not content:
+                self._record_null(VISION_NULL_EMPTY_RESPONSE)
                 return None
 
-            return self._parse_response(content)
+            parsed = self._parse_response(content)
+            if parsed is None:
+                self._record_null(VISION_NULL_EMPTY_RESPONSE)
+            return parsed
 
         except httpx.TimeoutException:
             logger.debug("Vision classification timed out")
+            self._record_null(VISION_NULL_TIMEOUT)
             return None
         except (httpx.RequestError, json.JSONDecodeError, KeyError) as e:
             logger.warning(f"Vision classification error: {e}")
+            self._record_null(VISION_NULL_REQUEST_ERROR)
             return None
 
     @staticmethod
@@ -279,7 +321,100 @@ class PhotoClassifier:
         )
 
 
+# ---------------------------------------------------------------------------
+# Concurrency bounds (U12)
+# ---------------------------------------------------------------------------
+#
+# The PER-REQUEST bound decides how many concurrency WAVES a batch costs. A
+# full batch is 5 clusters (the client's chunk size) x up to 3 vision images =
+# 15 images; at a bound of 5 those 15 images cost three sequential round-trip
+# waves. Raising the bound to SINGLE_WAVE_VISION_CONCURRENCY buys the same work
+# in ONE wave — identical call count, identical spend, different scheduling.
+#
+# The default deliberately stays at the historical value. Widening is gated on
+# reading the vision-vs-search split off the U15 metrics line
+# (`place_matcher_phase_metrics`: `phase_ms.vision_wait` — the residual wait
+# vision adds on top of the concurrent search — together with
+# `vision.total_ms`) on a real device. Until that reading exists, the claim
+# that vision dominates is an estimate, so the widening ships as a
+# one-environment-variable flip (VISION_MAX_CONCURRENT_REQUESTS) rather than as
+# a new default.
 MAX_CONCURRENT_VISION_REQUESTS = 5
+
+# The per-request bound at which a full batch classifies in a single wave.
+SINGLE_WAVE_VISION_CONCURRENCY = 15
+
+# Process-wide ceiling across every concurrent request. The per-request bound
+# alone bounds ONE request; nothing bounded the process, so N concurrent
+# imports multiplied straight through to N x bound in-flight OpenRouter calls
+# on the SHARED app client (100 connections, also serving every Supabase call).
+# This ceiling keeps the vision fan-out to a minority of that pool whatever the
+# per-request bound is set to, and sits above the per-request bound at both the
+# default (5) and the single-wave value (15), so no single request can hold
+# every slot.
+#
+# It is sized against the PRIVATE vision pool (`VISION_MAX_CONNECTIONS`, 40),
+# not the shared app client: vision now has its own pool for the same reason
+# Places does.
+MAX_CONCURRENT_VISION_REQUESTS_PROCESS = 30
+
+# How long an image may wait for a process-wide slot before giving up.
+#
+# A process ceiling with an UNBOUNDED wait is not a bound, it is a queue. Before
+# the ceiling existed there was no queue to grow; with it, and with Starlette
+# leaving a server-side coroutine running after the client times out at 90s,
+# abandoned work keeps holding slots while the queue behind it grows without
+# limit. Matches PLACES_SLOT_WAIT_CEILING_SECONDS: both bound a purely LOCAL
+# saturation wait, so neither queue can silently dominate the other.
+#
+# Expiry is a null classification, which vision already degrades to gracefully
+# (the cluster drops back to distance-ranked results) and already counts.
+VISION_SLOT_WAIT_CEILING_SECONDS = 2.0
+
+# Why such a null happened (U12). Re-exported from
+# `place_matcher.instrumentation`, which owns the reason registry, so the count
+# lands in its own bucket in `RequestMetrics.vision_null_reasons` rather than
+# folding into "unknown" — a self-inflicted capacity limit must not read as an
+# upstream regression.
+
+
+def resolve_vision_concurrency() -> tuple[int, int]:
+    """Return the ``(per_request, process_wide)`` vision concurrency bounds.
+
+    The per-request bound comes from settings and falls back to
+    :data:`MAX_CONCURRENT_VISION_REQUESTS` when the field is absent or
+    unusable, so an older settings object degrades to today's behaviour rather
+    than to an unbounded fan-out. It is also clamped to the process-wide
+    ceiling: a misconfigured value must never let one request hold every slot.
+    """
+    raw = getattr(get_settings(), "vision_max_concurrent_requests", None)
+    try:
+        per_request = int(raw)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        per_request = MAX_CONCURRENT_VISION_REQUESTS
+    if per_request < 1:
+        per_request = MAX_CONCURRENT_VISION_REQUESTS
+    process_wide = max(1, MAX_CONCURRENT_VISION_REQUESTS_PROCESS)
+    return min(per_request, process_wide), process_wide
+
+
+# Keyed by event loop so a semaphore is never awaited from a loop other than
+# the one it was created on (each test gets its own loop), and rebuilt when the
+# configured limit changes.
+_process_semaphores: weakref.WeakKeyDictionary[
+    asyncio.AbstractEventLoop, tuple[int, asyncio.Semaphore]
+] = weakref.WeakKeyDictionary()
+
+
+def _get_process_semaphore(limit: int) -> asyncio.Semaphore:
+    """Return the process-wide vision semaphore for the running loop."""
+    loop = asyncio.get_running_loop()
+    entry = _process_semaphores.get(loop)
+    if entry is not None and entry[0] == limit:
+        return entry[1]
+    semaphore = asyncio.Semaphore(limit)
+    _process_semaphores[loop] = (limit, semaphore)
+    return semaphore
 
 
 async def classify_cluster_photos(
@@ -296,17 +431,46 @@ async def classify_cluster_photos(
     if not vision_clusters:
         return {}
 
-    semaphore = asyncio.Semaphore(MAX_CONCURRENT_VISION_REQUESTS)
+    per_request_limit, process_limit = resolve_vision_concurrency()
+    # Two bounds, acquired outer-to-inner: the request's own share first, so a
+    # single request can never queue more than its share on the process-wide
+    # semaphore, and the process-wide ceiling second.
+    request_semaphore = asyncio.Semaphore(per_request_limit)
+    process_semaphore = _get_process_semaphore(process_limit)
+    started_at = time.perf_counter()
+    # Per-request aggregates only (R27): counts, never cluster ids (U15).
+    images_attempted = 0
+    images_null = 0
+    images_exception = 0
 
     async def classify_one(cluster: dict) -> tuple[str, VisionResult | None]:
+        nonlocal images_attempted, images_null, images_exception
         images: list[str] = list(cluster["vision_images_base64"][:3])
 
         if not images:
             return cluster["id"], None
 
+        images_attempted += len(images)
+
         async def classify_with_limit(image_base64: str) -> VisionResult | None:
-            async with semaphore:
-                return await classifier.classify(image_base64)
+            # The request's own share queues without a ceiling: it is this
+            # request's work waiting for this request's slot, and nobody else
+            # is starved by it. The PROCESS-wide slot does have a ceiling —
+            # see VISION_SLOT_WAIT_CEILING_SECONDS.
+            async with request_semaphore:
+                try:
+                    await asyncio.wait_for(
+                        process_semaphore.acquire(),
+                        timeout=VISION_SLOT_WAIT_CEILING_SECONDS,
+                    )
+                except TimeoutError:
+                    # R27: static reason name and counts only.
+                    classifier._record_null(VISION_NULL_SLOT_UNAVAILABLE)
+                    return None
+                try:
+                    return await classifier.classify(image_base64)
+                finally:
+                    process_semaphore.release()
 
         single_results = await asyncio.gather(
             *[classify_with_limit(image_base64) for image_base64 in images],
@@ -318,14 +482,22 @@ async def classify_cluster_photos(
             if isinstance(item, VisionResult):
                 parsed_results.append(item)
             elif isinstance(item, BaseException):
-                logger.warning(
-                    "Vision classification exception for cluster %s: %s",
-                    cluster["id"],
-                    item,
+                # R27: cluster ids are geohash-derived, so the id never reaches
+                # an always-on line. The exception itself is not an identifier
+                # and stays at warning - it is the only thing that explains WHY
+                # a cluster lost its vision signal. The id stays available at
+                # debug level, and the count lands in
+                # `vision.null_reasons.exception`.
+                logger.warning("Vision classification exception: %s", item)
+                logger.debug(
+                    "Vision classification exception for cluster %s", cluster["id"]
                 )
+                images_exception += 1
                 parsed_results.append(None)
             else:
                 parsed_results.append(None)
+
+        images_null += sum(1 for r in parsed_results if r is None)
 
         return cluster["id"], PhotoClassifier.aggregate_results(parsed_results)
 
@@ -348,6 +520,50 @@ async def classify_cluster_photos(
             "Vision classification: %d/%d clusters raised exceptions",
             failed_count,
             len(vision_clusters),
+        )
+
+    # Why the nulls were null (U12). The classifier attributes every null it
+    # produced itself; per-image exceptions are attributed here; anything left
+    # over (a stubbed or patched classify, say) lands in "unknown" so the
+    # reasons always sum to images_null rather than quietly under-counting.
+    null_reasons = classifier.null_reasons
+    if images_exception:
+        null_reasons[VISION_NULL_EXCEPTION] = (
+            null_reasons.get(VISION_NULL_EXCEPTION, 0) + images_exception
+        )
+    unattributed = images_null - sum(null_reasons.values())
+    if unattributed > 0:
+        null_reasons[VISION_NULL_UNKNOWN] = (
+            null_reasons.get(VISION_NULL_UNKNOWN, 0) + unattributed
+        )
+
+    # Vision-null rate (R18): recorded for every request, including the all-null
+    # one — the case a "clusters classified successfully" line stays silent about.
+    #
+    # Imported here, not at module scope: place_matcher imports photo_vision, so
+    # a module-level import would close an import cycle and break every entry
+    # point that reaches photo_vision first. Guarded by
+    # test_no_import_cycle.py.
+    from app.services.place_matcher.instrumentation import record_vision
+
+    record_vision(
+        clusters_attempted=len(vision_clusters),
+        clusters_classified=len(vision_map),
+        images_attempted=images_attempted,
+        images_null=images_null,
+        total_ms=(time.perf_counter() - started_at) * 1000,
+        null_reasons=null_reasons,
+    )
+
+    if images_null:
+        # Aggregate counts and static reason names only (R27). Warning level so
+        # it survives production log filtering: a null classification is a
+        # silent ranking degradation, not a debug detail.
+        logger.warning(
+            "Vision null classifications: %d/%d images by reason %s",
+            images_null,
+            images_attempted,
+            {reason: count for reason, count in sorted(null_reasons.items()) if count},
         )
 
     if vision_map:

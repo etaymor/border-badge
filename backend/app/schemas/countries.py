@@ -2,7 +2,7 @@
 
 import re
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from uuid import UUID
 
 from pydantic import BaseModel, field_validator
@@ -48,7 +48,7 @@ VALID_SUBREGIONS = frozenset(
 )
 
 
-class CountryRecognition(str, Enum):
+class CountryRecognition(StrEnum):
     """Country recognition status."""
 
     UN_MEMBER = "un_member"
@@ -60,7 +60,7 @@ class CountryRecognition(str, Enum):
     CONSTITUENT_COUNTRY = "constituent_country"
 
 
-class UserCountryStatus(str, Enum):
+class UserCountryStatus(StrEnum):
     """User-country association status."""
 
     VISITED = "visited"

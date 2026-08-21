@@ -1,7 +1,9 @@
 /**
  * Renders a single item in the suggestions FlashList.
  *
- * Handles three item types: merged suggestions, single suggestions, and photos-only clusters.
+ * Handles five item types: merged suggestions, single suggestions, lookup-failed
+ * clusters, photos-only clusters, and pending clusters (U8/R10) whose lookup has
+ * not answered yet.
  */
 
 import React from 'react';
@@ -15,7 +17,12 @@ import type { ClusterUploadState } from '@hooks/useMultiClusterUpload';
 import type { ClusterDisplayItem } from '../photoImportHelpers';
 import { buildSuggestionFromMerged } from '../photoImportHelpers';
 import type { MergedSuggestion } from '../photoImportTypes';
-import { PlaceSuggestionCard, PhotoClusterCard, LookupFailedCard } from './index';
+import {
+  PlaceSuggestionCard,
+  PhotoClusterCard,
+  LookupFailedCard,
+  PendingClusterCard,
+} from './index';
 import { SwipeToSkipCard } from './SwipeToSkipCard';
 import type { SuggestionDecisionMeta } from './PlaceSuggestionCard';
 
@@ -162,6 +169,20 @@ export function ClusterListItem({
           cluster={item.cluster}
           onAddEntry={(cluster) => onAddEntryForCluster(cluster.id)}
           onPhotoPress={(uri) => onOpenGalleryForCluster(uri, item.cluster.id, item.cluster)}
+        />
+      </SwipeToSkipCard>
+    );
+  }
+
+  if (item.type === 'pending') {
+    // R12: no retry, no confirm, no add-manually. Swipe-to-skip and opening the
+    // photo are the only interactions a not-yet-answered location supports.
+    const clusterId = item.cluster.id;
+    return (
+      <SwipeToSkipCard itemId={clusterId} onSkip={() => onHideCluster(clusterId)}>
+        <PendingClusterCard
+          cluster={item.cluster}
+          onPhotoPress={(uri) => onOpenGalleryForCluster(uri, clusterId, item.cluster)}
         />
       </SwipeToSkipCard>
     );

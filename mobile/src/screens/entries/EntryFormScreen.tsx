@@ -45,7 +45,7 @@ import { useEntries } from '@hooks/useEntries';
 import { MAX_PHOTOS_PER_ENTRY } from '@services/mediaUpload';
 import { fetchOpenGraphTitle } from '@utils/openGraph';
 import type { CachedPhoto } from '@services/photoImport/types';
-import * as MediaLibrary from 'expo-media-library';
+import { resolveLoadableUri } from '@services/photoImport/resolveLoadableUri';
 import { logger } from '@utils/logger';
 
 type Props = TripsStackScreenProps<'EntryForm'>;
@@ -128,21 +128,18 @@ export function EntryFormScreen({ route, navigation }: Props) {
   const handleAddNearbyPhoto = useCallback(async (photo: CachedPhoto) => {
     let uri = photo.uri;
     // ph:// and assets-library:// URIs can't be read by ExpoFile. Resolve to
-    // a file:// URI via MediaLibrary, downloading from iCloud if needed.
+    // a file:// URI via the shared resolver (downloads from iCloud if needed).
     if (
       uri.startsWith('ph://') ||
       uri.startsWith('ph-upload://') ||
       uri.startsWith('assets-library://')
     ) {
-      try {
-        const info = await MediaLibrary.getAssetInfoAsync(photo.id, {
-          shouldDownloadFromNetwork: true,
-        });
-        uri = info.localUri ?? info.uri ?? uri;
-      } catch (err) {
-        logger.error('Failed to resolve nearby photo URI:', err);
+      const resolved = await resolveLoadableUri(photo.id);
+      if (!resolved) {
+        logger.error('Failed to resolve nearby photo URI for asset', photo.id);
         return;
       }
+      uri = resolved;
     }
     mediaGalleryRef.current?.addPhotos([uri]);
     setAddedNearbyPhotoIds((prev) => new Set(prev).add(photo.id));

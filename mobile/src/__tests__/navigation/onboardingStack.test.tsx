@@ -116,6 +116,7 @@ describe('OnboardingNavigator — freeze/detach configuration (U2)', () => {
         'EmotionalHook',
         'FunctionalHook',
         'Paywall',
+        'FirstQuizOffer',
       ])
     );
   });

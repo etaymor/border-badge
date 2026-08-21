@@ -9,6 +9,7 @@ import { DreamDestinationScreen } from '@screens/onboarding/DreamDestinationScre
 import { HomeCountryScreen } from '@screens/onboarding/HomeCountryScreen';
 import { MotivationScreen } from '@screens/onboarding/MotivationScreen';
 import { EmotionalHookScreen } from '@screens/onboarding/EmotionalHookScreen';
+import { FirstQuizOfferScreen } from '@screens/onboarding/FirstQuizOfferScreen';
 import { FunctionalHookScreen } from '@screens/onboarding/FunctionalHookScreen';
 import { NameEntryScreen } from '@screens/onboarding/NameEntryScreen';
 import { OnboardingSliderScreen } from '@screens/onboarding/OnboardingSliderScreen';
@@ -47,7 +48,8 @@ const Stack = createBlankStackNavigator<OnboardingStackParamList>();
  * - AntarcticaPrompt → ProgressSummary: Dramatic reveal (celebration moment)
  * - ProgressSummary → NameEntry: Collect animation (making it official)
  * - NameEntry → AccountCreation: Default slide (sealing the deal)
- * - AccountCreation → EmotionalHook → FunctionalHook → Paywall (post-signup flow)
+ * - AccountCreation → EmotionalHook → FunctionalHook → Paywall → FirstQuizOffer
+ *   (post-signup flow; the offer screen finishes it)
  */
 export function OnboardingNavigator() {
   const needsPostSignupFlow = useAuthStore((s) => s.needsPostSignupFlow);
@@ -142,6 +144,11 @@ export function OnboardingNavigator() {
 
       {/* FunctionalHook → Paywall: Show subscription options (user is now authenticated) */}
       <Stack.Screen name="Paywall" component={PaywallScreen} />
+
+      {/* Paywall → FirstQuizOffer: post-paywall "make your first quiz" offer.
+          The offer owns finishing the post-signup flow; accept arms
+          pendingFirstQuizLaunch so Main opens QuizCreation on arrival. */}
+      <Stack.Screen name="FirstQuizOffer" component={FirstQuizOfferScreen} />
     </Stack.Navigator>
   );
 }

@@ -31,6 +31,7 @@ const CSS_FILES = [
   'pages/legal.css',
   'pages/contact.css',
   'pages/blog.css',
+  'pages/quiz.css',
   'responsive.css',
 ];
 

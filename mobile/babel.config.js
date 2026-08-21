@@ -18,6 +18,8 @@ module.exports = function (api) {
             '@config': './src/config',
             '@navigation': './src/navigation',
             '@constants': './src/constants',
+            // Local Expo modules live outside src/ so autolinking can find them.
+            '@modules': './modules',
           },
         },
       ],

@@ -1,7 +1,7 @@
 """Schemas for social media ingest endpoints."""
 
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any, Literal
 from urllib.parse import urlparse
 from uuid import UUID
@@ -9,7 +9,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field, field_validator
 
 
-class SocialProvider(str, Enum):
+class SocialProvider(StrEnum):
     """Social media provider type."""
 
     TIKTOK = "tiktok"

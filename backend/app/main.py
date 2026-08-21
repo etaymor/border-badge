@@ -22,7 +22,13 @@ from starlette.requests import Request
 from starlette.responses import FileResponse, Response
 
 from app.core.config import get_settings
-from app.core.http_client import close_http_client
+from app.core.http_client import (
+    close_http_client,
+    close_places_client,
+    close_vision_client,
+    get_places_client,
+    get_vision_client,
+)
 from app.core.logging import setup_logging
 from app.core.posthog import shutdown_posthog
 from app.core.urls import safe_external_url
@@ -81,8 +87,84 @@ def get_rate_limit_key(request: Request) -> str:
     return f"ip:{get_remote_address(request)}"
 
 
-# Rate limiter instance (shared across the application)
+# Rate limiter instance (shared across the application).
+#
+# The limiter's built-in header injection stays OFF: in the installed version it
+# raises on handlers that return Pydantic models, which is nearly every route
+# here. `Retry-After` is set by `rate_limit_exceeded_handler` below instead.
+#
+# NOTE: the default storage is in-memory, so every limit registered against this
+# instance is PER PROCESS. Adding a uvicorn worker or a replica multiplies the
+# accepted request rate by the worker count -- and, for the photo-import route,
+# multiplies the process-wide outbound Google fan-out
+# (`MAX_CONCURRENT_PLACES_REQUESTS_PROCESS`) along with it. The two scale
+# together and have to be reasoned about as one capacity number.
 limiter = Limiter(key_func=get_rate_limit_key)
+
+
+# Window length, in seconds, of each granularity our own `"N/window"` limit
+# specs use. Deriving `Retry-After` from our configuration rather than from the
+# limiter library's exception object keeps the header free of version coupling
+# to that library's internals.
+_RATE_LIMIT_GRANULARITY_SECONDS: dict[str, int] = {
+    "second": 1,
+    "minute": 60,
+    "hour": 3600,
+    "day": 86400,
+}
+
+# Retry-After budgets keyed by request path, populated by
+# `register_rate_limit_window` from the same constant that configures the
+# decorator. Paths absent from this map get no header, exactly as before.
+_rate_limit_windows: dict[str, int] = {}
+
+
+def rate_limit_window_seconds(limit_spec: str) -> int:
+    """Window length in seconds for one of our `"N/window"` limit specs.
+
+    Args:
+        limit_spec: A spec as written in a `@limiter.limit(...)` decorator,
+            e.g. `"40/minute"`.
+
+    Raises:
+        ValueError: If the spec uses a granularity we do not map.
+    """
+    _, _, granularity = limit_spec.partition("/")
+    granularity = granularity.strip().lower().rstrip("s")
+    try:
+        return _RATE_LIMIT_GRANULARITY_SECONDS[granularity]
+    except KeyError as exc:
+        raise ValueError(f"Unsupported rate limit spec: {limit_spec!r}") from exc
+
+
+def register_rate_limit_window(path: str, limit_spec: str) -> None:
+    """Record a path's limit window so its 429s can carry a `Retry-After`."""
+    _rate_limit_windows[path] = rate_limit_window_seconds(limit_spec)
+
+
+def retry_after_seconds_for_path(path: str) -> int | None:
+    """Registered Retry-After budget for `path`, or None if unregistered."""
+    return _rate_limit_windows.get(path)
+
+
+def tripped_limit_window_seconds(exc: RateLimitExceeded) -> int | None:
+    """Window length of the specific limit that rejected the request.
+
+    A route may carry more than one limit (U7 pairs a sustained per-minute
+    limit with a per-second burst cap). The registered per-path window is the
+    SUSTAINED one, so reporting it for a burst rejection would tell the client
+    to wait a minute for a window that reopens in a second. The tripped limit
+    knows its own window, so it is preferred when it is readable.
+
+    Defensive by construction: the attribute chain is the rate-limit library's
+    internal shape, so anything unexpected falls back to the registered window.
+    """
+    try:
+        expiry = exc.limit.limit.get_expiry()  # type: ignore[union-attr]
+    except Exception:
+        return None
+    return expiry if isinstance(expiry, int) and expiry > 0 else None
+
 
 # Import API router after limiter is defined so other modules can safely
 # import the shared limiter from this module without circular import issues.
@@ -135,9 +217,21 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 platform,
                 ", ".join(fields),
             )
+    # Startup - build the private Places and vision pools once, so the first
+    # photo import of a process does not pay pool construction on the request
+    # path. Both are separate from the shared app client on purpose: its
+    # keepalive budget sits below what one import's fan-out uses, so routing
+    # either through it evicted the app's database connections mid-import.
+    get_places_client()
+    get_vision_client()
+
     yield
     # Shutdown - close shared HTTP client
     await close_http_client()
+    # Shutdown - close the private Places client
+    await close_places_client()
+    # Shutdown - close the private vision client
+    await close_vision_client()
     # Shutdown - flush and close PostHog client
     shutdown_posthog()
 
@@ -269,11 +363,25 @@ app = FastAPI(
 async def rate_limit_exceeded_handler(
     request: Request, exc: RateLimitExceeded
 ) -> Response:
-    """Custom rate limit handler returning JSON response matching our API format."""
+    """Custom rate limit handler returning JSON response matching our API format.
+
+    `RateLimitExceeded` carries no retry-after attribute, so before this the
+    header was never sent and clients fell back to a hard-coded guess. The wait
+    comes from the limit that actually fired, falling back to the window we
+    configured for the path (see `register_rate_limit_window`). Because the
+    limiter uses a fixed window and does not expose the reset instant, the value
+    is an **upper bound** on the wait, not the exact reset -- the response says
+    so explicitly.
+    """
     from fastapi.responses import JSONResponse
 
-    # Extract retry-after from the exception if available
-    retry_after = getattr(exc, "retry_after", None)
+    route = request.scope.get("route")
+    path = getattr(route, "path", None) or request.url.path
+    retry_after = (
+        getattr(exc, "retry_after", None)
+        or tripped_limit_window_seconds(exc)
+        or retry_after_seconds_for_path(path)
+    )
     headers = {"Retry-After": str(retry_after)} if retry_after else {}
 
     return JSONResponse(
@@ -281,6 +389,7 @@ async def rate_limit_exceeded_handler(
         content={
             "detail": "Rate limit exceeded. Please try again later.",
             "retry_after": retry_after,
+            "retry_after_is_upper_bound": retry_after is not None,
         },
         headers=headers,
     )

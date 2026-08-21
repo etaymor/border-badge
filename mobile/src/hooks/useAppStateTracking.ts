@@ -15,6 +15,7 @@ import {
   resetForUserChange,
   tryResumeScan,
 } from '@services/photoImport';
+import { suggestionDispatch } from '@services/photoImport/suggestionDispatch';
 
 function generateSessionId(): string {
   return Crypto.randomUUID();
@@ -57,9 +58,15 @@ function scheduleStaggered(jobs: Array<() => void>): () => void {
 
 /**
  * Tracks app foreground/background state changes.
- * On foreground: syncs offline queue, analytics, share extension usage,
- * tracks app_opened events, runs background photo sync, and checks
- * for shared URLs from the share extension.
+ * On foreground: resumes a paused photo-import dispatch, syncs offline queue,
+ * analytics, share extension usage, tracks app_opened events, runs background
+ * photo sync, and checks for shared URLs from the share extension.
+ * On background: pauses photo-import suggestion dispatch (U9/KTD19) — this is
+ * the ONE lifecycle subscriber, so resume lives here rather than in a
+ * screen-local listener that dies on navigation. Resume runs SYNCHRONOUSLY in
+ * the foreground branch (it is a flag flip); only the expensive sync jobs are
+ * spread across frames, because a cancelled burst must never be able to strand
+ * a pause.
  */
 export function useAppStateTracking(
   session: Session | null,
@@ -100,6 +107,29 @@ export function useAppStateTracking(
       if (appStateRef.current.match(/inactive|background/) && nextAppState === 'active') {
         // Cancel any prior in-flight burst before starting a new one.
         cancelStaggerRef.current?.();
+
+        // U9/R15/KTD19: let a backgrounded photo-import dispatch start handing
+        // out batches again. SYNCHRONOUS, and deliberately NOT a member of the
+        // staggered burst below.
+        //
+        // `pause()` is called synchronously on `background`, and this is the
+        // ONLY thing that releases it — `reset()` preserves the paused flag and
+        // `dispatch()` never clears it. As job 0 of the burst it ran a frame
+        // later and was cancelled wholesale by `cancelStaggerRef.current?.()`,
+        // which fires both from the effect cleanup and from the top of the very
+        // next foreground event; the effect's deps change on foreground (the
+        // Supabase session refreshes then), so losing the burst before its first
+        // frame was reachable. A pause that survives that is permanent: workers
+        // stay parked, the `dispatch()` promise never settles, the
+        // begin/endFetchOwner bracket never releases, and every remaining
+        // cluster is a pending row that can never resolve.
+        //
+        // It costs nothing to run here: it is a flag flip, and the batches
+        // themselves still leave through the bounded pool, so at most
+        // `concurrency` requests go out on this frame and the rest follow as
+        // those settle. A no-op when nothing was paused. Only genuinely
+        // expensive jobs belong in the stagger.
+        suggestionDispatch.resume();
 
         // Build the foreground job list. WHAT runs is unchanged from before —
         // these jobs are only spread across successive frames (see
@@ -160,6 +190,17 @@ export function useAppStateTracking(
 
         cancelStaggerRef.current = scheduleStaggered(jobs);
       }
+
+      // Going away: stop spending suggestion requests (U9/R15/KTD19). This is a
+      // pause, NOT `reset()` — batches already on the wire keep running and
+      // their results still cache, so a request that was seconds from landing
+      // isn't thrown away. Only a true `background`: iOS reports `inactive` for
+      // transient overlays (control centre, the app switcher, a system prompt),
+      // and pausing on those would stall an import the user is still watching.
+      if (nextAppState === 'background') {
+        suggestionDispatch.pause();
+      }
+
       appStateRef.current = nextAppState;
     };
 

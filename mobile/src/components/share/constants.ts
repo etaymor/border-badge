@@ -2,6 +2,21 @@
 export const CARD_WIDTH = 375;
 export const CARD_HEIGHT = Math.round((CARD_WIDTH * 16) / 9); // 667
 
+/**
+ * ViewShot capture options for share cards: a story-sized PNG written to a
+ * tmpfile the share sheet can attach.
+ *
+ * No width/height override: the card is laid out at 375x667, and forcing a
+ * 1080x1920 output rasterized it up 2.88x - visibly soft edges on an
+ * all-type card. Capturing at the device's native pixel ratio (3x on modern
+ * iPhones = 1125x2001) keeps every glyph and border crisp at story size.
+ */
+export const CARD_CAPTURE_OPTIONS = {
+  format: 'png',
+  quality: 0.95,
+  result: 'tmpfile',
+} as const;
+
 // Scale factor for consistent sizing
 export const SCALE = 1;
 

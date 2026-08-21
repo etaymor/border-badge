@@ -158,3 +158,53 @@ class TestTypePriorKnobs:
     def test_landmark_boost_rejects_above_max(self) -> None:
         with pytest.raises(ValidationError):
             _settings(places_rank_landmark_boost=11.0)
+
+
+class TestQuizClassificationCaps:
+    """Spend controls for the quiz vision eligibility gate.
+
+    These bounds are load-bearing rather than cosmetic: an out-of-range env
+    value fails validation at import time and takes the whole API down, so the
+    accepted range is part of the deploy contract documented in
+    ``backend/.env.example`` and ``docs/environment-setup.md``.
+    """
+
+    def test_per_quiz_budget_default(self) -> None:
+        # Sized so the budget is not what ends a creation. At the measured ~11%
+        # pass rate a 10-photo game needs ~90 images classified; the old 70
+        # stopped mid-hunt and declined as "not enough photos".
+        assert _settings().quiz_classification_budget_per_quiz == 300
+
+    def test_daily_cap_default(self) -> None:
+        assert _settings().quiz_classification_daily_cap == 50_000
+
+    def test_per_quiz_budget_env_override(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("QUIZ_CLASSIFICATION_BUDGET_PER_QUIZ", "120")
+        assert Settings(_env_file=None).quiz_classification_budget_per_quiz == 120
+
+    def test_daily_cap_env_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("QUIZ_CLASSIFICATION_DAILY_CAP", "1000")
+        assert Settings(_env_file=None).quiz_classification_daily_cap == 1000
+
+    @pytest.mark.parametrize("value", [1, 500])
+    def test_per_quiz_budget_accepts_inclusive_bounds(self, value: int) -> None:
+        settings = _settings(quiz_classification_budget_per_quiz=value)
+        assert settings.quiz_classification_budget_per_quiz == value
+
+    @pytest.mark.parametrize("value", [0, -1, 501])
+    def test_per_quiz_budget_rejects_out_of_range(self, value: int) -> None:
+        with pytest.raises(ValidationError):
+            _settings(quiz_classification_budget_per_quiz=value)
+
+    @pytest.mark.parametrize("value", [0, 1_000_000])
+    def test_daily_cap_accepts_inclusive_bounds(self, value: int) -> None:
+        """0 is a legal emergency stop, not a validation error."""
+        settings = _settings(quiz_classification_daily_cap=value)
+        assert settings.quiz_classification_daily_cap == value
+
+    @pytest.mark.parametrize("value", [-1, 1_000_001])
+    def test_daily_cap_rejects_out_of_range(self, value: int) -> None:
+        with pytest.raises(ValidationError):
+            _settings(quiz_classification_daily_cap=value)

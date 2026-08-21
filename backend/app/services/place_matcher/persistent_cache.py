@@ -18,7 +18,11 @@ All operations are best-effort: a DB failure logs and degrades to a cache miss
 rather than failing the request. The migration is ``0057_persistent_place_cache``.
 """
 
+import asyncio
 import logging
+import weakref
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -155,6 +159,44 @@ async def get_place_details_cache(google_place_id: str) -> dict | None:
     return details if isinstance(details, dict) else None
 
 
+# Per-place write locks making the read-merge-write below a critical section
+# (U7). Keyed by event loop first (a lock must never be awaited from a loop
+# other than the one that created it — each test gets its own), then by place
+# id. Entries are dropped once no writer holds them, so the map cannot grow
+# with the place catalogue.
+_details_write_locks: weakref.WeakKeyDictionary[
+    asyncio.AbstractEventLoop, dict[str, tuple[asyncio.Lock, int]]
+] = weakref.WeakKeyDictionary()
+
+
+def _details_write_locks_for_loop() -> dict[str, tuple[asyncio.Lock, int]]:
+    loop = asyncio.get_running_loop()
+    locks = _details_write_locks.get(loop)
+    if locks is None:
+        locks = {}
+        _details_write_locks[loop] = locks
+    return locks
+
+
+@asynccontextmanager
+async def _details_write_lock(google_place_id: str) -> AsyncIterator[None]:
+    """Hold the (ref-counted, per-loop) write lock for one place id."""
+    locks = _details_write_locks_for_loop()
+    lock, holders = locks.get(google_place_id, (asyncio.Lock(), 0))
+    locks[google_place_id] = (lock, holders + 1)
+    try:
+        async with lock:
+            yield
+    finally:
+        entry = locks.get(google_place_id)
+        if entry is not None:
+            held_lock, holders = entry
+            if holders <= 1:
+                locks.pop(google_place_id, None)
+            else:
+                locks[google_place_id] = (held_lock, holders - 1)
+
+
 async def set_place_details_cache(
     google_place_id: str, details: dict[str, Any]
 ) -> None:
@@ -166,6 +208,15 @@ async def set_place_details_cache(
     regardless of order, the new ``details`` are MERGED onto any existing row's
     blob rather than replacing it — so a full-details write never drops a prior
     enrichment's rating, and vice versa.
+
+    The merge is a read-modify-write, which only preserves both writers' fields
+    if the writers are serialized. Under the concurrency this unit admits (U7)
+    they are not: two writers could interleave read/read/write/write and the
+    second would overwrite the first's fields with a blob read before they
+    existed. The whole sequence therefore runs inside a per-place-id lock, so
+    the merge is atomic with respect to every other writer in this PROCESS.
+    Cross-replica atomicity would need a server-side JSONB merge (an RPC and a
+    migration); the intra-process lock closes the window this unit opens.
     """
     if not google_place_id or not isinstance(details, dict):
         return
@@ -175,22 +226,23 @@ async def set_place_details_cache(
     now_iso = now.isoformat()
     expires_at = (now + timedelta(days=PLACE_DETAILS_CACHE_TTL_DAYS)).isoformat()
     try:
-        db = get_supabase_client()
-        # Merge with any existing blob so neither writer evicts the other's
-        # fields. Missing/expired existing row -> {} -> plain insert of details.
-        existing = await get_place_details_cache(google_place_id) or {}
-        merged = {**existing, **details}
-        await db.upsert(
-            "cached_google_place",
-            [
-                {
-                    "google_place_id": google_place_id,
-                    "details": merged,
-                    "updated_at": now_iso,
-                    "expires_at": expires_at,
-                }
-            ],
-            on_conflict="google_place_id",
-        )
+        async with _details_write_lock(google_place_id):
+            db = get_supabase_client()
+            # Merge with any existing blob so neither writer evicts the other's
+            # fields. Missing/expired existing row -> {} -> plain insert.
+            existing = await get_place_details_cache(google_place_id) or {}
+            merged = {**existing, **details}
+            await db.upsert(
+                "cached_google_place",
+                [
+                    {
+                        "google_place_id": google_place_id,
+                        "details": merged,
+                        "updated_at": now_iso,
+                        "expires_at": expires_at,
+                    }
+                ],
+                on_conflict="google_place_id",
+            )
     except Exception as e:
         logger.debug(f"cached_google_place_set_error: {e}")

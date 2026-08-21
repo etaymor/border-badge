@@ -1,7 +1,7 @@
 """Schemas for entry and place endpoints."""
 
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 from urllib.parse import urlparse
 from uuid import UUID
@@ -9,7 +9,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field, field_validator
 
 
-class EntryType(str, Enum):
+class EntryType(StrEnum):
     """Entry type categories."""
 
     PLACE = "place"

@@ -4,6 +4,7 @@ export { ContinentCountryGridScreen } from './ContinentCountryGridScreen';
 export { ContinentIntroScreen } from './ContinentIntroScreen';
 export { DreamDestinationScreen } from './DreamDestinationScreen';
 export { EmotionalHookScreen } from './EmotionalHookScreen';
+export { FirstQuizOfferScreen } from './FirstQuizOfferScreen';
 export { FunctionalHookScreen } from './FunctionalHookScreen';
 export { HomeCountryScreen } from './HomeCountryScreen';
 export { MotivationScreen } from './MotivationScreen';

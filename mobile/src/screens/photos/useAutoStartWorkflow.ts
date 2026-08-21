@@ -42,6 +42,13 @@ export interface UseAutoStartWorkflowOptions {
   isPremium: boolean;
   /** Whether user can import photos */
   canImportPhotos: boolean;
+  /**
+   * The R17-aware entitlement gate (U10). Auto-start is THE path that reopens an
+   * already-imported trip, so this is the gate the exemption exists for: without
+   * it a free user who half-matched a trip can never get back into it, on this
+   * device or any other. Optional; falls back to the raw store read.
+   */
+  canRunImportForTrip?: (tripId: string | null) => Promise<boolean>;
   /** Ref tracking current candidate ID */
   currentCandidateIdRef: React.MutableRefObject<string | null>;
   /** Start scan function */
@@ -53,8 +60,19 @@ export interface UseAutoStartWorkflowOptions {
   ) => void;
   /** Fetch suggestions for a candidate */
   fetchSuggestions: (
-    candidate: TripCandidateDisplay
+    candidate: TripCandidateDisplay,
+    tripId?: string | null
   ) => Promise<{ gatedByPremium: true } | undefined>;
+  /**
+   * Claim a dispatch owner slot (R1/KTD13). Auto-start is the path that opens an
+   * already-imported trip, and it previously reported NOTHING for its whole
+   * duration — so every cluster still on the wire was reconciled to
+   * `lookup-failed`. It owns a slot across its entire async body, cache read and
+   * segmentation included, not just around `fetchSuggestions`.
+   */
+  beginFetchOwner: () => void;
+  /** Release auto-start's dispatch owner slot. Always paired in a `finally`. */
+  endFetchOwner: () => void;
   /** Set cluster lookup state */
   setClusterLookup: (lookup: Map<string, LocationCluster>) => void;
   /** Set cluster displays state */
@@ -92,10 +110,13 @@ export function useAutoStartWorkflow({
   subscriptionStatus,
   isPremium,
   canImportPhotos,
+  canRunImportForTrip,
   currentCandidateIdRef,
   startScan,
   handlePremiumGate,
   fetchSuggestions,
+  beginFetchOwner,
+  endFetchOwner,
   setClusterLookup,
   setClusterDisplays,
   photoLookupRef,
@@ -132,7 +153,7 @@ export function useAutoStartWorkflow({
     if (canAutoStart) {
       autoStartAttemptedRef.current = true;
 
-      (async () => {
+      const runAutoStart = async () => {
         if (__DEV__) {
           console.log('[PhotoImport][AutoStart] Starting sequence');
         }
@@ -236,7 +257,14 @@ export function useAutoStartWorkflow({
             // Check premium gating upfront before any phase transition
             // Note: isPremium and canImportPhotos are from hook state, which is current
             // since we already waited for subscriptionStatus !== 'loading'
-            if (!isPremium && !canImportPhotos) {
+            //
+            // U10/R17: gate site 3 of 3 upstream of the fetch, and the one that
+            // matters most — this is the path a user takes to RETURN to a trip
+            // they already spent their import on.
+            const importAllowed = canRunImportForTrip
+              ? await canRunImportForTrip(tripId)
+              : isPremium || canImportPhotos;
+            if (!importAllowed) {
               setTripCandidates(candidates);
               handlePremiumGate('autoStart', { nextPhase: 'candidates' });
               return;
@@ -263,7 +291,7 @@ export function useAutoStartWorkflow({
             if (__DEV__) {
               console.log('[PhotoImport][AutoStart] fetchSuggestions start', candidate.id);
             }
-            const fetchResult = await fetchSuggestions(candidate);
+            const fetchResult = await fetchSuggestions(candidate, tripId);
             if (__DEV__) {
               console.log('[PhotoImport][AutoStart] fetchSuggestions done', fetchResult ?? 'ok');
             }
@@ -300,6 +328,32 @@ export function useAutoStartWorkflow({
           startScan(false).catch(() => {
             /* error handled by scan hook */
           });
+        }
+      };
+
+      // R1/KTD13: claim the dispatch owner slot around the ENTIRE sequence and
+      // release it exactly once. Every branch above returns early — unmounted,
+      // premium gate before the fetch, premium gate after the fetch, the
+      // subscription-still-loading bail, and all three scan fallbacks — and a
+      // stranded owner would withhold every terminal row for the rest of the
+      // session, so the release must not live at any single return site.
+      (async () => {
+        beginFetchOwner();
+        try {
+          await runAutoStart();
+        } catch (error) {
+          // The SQLite reads above (last import time, cached photos, last
+          // candidate) can reject. Without this the rejection was unhandled and
+          // the screen simply STOPPED: `autoStartAttemptedRef` stays true, the
+          // phase never advances, and no fallback runs -- an initial state with
+          // no error and no way forward. Owner accounting was always fine (the
+          // `finally` released it); what was missing was a way out for the user.
+          console.error('[PhotoImport][AutoStart] Sequence failed', error);
+          startScan(false).catch(() => {
+            /* error handled by scan hook */
+          });
+        } finally {
+          endFetchOwner();
         }
       })();
     }

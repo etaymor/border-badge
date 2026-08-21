@@ -10,6 +10,14 @@ import {
 } from '@stores/authStore';
 
 import { PaywallModalScreen } from '@screens/paywall';
+import {
+  GuessWhereIntroScreen,
+  MyQuizzesScreen,
+  QuizCreationScreen,
+  QuizLeaderboardScreen,
+  QuizPlayScreen,
+  QuizResultsScreen,
+} from '@screens/quiz';
 
 import { AuthNavigator } from './AuthNavigator';
 import { MainTabNavigator } from './MainTabNavigator';
@@ -69,6 +77,12 @@ export function RootNavigator() {
           <>
             <Stack.Screen name="Main" component={MainTabNavigator} />
             <Stack.Screen name="PaywallModal" component={PaywallModalScreen} />
+            <Stack.Screen name="QuizCreation" component={QuizCreationScreen} />
+            <Stack.Screen name="GuessWhereIntro" component={GuessWhereIntroScreen} />
+            <Stack.Screen name="QuizPlay" component={QuizPlayScreen} />
+            <Stack.Screen name="QuizResults" component={QuizResultsScreen} />
+            <Stack.Screen name="MyQuizzes" component={MyQuizzesScreen} />
+            <Stack.Screen name="QuizLeaderboard" component={QuizLeaderboardScreen} />
           </>
         )}
       </Stack.Navigator>

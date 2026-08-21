@@ -40,7 +40,7 @@ TEST_URLS: list[tuple[str, str]] = [
 
 async def test_url(expected: str, url: str) -> None:
     """Test place extraction for a single URL."""
-    print(f"\n{'='*80}")
+    print(f"\n{'=' * 80}")
     print(f"EXPECTED: {expected}")
     print(f"URL: {url}")
     print("=" * 80)
@@ -58,7 +58,7 @@ async def test_url(expected: str, url: str) -> None:
     candidates = extract_place_candidates(title, None, oembed.author_name)
     print(f"\n🎯 Extracted candidates ({len(candidates)}):")
     for i, c in enumerate(candidates[:5]):
-        print(f"   {i+1}. {c}")
+        print(f"   {i + 1}. {c}")
 
     # Extract location hints
     combined_text = " ".join(filter(None, [title, None]))
@@ -89,10 +89,10 @@ async def test_url(expected: str, url: str) -> None:
                 else "—"
             )
             print(
-                f"   {i+1}. '{cand[:30]}' → {result.name} ({result.country_code}) score={score:.2f} {country_match}"
+                f"   {i + 1}. '{cand[:30]}' → {result.name} ({result.country_code}) score={score:.2f} {country_match}"
             )
         else:
-            print(f"   {i+1}. '{cand[:30]}' → NO MATCH")
+            print(f"   {i + 1}. '{cand[:30]}' → NO MATCH")
 
     if results:
         results.sort(key=lambda x: x[0], reverse=True)

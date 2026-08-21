@@ -96,7 +96,6 @@ export function usePhotoImportWorkflow({
   const [selectedTripId, setSelectedTripId] = useState<string | null>(tripId ?? null);
   const [lastImportTime, setLastImportTimeState] = useState<number | null>(null);
   const [isIncremental, setIsIncremental] = useState<boolean>(false);
-  const [fetchingSuggestions, setFetchingSuggestions] = useState(false);
 
   // Scan failure state: set when scan completes with no usable results, cleared after alert shown
   const [scanFailure, setScanFailure] = useState<{
@@ -292,22 +291,50 @@ export function usePhotoImportWorkflow({
     setPhase('idle');
   }, [cancelScanInternal, clearLargeDataStructures]);
 
+  // Forward reference to the premium gate, which `useWorkflowNavigation`
+  // creates further down. Declared here so the suggestions hook can route a
+  // server 402 to the paywall; the target is attached in an effect below.
+  const premiumGateRef = useRef<((context: string) => void) | null>(null);
+  const onPremiumGate = useCallback((context: string) => {
+    premiumGateRef.current?.(context);
+  }, []);
+
   // ==========================================================================
   // Place Suggestions Hook
   // ==========================================================================
   const {
-    suggestPlacesMutation,
+    suggestionDispatch,
+    resetSuggestionDispatch,
     cachedSuggestions,
     fetchSuggestions,
     fetchForClusters,
     retryFailedClusters,
+    retryAllFailedClusters,
     retryingClusterIds,
+    bulkRetryPreparingCount,
     clearFetchedCache,
+    isFetchingSuggestions,
+    beginFetchOwner,
+    endFetchOwner,
     isPremium,
     canImportPhotos,
+    isExemptTrip,
+    canRunImportForTrip,
   } = usePlaceSuggestions({
     clusterLookupRef,
     currentCandidateIdRef,
+    // U10/R17: the trip whose entitlement is being spent. Sent in every
+    // `/photos/suggest-places` body and used as the exemption key.
+    selectedTripId,
+    // A server 402 must reach the paywall, not a generic failure alert. The
+    // real handler comes from `useWorkflowNavigation` BELOW, so this forwards
+    // through a ref rather than closing over it: the identity stays stable for
+    // the whole session (it is in a dependency array downstream) while always
+    // dispatching to the latest handler. Same discipline as
+    // `useStableCallback` -- the ref is synced in an effect, never during
+    // render, because the React Compiler may memoize around a render-time
+    // write and hand back a stale target.
+    onPremiumGate,
   });
 
   // ==========================================================================
@@ -339,9 +366,15 @@ export function usePhotoImportWorkflow({
   // ==========================================================================
   // Workflow Analytics Hook
   // ==========================================================================
-  const apiSuggestionsData = suggestPlacesMutation.data?.suggestions;
+  const apiSuggestionsData = suggestionDispatch.data?.suggestions;
 
-  const { incrementConfirmed, incrementRejected, incrementHidden } = useWorkflowAnalytics({
+  const {
+    incrementConfirmed,
+    incrementRejected,
+    incrementHidden,
+    markClustersViewed,
+    trackDeparture,
+  } = useWorkflowAnalytics({
     phase,
     selectedCandidate,
     dismissedClusterIdsInternal,
@@ -477,14 +510,24 @@ export function usePhotoImportWorkflow({
     selectedTripId,
     isPremium,
     canImportPhotos,
+    canRunImportForTrip,
     currentCandidateIdRef,
     setSelectedCandidate,
     setSelectedTripId,
     setPhase,
-    setFetchingSuggestions,
+    beginFetchOwner,
+    endFetchOwner,
     fetchSuggestions,
-    resetSuggestPlacesMutation: suggestPlacesMutation.reset,
+    resetSuggestPlacesMutation: resetSuggestionDispatch,
     clearFetchedCache,
+  });
+
+  // Attach the premium gate to the forward reference the suggestions hook was
+  // given above. Synced in an effect, never during render: a render-time ref
+  // write is a Rules of React violation the React Compiler may memoize around,
+  // handing back a callback bound to a stale handler.
+  useEffect(() => {
+    premiumGateRef.current = handlePremiumGate;
   });
 
   // ==========================================================================
@@ -499,10 +542,13 @@ export function usePhotoImportWorkflow({
     subscriptionStatus,
     isPremium,
     canImportPhotos,
+    canRunImportForTrip,
     currentCandidateIdRef,
     startScan,
     handlePremiumGate,
     fetchSuggestions,
+    beginFetchOwner,
+    endFetchOwner,
     setClusterLookup,
     setClusterDisplays,
     photoLookupRef,
@@ -539,10 +585,17 @@ export function usePhotoImportWorkflow({
     selectedTripId,
     clusterDisplays,
     manualSearchCluster,
-    suggestPlacesMutation,
+    suggestionDispatch,
     cachedSuggestions,
-    fetchingSuggestions,
+    // R1/KTD13: the single honest in-progress signal — the OR of every dispatch
+    // owner (auto-start, selectTrip, switchCandidate, the fetch itself, manual
+    // split). The screen no longer keeps a second boolean of its own: one owner
+    // finishing must never make an overlapping owner look settled.
+    fetchingSuggestions: isFetchingSuggestions,
     retryingClusterIds,
+    // U9: > 0 only while a bulk retry is rebuilding vision payloads, before its
+    // first request reaches the wire.
+    bulkRetryPreparingCount,
     lastImportTime,
     isIncremental,
     isSaving: createEntry.isPending,
@@ -555,6 +608,8 @@ export function usePhotoImportWorkflow({
     // Premium gating
     isPremium,
     canImportPhotos,
+    // U10/R17: true when the selected trip already consumed the free import.
+    isExemptTrip,
 
     // Actions
     startScan,
@@ -568,6 +623,7 @@ export function usePhotoImportWorkflow({
     handleSplitCluster,
     handleAddEntryForCluster,
     retryFailedClusters,
+    retryAllFailedClusters,
     handleManualSelect,
     handleCreateTrip,
     backToCandidates,
@@ -575,5 +631,15 @@ export function usePhotoImportWorkflow({
     switchCandidate,
     closeManualSearch,
     cancelUpload,
+    /**
+     * U11: record cluster rows scrolled into view. Stable identity — safe to
+     * hand straight to the list's viewability callback.
+     */
+    markClustersViewed,
+    /**
+     * U11: the user is leaving the import. Fires the once-per-lifetime ad
+     * conversion when at least one place was confirmed.
+     */
+    trackDeparture,
   };
 }

@@ -771,8 +771,7 @@ async def update_partner_mapping(
         return None
 
     logger.info(
-        f"partner_mapping_updated: id={mapping_id} "
-        f"updates={list(update_data.keys())}"
+        f"partner_mapping_updated: id={mapping_id} updates={list(update_data.keys())}"
     )
 
     return _row_to_partner_mapping(rows[0])

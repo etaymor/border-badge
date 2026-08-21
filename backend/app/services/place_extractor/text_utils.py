@@ -8,7 +8,6 @@ import concurrent.futures
 import logging
 import re
 from collections.abc import Callable
-from typing import TypeVar
 
 logger = logging.getLogger(__name__)
 
@@ -18,10 +17,8 @@ MAX_TEXT_LENGTH = 5000
 # Regex operation timeout (seconds)
 REGEX_TIMEOUT_SECONDS = 2.0
 
-T = TypeVar("T")
 
-
-def run_with_timeout(
+def run_with_timeout[T](
     func: Callable[[], T], timeout: float = REGEX_TIMEOUT_SECONDS
 ) -> T:
     """Run a function with a timeout to prevent ReDoS attacks.

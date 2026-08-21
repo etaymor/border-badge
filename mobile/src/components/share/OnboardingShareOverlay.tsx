@@ -28,19 +28,20 @@ import { fonts } from '@constants/typography';
 import { Analytics } from '@services/analytics';
 import { logger } from '@utils/logger';
 
+import { CARD_CAPTURE_OPTIONS } from './constants';
 import {
   OnboardingShareCard,
   ONBOARDING_SHARE_CARD_WIDTH,
   ONBOARDING_SHARE_CARD_HEIGHT,
+  type OnboardingPagerVariant,
   type OnboardingShareContext,
-  type OnboardingShareVariant,
 } from './OnboardingShareCard';
 
 const CARD_HORIZONTAL_PADDING = 24;
 const CARD_TOTAL_HORIZONTAL_PADDING = CARD_HORIZONTAL_PADDING * 2;
 const ACTION_AREA_HEIGHT = 200; // Accounts for pagination + actions + margins
 const MIN_TOP_SPACING = 60;
-const CARD_VARIANTS: OnboardingShareVariant[] = ['stamps', 'stats', 'vibe'];
+const CARD_VARIANTS: OnboardingPagerVariant[] = ['stamps', 'stats', 'vibe'];
 
 interface OnboardingShareOverlayProps {
   visible: boolean;
@@ -223,13 +224,7 @@ function OnboardingShareOverlayComponent({
                 ref={(ref) => {
                   viewShotRefs.current[currentIndex] = ref;
                 }}
-                options={{
-                  format: 'png',
-                  quality: 0.95,
-                  width: 1080,
-                  height: 1920,
-                  result: 'tmpfile',
-                }}
+                options={CARD_CAPTURE_OPTIONS}
                 style={styles.cardInner}
               >
                 <OnboardingShareCard variant={CARD_VARIANTS[currentIndex]} context={context} />

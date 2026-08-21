@@ -76,6 +76,6 @@ class TestBackfillUUIDValidation:
         # BUG: The script currently does NOT validate UUID format.
         # This test documents the bug by asserting the validation is missing.
         # When the fix is applied, this assertion should be inverted.
-        assert (
-            has_uuid_validation is True
-        ), "Backfill script should validate user_id as UUID before sending to RevenueCat API"
+        assert has_uuid_validation is True, (
+            "Backfill script should validate user_id as UUID before sending to RevenueCat API"
+        )

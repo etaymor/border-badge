@@ -4,6 +4,11 @@
 process.env.EXPO_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
 process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY = 'test-anon-key';
 
+// CI runners are CPU-starved enough that real-timer flows (e.g. QuizPlay's
+// 420ms acknowledgment hold) overrun waitFor's 1s default. waitFor still
+// resolves the moment its assertion passes, so fast machines pay nothing.
+require('@testing-library/react-native').configure({ asyncUtilTimeout: 5000 });
+
 // Mock react-native-reanimated
 jest.mock(
   'react-native-reanimated',
@@ -12,23 +17,40 @@ jest.mock(
     // Helper to create animated component wrapper
     const createAnimatedComponent = (Component) =>
       mockReact.forwardRef((props, ref) => mockReact.createElement(Component, { ...props, ref }));
+    // Pass every prop except the animation builders through, so testID,
+    // accessibility props, and pointerEvents survive the mock.
+    const MockAnimatedView = mockReact.forwardRef(
+      ({ children, entering: _entering, exiting: _exiting, layout: _layout, ...props }, ref) =>
+        mockReact.createElement('View', { ...props, ref }, children)
+    );
     return {
       default: {
-        View: mockReact.forwardRef(({ children, style }, ref) =>
-          mockReact.createElement('View', { ref, style }, children)
-        ),
+        View: MockAnimatedView,
         createAnimatedComponent,
       },
       createAnimatedComponent,
-      View: mockReact.forwardRef(({ children, style }, ref) =>
-        mockReact.createElement('View', { ref, style }, children)
-      ),
+      View: MockAnimatedView,
       FadeInUp: {
         duration: () => ({
           springify: () => ({}),
+          delay: () => ({}),
         }),
       },
       FadeOutUp: {
+        duration: () => ({}),
+      },
+      // Chainable entering/exiting builders used by the quiz play stage.
+      FadeIn: {
+        duration: () => ({ delay: () => ({}) }),
+      },
+      FadeOut: {
+        duration: () => ({ delay: () => ({}) }),
+      },
+      FadeInDown: {
+        duration: () => ({ delay: () => ({}) }),
+      },
+      // Layout transition builder used for leaderboard rank displacement.
+      LinearTransition: {
         duration: () => ({}),
       },
       // Real useSharedValue returns the SAME object across renders. Returning a
@@ -52,6 +74,7 @@ jest.mock(
         callback?.(true);
         return value;
       }),
+      withDelay: jest.fn((_delayMs, animation) => animation),
       runOnJS: jest.fn((fn) => fn),
       cancelAnimation: jest.fn(),
       useAnimatedReaction: jest.fn(),
@@ -76,6 +99,8 @@ jest.mock(
       Easing: {
         linear: jest.fn(),
         ease: jest.fn(),
+        cubic: jest.fn(),
+        out: jest.fn((fn) => fn),
       },
       useReducedMotion: jest.fn(() => false),
     };
@@ -85,9 +110,10 @@ jest.mock(
 
 // Mock react-native-gesture-handler.
 //
-// Gesture.Pan() returns a chainable stub that records each handler it is given
-// (as `_onUpdate`, `_onEnd`, ...). Tests drive a swipe by calling those directly,
-// which is the only way to exercise a gesture without a real touch system.
+// Gesture.Pan() / Gesture.Pinch() return a chainable stub that records each
+// handler it is given (as `_onUpdate`, `_onEnd`, ...). Tests drive a swipe or a
+// pinch by calling those directly, which is the only way to exercise a gesture
+// without a real touch system.
 // `Swipeable` is retained for TripListsScreen, which still uses the legacy API.
 jest.mock('react-native-gesture-handler', () => {
   const mockReact = require('react');
@@ -101,6 +127,7 @@ jest.mock('react-native-gesture-handler', () => {
       'activeOffsetY',
       'failOffsetX',
       'failOffsetY',
+      'minPointers',
       'onBegin',
       'onStart',
       'onUpdate',
@@ -117,7 +144,11 @@ jest.mock('react-native-gesture-handler', () => {
   };
 
   return {
-    Gesture: { Pan: jest.fn(createGestureStub) },
+    Gesture: {
+      Pan: jest.fn(createGestureStub),
+      Pinch: jest.fn(createGestureStub),
+      Simultaneous: jest.fn((...gestures) => ({ gestures })),
+    },
     GestureDetector: ({ children }) => children,
     GestureHandlerRootView: mockRN.View,
     Swipeable: ({ children }) => mockReact.createElement(mockRN.View, null, children),
@@ -246,6 +277,21 @@ jest.mock('react-native-screens', () => {
   };
 });
 
+// Mock react-native-view-shot: there is no native module in jest, so the real
+// capture() never settles and any code awaiting it hangs. Suites that need to
+// inspect capture calls/options re-mock this per-file (which takes precedence).
+jest.mock('react-native-view-shot', () => {
+  const mockReact = require('react');
+  const MockViewShot = mockReact.forwardRef(({ children }, ref) => {
+    mockReact.useImperativeHandle(ref, () => ({
+      capture: () => Promise.resolve('file:///mock/view-shot.png'),
+    }));
+    return mockReact.createElement(mockReact.Fragment, null, children);
+  });
+  MockViewShot.displayName = 'ViewShot';
+  return { __esModule: true, default: MockViewShot };
+});
+
 // Mock expo-secure-store
 jest.mock('expo-secure-store', () => ({
   setItemAsync: jest.fn(),
@@ -303,6 +349,7 @@ jest.mock('@services/api', () => ({
   storeTokens: jest.fn(),
   clearTokens: jest.fn(),
   setSignOutCallback: jest.fn(),
+  storeOnboardingComplete: jest.fn().mockResolvedValue(undefined),
 }));
 
 // Mock Alert - define the mock functions on global first so they can be accessed in tests

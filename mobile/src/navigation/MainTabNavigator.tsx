@@ -3,6 +3,7 @@ import { CommonActions, getFocusedRouteNameFromRoute, RouteProp } from '@react-n
 
 import LiquidGlassTabBar from '@components/navigation/LiquidGlassTabBar';
 import { PersistentScanBanner } from '@components/photos/PersistentScanBanner';
+import { useFirstQuizLaunch } from '@hooks/useFirstQuizLaunch';
 
 import { DreamsNavigator } from './DreamsNavigator';
 import { HIDDEN_TAB_BAR_SCREENS } from './hiddenTabBarScreens';
@@ -98,6 +99,11 @@ export function MainTabNavigator() {
 }
 
 function MainTabNavigatorImpl() {
+  // A fresh signup that accepted the first-quiz offer arrives here with
+  // pendingFirstQuizLaunch armed; push QuizCreation on top of Main (back
+  // lands on home). No-op for everyone else.
+  useFirstQuizLaunch();
+
   return (
     <Tab.Navigator
       tabBar={(props) => (

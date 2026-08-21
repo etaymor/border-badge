@@ -320,9 +320,9 @@ class TestSkipToVideoDetection:
                     # For this test to be meaningful, we're verifying the expected behavior
                     # The actual LLM behavior depends on the prompt - this test documents
                     # what we expect the system to do for these patterns
-                    assert (
-                        result.skip_to_video is True
-                    ), f"Expected skip_to_video=True for title='{title}', caption='{caption}'"
+                    assert result.skip_to_video is True, (
+                        f"Expected skip_to_video=True for title='{title}', caption='{caption}'"
+                    )
 
 
 class TestParseLlmResponse:

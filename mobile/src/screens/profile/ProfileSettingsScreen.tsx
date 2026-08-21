@@ -55,6 +55,7 @@ import { ClipboardEnableModal } from './components/ClipboardEnableModal';
 import { DeleteConfirmationModal } from './components/DeleteConfirmationModal';
 import { PhotoLibraryEnableModal } from './components/PhotoLibraryEnableModal';
 import { PhotoLibraryInfoModal } from './components/PhotoLibraryInfoModal';
+import { PhotoTagDiagnostic } from '@screens/photos/PhotoTagDiagnostic';
 
 type Props = PassportStackScreenProps<'ProfileSettings'>;
 
@@ -361,6 +362,11 @@ export function ProfileSettingsScreen({ navigation }: Props) {
     setDeleteConfirmModalVisible(false);
   }, []);
 
+  const handleOpenMyQuizzes = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    navigation.navigate('MyQuizzes', { entryPoint: 'profile_settings' });
+  }, [navigation]);
+
   const handleOpenTerms = useCallback(() => {
     Linking.openURL(`${env.webBaseUrl}/terms`);
   }, []);
@@ -595,6 +601,24 @@ export function ProfileSettingsScreen({ navigation }: Props) {
           onOpenPhotoInfoModal={handleOpenPhotoInfoModal}
         />
 
+        <View style={styles.divider} />
+
+        <Pressable
+          onPress={handleOpenMyQuizzes}
+          style={({ pressed }) => [styles.myQuizzesRow, pressed && styles.myQuizzesRowPressed]}
+          accessibilityRole="button"
+          accessibilityLabel="Guess Where"
+          testID="profile-my-quizzes"
+        >
+          <Text style={styles.myQuizzesTitle}>Guess Where</Text>
+          <Text style={styles.myQuizzesSubtitle}>
+            Manage your photo challenges and see who beat your score
+          </Text>
+        </Pressable>
+
+        {/* Dev builds only (features.showDebugInfo); renders null otherwise. */}
+        <PhotoTagDiagnostic />
+
         <View style={styles.contactSupportSection}>
           <Pressable
             onPress={() => Linking.openURL('mailto:support@atlasi.app')}
@@ -721,6 +745,24 @@ const styles = StyleSheet.create({
     backgroundColor: colors.paperBeige,
     marginHorizontal: 24,
     marginVertical: 8,
+  },
+  myQuizzesRow: {
+    marginHorizontal: 24,
+    paddingVertical: 12,
+    gap: 2,
+  },
+  myQuizzesRowPressed: {
+    opacity: 0.7,
+  },
+  myQuizzesTitle: {
+    fontFamily: fonts.openSans.semiBold,
+    fontSize: 16,
+    color: colors.midnightNavy,
+  },
+  myQuizzesSubtitle: {
+    fontFamily: fonts.openSans.regular,
+    fontSize: 13,
+    color: colors.textSecondary,
   },
   contactSupportSection: {
     alignItems: 'center',

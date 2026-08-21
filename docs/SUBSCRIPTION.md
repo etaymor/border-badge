@@ -147,7 +147,7 @@ Create the following products in your subscription group:
 
 | Reference Name | Product ID | Duration | Price (USD) | Free Trial |
 |----------------|------------|----------|-------------|------------|
-| Weekly Premium | `com.atlasi.app.Weekly` | 1 Week | $3.99 | None |
+| Weekly Premium | `com.atlasi.app.Weekly` | 1 Week | $4.99 | 7 days |
 | Monthly Premium | `com.atlasi.app.Monthly` | 1 Month | $9.99 | 7 days |
 | Annual Premium | `com.atlasi.app.Annual` | 1 Year | $49.99 | 7 days |
 

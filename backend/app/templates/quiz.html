@@ -1,0 +1,235 @@
+{% extends "base.html" %}
+{# ============================================================================
+   Public playable Guess Where page (/q/{slug}).
+
+   Two modes, one template:
+     mode == "play": the shared challenge. Intro and question views run on a
+       full-viewport dark photo stage (the photo, blurred, is its own
+       backdrop); the reveal-first results return to the warm-cream card. The
+       game itself runs in static, nonce'd JS (quiz-play.js) against the JSON
+       data island below; the server-rendered HTML carries only the intro so
+       the page is meaningful before (and without) hydration.
+     mode == "gone": the content-free unavailable page (404). No photos,
+       no names, no scores (AE5).
+
+   Strict default CSP: no inline handlers, no inline styles; all dynamic text
+   is inserted via textContent in quiz-play.js. Ground truth (correct answers)
+   never appears anywhere in this document. Per-question
+   verdicts are never shown mid-run - the score lands once, on the results
+   view (mirrors the in-app Q8 decision).
+   ============================================================================ #}
+
+{% block robots %}
+<meta name="robots" content="noindex" />
+{% endblock %}
+
+{% block header_nav %}
+<nav class="header-nav share-nav">
+  <a
+    href="{{ app_store_url | safe_external_url or '#download' }}"
+    class="cta-button header-cta"
+    data-track-location="header"
+  >
+    {% include "_apple_icon.svg" %}
+    <span>Download</span>
+  </a>
+</nav>
+{% endblock %}
+
+{% block content %}
+{% if mode == 'gone' %}
+<div class="quiz-page">
+  <section class="quiz-card quiz-gone">
+    <p class="quiz-eyebrow">Guess Where</p>
+    <h1 class="quiz-title-small">This challenge has been packed away</h1>
+    <p class="quiz-copy">
+      The link may have been revoked by the person who shared it, or it may
+      never have existed.
+    </p>
+    <a
+      href="{{ app_store_url | safe_external_url or '#download' }}"
+      class="quiz-button quiz-button-primary quiz-cta-link"
+      data-track-location="quiz_gone"
+      >Make your own with Atlasi</a
+    >
+  </section>
+</div>
+{% else %}
+<div class="quiz-page" id="quiz-root">
+  {# --- Challenge intro (server-rendered, visible pre-hydration) ---------
+     The first photo, heavily blurred, is pure atmosphere: the mystery is the
+     point, and the sharp image is only dealt once Play is tapped. #}
+  <section class="quiz-stage quiz-stage--intro quiz-view quiz-view--stage" id="quiz-intro">
+    <img
+      class="quiz-backdrop"
+      src="{{ quiz_payload.questions[0].image_url }}"
+      alt=""
+      aria-hidden="true"
+      fetchpriority="high"
+      decoding="async"
+    />
+    <div class="quiz-stage-scrim"></div>
+    <div class="quiz-intro-body">
+      <p class="quiz-eyebrow">A Guess Where challenge</p>
+      <p class="quiz-script">can you guess where?</p>
+      <h1 class="quiz-title">
+        {% if owner_name %}{{ owner_name }} challenges you{% else %}A friend challenges you{% endif %}
+      </h1>
+      <p class="quiz-copy">
+        Guess which country each of {{ question_count }} travel photos was taken in.
+      </p>
+      {% if score_to_beat %}
+      <p class="quiz-plate quiz-score-to-beat">
+        <span class="quiz-plate-label">The score to beat</span>
+        <span class="quiz-plate-score">{{ score_to_beat.score }}/{{ score_to_beat.total }}</span>
+      </p>
+      {% endif %}
+      <div>
+        <button class="quiz-button quiz-button-primary" id="quiz-start" type="button">
+          Play
+        </button>
+      </div>
+      <noscript>
+        <p class="quiz-copy">Playing the challenge requires JavaScript.</p>
+      </noscript>
+    </div>
+  </section>
+
+  {# --- Question stage (filled by quiz-play.js) -------------------------- #}
+  <section class="quiz-stage quiz-view quiz-view--stage" id="quiz-question" hidden>
+    <img class="quiz-backdrop" id="quiz-photo-backdrop" alt="" aria-hidden="true" />
+    <div class="quiz-stage-scrim"></div>
+    <div class="quiz-stage-top">
+      <p class="quiz-progress" id="quiz-progress"></p>
+      <div class="quiz-progress-track" id="quiz-progress-track" aria-hidden="true"></div>
+    </div>
+    {# The photo is also the inspector toggle: tapping it hides the stage
+       chrome for an aspect-fit look (pinch-zoomable via touch-action);
+       tapping again -- or Escape -- restores the interface. A real button,
+       so it is keyboard-operable and announces its pressed state. #}
+    <div class="quiz-photo-frame">
+      <button
+        class="quiz-photo-toggle"
+        id="quiz-photo-toggle"
+        type="button"
+        aria-pressed="false"
+        aria-label="Inspect the photo"
+      >
+        <img
+          class="quiz-photo"
+          id="quiz-photo"
+          alt="A travel photo. Which country was it taken in?"
+          decoding="async"
+        />
+      </button>
+    </div>
+    <div class="quiz-stage-bottom">
+      <p class="quiz-script quiz-prompt-accent">can you guess where?</p>
+      <h2 class="quiz-prompt">Where in the world was this?</h2>
+      <div class="quiz-options" id="quiz-options"></div>
+    </div>
+  </section>
+
+  {# --- Results + leaderboard + install CTA (R12) ------------------------
+     Reveal-first (4.1): the score and comparison land immediately after the
+     last answer -- no name gate. Signing the logbook is now an OPTIONAL
+     post-my-score module inline on this card; quiz-play.js hides it once a
+     name is bound to the session. #}
+  <section class="quiz-card quiz-view" id="quiz-results" hidden>
+    <p class="quiz-eyebrow">Results</p>
+    <h2 class="quiz-title-small" id="quiz-result-headline"></h2>
+    <div class="quiz-result-plate">
+      <span class="quiz-plate-label">Your score</span>
+      <p class="quiz-result-score" id="quiz-result-score"></p>
+    </div>
+    <p class="quiz-result-compare" id="quiz-result-compare"></p>
+    <div class="quiz-postscore" id="quiz-postscore" hidden>
+      <p class="quiz-script">sign the logbook</p>
+      <h3 class="quiz-title-small">Add your name to the leaderboard</h3>
+      <form id="quiz-name-form" class="quiz-name-form">
+        <label class="quiz-label" for="quiz-display-name">Your first name</label>
+        <input
+          class="quiz-input"
+          id="quiz-display-name"
+          name="display_name"
+          type="text"
+          minlength="2"
+          maxlength="50"
+          autocomplete="given-name"
+          required
+        />
+        <button class="quiz-button quiz-button-primary" type="submit">
+          Post My Score
+        </button>
+      </form>
+    </div>
+    <div class="quiz-leaderboard">
+      <h3 class="quiz-leaderboard-title">Leaderboard</h3>
+      <ol class="quiz-leaderboard-list" id="quiz-leaderboard-list"></ol>
+    </div>
+    {# The primary friend action after the reveal: send the score onward.
+       navigator.share where supported; quiz-play.js falls back to a
+       clipboard copy with a brief confirmation on this button. #}
+    <div class="quiz-share">
+      <button class="quiz-button quiz-button-primary" id="quiz-share" type="button">
+        Share My Score
+      </button>
+    </div>
+    <div class="quiz-install">
+      <p class="quiz-copy">
+        Think your own trips could stump your friends? Build your own Guess
+        Where challenge from your camera roll with Atlasi.
+      </p>
+      {# Funnel: the results CTA routes through the logged /install redirect so
+         each tap lands in the per-quiz funnel before reaching the store. The
+         gone-state CTAs deliberately do NOT: by the time they render, the
+         challenge no longer serves and /install would 404 the tap away. #}
+      <a
+        href="/q/{{ quiz_payload.slug }}/install"
+        class="quiz-button quiz-button-primary quiz-cta-link"
+        data-track-location="quiz_results"
+        >Get Atlasi</a
+      >
+    </div>
+  </section>
+
+  {# --- Mid-run gone state (challenge revoked while playing) ------------- #}
+  <section class="quiz-card quiz-view" id="quiz-gone" hidden>
+    <h2 class="quiz-title-small">This challenge has been packed away</h2>
+    <p class="quiz-copy">The link was revoked by the person who shared it.</p>
+    <a
+      href="{{ app_store_url | safe_external_url or '#download' }}"
+      class="quiz-button quiz-button-primary quiz-cta-link"
+      data-track-location="quiz_gone"
+      >Make your own with Atlasi</a
+    >
+  </section>
+
+  <p class="quiz-error" id="quiz-error" hidden></p>
+</div>
+
+{# The game's data island: image URLs and the four options per question --
+   and no ground truth of any kind. Jinja's tojson escapes <, > and & so a
+   hostile display name cannot break out of this script element. #}
+<script type="application/json" id="quiz-data" nonce="{{ request.state.csp_nonce }}">
+{{ quiz_payload | tojson }}
+</script>
+<script src="{{ url_for('static', path='js/quiz-play.js') }}" defer nonce="{{ request.state.csp_nonce }}"></script>
+{% endif %}
+{% endblock %}
+
+{% block footer_cta %}{% endblock %}
+
+{% block footer_main %}
+<div class="footer-main">
+  <a href="/">
+    <img src="{{ url_for('static', path='images/atlasi-logo.png') }}" alt="Atlasi" class="footer-logo">
+  </a>
+  <nav class="footer-links">
+    <a href="{{ app_store_url | safe_external_url or '#download' }}" class="footer-link"
+       data-track-location="footer">Download App</a>
+    <a href="/privacy" class="footer-link">Privacy</a>
+    <a href="/terms" class="footer-link">Terms</a>
+  </nav>
+</div>
+{% endblock %}

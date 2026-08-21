@@ -8,7 +8,15 @@ import re
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Form, HTTPException, Path, Request, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Form,
+    HTTPException,
+    Path,
+    Request,
+    status,
+)
 from fastapi.responses import (
     HTMLResponse,
     PlainTextResponse,
@@ -20,15 +28,18 @@ from app.api.utils import get_flag_emoji
 from app.core.analytics import log_landing_viewed, log_list_viewed, log_trip_viewed
 from app.core.blog import get_registry
 from app.core.config import get_settings
+from app.core.http_client import get_http_client
 from app.core.kml import KML_MEDIA_TYPE, Placemark, build_kml
 from app.core.media import (
     AVATAR_WIDTH,
     ENTRY_IMAGE_WIDTH,
     HERO_COVER_WIDTH,
+    build_media_url,
     extract_media_urls,
     media_url,
     resize_stored_url,
 )
+from app.core.quiz_image import card_etag, decode_card_photo, render_challenge_card
 from app.core.seo import (
     LANDING_FAQS,
     build_landing_seo,
@@ -55,6 +66,8 @@ from app.services.affiliate_links import (
     get_or_create_link_for_entry,
 )
 from app.services.email import cancel_scheduled_emails, send_contact_email
+from app.services.quiz_funnel import record_quiz_funnel_event
+from app.services.quiz_lookup import fetch_shared_quiz_by_slug
 from app.services.turnstile import verify_turnstile_token
 
 logger = logging.getLogger(__name__)
@@ -736,6 +749,392 @@ async def download_trip_kml(
         slug=slug,
         placemarks=_kml_placemarks(entry_rows),
     )
+
+
+# ============================================================================
+# Playable quiz page (R9/R10/R12/R13)
+#
+# The anonymous play surface for a shared travel photo quiz. Three invariants:
+#
+# * The slug resolves UNCACHED on every request -- revocation must gate serving
+#   the moment it commits, so there is no in-process slug cache and 200s carry
+#   at most a 60s shared-cache TTL (KTD5: quiz photos have a 60s object TTL;
+#   the page must never outlive its own images).
+# * Ground truth (correct_index) never reaches the page. The JSON island carries only what the player may see: image URLs and
+#   the four options per question. Grading happens server-side (the
+#   /q/{slug}/* JSON routes in app/api/public_quiz.py).
+# * Every /q/ response -- 200, 404, and the revoked "gone" page -- is noindex
+#   via BOTH the meta robots tag and the X-Robots-Tag header, and /q/ URLs are
+#   never emitted into sitemap.xml. robots.txt deliberately does NOT Disallow
+#   /q/: a Disallow line would advertise the URL space while also blocking
+#   crawlers from ever *seeing* the noindex.
+# ============================================================================
+
+
+def _quiz_unavailable_response(request: Request, status_code: int) -> HTMLResponse:
+    """The content-free unavailable/gone page (AE5).
+
+    Served for unknown slugs, pre-share states, and revoked quizzes -- all
+    404, so a revoked slug is indistinguishable from one that never existed.
+    Renders no photos, no names, no scores -- just the message and the
+    install CTA -- and is never cached: a revocation must not live on in any
+    shared cache.
+    """
+    settings = get_settings()
+    response = templates.TemplateResponse(
+        request=request,
+        name="quiz.html",
+        context={
+            "mode": "gone",
+            "app_store_url": settings.app_store_url,
+            "google_analytics_id": settings.google_analytics_id,
+            "current_year": get_current_year(),
+            "page_title": "Challenge unavailable - Atlasi",
+            "og_title": "This challenge is no longer available",
+            "og_description": "The link may have been revoked by its owner.",
+        },
+        status_code=status_code,
+    )
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["X-Robots-Tag"] = "noindex"
+    return response
+
+
+async def _fetch_quiz_owner_name(db: SupabaseClient, owner_id: str) -> str | None:
+    """The quiz owner's display name, or None.
+
+    Like the share byline, this is framing rather than content: a missing
+    profile (or a failed lookup) degrades to an anonymous challenge instead of
+    taking the page down.
+    """
+    if not owner_id:
+        return None
+    try:
+        profiles = await db.get(
+            "user_profile",
+            {
+                "user_id": f"eq.{owner_id}",
+                "select": "display_name",
+                "limit": 1,
+            },
+        )
+    except Exception as e:
+        logger.warning("Failed to fetch quiz owner name for %s: %s", owner_id, e)
+        return None
+    if not profiles:
+        return None
+    return (profiles[0].get("display_name") or "").strip() or None
+
+
+@router.get("/q/{slug}", response_class=HTMLResponse)
+@limiter.limit("60/minute")
+async def view_quiz_page(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    slug: str = Path(..., min_length=1, max_length=100, pattern=r"^[a-z0-9-]+$"),
+) -> HTMLResponse:
+    """Render the playable quiz page for a shared quiz slug (R9, R10)."""
+    settings = get_settings()
+    db = get_supabase_client()  # service role: quiz tables are backend-only
+
+    # Only 'shared' serves: unknown, pre-share, and revoked slugs are
+    # indistinguishable 404s.
+    quiz = await fetch_shared_quiz_by_slug(db, slug)
+    if quiz is None:
+        return _quiz_unavailable_response(request, status.HTTP_404_NOT_FOUND)
+
+    # Funnel: one page_view per render (reloads count; 404s never do).
+    # Best-effort analytics, recorded off the response path.
+    background_tasks.add_task(
+        record_quiz_funnel_event, db, quiz["id"], "page_view", slug
+    )
+
+    question_rows, owner_name = await asyncio.gather(
+        db.get(
+            "quiz_question",
+            {
+                "quiz_id": f"eq.{quiz['id']}",
+                "select": "id,position,storage_path,options",
+                "order": "position.asc",
+            },
+        ),
+        _fetch_quiz_owner_name(db, quiz.get("owner_id")),
+    )
+
+    # Everything the game JS needs, and NOTHING it must not have. The
+    # score-to-beat pair is exposed as {score, total} -- deliberately not
+    # {correct, total} -- so no key named "correct" ever appears in the page.
+    questions = [
+        {
+            "id": str(q["id"]),
+            "position": q["position"],
+            "image_url": build_media_url(q["storage_path"]),
+            "options": list(q["options"]),
+        }
+        for q in sorted(question_rows, key=lambda r: r["position"])
+    ]
+    score_to_beat = None
+    if quiz.get("score_to_beat_correct") is not None:
+        score_to_beat = {
+            "score": quiz["score_to_beat_correct"],
+            "total": quiz["score_to_beat_total"],
+        }
+    quiz_payload = {
+        "slug": slug,
+        "owner_name": owner_name,
+        "score_to_beat": score_to_beat,
+        "question_count": len(questions),
+        "questions": questions,
+    }
+
+    challenger = owner_name or "A friend"
+    og_title = f"Can you beat {challenger}'s Guess Where challenge?"
+    og_description = f"Guess the country in {len(questions)} travel photos."
+    if score_to_beat:
+        og_description += (
+            f" The score to beat: {score_to_beat['score']}/{score_to_beat['total']}."
+        )
+
+    response = templates.TemplateResponse(
+        request=request,
+        name="quiz.html",
+        context={
+            "mode": "play",
+            "owner_name": owner_name,
+            "score_to_beat": score_to_beat,
+            "question_count": len(questions),
+            "quiz_payload": quiz_payload,
+            "app_store_url": settings.app_store_url,
+            "google_analytics_id": settings.google_analytics_id,
+            "current_year": get_current_year(),
+            "page_title": f"{challenger}'s Guess Where challenge - Atlasi",
+            "og_title": og_title,
+            "og_description": og_description,
+            # R13: the unfurl card image route ships in a later unit; the meta
+            # tags point at its stable URL now.
+            "og_image": f"{settings.base_url}/q/{slug}/card.png",
+            "og_url": f"{settings.base_url}/q/{slug}",
+        },
+    )
+    # KTD5: never cache the page longer than its photos' 60s object TTL.
+    response.headers["Cache-Control"] = "public, max-age=60"
+    response.headers["X-Robots-Tag"] = "noindex"
+    return response
+
+
+def _etag_matches(if_none_match: str | None, etag: str) -> bool:
+    """Whether an If-None-Match header matches a strong ETag.
+
+    Handles the comma-separated list form, weak validators (W/ prefix -- a
+    weak match suffices for a cache revalidation GET), and the `*` wildcard.
+    """
+    if not if_none_match:
+        return False
+    if if_none_match.strip() == "*":
+        return True
+    candidates = {
+        value.strip().removeprefix("W/") for value in if_none_match.split(",")
+    }
+    return etag in candidates
+
+
+# How long the card route will wait on storage for the challenge photo. A miss
+# is not worth a slow unfurl: past this, the type-only fallback ships instead.
+_CARD_PHOTO_TIMEOUT_SECONDS = 2.5
+
+# Byte cap on the challenge photo. Uploads go direct-to-storage with no
+# content validation and this route is unauthenticated, so an oversized
+# object must fall back to the type-only card, not get buffered and handed
+# to Pillow. Enforced on both the declared Content-Length and the actual
+# body (a missing or lying header must not bypass the cap).
+_CARD_PHOTO_MAX_BYTES = 10 * 1024 * 1024
+
+
+async def _fetch_quiz_card_questions(
+    db: SupabaseClient, quiz_id: str
+) -> list[dict[str, Any]]:
+    """The quiz's question rows, or [] on any lookup failure.
+
+    Like the owner-name lookup, this is best-effort framing: a failed query
+    degrades the card to the type-only fallback instead of taking it down.
+    """
+    try:
+        return await db.get(
+            "quiz_question",
+            {
+                "quiz_id": f"eq.{quiz_id}",
+                "select": "position,storage_path,options",
+                "order": "position.asc",
+            },
+        )
+    except Exception as e:
+        logger.warning("Failed to fetch card questions for quiz %s: %s", quiz_id, e)
+        return []
+
+
+async def _fetch_card_photo(storage_path: str) -> bytes | None:
+    """The challenge photo's bytes from public storage, or None.
+
+    Best-effort with a short timeout: any failure (network, non-200, empty
+    body, over the byte cap) returns None so the caller falls back to the
+    type-only render -- this path must never let the card route 500.
+    """
+    url = build_media_url(storage_path)
+    if not url:
+        return None
+    try:
+        response = await get_http_client().get(url, timeout=_CARD_PHOTO_TIMEOUT_SECONDS)
+        if response.status_code != 200 or not response.content:
+            return None
+        declared = response.headers.get("content-length", "")
+        if declared.isdigit() and int(declared) > _CARD_PHOTO_MAX_BYTES:
+            return None
+        if len(response.content) > _CARD_PHOTO_MAX_BYTES:
+            return None
+        return response.content
+    except Exception as e:
+        logger.warning("Failed to fetch card photo %s: %s", storage_path, e)
+        return None
+
+
+@router.get("/q/{slug}/card.png")
+@limiter.limit("30/minute")
+async def view_quiz_card_image(
+    request: Request,
+    slug: str = Path(..., min_length=1, max_length=100, pattern=r"^[a-z0-9-]+$"),
+) -> Response:
+    """The unfurl challenge-card PNG for a shared quiz (R13).
+
+    A 1200x630 poster: the LAST question's photo full-bleed under a navy
+    scrim, with the owner's challenge framing on top. Shipping a real user
+    photo here is a deliberate decision (2026-08-17) that REVERSED the
+    earlier KTD11 rule ("share assets never carry user photos"); the accepted
+    tradeoff is that unfurl CDNs cache images indefinitely, so the photo can
+    outlive revocation there -- the route itself still 404s once revoked.
+
+    The LAST question's photo is chosen on purpose, never photo 1: the web
+    intro blurs photo 1 as a mystery, and a crisp photo 1 in link previews
+    would spoil question 1.
+
+    The photo fetch is best-effort with a short timeout; ANY failure (fetch
+    error, timeout, undecodable bytes, a quiz with no questions) falls back
+    to the fully synthetic type-only card. This route never 500s on imagery.
+
+    Ordering matters: the slug resolves UNCACHED and revocation 404s BEFORE
+    any conditional/ETag handling, so a validator cached pre-revoke can never
+    turn into a 304 that resurrects the card. The ETag covers the full
+    rendered tuple (quiz id, owner name, score-to-beat, question count,
+    chosen photo storage path) and nothing else -- query parameters are
+    ignored entirely. A degraded fallback (the quiz HAS a photo but this
+    request could not fetch/decode it) ships without that ETag and as
+    no-cache, so no revalidating cache can pin the type-only card in place
+    of the photo card.
+
+    Rate limited at 30/minute -- deliberately stricter than the page's
+    60/minute, since each miss is a Pillow render plus a storage fetch.
+    """
+    db = get_supabase_client()  # service role: quiz tables are backend-only
+
+    # Mirrors the page route: only 'shared' serves; unknown, pre-share, and
+    # revoked slugs are indistinguishable no-store 404s.
+    quiz = await fetch_shared_quiz_by_slug(db, slug)
+    if quiz is None:
+        return Response(
+            status_code=status.HTTP_404_NOT_FOUND,
+            headers={"Cache-Control": "no-store", "X-Robots-Tag": "noindex"},
+        )
+
+    question_rows, owner_name = await asyncio.gather(
+        _fetch_quiz_card_questions(db, quiz["id"]),
+        _fetch_quiz_owner_name(db, quiz.get("owner_id")),
+    )
+    score_correct = quiz.get("score_to_beat_correct")
+    score_total = quiz.get("score_to_beat_total")
+
+    # The LAST question's photo (see the docstring: photo 1 stays a mystery).
+    last_question = max(question_rows, key=lambda r: r["position"], default=None)
+    storage_path = (last_question or {}).get("storage_path") or None
+    question_count = len(question_rows) or None
+    choice_count = len((last_question or {}).get("options") or []) or None
+
+    etag = card_etag(
+        quiz["id"], owner_name, score_correct, score_total, question_count, storage_path
+    )
+    headers = {
+        "ETag": etag,
+        # Modest: revocation still wins within a minute everywhere except the
+        # unfurl CDNs, which cache indefinitely. With KTD11 reversed
+        # (2026-08-17) the photo on this card is accepted to persist there
+        # past revocation; the route itself still 404s immediately.
+        "Cache-Control": "public, max-age=60",
+        "X-Robots-Tag": "noindex",
+    }
+    if _etag_matches(request.headers.get("if-none-match"), etag):
+        return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers=headers)
+
+    # Fetched after the conditional so a revalidation never pays for storage
+    # (correct because a response that carried this ETag was never degraded).
+    photo_bytes = await _fetch_card_photo(storage_path) if storage_path else None
+    photo_image = decode_card_photo(photo_bytes) if photo_bytes else None
+    if storage_path and photo_image is None:
+        # Degraded render: the quiz has a photo but it could not be fetched
+        # or decoded this time. It must NOT ship under the photo ETag or any
+        # freshness -- a revalidating cache holding it would otherwise 304
+        # the type-only card into freshness forever without the fetch ever
+        # being retried. No validator plus no-cache means the degraded body
+        # can never satisfy a future If-None-Match and is refetched on the
+        # next request. (When storage_path is absent entirely, the type-only
+        # card IS the correct stable render and keeps the headers above.)
+        headers = {"Cache-Control": "no-cache", "X-Robots-Tag": "noindex"}
+
+    png = render_challenge_card(
+        owner_name,
+        score_correct,
+        score_total,
+        question_count=question_count,
+        choice_count=choice_count,
+        photo=photo_image,
+    )
+    return Response(content=png, media_type="image/png", headers=headers)
+
+
+@router.get("/q/{slug}/install")
+@limiter.limit("30/minute")
+async def quiz_install_redirect(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    slug: str = Path(..., min_length=1, max_length=100, pattern=r"^[a-z0-9-]+$"),
+) -> Response:
+    """Logged App Store redirect for the quiz install CTA (R12/R16).
+
+    The results-page CTA points here instead of straight at the store, so
+    each tap lands in the per-quiz funnel before the 302 hands the visitor
+    to Apple (KTD10: no universal links, no attribution SDK -- the tap IS
+    the funnel proxy). Mirrors the page route's gating: only 'shared'
+    serves, and unknown/pre-share/revoked slugs get the indistinguishable
+    404 gone page rather than a redirect -- a revoked quiz must not keep
+    functioning as a store link, and an unlogged redirect would poison the
+    tap counts anyway. The 302 is no-store: a cached redirect loses taps.
+    """
+    settings = get_settings()
+    db = get_supabase_client()  # service role: quiz tables are backend-only
+
+    quiz = await fetch_shared_quiz_by_slug(db, slug)
+    if quiz is None:
+        return _quiz_unavailable_response(request, status.HTTP_404_NOT_FOUND)
+
+    # Best-effort funnel write, recorded off the response path.
+    background_tasks.add_task(
+        record_quiz_funnel_event, db, quiz["id"], "install_cta_tap", slug
+    )
+
+    response = RedirectResponse(
+        url=settings.app_store_url or "/",
+        status_code=status.HTTP_302_FOUND,
+    )
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["X-Robots-Tag"] = "noindex"
+    return response
 
 
 @router.get("/privacy", response_class=HTMLResponse)

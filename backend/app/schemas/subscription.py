@@ -2,6 +2,7 @@
 
 from datetime import datetime
 from typing import Literal
+from uuid import UUID
 
 from pydantic import BaseModel
 
@@ -25,6 +26,7 @@ class UsageLimits(BaseModel):
     share_extension_period_start: datetime | None = None
     photo_import_count: int
     photo_import_limit: int
+    photo_import_trip_id: UUID | None = None
     entries_per_trip_limit: int
 
 
@@ -32,6 +34,13 @@ class IncrementUsageRequest(BaseModel):
     """Request to increment a usage counter."""
 
     feature: Literal["share_extension", "photo_import"]
+    trip_id: UUID | None = None
+    """Trip the increment is for (photo_import only).
+
+    Recorded server-side alongside the counter so the free-tier exemption that
+    lets a user finish the import they already paid for survives a reinstall or
+    a device change (R17). Ignored for other features.
+    """
 
 
 class IncrementUsageResponse(BaseModel):

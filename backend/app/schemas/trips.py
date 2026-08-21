@@ -1,7 +1,7 @@
 """Schemas for trip and trip_tags endpoints."""
 
 from datetime import date, datetime
-from enum import Enum
+from enum import StrEnum
 from uuid import UUID
 
 from pydantic import BaseModel, field_validator
@@ -9,7 +9,7 @@ from pydantic import BaseModel, field_validator
 from app.core.validators import validate_image_url
 
 
-class TripTagStatus(str, Enum):
+class TripTagStatus(StrEnum):
     """Trip tag consent status."""
 
     PENDING = "pending"

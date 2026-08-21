@@ -15,6 +15,7 @@ The photo import feature allows users to scan their device photo library and aut
 - `photoCacheDbSuggestions.ts` - Processed clusters, cached suggestions with TTL
 - `photoBackgroundSync.ts` - Silent background cache refresh on app foreground (1hr interval)
 - `visionPhoto.ts` - Select representative photos, resize to 768px, base64 encode for vision API
+- `suggestionDispatch.ts` - Module-level singleton owning place-suggestion dispatch (see "Suggestion dispatch controller")
 - `types.ts`, `errors.ts`, `index.ts`
 
 ### Mobile Screen Components (`mobile/src/screens/photos/components/`)
@@ -29,15 +30,49 @@ The photo import feature allows users to scan their device photo library and aut
 ### Mobile Hooks (`mobile/src/screens/photos/`)
 
 - `usePhotoScan.ts` - Scan workflow with progress tracking
-- `usePlaceSuggestions.ts` - Fetch place suggestions with chunking, caching, and vision data
+- `usePlaceSuggestions.ts` - Suggestion-fetch policy: SQLite cache read/write discipline, premium gating, analytics, candidate-stale guarding. Chunking and dispatch live in `suggestionDispatch` (below)
 - `useEntryCreation.ts` - Create entries from confirmed suggestions
 - `usePhotoImportWorkflow.ts` - Orchestrates multi-phase workflow
-- `useWorkflowAnalytics.ts`, `useAutoStartWorkflow.ts`, `useClusterItems.ts`, `useScanLifecycle.ts`, `useWorkflowNavigation.ts`
+- `useClusterItems.ts` - Turns a candidate's clusters + dispatch results into the suggestion list rows, in canonical cluster order. Clusters whose top place is the same `place_id` merge into one `merged-suggestion` card **progressively** — the moment the second cluster matches, anchored at the earliest cluster's slot (so one row disappears at that moment; that's the accepted tradeoff, reversing the 2026-08-15 plan's KTD22 deferral-until-settle). The backend never merges: it returns one suggestion per cluster. Manual split sub-clusters never merge; a cluster the user already confirmed is never re-merged.
+- `useWorkflowAnalytics.ts`, `useAutoStartWorkflow.ts`, `useScanLifecycle.ts`, `useWorkflowNavigation.ts`
 
 ### Mobile Hooks (`mobile/src/hooks/`)
 
 - `usePhotoTrips.ts` - Access photo-discovered trips from SQLite cache with search/filter by country
 - `useMultiClusterUpload.ts` - Manage concurrent photo uploads from multiple location clusters
+
+### Suggestion dispatch controller
+
+`mobile/src/services/photoImport/suggestionDispatch.ts` is a **module-level singleton** that owns everything about _getting suggestions onto the wire_: batch planning, cluster claiming, abort, progress accounting, and failure attribution. It follows the same shape as `photoScanService` — the service owns the state machine, React subscribes to it — so dispatch state survives navigating away from the photo import screen and back. It replaced a chunked React Query mutation, which used none of React Query's affordances (no query key, no cache, no retry, no dedup).
+
+**Ownership split**
+
+| Concern                                                                                      | Owner                 |
+| -------------------------------------------------------------------------------------------- | --------------------- |
+| Batch planning, claiming, abort, progress, failure attribution, the HTTP call                | `suggestionDispatch`  |
+| Cache read/write discipline, premium gating, analytics, candidate-stale guard, retry spinner | `usePlaceSuggestions` |
+
+**All three fetch paths go through it**
+
+| Path          | Entry point           | Controller call                                        |
+| ------------- | --------------------- | ------------------------------------------------------ |
+| Main dispatch | `fetchSuggestions`    | `dispatch()` — plans batches, dispatches one at a time |
+| Manual split  | `fetchForClusters`    | `claim()` -> `dispatchBatch()` -> `releaseClaim()`     |
+| Scoped retry  | `retryFailedClusters` | `claim()` -> `dispatchBatch()` -> `releaseClaim()`     |
+
+**Batch plan.** `planSuggestionBatches()` splits clusters into a small opening batch (`FIRST_CHUNK_SIZE = 2`) followed by full-size ones (`CHUNK_SIZE = 5`), so time-to-first-suggestion is not gated on a full batch's on-device preparation. Preparation is pipelined exactly one batch ahead and serialized on a per-dispatch tail: Expo's async function queue is serial at the native layer, so extra preparation workers buy no parallelism. A preparation failure never rejects — the batch dispatches without vision images.
+
+**Three cluster sets.** These are distinct on purpose:
+
+- `enqueuedClusterIds` - every cluster the controller has _accepted_, resolved or not. Source of the pending rows: on a 100-cluster import all 100 are enqueued from the first frame, while only ~2-5 are on the wire. Sourcing pending rows from the in-flight set instead would leave the screen mostly empty.
+- `inFlightClusterIds` - clusters with a request actually outstanding. Drives retry/split claim deduplication: `claim()` returns only the ids it could take, so a double-tapped retry, or a retry racing the main dispatch, cannot double-fire or double-cache.
+- `dispatchedAndResolvedClusterIds` - clusters whose batch received a response. This is the **cache-write allow-list**: a suggestion cache row may be written for a cluster only on positive evidence that a response covering it arrived, so a cluster in a batch that threw — or in a batch that never went out after a fatal quota/rate-limit error — can never be cached as `[]` for its TTL.
+
+**Failure attribution.** A non-fatal batch error records that batch's clusters in `failedClusterIds` with retry enabled and the loop continues. A fatal error (429, or a 503 carrying `Retry-After` — quota is the only 503 that does) records the current batch _and every batch not yet dispatched_ with retry disabled, then re-throws. `failedClusterIds` survives the throw; `progress` is cleared.
+
+**Dispatch owner count.** `beginOwner()` / `endOwner()` implement the "is a fetch in progress?" signal as a count, not a boolean, because several call sites can start overlapping fetches; settled means _all_ owners released. The counter lives on the singleton so the two callbacks have stable identity for the five call sites that take them as props, and `reset()` deliberately does not zero it — a parked owner still holds its slot.
+
+**React seam.** `useSuggestionDispatch()` (`mobile/src/hooks/usePhotoImport.ts`) subscribes a component to the controller's snapshot via `useSyncExternalStore`. Actions are stable methods on the singleton, imported directly rather than threaded through props.
 
 ### Backend Place Matcher (`backend/app/services/place_matcher/`)
 
@@ -87,16 +122,16 @@ The photo import pipeline optionally uses computer vision to improve place match
 
 ### Vision Categories
 
-| Category  | Maps to Entry Type | Example Places                  |
-| --------- | ------------------ | ------------------------------- |
-| food      | Food               | Restaurants, cafes, bars        |
-| landmark  | Place              | Museums, monuments, temples     |
-| stay      | Stay               | Hotels, resorts, hostels        |
-| shopping  | Experience         | Markets, malls, stores          |
-| nature    | Experience         | Parks, beaches, gardens         |
-| nightlife | Experience         | Clubs, casinos, bars            |
-| transport | (no mapping)       | Airports, stations              |
-| unknown   | (no mapping)       | Unclear photos                  |
+| Category  | Maps to Entry Type | Example Places              |
+| --------- | ------------------ | --------------------------- |
+| food      | Food               | Restaurants, cafes, bars    |
+| landmark  | Place              | Museums, monuments, temples |
+| stay      | Stay               | Hotels, resorts, hostels    |
+| shopping  | Experience         | Markets, malls, stores      |
+| nature    | Experience         | Parks, beaches, gardens     |
+| nightlife | Experience         | Clubs, casinos, bars        |
+| transport | (no mapping)       | Airports, stations          |
+| unknown   | (no mapping)       | Unclear photos              |
 
 ### How Vision Improves Matching
 
@@ -111,7 +146,29 @@ The photo import pipeline optionally uses computer vision to improve place match
 
 - Requires `OPENROUTER_API_KEY` env var
 - Uses `MULTIMODAL_MODEL` for model selection (default: `google/gemini-2.5-flash-lite`)
-- Cost: ~$0.00008 per photo at 768px via OpenRouter
+- Cost: ~$0.00023 per photo at 768px via OpenRouter (~2.2k prompt + ~37
+  completion tokens, measured 2026-08-15)
+
+### Why a Flash *Lite* model
+
+Benchmarked 2026-08-15 against the quiz eligibility payload on 5 hand-labelled
+photos. Gemini 2.5, 3.1, and 3.5 Flash Lite each scored 5/5 on both
+eligibility and people-detection at ~1s per image, so 2.5 stays as the
+cheapest and fastest of an indistinguishable set. 3.1 Flash Lite (~2x cost)
+and 3.5 Flash Lite (~2.4x) are drop-in `MULTIMODAL_MODEL` swaps if a larger
+labelled set ever shows a real difference.
+
+**Reasoning-model gotcha — read before switching to a Gemini 3.x Flash tier.**
+Those models reason on every request and OpenRouter rejects any attempt to
+disable it (`reasoning.enabled=false`, `reasoning.max_tokens=0`, and
+`reasoning_effort=none` all return HTTP 400 "Reasoning is mandatory for this
+endpoint"). Reasoning burns ~85-155 tokens out of `max_tokens` *before* any
+content, so an undersized budget returns HTTP 200 with `finish_reason="length"`
+and a truncated preamble instead of JSON — a silent parse failure, not an
+error. For the fail-closed quiz gate that reads as "every photo ineligible".
+The vision call sites budget `VISION_MAX_TOKENS` (`app/core/llm_utils.py`)
+specifically so an env-var-only model swap survives this; they also measured
+~2x slower against a 5s timeout, and ~4x the cost.
 
 ## Photo Trips Feature
 
@@ -199,19 +256,77 @@ Large venues' Google points often sit beyond the dense-city Nearby radii, so two
 
 Set `PLACES_DIAGNOSTICS=true` to emit one structured JSON trace per cluster (raw candidate world, filter-drop tallies, vision signals, finalists, outcome). Off by default — retaining the raw world has a memory cost, so production stays clean. Use it to capture real imports for the labeling workflow in `backend/docs/how-to-label-place-matcher-dataset.md`.
 
+## Telemetry and Dashboards
+
+Everything a dashboard needs about photo import is either a PostHog event from the client or the `place_matcher_phase_metrics` log line from the backend. **No coordinate, cluster id, geohash or place id appears in any of them** — every field is a count, a duration, or a ratio. Keep it that way when adding fields.
+
+### Client events (PostHog)
+
+| Event                                | Fires when                                                  | Carries                                                                                                                                                                                                                                                                                                        |
+| ------------------------------------ | ----------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `photo_import_suggestions_completed` | A suggestion fetch finishes (including the all-cached path) | `suggestion_count`, `failed_chunks`, `cached_clusters`, `uncached_clusters`, `cache_hit_rate`, `api_p50/p95/p99_ms`, `total_api_duration_ms`, `time_to_first_suggestion_ms`, `wall_clock_ms`, plus the U11 occupancy fields `peak_in_flight_batches`, `mean_in_flight_batches`, `wire_busy_ms`, `wire_span_ms` |
+| `photo_import_api_error`             | A dispatch is stopped by a rejection                        | `error_type`: `quota_exhausted` \| `rate_limited` \| `entitlement_exhausted` \| `unknown`                                                                                                                                                                                                                      |
+| `photo_import_workflow_completed`    | Every cluster confirmed, rejected or hidden                 | the existing counts and rates, plus `viewed_clusters` / `viewed_cluster_rate`                                                                                                                                                                                                                                  |
+| `photo_import_workflow_exited`       | The user leaves with clusters unprocessed                   | the existing counts, plus `viewed_clusters`, `viewed_cluster_rate`, `enqueued_clusters`, `settled_clusters`, `unsettled_clusters`, `retry_attempts`, `retry_generations`, `max_retry_attempts_per_generation`                                                                                                  |
+
+**Reading the occupancy fields.** `peak_in_flight_batches` is the high-water mark of requests on the wire; `mean_in_flight_batches` is the same quantity integrated over time and divided by `wire_span_ms`, so it reports how much of the pool the run actually used. A peak of 3 with a mean near 1 is a preparation-bound run, not a network-bound one — `wire_span_ms - wire_busy_ms` is the dead air more concurrency cannot remove. `total_api_duration_ms` sums per-batch durations and therefore **over-counts** once batches overlap; use `wall_clock_ms` for elapsed time and the occupancy pair for the shape of it.
+
+**Reading the exit split.** `enqueued_clusters` is what dispatch accepted, `settled_clusters` the subset that got a response or a failure. `unsettled_clusters` is the abandoned tail, and it is expected to be non-zero: progressive results are designed so a user can confirm what they want and leave. `viewed_cluster_rate` is the input to the deferred on-demand-dispatch idea — if the median import only ever surfaces a fraction of its clusters, matching all of them up front is buying results nobody looks at.
+
+### Place ids are hashed — `original_suggestion_place_id` is gone
+
+`photo_import_place_confirmed` and `photo_import_place_rejected` used to emit the raw Google Place ID as `original_suggestion_place_id`. That violated the rule at the top of this section: a place id next to an identified PostHog user says that a specific person was at a specific venue. The property is now **`original_suggestion_place_hash`** — a stable, non-reversible 16-hex-char digest produced by `stableHash()` in `mobile/src/utils/stableHash.ts`.
+
+The hash is computed inside the analytics helper, not at the call sites, so no current or future caller can forget it. The caller-facing prop is still `originalSuggestionPlaceId` and still takes the raw id; the helper is the boundary where the id stops. A missing id stays `null` rather than becoming a digest.
+
+The digest is deterministic across app launches, devices and users (there is deliberately no per-install salt), so grouping by venue, joining a confirm against a reject for the same place, and spotting a venue that is mis-ranked repeatedly all still work. What is gone is the readable venue identity — you can no longer tell _which_ venue a bucket is without already knowing its place id, and you can no longer look one up in the Places API from analytics alone.
+
+**Dashboard owners must repoint.** Anything keyed on `original_suggestion_place_id` — match-quality breakdowns, repeat-mis-ranking queries, any saved PostHog insight or cohort filtering on that property — has to move to `original_suggestion_place_hash`. The property was renamed rather than reused precisely so a stale dashboard fails loudly (empty) instead of silently mixing hashed and raw values in one bucket. Values recorded before the rename cannot be joined to values recorded after it, so treat the release boundary as a hard break in that series.
+
+### Population changes — read this before comparing across releases
+
+Three shifts break naive time-series comparisons through the progressive-loading release:
+
+1. **`failed_chunks` was always 0 before U14.** It was read through a stale closure that predated the dispatch it described. It is live now, so a jump at that release boundary is instrumentation coming online, not a reliability regression.
+2. **A rate-limited run now emits completion _as well as_ an error (U6).** Dispatch used to throw on a fatal 429/503, which suppressed `photo_import_suggestions_completed` entirely; it now resolves partially and reports the rejection on the result. The completion population therefore gained runs that never used to appear in it, and those runs have a **lower `suggestion_count`** and a **non-zero `failed_chunks`** that this population never previously contained. Segment on `photo_import_api_error` when comparing suggestion counts across the boundary.
+3. **`entitlement_exhausted` was split out of `unknown` (U11).** The 402 photo-import limit used to land in the `unknown` error bucket. A drop in `unknown` at this release is that reclassification.
+
+### Backend phase metrics
+
+The backend emits one `place_matcher_phase_metrics` line per request with `phase_ms` (search / vision_wait / enrichment / backfill), `cache`, `outbound`, `retries` and `vision.null_reasons`. Two vision numbers exist and they answer different questions: **`phase_ms.vision_wait` is the RESIDUAL wait vision adds on top of search** (the two run concurrently), while **`vision.total_ms` is vision's total wall time**. Tune ordering with the residual; size the vision budget with the total. `retries` is the rate-limit retry counter and is the leading indicator on the release watch list; the client-side counterpart is `retry_attempts` on the exit event.
+
+### Ad-conversion baseline (`FirstPhotoImport`)
+
+The once-per-lifetime photo-import ad conversion (`AdEvents.firstPhotoImportDone` → `/ad-events` → Meta CAPI + TikTok Events) was **re-anchored in U11** from "every cluster confirmed, rejected or hidden" to "first confirmation plus departure" — the same signal the review prompt on this screen uses. The old trigger becomes markedly rarer under progressive interaction, so the change should _raise_ volume; it must still be watched, because the trigger moved.
+
+**Capture the baseline before this release ships.** It cannot be reconstructed afterwards.
+
+- **What to query:** weekly count of distinct users with a `FirstPhotoImport` event, in Meta Events Manager (or the equivalent TikTok Events report), for the **four full weeks before the release date**. Record the four weekly numbers and their mean in the table below. Cross-check against the backend's `/ad-events` request log for the same window — the ad networks dedupe, the backend does not.
+- **When to read it:** weekly, for the **first six weeks after release**, alongside the rest of the release watch list.
+- **Threshold that triggers a further change:** a drop of **more than 25% against the four-week baseline mean, sustained over two consecutive weeks**. One bad week is noise (the event is per-user-lifetime, so it tracks new-user volume as much as behavior). If the threshold trips, the trigger is the suspect: check whether `photo_import_workflow_exited` volume held steady while conversions fell, which would mean departures stopped carrying a confirmation.
+- **Who reads it:** the product owner (Emerson), as part of the weekly release watch. Nobody else is subscribed to this number.
+
+| Week (pre-release) | `FirstPhotoImport` users |
+| ------------------ | ------------------------ |
+| W-4                | _fill before release_    |
+| W-3                | _fill before release_    |
+| W-2                | _fill before release_    |
+| W-1                | _fill before release_    |
+| **Baseline mean**  | _fill before release_    |
+
 ## Key Files
 
-| File                                                            | Purpose                                 |
-| --------------------------------------------------------------- | --------------------------------------- |
-| `mobile/src/screens/photos/PhotoImportScreen.tsx`               | Main photo import UI                    |
-| `mobile/src/screens/photos/PhotoTripsScreen.tsx`                | Browse photo-discovered trips           |
-| `mobile/src/services/photoImport/visionPhoto.ts`                | Vision photo selection and preparation  |
-| `mobile/src/services/photoImport/photoBackgroundSync.ts`        | Background cache refresh                |
-| `mobile/src/services/photoImport/photoClustering.ts`            | Geohash clustering with adjacent merge  |
-| `mobile/src/hooks/usePhotoTrips.ts`                             | SQLite cache access for photo trips     |
-| `mobile/src/hooks/useMultiClusterUpload.ts`                     | Concurrent cluster uploads              |
-| `backend/app/api/photos.py`                                     | `/photos/suggest-places` endpoint       |
-| `backend/app/services/place_matcher/matcher.py`                 | PlaceMatcher orchestrator               |
-| `backend/app/services/place_matcher/_matcher_ranking.py`        | Vision-integrated place ranking         |
-| `backend/app/services/place_matcher/_matcher_search.py`         | Density-adaptive search logic           |
-| `backend/app/services/photo_vision/classifier.py`               | Photo classification via Gemini         |
+| File                                                     | Purpose                                |
+| -------------------------------------------------------- | -------------------------------------- |
+| `mobile/src/screens/photos/PhotoImportScreen.tsx`        | Main photo import UI                   |
+| `mobile/src/screens/photos/PhotoTripsScreen.tsx`         | Browse photo-discovered trips          |
+| `mobile/src/services/photoImport/visionPhoto.ts`         | Vision photo selection and preparation |
+| `mobile/src/services/photoImport/photoBackgroundSync.ts` | Background cache refresh               |
+| `mobile/src/services/photoImport/photoClustering.ts`     | Geohash clustering with adjacent merge |
+| `mobile/src/hooks/usePhotoTrips.ts`                      | SQLite cache access for photo trips    |
+| `mobile/src/hooks/useMultiClusterUpload.ts`              | Concurrent cluster uploads             |
+| `backend/app/api/photos.py`                              | `/photos/suggest-places` endpoint      |
+| `backend/app/services/place_matcher/matcher.py`          | PlaceMatcher orchestrator              |
+| `backend/app/services/place_matcher/_matcher_ranking.py` | Vision-integrated place ranking        |
+| `backend/app/services/place_matcher/_matcher_search.py`  | Density-adaptive search logic          |
+| `backend/app/services/photo_vision/classifier.py`        | Photo classification via Gemini        |

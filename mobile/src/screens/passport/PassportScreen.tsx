@@ -1,13 +1,16 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import { Alert, Animated, FlatList } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 
 import {
   CountryRow,
+  GuessWhereCard,
   PassportEmptyState,
   PassportListHeader,
   PassportSectionHeader,
+  PhotoSyncCard,
   StampRow,
 } from '@components/passport';
 import { ExploreFilterSheet, PassportSkeleton } from '@components/ui';
@@ -21,7 +24,10 @@ import { ShareExtensionTutorialSheet } from '@components/share/ShareExtensionTut
 import { ClipboardEnableModal } from '@screens/profile/components/ClipboardEnableModal';
 import { useSettingsStore, selectClipboardDetectionEnabled } from '@stores/settingsStore';
 import type { DetectedClipboardUrl } from '@hooks/useClipboardListener';
+import { useHasInitialImport } from '@hooks/useHasInitialImport';
+import { useMyQuizzes } from '@hooks/useQuizzes';
 import { usePassportData } from '@hooks/usePassportData';
+import { Analytics } from '@services/analytics';
 import { usePassportAnimations } from '@hooks/usePassportAnimations';
 import { buildMilestoneContext, type MilestoneContext } from '@utils/milestones';
 import type { PassportStackScreenProps } from '@navigation/types';
@@ -65,6 +71,48 @@ export function PassportScreen({ navigation }: Props) {
     computeLayoutData,
     getItemKey,
   } = animations;
+
+  // Guess Where is built out of the user's own photos, so the slot below the
+  // stats grid sells photo sync until the camera roll has been scanned once.
+  // Existing challenges override that: the watermark is device-local, so after
+  // a reinstall (or on a second device) a user with challenges would otherwise
+  // lose their only home entry point to them.
+  const {
+    hasInitialImport,
+    isLoading: importStateLoading,
+    isError: importStateError,
+    refresh,
+  } = useHasInitialImport();
+  const { data: quizzes } = useMyQuizzes();
+  const quizCount = quizzes?.length ?? 0;
+  const showGuessWhere = hasInitialImport || quizCount > 0;
+
+  // Which of the two swappable cards the slot actually rendered. Gated on the
+  // same condition the slot is (the screen holds both back until the watermark
+  // resolves, so neither flashes), and fired once per mount rather than from
+  // useFocusEffect - this is a tab, and focus would re-count on every switch.
+  const cardShownRef = useRef(false);
+  useEffect(() => {
+    if (cardShownRef.current || importStateLoading) return;
+    cardShownRef.current = true;
+    Analytics.passportEntryCardShown({
+      card: showGuessWhere ? 'guess_where' : 'photo_sync',
+      hasQuizzes: quizCount > 0,
+      quizCount,
+      hasInitialImport,
+      watermarkUnreadable: importStateError,
+    });
+  }, [importStateLoading, showGuessWhere, quizCount, hasInitialImport, importStateError]);
+
+  // No AppState focus manager is wired up, so re-read the watermark to pick up
+  // an import that completed while this screen was away. Only while the sync
+  // card is up: once it has flipped it never flips back, and invalidating on
+  // every focus would defeat the hook's own staleTime.
+  useFocusEffect(
+    useCallback(() => {
+      if (!showGuessWhere) refresh();
+    }, [showGuessWhere, refresh])
+  );
 
   // Clipboard detection setting
   const clipboardDetectionEnabled = useSettingsStore(selectClipboardDetectionEnabled);
@@ -172,6 +220,18 @@ export function PassportScreen({ navigation }: Props) {
   const handleProfilePress = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     navigation.navigate('ProfileSettings');
+  }, [navigation]);
+
+  const handleOpenGuessWhereIntro = useCallback(() => {
+    navigation.navigate('GuessWhereIntro', { entryPoint: 'passport_card' });
+  }, [navigation]);
+
+  const handleOpenChallenges = useCallback(() => {
+    navigation.navigate('MyQuizzes', { entryPoint: 'passport_card' });
+  }, [navigation]);
+
+  const handleOpenPhotoImport = useCallback(() => {
+    navigation.navigate('PhotoImport', { autoStart: true });
   }, [navigation]);
 
   const handlePastePress = useCallback(() => {
@@ -315,6 +375,8 @@ export function PassportScreen({ navigation }: Props) {
   const showPasteButton = !clipboardDetectionEnabled;
 
   // List header
+  // Guess Where lives on the home surface (Q3), above the country search; it
+  // steps aside while the user is searching countries.
   const ListHeader = useMemo(
     () => (
       <PassportListHeader
@@ -328,6 +390,18 @@ export function PassportScreen({ navigation }: Props) {
         onProfilePress={handleProfilePress}
         onPastePress={handlePastePress}
         showPasteButton={showPasteButton}
+        guessWhereSlot={
+          // Nothing renders until the watermark resolves, so the wrong card
+          // never flashes at the user this branch exists for.
+          searchQuery.length > 0 || importStateLoading ? null : showGuessWhere ? (
+            <GuessWhereCard
+              onOpenIntro={handleOpenGuessWhereIntro}
+              onOpenChallenges={handleOpenChallenges}
+            />
+          ) : (
+            <PhotoSyncCard onPress={handleOpenPhotoImport} />
+          )
+        }
       />
     ),
     [
@@ -341,6 +415,11 @@ export function PassportScreen({ navigation }: Props) {
       handleProfilePress,
       handlePastePress,
       showPasteButton,
+      handleOpenGuessWhereIntro,
+      handleOpenChallenges,
+      handleOpenPhotoImport,
+      showGuessWhere,
+      importStateLoading,
     ]
   );
 

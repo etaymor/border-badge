@@ -1,0 +1,774 @@
+/* ==============================================
+   PUBLIC GUESS WHERE PAGE (/q/{slug})
+
+   The recipient's whole first impression of Atlasi. Design language:
+   "prints from the field" - the photo is the stage. Intro and play run on a
+   full-viewport dark stage (the photo, blurred, is its own backdrop; the
+   sharp image sits contained on top so nothing is cropped). The reveal-first
+   results return to the warm-cream field-guide ground, where the score lands
+   as a passport-stamp press (stampIn, base.css) and signing the logbook is
+   an optional post-my-score module.
+
+   Mobile-web-first: opened from a shared link on a phone; widens gracefully.
+   Everything is scoped under .quiz-page.
+
+   Strict CSP: all state styling is class-driven (is-picked, is-filled,
+   hidden attribute) - no inline styles exist on the page.
+   ============================================== */
+
+.quiz-page {
+  /* Height of the opaque header band the stage runs underneath. */
+  --quiz-header-clearance: 92px;
+  margin: 0 auto;
+}
+
+/* The header is a recipient's first sight of Atlasi, so it wears the landing
+   page's dress on every quiz state instead of adapting to the photo stage:
+   cream band, hairline rule, the real logo, and the solid gold Download pill.
+   The stage treatment it replaces inverted the logo to a featureless white
+   silhouette, and left .share-nav's navy label on a navy glass pill, which
+   rendered the Download CTA all but invisible against a dark photo.
+
+   The band is opaque and stays `position: absolute` (never sticky, as on the
+   landing page): the question stage's `height: 100svh` is what lets the photo
+   resolve its max-height, so the header must not take part in layout flow.
+   Stage chrome clears it via --quiz-header-clearance. */
+body:has(.quiz-page) .header {
+  background: var(--color-band-cream);
+  border-bottom: 1px solid var(--color-hairline);
+  padding: var(--spacing-lg);
+}
+
+body:has(.quiz-page) .header .logo-image {
+  filter: none;
+}
+
+body:has(.quiz-page) .header .cta-button {
+  background: var(--color-sunset-gold);
+  color: var(--color-midnight-navy);
+  border-color: var(--color-sunset-gold);
+  padding: 11px 22px;
+  font-weight: 700;
+}
+
+body:has(.quiz-page) .header .cta-button:hover {
+  background: var(--color-primary-action-hover);
+  border-color: var(--color-primary-action-hover);
+  color: var(--color-midnight-navy);
+}
+
+/* Card states (name entry, results, gone) stay narrow and centered;
+   stage states (intro, question) go full-bleed and manage themselves.
+   margin-inline only - the vertical margins (header clearance) belong to
+   .quiz-card itself and must not be clobbered here. */
+.quiz-page .quiz-card {
+  width: min(560px, calc(100% - 32px));
+  margin-inline: auto;
+  text-align: center;
+}
+
+/* ==========================================================================
+   Full-viewport photo stage (intro + question)
+   ========================================================================== */
+
+.quiz-stage {
+  position: relative;
+  min-height: 100svh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--color-midnight-navy);
+}
+
+/* Intro bottom-anchors its single content block. */
+.quiz-stage--intro {
+  justify-content: flex-end;
+}
+
+/* The question stage is exactly one viewport tall: a definite height is what
+   lets the photo's max-height resolve, so options always stay on screen and
+   the game never scrolls. */
+.quiz-stage:not(.quiz-stage--intro) {
+  height: 100svh;
+  min-height: 0;
+}
+
+/* The photo itself, blurred and dimmed, fills the frame behind the sharp
+   image - landscape photos get atmosphere instead of letterboxing. */
+.quiz-backdrop {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scale(1.15);
+  filter: blur(26px) brightness(0.5) saturate(1.05);
+}
+
+/* Intro keeps only the atmosphere: the blur is heavier so the first photo
+   stays a mystery until Play is tapped. */
+.quiz-stage--intro .quiz-backdrop {
+  filter: blur(48px) brightness(0.42) saturate(1.1);
+}
+
+.quiz-stage-scrim {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    180deg,
+    rgba(23, 42, 58, 0.62) 0%,
+    rgba(23, 42, 58, 0.12) 22%,
+    rgba(23, 42, 58, 0) 45%,
+    rgba(23, 42, 58, 0.55) 72%,
+    rgba(23, 42, 58, 0.88) 100%
+  );
+}
+
+/* The sharp photo: contained, never cropped, filling whatever vertical room
+   the top bar and bottom sheet leave over (flex: 1). */
+.quiz-photo-frame {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 0;
+}
+
+.quiz-photo {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  display: block;
+  filter: drop-shadow(0 10px 30px rgba(11, 20, 28, 0.55));
+}
+
+/* The photo doubles as the inspector toggle: an unchromed button filling the
+   frame, so the img's max-height still resolves against a definite height. */
+.quiz-photo-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: zoom-in;
+  /* Native pinch zoom stays available on the photo - no gesture math. */
+  touch-action: pinch-zoom;
+}
+
+.quiz-photo-toggle:focus-visible {
+  outline: 2px solid var(--color-sunset-gold);
+  outline-offset: 4px;
+}
+
+/* --- Photo inspection (chrome-hidden aspect-fit view) --------------------
+   Tapping the photo hides the interface and lets the print fill the navy
+   stage, still contained (never cropped). Purely a class toggle from
+   quiz-play.js; answer state is untouched. */
+
+.quiz-stage--inspect .quiz-stage-top,
+.quiz-stage--inspect .quiz-stage-bottom {
+  opacity: 0;
+  visibility: hidden; /* unclickable + unfocusable while hidden */
+}
+
+.quiz-stage--inspect .quiz-photo-frame {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  padding: 16px;
+}
+
+.quiz-stage--inspect .quiz-photo-toggle {
+  cursor: zoom-out;
+}
+
+/* The floating header is interface too - it fades with the rest. */
+body:has(.quiz-stage--inspect) .header {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+body:has(#quiz-root) .header {
+  transition:
+    opacity 0.25s ease,
+    visibility 0.25s;
+}
+
+/* Stage chrome sits above backdrop + scrim. */
+.quiz-stage-top,
+.quiz-stage-bottom,
+.quiz-intro-body {
+  position: relative;
+}
+
+.quiz-stage-top,
+.quiz-stage-bottom {
+  transition:
+    opacity 0.25s ease,
+    visibility 0.25s;
+}
+
+.quiz-stage-top {
+  padding: calc(var(--quiz-header-clearance) + 12px) 20px 0;
+}
+
+.quiz-progress {
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(253, 246, 237, 0.85);
+  text-align: center;
+  margin: 0 0 10px;
+}
+
+.quiz-progress-track {
+  display: flex;
+  gap: 5px;
+  max-width: 420px;
+  margin: 0 auto;
+}
+
+.quiz-progress-seg {
+  flex: 1;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(253, 246, 237, 0.32);
+  transition: background-color 0.35s ease;
+}
+
+.quiz-progress-seg.is-filled {
+  background: var(--color-sunset-gold);
+}
+
+/* --- Bottom sheet: prompt + options ------------------------------------- */
+
+.quiz-stage-bottom {
+  padding: 24px 20px calc(28px + env(safe-area-inset-bottom, 0px));
+  max-width: 560px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+/* The question leads in serif (Playfair, cream); the script line above it
+   is demoted to a small handwritten accent. */
+.quiz-stage-bottom .quiz-script {
+  font-size: 1.3rem;
+  margin: 0 0 2px;
+}
+
+.quiz-prompt {
+  font-family: var(--font-family-title);
+  font-weight: 700;
+  font-size: clamp(1.4rem, 5.5vw, 1.75rem);
+  line-height: 1.12;
+  color: var(--color-warm-cream);
+  text-align: center;
+  text-wrap: balance;
+  text-shadow: 0 2px 16px rgba(11, 20, 28, 0.45);
+  margin: 0 0 14px;
+}
+
+.quiz-options {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 9px;
+}
+
+/* Compact warm-cream answer cards. The tapped state is a solid midnight
+   press - a neutral acknowledgment, never a verdict. */
+.quiz-option {
+  font: inherit;
+  font-weight: 600;
+  font-size: 1rem;
+  text-align: center;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1.5px solid rgba(23, 42, 58, 0.14);
+  background: var(--color-warm-cream);
+  color: var(--color-midnight-navy);
+  cursor: pointer;
+  min-height: 48px; /* comfortable thumb target */
+  box-shadow: 0 4px 14px rgba(11, 20, 28, 0.25);
+  transition:
+    border-color 0.15s ease,
+    background-color 0.15s ease,
+    color 0.15s ease,
+    transform 0.15s var(--ease-out-back);
+}
+
+.quiz-option:hover:enabled {
+  border-color: var(--color-sunset-gold);
+  transform: translateY(-1px);
+}
+
+.quiz-option:focus-visible {
+  outline: 2px solid var(--color-sunset-gold);
+  outline-offset: 2px;
+}
+
+.quiz-option:disabled {
+  cursor: default;
+  opacity: 0.75;
+}
+
+/* Neutral acknowledgment only - the tapped option presses to solid navy.
+   Right or wrong is never revealed mid-run; the score lands once, at the
+   end. */
+.quiz-option.is-picked {
+  border-color: var(--color-midnight-navy);
+  background: var(--color-midnight-navy);
+  color: var(--color-warm-cream);
+  opacity: 1;
+}
+
+/* Per-question entrance: renderQuestion re-adds this class after a reflow,
+   so each photo deals in and its options rise with it. */
+.quiz-stage-enter .quiz-photo {
+  animation: quizPhotoDeal 0.5s var(--ease-out-back) both;
+}
+
+.quiz-stage-enter .quiz-option {
+  animation: fadeInUp 0.4s ease-out both;
+}
+
+.quiz-stage-enter .quiz-option:nth-child(2) {
+  animation-delay: 0.05s;
+}
+
+.quiz-stage-enter .quiz-option:nth-child(3) {
+  animation-delay: 0.1s;
+}
+
+.quiz-stage-enter .quiz-option:nth-child(4) {
+  animation-delay: 0.15s;
+}
+
+@keyframes quizPhotoDeal {
+  from {
+    opacity: 0;
+    transform: rotate(-2.2deg) scale(0.94) translateY(14px);
+  }
+
+  to {
+    opacity: 1;
+    transform: rotate(0deg) scale(1) translateY(0);
+  }
+}
+
+/* ==========================================================================
+   Intro stage
+   ========================================================================== */
+
+.quiz-intro-body {
+  padding: 24px 20px calc(40px + env(safe-area-inset-bottom, 0px));
+  max-width: 640px;
+  width: 100%;
+  margin: 0 auto;
+  text-align: center;
+}
+
+.quiz-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgba(253, 246, 237, 0.9);
+  margin: 0 0 10px;
+}
+
+.quiz-eyebrow::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  background: var(--color-sunset-gold);
+  transform: rotate(45deg);
+}
+
+.quiz-script {
+  font-family: var(--font-family-hand);
+  font-size: 1.9rem;
+  line-height: 1;
+  color: var(--color-sunset-gold);
+  margin: 0 0 6px;
+}
+
+.quiz-title {
+  font-family: var(--font-family-title);
+  font-weight: 800;
+  font-size: clamp(2.2rem, 9vw, 3.4rem);
+  line-height: 1.02;
+  letter-spacing: -0.01em;
+  color: var(--color-warm-cream);
+  margin: 0 0 14px;
+  overflow-wrap: anywhere;
+  text-wrap: balance;
+  text-shadow: 0 2px 24px rgba(11, 20, 28, 0.45);
+}
+
+.quiz-copy {
+  color: rgba(253, 246, 237, 0.85);
+  font-size: 1.02rem;
+  line-height: 1.55;
+  margin: 0 auto 18px;
+  max-width: 40ch;
+}
+
+/* Score-to-beat plate: a clean gold-framed hero (the tilted passport-stamp
+   plate is retired app-wide). */
+.quiz-plate {
+  display: inline-block;
+  border: 2px solid rgba(255, 198, 54, 0.85);
+  border-radius: 16px;
+  padding: 10px 26px 14px;
+  margin: 0 0 22px;
+  color: var(--color-warm-cream);
+}
+
+.quiz-plate-label {
+  display: block;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--color-sunset-gold);
+  margin-bottom: 2px;
+}
+
+.quiz-plate-score {
+  font-family: var(--font-family-title);
+  font-weight: 800;
+  font-size: 2.4rem;
+  line-height: 1;
+}
+
+/* --- Buttons ------------------------------------------------------------ */
+
+.quiz-button {
+  display: inline-block;
+  font: inherit;
+  font-weight: 700;
+  border: none;
+  border-radius: 999px;
+  padding: 15px 40px;
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    transform 0.15s var(--ease-out-back),
+    box-shadow 0.15s ease;
+}
+
+.quiz-button-primary {
+  background: var(--color-primary-action);
+  color: var(--color-text-main);
+  box-shadow: 0 6px 18px rgba(11, 20, 28, 0.25);
+}
+
+.quiz-button-primary:hover {
+  background: var(--color-primary-action-hover);
+  transform: translateY(-1px);
+}
+
+.quiz-button-primary:focus-visible {
+  outline: 2px solid var(--color-midnight-navy);
+  outline-offset: 3px;
+}
+
+.quiz-cta-link {
+  text-decoration: none;
+}
+
+/* ==========================================================================
+   Card states (logbook, results, gone) - back on the field-guide ground
+   ========================================================================== */
+
+.quiz-card {
+  background: var(--color-cloud-white);
+  border-radius: 20px;
+  padding: 36px 24px;
+  margin-top: calc(var(--quiz-header-clearance) + 16px);
+  margin-bottom: 56px;
+  box-shadow: var(--shadow-soft);
+}
+
+.quiz-card .quiz-title,
+.quiz-card .quiz-title-small {
+  color: var(--color-text-main);
+  text-shadow: none;
+}
+
+.quiz-title-small {
+  font-family: var(--font-family-title);
+  font-weight: 700;
+  font-size: 1.6rem;
+  line-height: 1.15;
+  margin: 0 0 10px;
+}
+
+.quiz-card .quiz-copy {
+  color: var(--color-text-secondary);
+}
+
+.quiz-card .quiz-eyebrow {
+  color: var(--color-moss-green);
+}
+
+.quiz-card .quiz-script {
+  color: var(--color-adobe-brick);
+}
+
+/* --- Post my score: the optional logbook signature (reveal-first) --------
+   Lives inline on the results card between the reveal and the leaderboard;
+   quiz-play.js hides it once the session's name is bound. */
+
+.quiz-postscore {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--color-dusty-beige);
+}
+
+.quiz-name-form {
+  display: grid;
+  gap: 12px;
+  justify-items: center;
+}
+
+.quiz-label {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+}
+
+.quiz-input {
+  font-family: var(--font-family-hand);
+  font-size: 1.5rem;
+  width: 100%;
+  max-width: 320px;
+  padding: 8px 16px 6px;
+  border: none;
+  border-bottom: 2px solid var(--color-midnight-navy);
+  border-radius: 0;
+  background: transparent;
+  color: var(--color-text-main);
+  text-align: center;
+}
+
+.quiz-input:focus {
+  outline: none;
+  border-bottom-color: var(--color-sunset-gold);
+}
+
+.quiz-input:focus-visible {
+  outline: 2px solid var(--color-sunset-gold);
+  outline-offset: 4px;
+}
+
+/* --- Results: the score lands as a serif hero -----------------------------
+   Matches the app's "Your Score to Beat" treatment: large Playfair numerals
+   with a gold underline accent. No plate, no tilt, no medals. */
+
+.quiz-result-plate {
+  display: inline-block;
+  padding: 6px 0 0;
+  margin: 6px 0 16px;
+}
+
+/* A short gold rule under the numerals - the hero's only ornament. */
+.quiz-result-plate::after {
+  content: '';
+  display: block;
+  width: 56px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--color-sunset-gold);
+  margin: 14px auto 0;
+}
+
+@keyframes quizScoreLand {
+  0% {
+    transform: scale(1.5);
+    opacity: 0;
+  }
+
+  60% {
+    transform: scale(0.97);
+    opacity: 1;
+  }
+
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+#quiz-results:not([hidden]) .quiz-result-plate {
+  animation: quizScoreLand 0.45s var(--ease-out-back) both;
+  animation-delay: 0.15s;
+}
+
+.quiz-result-plate .quiz-plate-label {
+  color: var(--color-accent-butter);
+  letter-spacing: 0.2em;
+  margin-bottom: 6px;
+}
+
+.quiz-result-score {
+  font-family: var(--font-family-title);
+  font-weight: 800;
+  font-size: clamp(3.6rem, 15vw, 4.4rem);
+  line-height: 1;
+  color: var(--color-text-main);
+  margin: 0;
+}
+
+.quiz-result-compare {
+  color: var(--color-text-secondary);
+  font-size: 1rem;
+  margin: 0 0 8px;
+}
+
+/* --- Leaderboard: the logbook's standings -------------------------------- */
+
+.quiz-leaderboard {
+  margin: 26px 0;
+  text-align: left;
+}
+
+.quiz-leaderboard-title {
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-storm-gray);
+  margin: 0 0 8px;
+}
+
+.quiz-leaderboard-list {
+  list-style: none;
+  counter-reset: quiz-rank;
+  margin: 0;
+  padding: 0;
+}
+
+.quiz-leaderboard-row {
+  counter-increment: quiz-rank;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 11px 14px;
+  border-radius: 12px;
+}
+
+.quiz-leaderboard-row::before {
+  content: counter(quiz-rank);
+  font-family: var(--font-family-title);
+  font-weight: 700;
+  font-size: 1.05rem;
+  color: var(--color-adobe-brick);
+  min-width: 1.4em;
+}
+
+.quiz-leaderboard-row:nth-child(odd) {
+  background: var(--color-paper-beige);
+}
+
+.quiz-leaderboard-row.is-you {
+  background: var(--color-tint-butter);
+  box-shadow: inset 0 0 0 2px rgba(255, 198, 54, 0.6);
+}
+
+.quiz-leaderboard-name {
+  flex: 1;
+  font-weight: 600;
+  color: var(--color-text-main);
+  overflow-wrap: anywhere;
+}
+
+.quiz-leaderboard-score {
+  font-weight: 700;
+  color: var(--color-text-main);
+  white-space: nowrap;
+}
+
+/* Share My Score: the primary friend action after the reveal, ahead of the
+   install CTA. */
+.quiz-share {
+  margin: 0 0 24px;
+}
+
+.quiz-install {
+  border-top: 1px solid var(--color-dusty-beige);
+  padding-top: 22px;
+}
+
+/* --- Error / gone ------------------------------------------------------- */
+
+.quiz-error {
+  position: relative;
+  text-align: center;
+  color: var(--color-warm-cream);
+  background: rgba(193, 84, 62, 0.92);
+  border-radius: 12px;
+  font-weight: 600;
+  margin: 12px auto;
+  padding: 10px 16px;
+  max-width: 480px;
+}
+
+/* View entrances: `hidden` toggles re-trigger the animation on display. */
+.quiz-view:not([hidden]) {
+  animation: fadeIn 0.35s ease-out both;
+}
+
+/* The stage sets its own display, which would otherwise beat the UA's
+   [hidden] { display: none } - make the game's view toggle authoritative. */
+.quiz-view[hidden] {
+  display: none !important;
+}
+
+/* --- Wider screens ------------------------------------------------------ */
+
+@media (min-width: 640px) {
+  .quiz-card {
+    padding: 44px 40px;
+  }
+
+  .quiz-photo-frame {
+    padding: 20px 24px;
+  }
+
+  .quiz-options {
+    max-width: 520px;
+    margin: 0 auto;
+    width: 100%;
+  }
+}
+
+/* --- Reduced motion ------------------------------------------------------ */
+
+@media (prefers-reduced-motion: reduce) {
+  .quiz-view:not([hidden]),
+  .quiz-stage-enter .quiz-photo,
+  .quiz-stage-enter .quiz-option,
+  #quiz-results:not([hidden]) .quiz-result-plate {
+    animation: none;
+  }
+
+  .quiz-option,
+  .quiz-button,
+  .quiz-progress-seg,
+  .quiz-stage-top,
+  .quiz-stage-bottom,
+  body:has(#quiz-root) .header {
+    transition: none;
+  }
+}

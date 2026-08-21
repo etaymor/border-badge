@@ -89,17 +89,47 @@ export function selectRepresentativePhoto(cluster: LocationCluster): PhotoWithLo
   return selectRepresentativePhotos(cluster, 1)[0] ?? null;
 }
 
+/** Pixel dimensions carried on a cached photo (U5/R7). Either may be missing. */
+export interface KnownImageDimensions {
+  width?: number;
+  height?: number;
+}
+
+/** True when both dimensions are present and usable as a resize decision. */
+function hasUsableDimensions(
+  dimensions: KnownImageDimensions | undefined
+): dimensions is { width: number; height: number } {
+  return (
+    dimensions !== undefined &&
+    typeof dimensions.width === 'number' &&
+    typeof dimensions.height === 'number' &&
+    dimensions.width > 0 &&
+    dimensions.height > 0
+  );
+}
+
 /**
  * Prepare a photo for vision classification.
  * Resizes to 768px max dimension and encodes as base64 JPEG (~50-80KB).
  *
+ * `knownDimensions` (U5/R7) comes from the photo cache and, when present, skips
+ * the `Image.getSize` probe — an extra full decode of every representative
+ * photo. It is only a resize DECISION input: an image already under the cap
+ * must still be passed an empty action list, because an unconditional resize
+ * action UPSCALES it, inflating the payload toward the reject threshold.
+ *
  * Returns null on failure (silent fallback - vision is optional).
  */
-export async function prepareVisionImage(photoUri: string): Promise<string | null> {
+export async function prepareVisionImage(
+  photoUri: string,
+  knownDimensions?: KnownImageDimensions
+): Promise<string | null> {
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { manipulateAsync, SaveFormat } = require('expo-image-manipulator');
-    const { width, height } = await getImageDimensions(photoUri);
+    const { width, height } = hasUsableDimensions(knownDimensions)
+      ? knownDimensions
+      : await getImageDimensions(photoUri);
     const shouldResize = width > VISION_MAX_DIMENSION || height > VISION_MAX_DIMENSION;
     const resizeActions = shouldResize
       ? [
@@ -146,7 +176,11 @@ export async function getVisionImagesForCluster(
   const photos = selectRepresentativePhotos(cluster, maxPhotos);
   if (photos.length === 0) return [];
 
-  const prepared = await Promise.all(photos.map((photo) => prepareVisionImage(photo.uri)));
+  const prepared = await Promise.all(
+    photos.map((photo) =>
+      prepareVisionImage(photo.uri, { width: photo.width, height: photo.height })
+    )
+  );
   return prepared.filter((image): image is string => typeof image === 'string' && image.length > 0);
 }
 

@@ -1,14 +1,14 @@
 """Schemas for media_files endpoints."""
 
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel
 
 
-class MediaStatus(str, Enum):
+class MediaStatus(StrEnum):
     """Media file processing status."""
 
     PROCESSING = "processing"

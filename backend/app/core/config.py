@@ -60,6 +60,12 @@ class Settings(BaseSettings):
     # OpenRouter Configuration (for traveler classification)
     openrouter_api_key: str = Field(default="", repr=False)
     openrouter_model: str = "google/gemini-2.5-flash-lite"
+    # Deliberately a Flash *Lite*: the Gemini 3.x Flash tiers reason on every
+    # request and refuse to have it disabled, which costs latency and tokens
+    # without measurably helping this workload (see VISION_MAX_TOKENS before
+    # pointing MULTIMODAL_MODEL at one). Benchmarked 2026-08-15 on 5 labelled
+    # photos: 2.5/3.1/3.5 Flash Lite each scored 5/5 on eligibility and
+    # people-detection, so 2.5 wins on being the cheapest and fastest.
     multimodal_model: str = "google/gemini-2.5-flash-lite"
 
     # Analytics
@@ -125,6 +131,84 @@ class Settings(BaseSettings):
         gt=0.0,
         le=60.0,
         description="Timeout for processing a single cluster (includes retries)",
+    )
+    places_request_budget_seconds: float = Field(
+        default=75.0,
+        gt=0.0,
+        le=600.0,
+        description=(
+            "U8: whole-request ceiling for /photos/suggest-places, kept below "
+            "the mobile client's 90s SUGGEST_PLACES_TIMEOUT_MS so the SERVER "
+            "decides how an overlong request degrades. The per-cluster timeout "
+            "bounds one cluster, not one request: 25 clusters against a "
+            "per-request share of 5 is five sequential waves before the vision "
+            "join, text rescue, probe and enrichment phases even begin. Once "
+            "the budget is spent, clusters that have not STARTED are reported "
+            "as failed; work already in flight is never cancelled."
+        ),
+    )
+    places_max_concurrent_requests: int = Field(
+        default=5,
+        ge=1,
+        le=50,
+        description=(
+            "U7: max concurrent outbound Google Places calls ONE suggest-places "
+            "request may have in flight (its share of the process-wide bound). "
+            "Default is the historical MAX_CONCURRENT_PLACES_REQUESTS constant. "
+            "Raise it in step with VISION_MAX_CONCURRENT_REQUESTS: cutting the "
+            "vision wait shortens the window the search phase hides behind."
+        ),
+    )
+    places_max_concurrent_requests_process: int = Field(
+        default=15,
+        ge=1,
+        le=100,
+        description=(
+            "U7: PER-PROCESS ceiling on concurrent outbound Google Places calls "
+            "across every in-flight request. Adding a worker or replica "
+            "multiplies this and the route's request-rate limit together. Sized "
+            "for the planned client concurrency of 3 x 5 = 15, and kept below "
+            "the private Places pool (20 connections) so pool exhaustion stays "
+            "rare. This is the dial-down lever if the bound needs rolling back."
+        ),
+    )
+    suggest_places_cluster_budget_per_minute: int = Field(
+        default=400,
+        ge=1,
+        le=100_000,
+        description=(
+            "U16: rolling per-minute budget of CLUSTERS one caller may submit "
+            "to /photos/suggest-places. The request-rate limit counts requests, "
+            "so it bounds traffic but not spend: every cluster fans out to "
+            "Google. Sized above one full honest import inside a single minute "
+            "(~100 clusters) with headroom, and far below what the per-request "
+            "ceiling times the request rate would otherwise permit."
+        ),
+    )
+    suggest_places_vision_image_budget_per_minute: int = Field(
+        default=600,
+        ge=1,
+        le=100_000,
+        description=(
+            "U16: rolling per-minute budget of VISION IMAGES one caller may "
+            "submit to /photos/suggest-places. Vision is the second metered "
+            "paid API on this route and is billed per image, so it needs its "
+            "own budget: a caller can stay under the cluster budget while "
+            "attaching three images to every cluster."
+        ),
+    )
+    vision_max_concurrent_requests: int = Field(
+        default=5,
+        ge=1,
+        le=50,
+        description=(
+            "U12: max concurrent vision (OpenRouter) calls a single "
+            "suggest-places request may have in flight. A full batch is 5 "
+            "clusters x up to 3 images = 15 images, so 15 classifies a batch "
+            "in ONE concurrency wave instead of three. Default stays at the "
+            "historical value (5); raise it only after reading the "
+            "vision-vs-search split off the place_matcher_phase_metrics line."
+        ),
     )
     places_rank_distance_weight: float = Field(
         default=1.0,
@@ -289,6 +373,49 @@ class Settings(BaseSettings):
             "no landmark-family place and no text signal to rescue with. OFF "
             "by default — enable if verification shows text-less landmark "
             "clusters still missing their venue after the U5 rescue."
+        ),
+    )
+
+    # Travel photo quiz — vision eligibility gate (U2). The quiz is a free,
+    # shareable surface (farmable across signups), so classification spend is
+    # bounded twice: per draft (hard cap on images one quiz creation may
+    # classify, anchored on quiz.classified_count) and globally per day
+    # (circuit breaker derived from DB state so it holds across workers).
+    # 300, not 70: the budget is what STOPS a creation, so sizing it to a
+    # typical creation's spend made it the reason most declines happened.
+    # Measured on a real 50k-photo library, the gate passes ~11% of candidates
+    # (people/indoor rejections dominate), so a 10-photo game needs ~90 images
+    # classified — 70 produced 8 photos and sat one bad batch away from the
+    # 5-photo decline. The client stops the moment it has 10 eligible, so a
+    # healthy library still spends ~50-70 and only a struggling one reaches the
+    # cap. At ~$0.00023/photo the worst case is ~$0.07 per creation.
+    quiz_classification_budget_per_quiz: int = Field(
+        default=300,
+        ge=1,
+        le=500,
+        description=(
+            "Hard cap on vision-classified images per draft quiz, enforced "
+            "server-side against the quiz row's classified_count."
+        ),
+    )
+    # 50k/day is ~165 quiz creations at the 300-image worst case, ~700 at the
+    # ~70 images a healthy library actually spends. At measured 2.5 Flash Lite
+    # rates (~2.2k prompt + ~37 completion tokens per
+    # 768px photo) that is ~$0.00023/photo, so a ~$12/day ceiling. Sized as an
+    # abuse circuit breaker, not a demand throttle: normal traffic should never
+    # reach it, so a trip means a farming loop, not a good day. Revisit this
+    # number if MULTIMODAL_MODEL changes — a Gemini 3.x Flash tier would put
+    # the same cap near $45/day. Raising past 1_000_000 requires
+    # lifting `le` below — an out-of-range env value fails validation at
+    # startup and takes the whole API down rather than degrading.
+    quiz_classification_daily_cap: int = Field(
+        default=50_000,
+        ge=0,
+        le=1_000_000,
+        description=(
+            "Global daily circuit breaker on quiz eligibility classifications "
+            "(sum of classified_count over quizzes created today). 0 disables "
+            "the eligibility endpoint entirely (emergency stop)."
         ),
     )
 

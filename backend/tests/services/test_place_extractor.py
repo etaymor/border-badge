@@ -584,9 +584,9 @@ class TestLLMTaskCancellation:
                         ]
 
                         # No background LLM tasks should be running
-                        assert (
-                            len(all_tasks) == 0
-                        ), f"Found {len(all_tasks)} background tasks still running"
+                        assert len(all_tasks) == 0, (
+                            f"Found {len(all_tasks)} background tasks still running"
+                        )
 
     @pytest.mark.asyncio
     async def test_cancelled_error_properly_handled(self):

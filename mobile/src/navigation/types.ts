@@ -9,12 +9,45 @@ export type { EntryType };
 // Gated feature types for paywall modal
 export type GatedFeature = 'shareExtension' | 'photoImport' | 'entries';
 
+/**
+ * Where a Guess Where surface was opened from. Carried as an optional nav
+ * param so the quiz funnel can be broken down by entry point in PostHog -
+ * the five entries are otherwise indistinguishable once they land.
+ */
+export type QuizEntryPoint =
+  | 'passport_card'
+  | 'my_quizzes'
+  | 'profile_settings'
+  | 'onboarding_first_quiz'
+  | 'guess_where_intro'
+  | 'unknown';
+
+/** Which share affordance opened the OS share sheet for a challenge. */
+export type QuizShareSource = 'results' | 'leaderboard_top_bar' | 'leaderboard_empty';
+
 // Root stack contains auth, onboarding, and main tab navigator
 export type RootStackParamList = {
   Auth: NavigatorScreenParams<AuthStackParamList>;
   Onboarding: NavigatorScreenParams<OnboardingStackParamList>;
   Main: NavigatorScreenParams<MainTabParamList>;
   PaywallModal: { feature?: GatedFeature };
+  QuizCreation: { entryPoint?: QuizEntryPoint } | undefined;
+  GuessWhereIntro: { entryPoint?: QuizEntryPoint } | undefined;
+  QuizPlay: { quizId: string };
+  QuizResults: {
+    quizId: string;
+    /** Owner completion payload (backend QuizCompleteResponse). Absent when
+     * arriving from the My Quizzes list (no fresh play-through); the screen
+     * then renders entirely from the quiz detail. */
+    results?: {
+      correct: number;
+      total: number;
+      score_to_beat: { correct: number; total: number };
+      state: string;
+    };
+  };
+  MyQuizzes: { entryPoint?: QuizEntryPoint } | undefined;
+  QuizLeaderboard: { quizId: string };
 };
 
 // Auth stack screens
@@ -39,6 +72,7 @@ export type OnboardingStackParamList = {
   EmotionalHook: undefined;
   FunctionalHook: undefined;
   Paywall: undefined;
+  FirstQuizOffer: undefined;
   AccountCreation: undefined;
 };
 

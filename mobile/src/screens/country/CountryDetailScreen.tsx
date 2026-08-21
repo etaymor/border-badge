@@ -327,11 +327,18 @@ export function CountryDetailScreen({ navigation, route }: Props) {
     extrapolateRight: 'clamp',
   });
 
-  const imageTranslateY = scrollY.interpolate({
-    inputRange: [-100, 0, HEADER_SCROLL_DISTANCE],
-    outputRange: [0, 0, HEADER_SCROLL_DISTANCE * 0.5],
-    extrapolate: 'clamp',
-  });
+  // Memoized so its identity is stable: the hero-header useMemo below reads it
+  // (as controlsTranslateY) and must be able to list it as a dependency without
+  // re-running on every render.
+  const imageTranslateY = useMemo(
+    () =>
+      scrollY.interpolate({
+        inputRange: [-100, 0, HEADER_SCROLL_DISTANCE],
+        outputRange: [0, 0, HEADER_SCROLL_DISTANCE * 0.5],
+        extrapolate: 'clamp',
+      }),
+    [scrollY]
+  );
 
   const titleScale = scrollY.interpolate({
     inputRange: [0, HEADER_SCROLL_DISTANCE / 2, HEADER_SCROLL_DISTANCE],
@@ -471,6 +478,7 @@ export function CountryDetailScreen({ navigation, route }: Props) {
       loadingTrips,
       flagEmoji,
       displayName,
+      controlsTranslateY,
     ]
   );
 
