@@ -9,6 +9,7 @@ A travel tracking mobile application that lets travelers mark countries they've 
 - **Entry Logging** - Log places, restaurants, stays, and experiences with photos and notes
 - **Photo Import** - Scan device photos to automatically suggest trip entries based on GPS location clustering
 - **Nearby Photo Suggestions** - When picking a place on the entry form, surface cached photos taken nearby so users can add them with one tap
+- **Guess Where** - Build a one-tap challenge from your camera roll; friends play at a public `/q/{slug}` link in any browser with no account, with server grading and a leaderboard. Deliberately free and not premium-gated.
 - **Social Layer** - Connect with friends, compare travel maps, consent-based trip tagging
 - **Shareable Lists** - Curate and share city-specific recommendations via public links
 - **Offline Support** - Local SQLite caching for country data
@@ -115,6 +116,7 @@ border-badge/
 | [Product Requirements](./docs/travel-prd.md) | Full PRD with user stories |
 | [Technical Design](./docs/travel-technical-design.md) | Architecture and API contracts |
 | [MVP Blueprint](./docs/travel-mvp-blueprint.md) | Phase-by-phase implementation |
+| [Application Overview](./docs/app-overview.md) | Product and feature overview |
 | [API Reference](./docs/API.md) | Backend API documentation |
 | [Subscription System](./docs/SUBSCRIPTION.md) | RevenueCat subscription setup and testing |
 | [Ad Tracking Setup](./docs/AD_TRACKING_SETUP.md) | Facebook & TikTok ad attribution setup guide |

@@ -1282,6 +1282,414 @@ Get place suggestions for photo GPS clusters using Google Places Nearby Search. 
 
 ---
 
+### Guess Where (Quiz)
+
+Guess Where lets an authenticated owner build a photo challenge from uploaded
+travel photos, play it to establish a score to beat, and share it through a
+public `/q/{slug}` link. Quiz questions are always sanitized: `id`, `position`,
+`image_url`, and `options` are returned, but the correct country and capture
+year are never included in question payloads or initial public responses.
+After an answer, the server's grading response intentionally reveals that
+question's `correct_country`; grading and the authoritative score remain
+server-side. Quiz states are returned as strings by the API.
+
+#### `POST /quiz`
+
+Create an empty quiz draft owned by the authenticated user.
+
+**Auth:** Required
+
+**Response:** `201 Created`
+```json
+{
+  "id": "uuid",
+  "state": "building"
+}
+```
+
+#### `GET /quiz`
+
+List the authenticated user's quizzes, newest first.
+
+**Auth:** Required
+
+**Response:**
+```json
+{
+  "quizzes": [
+    {
+      "id": "uuid",
+      "state": "shared",
+      "slug": "a1b2c3d4e5f60718293a4b5c6d7e8f90",
+      "share_url": "https://atlasi.app/q/a1b2c3d4e5f60718293a4b5c6d7e8f90",
+      "score_to_beat": {
+        "correct": 7,
+        "total": 10
+      },
+      "cover_image_url": "https://...",
+      "question_count": 10,
+      "created_at": "2025-01-15T10:30:00+00:00",
+      "revoked_at": null
+    }
+  ]
+}
+```
+
+`slug`, `share_url`, and the score-to-beat pair are `null` when they have not
+been set. `cover_image_url` is `null` while a draft has no questions, and
+`revoked_at` is `null` until revocation.
+
+#### `POST /quiz/eligibility`
+
+Classify a batch of camera-roll images for quiz eligibility. Each image is
+identified by a client-generated `id` and sent as valid base64 JPEG data.
+Requests contain 1-50 images, each with at most 200,000 `image_base64`
+characters, and the combined image payload is at most 8,000,000 characters.
+
+**Auth:** Required
+
+**Rate Limit:** 30/hour
+
+**Request:**
+```json
+{
+  "quiz_id": "uuid",
+  "images": [
+    {
+      "id": "photo-123",
+      "image_base64": "/9j/4AAQSkZJRgABAQ..."
+    }
+  ]
+}
+```
+
+**Response:**
+```json
+{
+  "results": [
+    {
+      "id": "photo-123",
+      "eligible": true,
+      "status": "eligible",
+      "reason": null,
+      "landscape": "scenery"
+    }
+  ],
+  "classified_count": 12,
+  "budget_remaining": 288
+}
+```
+
+Each result has `status` `eligible`, `ineligible`, or `error`; `reason` and
+`landscape` may be `null`. The classification budget is reserved before model
+calls, so `classified_count` includes attempted images.
+
+#### `POST /quiz/{quiz_id}/upload-urls`
+
+Mint signed upload targets for quiz-owned photo copies. Upload each file with
+`PUT` to its returned `upload_url`; the `storage_path` is then supplied to
+finalize or question replacement. No media-library row is created.
+
+**Auth:** Required
+
+**Rate Limit:** 60/hour
+
+**Request:**
+```json
+{
+  "count": 5
+}
+```
+
+`count` must be between 1 and 10.
+
+**Response:**
+```json
+{
+  "uploads": [
+    {
+      "storage_path": "quiz/uuid/5f2e...jpg",
+      "upload_url": "https://project.supabase.co/storage/v1/...",
+      "cache_control": "60"
+    }
+  ]
+}
+```
+
+#### `POST /quiz/{quiz_id}/finalize`
+
+Turn a building draft into 5-10 questions. `storage_path` must identify an
+object previously uploaded to that quiz's `quiz/{quiz_id}/` prefix.
+`country_code` is a two-letter ISO code; `landscape` is optional and accepted
+only for the server's supported landscape values.
+
+**Auth:** Required
+
+**Request:**
+```json
+{
+  "photos": [
+    {
+      "storage_path": "quiz/uuid/5f2e...jpg",
+      "country_code": "JP",
+      "landscape": "landmark"
+    }
+  ]
+}
+```
+
+**Response:**
+```json
+{
+  "id": "uuid",
+  "state": "awaiting_owner_play",
+  "questions": [
+    {
+      "id": "uuid",
+      "position": 0,
+      "image_url": "https://...",
+      "options": ["Japan", "South Korea", "Taiwan", "Thailand"]
+    }
+  ],
+  "score_to_beat": null,
+  "slug": null,
+  "share_url": null
+}
+```
+
+The response contains no `correct_index`, capture year, or other answer-bearing
+metadata.
+
+#### `GET /quiz/{quiz_id}`
+
+Get the authenticated owner's quiz detail and sanitized question payloads.
+Reading a revoked quiz also retries any pending photo cleanup.
+
+**Auth:** Required
+
+**Response:**
+```json
+{
+  "id": "uuid",
+  "state": "playable",
+  "questions": [
+    {
+      "id": "uuid",
+      "position": 0,
+      "image_url": "https://...",
+      "options": ["Japan", "South Korea", "Taiwan", "Thailand"]
+    }
+  ],
+  "score_to_beat": {
+    "correct": 7,
+    "total": 10
+  },
+  "slug": null,
+  "share_url": null
+}
+```
+
+#### `GET /quiz/{quiz_id}/leaderboard`
+
+Get the owner's leaderboard for any quiz state. Unlike the public board, this
+view includes hidden sessions and marks each row with `hidden`; `session_ids`
+lists the sessions represented by that row.
+
+**Auth:** Required
+
+**Response:**
+```json
+{
+  "score_to_beat": {
+    "correct": 7,
+    "total": 10
+  },
+  "leaderboard": [
+    {
+      "display_name": "Maya",
+      "best_score": 9,
+      "attempts": 2,
+      "hidden": false,
+      "session_ids": ["uuid"]
+    }
+  ]
+}
+```
+
+#### `POST /quiz/{quiz_id}/play`
+
+Start an owner play session. The owner session is hidden from the public
+leaderboard and uses the same server-side grading path as public play.
+
+**Auth:** Required
+
+**Response:** `201 Created`
+```json
+{
+  "session_id": "uuid",
+  "token": "owner-...",
+  "questions": [
+    {
+      "id": "uuid",
+      "position": 0,
+      "image_url": "https://...",
+      "options": ["Japan", "South Korea", "Taiwan", "Thailand"]
+    }
+  ]
+}
+```
+
+#### `POST /quiz/{quiz_id}/answer`
+
+Grade one owner answer. `selected_option_index` is zero-based and must be
+between 0 and 3. The response reveals the correct option for that question.
+
+**Auth:** Required
+
+**Request:**
+```json
+{
+  "session_id": "uuid",
+  "question_id": "uuid",
+  "selected_option_index": 0
+}
+```
+
+**Response:**
+```json
+{
+  "place_correct": true,
+  "correct_option_index": 0,
+  "correct_option": "Japan",
+  "score": 1
+}
+```
+
+#### `POST /quiz/{quiz_id}/complete`
+
+Complete an owner play session after every question has been answered. The
+first completed owner session seeds the quiz's permanent score-to-beat pair and
+unlocks it for sharing.
+
+**Auth:** Required
+
+**Request:**
+```json
+{
+  "session_id": "uuid"
+}
+```
+
+**Response:**
+```json
+{
+  "correct": 7,
+  "total": 10,
+  "score_to_beat": {
+    "correct": 7,
+    "total": 10
+  },
+  "state": "playable"
+}
+```
+
+#### `POST /quiz/{quiz_id}/questions/{question_id}/swap`
+
+Replace a question's photo before sharing. The request has the same fields as
+one `QuizFinalizePhoto`; replacement deletes recorded answers for that
+question, so the owner must answer it again before sharing.
+
+**Auth:** Required
+
+**Request:**
+```json
+{
+  "storage_path": "quiz/uuid/8a91...jpg",
+  "country_code": "FR",
+  "landscape": "coastal"
+}
+```
+
+**Response:**
+The response is the updated `QuizDetailResponse` shown for
+`GET /quiz/{quiz_id}`.
+
+#### `DELETE /quiz/{quiz_id}/questions/{question_id}`
+
+Remove a question before sharing. The quiz must still contain at least five
+questions; recorded answers for the removed question are deleted.
+
+**Auth:** Required
+
+**Response:**
+The response is the updated `QuizDetailResponse` shown for
+`GET /quiz/{quiz_id}`.
+
+#### `POST /quiz/{quiz_id}/share`
+
+Lock a playable quiz and mint its opaque public slug. Repeating the request for
+an already-shared quiz returns the same link. Every current question must have
+an owner answer before sharing.
+
+**Auth:** Required
+
+**Response:**
+```json
+{
+  "slug": "a1b2c3d4e5f60718293a4b5c6d7e8f90",
+  "share_url": "https://atlasi.app/q/a1b2c3d4e5f60718293a4b5c6d7e8f90",
+  "state": "shared"
+}
+```
+
+#### `POST /quiz/{quiz_id}/sessions/{session_id}/hide`
+
+Hide an owner-selected play session from the public leaderboard. Hiding keeps
+its answers and makes it visible only in the owner's leaderboard.
+
+**Auth:** Required
+
+**Rate Limit:** 60/hour
+
+**Response:**
+```json
+{
+  "session_id": "uuid",
+  "hidden": true
+}
+```
+
+#### `POST /quiz/{quiz_id}/revoke`
+
+Revoke a shared quiz. Public pages and JSON routes stop serving as soon as the
+quiz enters `revoked`; the endpoint then removes display names and sweeps the
+quiz's storage prefix. Calling it again retries pending cleanup.
+
+**Auth:** Required
+
+**Response:**
+```json
+{
+  "state": "revoked",
+  "revoked_at": "2025-01-15T12:00:00+00:00",
+  "objects_deleted": true
+}
+```
+
+`objects_deleted` is `false` when revocation succeeded but storage cleanup is
+still pending.
+
+#### `DELETE /quiz/{quiz_id}`
+
+Delete a quiz that is not currently shared, including its questions, sessions,
+answers, and storage objects. Revoke a shared quiz first.
+
+**Auth:** Required
+
+**Response:** `204 No Content`
+
+---
+
 ### Places
 
 #### `POST /places/autocomplete`
@@ -1355,7 +1763,7 @@ Get place metadata by ID.
 
 ### Public Endpoints
 
-These endpoints do not require authentication. The human-facing HTML share pages are served at `/l/{slug}` (lists) and `/t/{slug}` (trips) — an editorial layout with a byline, category filters, and an interactive map (see `docs/app-overview.md`). Public entries expose `latitude`/`longitude` so those pages can plot map pins.
+These endpoints do not require authentication. The human-facing HTML share pages are served at `/l/{slug}` (lists), `/t/{slug}` (trips), and `/q/{slug}` (Guess Where challenges) — an editorial layout with a byline, category filters, and an interactive map for lists and trips (see `docs/app-overview.md`). Public entries expose `latitude`/`longitude` so those pages can plot map pins.
 
 #### `GET /public/lists/{slug}`
 
@@ -1393,6 +1801,172 @@ Get a public trip by share slug.
   "date_range": ["2024-03-15", "2024-03-22"],
   "owner_display_name": "John Traveler",
   "entry_count": 15
+}
+```
+
+#### `POST /q/{slug}/session`
+
+Start or resume an anonymous Guess Where play session. Send `{}` for a new
+session, or provide a previously returned `token` to resume.
+
+**Rate Limit:** 10/minute
+
+**Request:**
+```json
+{
+  "token": "optional-session-token"
+}
+```
+
+**Response:**
+```json
+{
+  "token": "opaque-session-token",
+  "answered": [
+    {
+      "question_id": "uuid",
+      "selected_option_index": 1,
+      "correct": true,
+      "correct_country": "Japan"
+    }
+  ],
+  "completed": false,
+  "score": null,
+  "display_name": null
+}
+```
+
+`token` is optional in the request. In the response, `score` is populated only
+after completion; `display_name` is the name bound to a completed session, or
+`null` when the player has not posted one.
+
+#### `POST /q/{slug}/answer`
+
+Grade one anonymous answer for the session identified by `token`.
+
+**Rate Limit:** 60/minute
+
+**Request:**
+```json
+{
+  "token": "opaque-session-token",
+  "question_id": "uuid",
+  "selected_option_index": 1
+}
+```
+
+**Response:**
+```json
+{
+  "correct": true,
+  "correct_country": "Japan",
+  "answered_count": 1
+}
+```
+
+The answer is recorded server-side and a question cannot be answered twice by
+the same session.
+
+#### `POST /q/{slug}/complete`
+
+Complete an anonymous session after all questions are answered. `display_name`
+is optional: omitting it reveals the result without adding the session to the
+leaderboard; a name can then be submitted through `/q/{slug}/name`. There is
+no score field in the request.
+
+**Rate Limit:** 20/minute
+
+**Request:**
+```json
+{
+  "token": "opaque-session-token",
+  "display_name": "Maya"
+}
+```
+
+**Response:**
+```json
+{
+  "score": 8,
+  "total": 10,
+  "score_to_beat": {
+    "correct": 7,
+    "total": 10
+  },
+  "leaderboard": [
+    {
+      "display_name": "Maya",
+      "best_score": 8,
+      "attempts": 1,
+      "is_you": true
+    }
+  ],
+  "already_completed": false,
+  "leaderboard_full": false
+}
+```
+
+Completion is idempotent. `already_completed` is `true` for a repeated
+completion request, and `leaderboard_full` indicates that a named player was
+excluded by the distinct-name cap.
+
+#### `POST /q/{slug}/name`
+
+Bind a display name to a completed anonymous session that does not have one.
+Names are trimmed, must contain a letter or number, and must be 2-50
+characters after trimming. A session name cannot be changed.
+
+**Rate Limit:** 20/minute
+
+**Request:**
+```json
+{
+  "token": "opaque-session-token",
+  "display_name": "Maya"
+}
+```
+
+**Response:**
+The response is the same `PublicQuizCompleteResponse` shape shown for
+`POST /q/{slug}/complete`.
+
+#### `POST /q/{slug}/reshared`
+
+Record a player's onward share tap. This is a funnel-only endpoint; every tap
+with a valid session token is counted.
+
+**Rate Limit:** 30/minute
+
+**Request:**
+```json
+{
+  "token": "opaque-session-token"
+}
+```
+
+**Response:** `204 No Content`
+
+#### `GET /q/{slug}/leaderboard`
+
+Get the current public leaderboard and the owner's score to beat. This response
+has no `is_you` field and is never cached.
+
+**Rate Limit:** 30/minute
+
+**Response:**
+```json
+{
+  "score_to_beat": {
+    "correct": 7,
+    "total": 10
+  },
+  "leaderboard": [
+    {
+      "display_name": "Maya",
+      "best_score": 8,
+      "attempts": 1
+    }
+  ]
 }
 ```
 
@@ -1438,6 +2012,16 @@ Rate limits are applied per endpoint:
 | `POST /ad-events` | 20/minute |
 | `POST /places/autocomplete` | 30/minute |
 | `POST /media/files/upload-url` | 60/minute |
+| `POST /quiz` | 10/hour |
+| `POST /quiz/eligibility` | 30/hour |
+| `POST /quiz/{quiz_id}/upload-urls` | 60/hour |
+| `POST /quiz/{quiz_id}/sessions/{session_id}/hide` | 60/hour |
+| `POST /q/{slug}/session` | 10/minute |
+| `POST /q/{slug}/answer` | 60/minute |
+| `POST /q/{slug}/complete` | 20/minute |
+| `POST /q/{slug}/name` | 20/minute |
+| `POST /q/{slug}/reshared` | 30/minute |
+| `GET /q/{slug}/leaderboard` | 30/minute |
 | Other endpoints | 120/minute |
 
 Rate limit headers are included in responses:
