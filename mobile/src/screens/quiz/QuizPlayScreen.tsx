@@ -104,8 +104,14 @@ function isAlreadyAnsweredConflict(error: unknown): boolean {
   return (error as { response?: { status?: number } })?.response?.status === 409;
 }
 
-/** How long the acknowledgment holds before the next photo fades up. */
-const ACK_HOLD_MS = 420;
+/**
+ * How long the acknowledgment holds before the next photo fades up, timed
+ * from the TAP rather than from the server's reply. Grading is a network
+ * round trip, and holding the beat afterwards stacked the two: every answer
+ * cost the round trip PLUS the full hold. Measured from the tap, the beat and
+ * the round trip overlap, so the wait is whichever is longer, not their sum.
+ */
+const ACK_HOLD_MS = 260;
 
 /**
  * Fail-safe for the answer lock. While `pendingAnswerKey` is set the tapped
@@ -121,6 +127,13 @@ const ANSWER_WATCHDOG_MS = 15_000;
 
 /** Landscape photos hold this share of the stage height; answers sit below. */
 const LANDSCAPE_PHOTO_RATIO = 0.62;
+
+/**
+ * How much stage the landscape scrim gets to dissolve the photo into the
+ * solid answer ground. Matches the portrait sheet's fade room (its 108pt
+ * paddingTop) so both orientations land on the same ramp.
+ */
+const LANDSCAPE_ANSWER_FADE_HEIGHT = 120;
 
 /** Layout fallbacks used only until onLayout reports the real chrome sizes. */
 const HEADER_FALLBACK_HEIGHT = 84;
@@ -222,6 +235,11 @@ export function QuizPlayScreen({ navigation, route }: Props) {
   const completedRef = useRef(false);
   const startedAtRef = useRef(Date.now());
   const progressRef = useRef({ answeredCount: 0, total: 0, activeNumber: 0 });
+  // When the current answer was tapped, so the acknowledgment beat can be
+  // measured from the tap instead of from the grading reply. Written only in
+  // the tap handler - never during render (the compiler memoizes around that).
+  const answerTappedAtRef = useRef(0);
+  const sinceTap = () => Date.now() - answerTappedAtRef.current;
 
   // Ensure the (persisted or fresh) owner play session exactly once.
   useEffect(() => {
@@ -324,8 +342,9 @@ export function QuizPlayScreen({ navigation, route }: Props) {
       };
     }
     setPlayState(nextState);
-    if (holdAck && !reduceMotion) {
-      setTimeout(() => goToNext(nextState), ACK_HOLD_MS);
+    const remainingHold = holdAck && !reduceMotion ? ACK_HOLD_MS - sinceTap() : 0;
+    if (remainingHold > 0) {
+      setTimeout(() => goToNext(nextState), remainingHold);
     } else {
       goToNext(nextState);
     }
@@ -392,6 +411,9 @@ export function QuizPlayScreen({ navigation, route }: Props) {
   const handleSelectCountry = useStableCallback((optionIndex: number) => {
     if (answerMutation.isPending || pendingAnswerKey !== null) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    // Starts the acknowledgment clock, which applyAnswer reads to work out
+    // how much of the beat the grading round trip already spent.
+    answerTappedAtRef.current = Date.now();
     setPendingAnswerKey(`option-${optionIndex}`);
     submitAnswer(optionIndex);
   });
@@ -508,7 +530,7 @@ export function QuizPlayScreen({ navigation, route }: Props) {
     showQuestion && activeQuestion ? (
       <Animated.View
         key={`country-${activeQuestion.id}`}
-        entering={reduceMotion ? undefined : FadeIn.duration(DURATION_BASE).delay(DURATION_FAST)}
+        entering={reduceMotion ? undefined : FadeIn.duration(DURATION_BASE)}
         exiting={reduceMotion ? undefined : FadeOut.duration(DURATION_FAST)}
         style={styles.optionsBlock}
       >
@@ -522,7 +544,7 @@ export function QuizPlayScreen({ navigation, route }: Props) {
               label={option}
               selected={pendingAnswerKey === `option-${index}`}
               disabled={answerMutation.isPending || pendingAnswerKey !== null}
-              entranceDelay={reduceMotion ? 0 : DURATION_BASE + index * 50}
+              entranceDelay={reduceMotion ? 0 : DURATION_FAST + index * 30}
               onPress={() => handleSelectCountry(index)}
               style={styles.optionCell}
               testID={`quiz-option-${index}`}
@@ -652,15 +674,39 @@ export function QuizPlayScreen({ navigation, route }: Props) {
             />
 
             {orientation === 'landscape' ? (
-              <View
-                style={[
-                  styles.answerAreaSolid,
-                  { top: measuredHeader + landscapePhotoHeight, paddingBottom: insets.bottom + 16 },
-                ]}
-                testID="quiz-answer-solid"
-              >
-                {answerContent}
-              </View>
+              <>
+                {/* The solid answer ground below would otherwise meet the
+                    blurred backdrop at a hard band straight across the stage.
+                    This strip runs the same eased scrim as the portrait sheet
+                    over the last stretch of photo, so the two grounds meet in
+                    a fade. A sibling rather than a child of the block: RN on
+                    Android clips absolutely-positioned children that escape
+                    their parent's bounds. */}
+                <LinearGradient
+                  colors={BOTTOM_SCRIM_COLORS}
+                  locations={BOTTOM_SCRIM_LOCATIONS}
+                  style={[
+                    styles.answerAreaFade,
+                    {
+                      top: measuredHeader + landscapePhotoHeight - LANDSCAPE_ANSWER_FADE_HEIGHT,
+                    },
+                  ]}
+                  pointerEvents="none"
+                  testID="quiz-answer-fade"
+                />
+                <View
+                  style={[
+                    styles.answerAreaSolid,
+                    {
+                      top: measuredHeader + landscapePhotoHeight,
+                      paddingBottom: insets.bottom + 16,
+                    },
+                  ]}
+                  testID="quiz-answer-solid"
+                >
+                  {answerContent}
+                </View>
+              </>
             ) : (
               <LinearGradient
                 colors={BOTTOM_SCRIM_COLORS}
@@ -740,6 +786,12 @@ const styles = StyleSheet.create({
   bottomSheet: {
     paddingHorizontal: 20,
     paddingTop: 108,
+  },
+  answerAreaFade: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    height: LANDSCAPE_ANSWER_FADE_HEIGHT,
   },
   answerAreaSolid: {
     position: 'absolute',

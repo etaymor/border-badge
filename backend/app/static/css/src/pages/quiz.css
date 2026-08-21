@@ -17,24 +17,44 @@
    ============================================== */
 
 .quiz-page {
-  /* The floating header needs clearance on light states. */
-  --quiz-header-clearance: 88px;
+  /* Height of the opaque header band the stage runs underneath. */
+  --quiz-header-clearance: 92px;
   margin: 0 auto;
 }
 
-/* While a dark stage view is showing, the floating header adapts: the navy
-   wordmark inverts to cream and the CTA goes glassy. Card states (name,
-   results, gone) fall back to the default header. Browsers without :has()
-   simply keep the default header - functional, just less polished. */
-body:has(.quiz-view--stage:not([hidden])) .header .logo-image {
-  filter: brightness(0) invert(0.96) drop-shadow(0 2px 6px rgba(11, 20, 28, 0.4));
+/* The header is a recipient's first sight of Atlasi, so it wears the landing
+   page's dress on every quiz state instead of adapting to the photo stage:
+   cream band, hairline rule, the real logo, and the solid gold Download pill.
+   The stage treatment it replaces inverted the logo to a featureless white
+   silhouette, and left .share-nav's navy label on a navy glass pill, which
+   rendered the Download CTA all but invisible against a dark photo.
+
+   The band is opaque and stays `position: absolute` (never sticky, as on the
+   landing page): the question stage's `height: 100svh` is what lets the photo
+   resolve its max-height, so the header must not take part in layout flow.
+   Stage chrome clears it via --quiz-header-clearance. */
+body:has(.quiz-page) .header {
+  background: var(--color-band-cream);
+  border-bottom: 1px solid var(--color-hairline);
+  padding: var(--spacing-lg);
 }
 
-body:has(.quiz-view--stage:not([hidden])) .header .cta-button {
-  background: rgba(23, 42, 58, 0.55);
-  border-color: rgba(253, 246, 237, 0.4);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+body:has(.quiz-page) .header .logo-image {
+  filter: none;
+}
+
+body:has(.quiz-page) .header .cta-button {
+  background: var(--color-sunset-gold);
+  color: var(--color-midnight-navy);
+  border-color: var(--color-sunset-gold);
+  padding: 11px 22px;
+  font-weight: 700;
+}
+
+body:has(.quiz-page) .header .cta-button:hover {
+  background: var(--color-primary-action-hover);
+  border-color: var(--color-primary-action-hover);
+  color: var(--color-midnight-navy);
 }
 
 /* Card states (name entry, results, gone) stay narrow and centered;
@@ -195,7 +215,7 @@ body:has(#quiz-root) .header {
 }
 
 .quiz-stage-top {
-  padding: calc(var(--quiz-header-clearance) - 20px) 20px 0;
+  padding: calc(var(--quiz-header-clearance) + 12px) 20px 0;
 }
 
 .quiz-progress {

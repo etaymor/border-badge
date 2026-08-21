@@ -353,6 +353,57 @@ describe('QuizPlayScreen adaptive layout', () => {
     expect(screen.queryByTestId('quiz-answer-scrim')).toBeNull();
     // The answer surfaces still work from the solid area.
     expect(screen.getByTestId('quiz-option-0')).toBeTruthy();
+    // ...and the solid ground never butts straight into the blurred backdrop:
+    // the scrim strip above it is what keeps a hard band off the stage.
+    expect(screen.getByTestId('quiz-answer-fade')).toBeTruthy();
+  });
+});
+
+describe('QuizPlayScreen acknowledgment beat', () => {
+  // Grading is a network round trip. The beat that holds the tapped option lit
+  // is timed from the TAP, so the two overlap; holding it from the REPLY made
+  // every answer cost the round trip plus the full beat, which is what read as
+  // a lag between picking a country and seeing the next photo.
+  it('does not stack the beat on top of a round trip that already outran it', async () => {
+    let clock = 1_700_000_000_000;
+    const nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => clock);
+    // Wraps rather than replaces: React's scheduler still needs real timers.
+    const setTimeoutSpy = jest.spyOn(global, 'setTimeout');
+    try {
+      mockQuizDetail(makeDetail({ questions: [makeQuestion(0), makeQuestion(1)] }));
+      mockEnsurePlaySession.mockResolvedValue(makePlayState([]));
+      mockPostRoutes({
+        [`/quiz/${QUIZ_ID}/answer`]: () => {
+          // Grading took a full second - far longer than the whole beat.
+          clock += 1_000;
+          return {
+            place_correct: true,
+            correct_option_index: 0,
+            correct_option: OPTIONS[0],
+            score: { correct: 1, total: 2 },
+          };
+        },
+      });
+
+      renderPlayScreen();
+      await waitFor(() => expect(screen.getByTestId('quiz-option-0')).toBeTruthy());
+      setTimeoutSpy.mockClear();
+      fireEvent.press(screen.getByTestId('quiz-option-0'));
+
+      await waitFor(() => expect(screen.getByText('2 OF 2')).toBeTruthy());
+
+      // Nothing was left to wait out: no residual hold was ever scheduled.
+      // (The 15s answer watchdog is the only long timer this path arms.)
+      const holds = setTimeoutSpy.mock.calls
+        .map(([, delay]) => delay)
+        .filter(
+          (delay): delay is number => typeof delay === 'number' && delay > 0 && delay < 1_000
+        );
+      expect(holds).toEqual([]);
+    } finally {
+      setTimeoutSpy.mockRestore();
+      nowSpy.mockRestore();
+    }
   });
 });
 
