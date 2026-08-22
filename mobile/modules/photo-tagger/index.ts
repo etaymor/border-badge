@@ -15,6 +15,8 @@ import type {
   NativePhotoTag,
   NativePhotoLabel,
   NativePhotoTagStatus,
+  NativePhotoMeta,
+  PhotoMetaSubtype,
   PhotoTaggerCapabilities,
   ThermalState,
 } from './src/PhotoTagger.types';
@@ -23,6 +25,8 @@ export type {
   NativePhotoTag,
   NativePhotoLabel,
   NativePhotoTagStatus,
+  NativePhotoMeta,
+  PhotoMetaSubtype,
   PhotoTaggerCapabilities,
   ThermalState,
 };
@@ -30,6 +34,7 @@ export type {
 interface PhotoTaggerNativeModule {
   capabilities(): PhotoTaggerCapabilities;
   tagPhotos(assetIds: string[]): Promise<NativePhotoTag[]>;
+  readPhotoMeta(assetIds: string[]): Promise<NativePhotoMeta[]>;
 }
 
 const nativeModule =
@@ -43,6 +48,9 @@ const nativeModule =
  * abort point between chunks.
  */
 export const TAG_CHUNK_SIZE = 32;
+
+/** Metadata-only rows are tiny (no pixels, no Vision), so a much larger chunk than TAG_CHUNK_SIZE keeps the bridge payload modest. */
+export const META_CHUNK_SIZE = 250;
 
 export function isPhotoTaggerAvailable(): boolean {
   return nativeModule != null;
@@ -67,4 +75,14 @@ export function photoTaggerCapabilities(): PhotoTaggerCapabilities | null {
 export async function tagPhotos(assetIds: string[]): Promise<NativePhotoTag[]> {
   if (!nativeModule || assetIds.length === 0) return [];
   return nativeModule.tagPhotos(assetIds);
+}
+
+/**
+ * Read intent/context metadata for a chunk of photos - zero pixels. Same
+ * degradation contract as `tagPhotos`: resolves to an empty array when the
+ * module is unavailable rather than throwing.
+ */
+export async function readPhotoMeta(assetIds: string[]): Promise<NativePhotoMeta[]> {
+  if (!nativeModule || assetIds.length === 0) return [];
+  return nativeModule.readPhotoMeta(assetIds);
 }

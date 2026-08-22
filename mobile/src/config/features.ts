@@ -31,6 +31,14 @@ export const features = {
   enableTagPrefilter: true,
   enableVerdictCache: true,
 
+  // Photo quality signal layer (docs/plans/2026-08-21-001). Two flags:
+  // - intent signals are background metadata reads (kill if the whole-library
+  //   pass is slow or PHAssetResource enumeration misbehaves at scale)
+  // - quality ranking changes photo ORDER on quiz/vision/curation surfaces
+  //   (kill if the composite score surfaces worse photos than chronology)
+  enableIntentSignals: true,
+  enableQualityRanking: true,
+
   // Debug features (only in development)
   showDebugInfo: isDevelopment && env.enableDevTools,
   enableNetworkInspector: isDevelopment,

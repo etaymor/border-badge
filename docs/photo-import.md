@@ -170,6 +170,37 @@ The vision call sites budget `VISION_MAX_TOKENS` (`app/core/llm_utils.py`)
 specifically so an env-var-only model swap survives this; they also measured
 ~2x slower against a 5s timeout, and ~4x the cost.
 
+## Photo Quality Signal Layer (`mobile/src/services/photoSignals/`)
+
+Purpose-agnostic interpretation of the photo cache's raw signals, shared by
+Guess Where selection, vision-photo selection, and curation surfaces. See
+`docs/plans/2026-08-21-001-feat-photo-quality-signals-plan.md` for the design.
+
+- `nearDuplicates.ts` - the burst/HDR/re-save collapse (moved from
+  `quiz/candidateSelection.ts`, which re-exports it), now with an optional
+  representative picker so signal-aware callers keep the best frame instead of
+  the newest.
+- `captureContext.ts` - dwell, same-scene retry count, sun elevation
+  (golden hour/night), altitude delta vs the country-day median, moving-capture
+  and saved-from-social priors. Pure, computed on demand, never persisted.
+- `qualityScore.ts` - one composite quality score: pool-relative aesthetic
+  rank + capped intent evidence (favorite/edited/album/burst-pick) + context
+  priors. Ordinal within a pool only.
+- `bestPhotos.ts` - `rankBestPhotos` for curation: utility images excluded,
+  dupes collapsed to best frame, quality-sorted.
+
+Feeding it, `photo_intent_tags` (in `photos.db`, access via `photoTagDb.ts`)
+stores zero-pixel PhotoKit metadata (favorites, edits, bursts, capture modes,
+source, altitude/speed), refreshed by a whole-library metadata pass in
+`photoTaggingService.ts` at most every 24h (`readPhotoMeta` on the native
+photo-tagger module). Intent is refreshable by design - a photo can be
+favorited next month - unlike the write-once-per-version pixel tags.
+
+Flags: `enableIntentSignals` (metadata pass + intent/context reads) and
+`enableQualityRanking` (composite score changes photo ORDER on quiz, vision
+selection, and curation surfaces). With both off - or on Android/old binaries -
+every surface orders exactly as before the layer existed.
+
 ## Photo Trips Feature
 
 The Photo Trips screen (`PhotoTripsScreen.tsx`) displays all photo-discovered trips from the SQLite cache, allowing users to browse and select trips for import without re-scanning their photo library.

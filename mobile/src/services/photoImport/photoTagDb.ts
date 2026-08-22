@@ -14,9 +14,14 @@
  * - `photo_quiz_verdicts` holds the PAID Gemini eligibility verdicts, so a
  *   second game never re-buys a judgement the first game already paid for.
  *   Asset ids are client-only - the server never sees them.
+ * - `photo_intent_tags` holds PhotoKit intent/context metadata (favorites,
+ *   edits, bursts, capture modes, source, altitude/speed). Zero-pixel and
+ *   cheap, so a pass covers the whole library and refreshes periodically -
+ *   intent changes over time (a photo can be favorited next month), unlike
+ *   pixel signals which are write-once-per-version.
  *
- * Rows for a deleted photo are dropped by `removeCachedPhotos`, and both tables
- * are purged by `clearPhotoCache`.
+ * Rows for a deleted photo are dropped by `removeCachedPhotos`, and all three
+ * tables are purged by `clearPhotoCache`.
  */
 
 import { getDb, SQLITE_PARAM_LIMIT, withPhotoCacheWriteLock } from './photoCacheDb';
@@ -28,6 +33,12 @@ import { getDb, SQLITE_PARAM_LIMIT, withPhotoCacheWriteLock } from './photoCache
  * - that is the whole point of storing raw signals plus `labels_json`.
  */
 export const TAGGER_VERSION = 1;
+
+/**
+ * Version of the native metadata signal set (`readPhotoMeta`). Same contract as
+ * TAGGER_VERSION: bump ONLY when Swift emits different fields.
+ */
+export const INTENT_META_VERSION = 1;
 
 /** Batch sizes stay well under SQLITE_PARAM_LIMIT (999). See photoCacheDb. */
 const UPSERT_BATCH_SIZE = 50;
@@ -66,6 +77,42 @@ export interface PhotoMlTag {
   computedAt: number;
 }
 
+/**
+ * Deliberate-capture subtypes worth persisting (nobody takes an accidental
+ * panorama). Matches the strings the native `readPhotoMeta` emits.
+ */
+export type PhotoCaptureSubtype = 'pano' | 'hdr' | 'live' | 'depthEffect' | 'screenshot';
+
+/**
+ * PhotoKit intent/context metadata for one photo. Every field is free to read
+ * (no pixels); interpretation lives in `photoSignals/`.
+ */
+export interface PhotoIntentTag {
+  id: string;
+  metaVersion: number;
+  /** Explicit like - the strongest "keeper" prior available. */
+  isFavorite: boolean;
+  /** The user spent effort editing this photo. */
+  hasAdjustments: boolean;
+  subtypes: PhotoCaptureSubtype[];
+  /** PHAsset.burstIdentifier; null outside a burst. */
+  burstId: string | null;
+  /** iOS (or the user) picked this as the best frame of its burst. */
+  burstIsRepresentative: boolean;
+  /**
+   * True when the asset came from the camera/user library rather than a save
+   * from another app - a false here is the saved-from-social prior.
+   */
+  sourceUserLibrary: boolean;
+  /** Member of at least one user-created album (hand-curated). */
+  inUserAlbum: boolean;
+  /** GPS altitude in meters; null when the fix carried none. */
+  altitude: number | null;
+  /** GPS speed in m/s at capture; null when unknown. */
+  gpsSpeed: number | null;
+  refreshedAt: number;
+}
+
 /** A persisted Gemini eligibility verdict. */
 export interface PhotoQuizVerdict {
   id: string;
@@ -93,6 +140,21 @@ interface PhotoMlTagRow {
   aesthetic_score: number | null;
   is_utility: number | null;
   computed_at: number;
+}
+
+interface PhotoIntentTagRow {
+  id: string;
+  meta_version: number;
+  is_favorite: number;
+  has_adjustments: number;
+  subtypes: string | null;
+  burst_id: string | null;
+  burst_is_representative: number;
+  source_user_library: number;
+  in_user_album: number;
+  altitude: number | null;
+  gps_speed: number | null;
+  refreshed_at: number;
 }
 
 interface PhotoQuizVerdictRow {
@@ -145,6 +207,35 @@ function toPhotoMlTag(row: PhotoMlTagRow): PhotoMlTag {
     aestheticScore: row.aesthetic_score,
     isUtility: row.is_utility === null ? null : row.is_utility === 1,
     computedAt: row.computed_at,
+  };
+}
+
+/** Parse the subtypes array with the same degrade-to-empty posture as labels. */
+function parseSubtypes(json: string | null): PhotoCaptureSubtype[] {
+  if (!json) return [];
+  try {
+    const parsed = JSON.parse(json) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((entry): entry is PhotoCaptureSubtype => typeof entry === 'string');
+  } catch {
+    return [];
+  }
+}
+
+function toPhotoIntentTag(row: PhotoIntentTagRow): PhotoIntentTag {
+  return {
+    id: row.id,
+    metaVersion: row.meta_version,
+    isFavorite: row.is_favorite === 1,
+    hasAdjustments: row.has_adjustments === 1,
+    subtypes: parseSubtypes(row.subtypes),
+    burstId: row.burst_id,
+    burstIsRepresentative: row.burst_is_representative === 1,
+    sourceUserLibrary: row.source_user_library === 1,
+    inUserAlbum: row.in_user_album === 1,
+    altitude: row.altitude,
+    gpsSpeed: row.gps_speed,
+    refreshedAt: row.refreshed_at,
   };
 }
 
@@ -306,6 +397,85 @@ export async function getTagCoverageStats(): Promise<TagCoverageStats> {
   }
 
   return { total, currentVersion, byStatus };
+}
+
+// =============================================================================
+// Intent tags
+// =============================================================================
+
+/**
+ * Upsert a batch of intent tags. Called per native chunk during a metadata
+ * pass; like `upsertTags`, the table doubles as the resume watermark.
+ */
+export async function upsertIntentTags(tags: PhotoIntentTag[]): Promise<void> {
+  if (tags.length === 0) return;
+
+  const database = await getDb();
+
+  await withPhotoCacheWriteLock(async () => {
+    await database.withTransactionAsync(async () => {
+      for (let i = 0; i < tags.length; i += UPSERT_BATCH_SIZE) {
+        const batch = tags.slice(i, i + UPSERT_BATCH_SIZE);
+        const placeholders = batch.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
+        const values = batch.flatMap((t) => [
+          t.id,
+          t.metaVersion,
+          t.isFavorite ? 1 : 0,
+          t.hasAdjustments ? 1 : 0,
+          t.subtypes.length > 0 ? JSON.stringify(t.subtypes) : null,
+          t.burstId,
+          t.burstIsRepresentative ? 1 : 0,
+          t.sourceUserLibrary ? 1 : 0,
+          t.inUserAlbum ? 1 : 0,
+          t.altitude,
+          t.gpsSpeed,
+          t.refreshedAt,
+        ]);
+
+        await database.runAsync(
+          `INSERT OR REPLACE INTO photo_intent_tags
+         (id, meta_version, is_favorite, has_adjustments, subtypes, burst_id,
+          burst_is_representative, source_user_library, in_user_album, altitude, gps_speed, refreshed_at)
+         VALUES ${placeholders}`,
+          values
+        );
+      }
+    });
+  });
+}
+
+/** Load intent tags for a specific set of photo ids, keyed by id. */
+export async function getIntentTagsForIds(ids: string[]): Promise<Map<string, PhotoIntentTag>> {
+  const result = new Map<string, PhotoIntentTag>();
+  if (ids.length === 0) return result;
+
+  const database = await getDb();
+
+  for (let i = 0; i < ids.length; i += ID_BATCH_SIZE) {
+    const batch = ids.slice(i, i + ID_BATCH_SIZE);
+    const placeholders = batch.map(() => '?').join(',');
+    const rows = await database.getAllAsync<PhotoIntentTagRow>(
+      `SELECT id, meta_version, is_favorite, has_adjustments, subtypes, burst_id,
+              burst_is_representative, source_user_library, in_user_album, altitude, gps_speed, refreshed_at
+       FROM photo_intent_tags WHERE id IN (${placeholders})`,
+      batch
+    );
+    for (const row of rows) {
+      result.set(row.id, toPhotoIntentTag(row));
+    }
+  }
+
+  return result;
+}
+
+/** Row count at the current meta version, for pass telemetry. */
+export async function getIntentTagCount(): Promise<number> {
+  const database = await getDb();
+  const row = await database.getFirstAsync<{ count: number }>(
+    'SELECT COUNT(*) as count FROM photo_intent_tags WHERE meta_version = ?',
+    [INTENT_META_VERSION]
+  );
+  return row?.count ?? 0;
 }
 
 // =============================================================================

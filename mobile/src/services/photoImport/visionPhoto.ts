@@ -8,7 +8,16 @@
 
 import { Image } from 'react-native';
 
+import { features } from '@config/features';
+import {
+  collapseNearDuplicates,
+  computeCaptureContexts,
+  computeQualityScores,
+  isNearDuplicatePair,
+} from '@services/photoSignals';
+
 import { haversine } from './photoClustering';
+import { getIntentTagsForIds, getTagsForIds } from './photoTagDb';
 import type { LocationCluster, PhotoWithLocation } from './types';
 
 const VISION_MAX_DIMENSION = 768;
@@ -27,16 +36,93 @@ function getImageDimensions(photoUri: string): Promise<{ width: number; height: 
 }
 
 /**
+ * Adapter to the flat `photoSignals` shape (ms timestamp, top-level coords).
+ * `countryCode` comes from the cluster: near-duplicate detection requires a
+ * non-null match, so a cluster without one collapses nothing — a safe no-op.
+ */
+function toSignalPhoto(photo: PhotoWithLocation, countryCode: string | null) {
+  return {
+    photo,
+    id: photo.id,
+    creationTime: photo.creationTime.getTime(),
+    latitude: photo.location.latitude,
+    longitude: photo.location.longitude,
+    countryCode,
+    width: photo.width,
+    height: photo.height,
+  };
+}
+
+/**
+ * Quality-aware selection (docs/plans/2026-08-21-001, 3b). The
+ * closest-to-centroid anchor stays FIRST and unconditional — it is load-bearing
+ * for place matching, even when it scores poorly. Remaining slots come from the
+ * duplicate-collapsed pool so two frames of one burst are never both sent to
+ * Gemini: scored photos in descending quality, then unscored ones in the
+ * pre-existing distance order.
+ */
+function selectByQuality(
+  cluster: LocationCluster,
+  byDistance: PhotoWithLocation[],
+  maxPhotos: number,
+  quality: Map<string, number>
+): PhotoWithLocation[] {
+  const countryCode = cluster.countryCode ?? null;
+  const candidates = byDistance.map((photo) => toSignalPhoto(photo, countryCode));
+
+  // Best-quality frame survives each near-duplicate group; newest wins ties
+  // (mirrors `bestFrame` in quiz/candidateSelection.ts, so an unscored group
+  // collapses exactly like the pre-signals default).
+  const collapsed = collapseNearDuplicates(candidates, (group) => {
+    let best = group[group.length - 1];
+    for (const candidate of group) {
+      if ((quality.get(candidate.id) ?? 0) > (quality.get(best.id) ?? 0)) best = candidate;
+    }
+    return best;
+  });
+
+  const anchor = byDistance[0];
+  const anchorSignal = toSignalPhoto(anchor, countryCode);
+
+  // The anchor is kept regardless of collapse, so its burst siblings must be
+  // excluded here — otherwise the anchor plus its group's surviving frame would
+  // reintroduce the very pair the collapse exists to prevent.
+  const pool = collapsed.filter(
+    (item) => item.id !== anchor.id && !isNearDuplicatePair(anchorSignal, item)
+  );
+  const scoreOf = (id: string) => quality.get(id) ?? Number.NEGATIVE_INFINITY;
+  const ordered = [...pool].sort((a, b) => {
+    const scoreA = scoreOf(a.id);
+    const scoreB = scoreOf(b.id);
+    // Stable sort keeps distance order among equal (and unscored) photos.
+    return scoreA === scoreB ? 0 : scoreB - scoreA;
+  });
+
+  const selected: PhotoWithLocation[] = [anchor];
+  for (const item of ordered) {
+    if (selected.length >= maxPhotos) break;
+    selected.push(item.photo);
+  }
+  return selected;
+}
+
+/**
  * Select representative photos for vision classification.
  *
  * Selection strategy:
  * - Closest-to-centroid photo (strong location anchor)
  * - Earliest and latest photos (temporal diversity)
  * - Fill remaining slots with next closest photos
+ *
+ * With a non-empty `quality` map (photo id -> composite quality score), the
+ * temporal-diversity slots become quality slots instead: see `selectByQuality`.
+ * Without one, behavior is byte-identical to the pre-signals selection. Pure
+ * either way — the caller loads the map.
  */
 export function selectRepresentativePhotos(
   cluster: LocationCluster,
-  maxPhotos: number = MAX_VISION_PHOTOS_PER_CLUSTER
+  maxPhotos: number = MAX_VISION_PHOTOS_PER_CLUSTER,
+  quality?: Map<string, number>
 ): PhotoWithLocation[] {
   if (cluster.photos.length === 0 || maxPhotos <= 0) return [];
 
@@ -52,6 +138,10 @@ export function selectRepresentativePhotos(
     }))
     .sort((a, b) => a.distance - b.distance)
     .map((item) => item.photo);
+
+  if (quality !== undefined && quality.size > 0) {
+    return selectByQuality(cluster, byDistance, maxPhotos, quality);
+  }
 
   const byTime = [...cluster.photos].sort(
     (a, b) => a.creationTime.getTime() - b.creationTime.getTime()
@@ -165,6 +255,48 @@ export async function prepareVisionImage(
 }
 
 /**
+ * Load composite quality scores for a cluster's photos, or undefined.
+ *
+ * Best-effort by design: vision selection must never fail a suggestion fetch,
+ * so a read error — or a cluster with no tag rows at all — degrades to
+ * undefined, which is the pre-signals selection. Contexts are computed over the
+ * cluster's own timeline (the broadest set this call site has), and gated on
+ * BOTH flags because the composite score without intent rows is mostly noise.
+ */
+async function loadClusterQualityScores(
+  cluster: LocationCluster
+): Promise<Map<string, number> | undefined> {
+  if (!features.enableQualityRanking || !features.enableIntentSignals) return undefined;
+  try {
+    const ids = cluster.photos.map((photo) => photo.id);
+    const [tags, intents] = await Promise.all([getTagsForIds(ids), getIntentTagsForIds(ids)]);
+    if (tags.size === 0 && intents.size === 0) return undefined;
+
+    const countryCode = cluster.countryCode ?? null;
+    const contexts = computeCaptureContexts(
+      cluster.photos.map((photo) => toSignalPhoto(photo, countryCode)),
+      intents
+    );
+    return computeQualityScores(
+      cluster.photos.map((photo) => ({
+        id: photo.id,
+        aestheticScore: tags.get(photo.id)?.aestheticScore ?? null,
+        intent: intents.get(photo.id),
+        context: contexts.get(photo.id),
+      }))
+    );
+  } catch (error) {
+    if (__DEV__) {
+      console.warn(
+        '[VisionPhoto] Quality signal load failed:',
+        error instanceof Error ? error.message : error
+      );
+    }
+    return undefined;
+  }
+}
+
+/**
  * Select and prepare representative photos for a cluster.
  *
  * Returns an array of successfully prepared base64 images (0 to maxPhotos).
@@ -173,7 +305,8 @@ export async function getVisionImagesForCluster(
   cluster: LocationCluster,
   maxPhotos: number = MAX_VISION_PHOTOS_PER_CLUSTER
 ): Promise<string[]> {
-  const photos = selectRepresentativePhotos(cluster, maxPhotos);
+  const quality = await loadClusterQualityScores(cluster);
+  const photos = selectRepresentativePhotos(cluster, maxPhotos, quality);
   if (photos.length === 0) return [];
 
   const prepared = await Promise.all(

@@ -709,6 +709,8 @@ export const Analytics = {
     coverageTotal: number;
     coverageCurrentVersion: number;
     noLocalImage: number;
+    /** Rows written by the intent-metadata sweep that rode this pass; 0 when it did not run. */
+    intentTagged?: number;
   }) =>
     track('photo_tagging_pass', {
       tagged: props.tagged,
@@ -717,6 +719,7 @@ export const Analytics = {
       coverage_total: props.coverageTotal,
       coverage_current_version: props.coverageCurrentVersion,
       no_local_image: props.noLocalImage,
+      intent_tagged: props.intentTagged ?? 0,
     }),
 
   // ---------------------------------------------------------------------
