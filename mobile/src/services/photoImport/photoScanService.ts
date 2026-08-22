@@ -30,7 +30,11 @@ import {
   setLastImportTime,
   setMetadata,
 } from './photoCacheDb';
-import { photoToCachedPhoto, segmentTripsFromCache } from './photoClusteringCache';
+import {
+  photoToCachedPhoto,
+  rankTripSegmentPreviews,
+  segmentTripsFromCache,
+} from './photoClusteringCache';
 import { applyPersistedSplits, applySavedPhotoFilter } from './photoClusteringDisplay';
 import { getAllSavedPhotoIds, getClusterSplitsForParents } from './photoCacheDbSuggestions';
 import { extractPhotosWithLocation } from './photoImportService';
@@ -468,8 +472,17 @@ async function runScan(
       savedPhotoIds
     );
 
+    // Best-first preview strips for the trip segment cards (flag-gated inside;
+    // degrades to the chronological previews on any failure). Cluster displays
+    // stay chronological — their order feeds gallery selection and splitting.
+    const rankedCandidates = await rankTripSegmentPreviews(
+      optimizedData.candidates,
+      optimizedData.photoLookup
+    );
+    if (localController.signal.aborted) return;
+
     saveTripSegments(
-      optimizedData.candidates.map((c) => ({
+      rankedCandidates.map((c) => ({
         id: c.id,
         countryCode: c.countryCode,
         startTime: c.dateRange.start.getTime(),
@@ -485,7 +498,7 @@ async function runScan(
       if (__DEV__) console.warn('[PhotoScanService] Failed to save trip segments:', err);
     });
 
-    let candidates = optimizedData.candidates;
+    let candidates = rankedCandidates;
     if (opts.filterCountryCode) {
       candidates = candidates.filter((c) => c.countryCode === opts.filterCountryCode);
     }

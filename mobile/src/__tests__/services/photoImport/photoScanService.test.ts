@@ -81,6 +81,9 @@ jest.mock('@services/photoImport/photoClusteringCache', () => ({
     countryCode: code ?? null,
   })),
   segmentTripsFromCache: jest.fn(),
+  // Pass-through: preview reranking is covered by photoClusteringCache.test.ts.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  rankTripSegmentPreviews: jest.fn(async (candidates: any) => candidates),
 }));
 
 jest.mock('@services/photoImport/photoImportService', () => ({
