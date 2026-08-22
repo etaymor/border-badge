@@ -67,11 +67,12 @@ jest.mock(
 import { api } from '@services/api';
 import { getAllCountries, getHomeCountry } from '@services/countriesDb';
 import { ensureFreshLibrary } from '@services/photoImport/photoBackgroundSync';
-import { getAllCachedPhotos, getMetadata } from '@services/photoImport/photoCacheDb';
+import { getAllCachedPhotos, getMetadata, setMetadata } from '@services/photoImport/photoCacheDb';
 import { getAllVerdicts, getTagsForIds, upsertVerdicts } from '@services/photoImport/photoTagDb';
 import { resolveLoadableUri } from '@services/photoImport/resolveLoadableUri';
 import { prepareVisionImage } from '@services/photoImport/visionPhoto';
-import { CLASSIFICATION_BUDGET_PER_QUIZ } from '@services/quiz/candidateSelection';
+import { CLASSIFICATION_BUDGET_PER_QUIZ, QUIZ_MAX_PHOTOS } from '@services/quiz/candidateSelection';
+import { recordQuizAssets } from '@services/quiz/quizAssets';
 import { createQuizFromLibrary } from '@services/quiz/quizCreation';
 
 import type { CachedPhoto } from '@services/photoImport/types';
@@ -83,6 +84,8 @@ const mockGetHomeCountry = getHomeCountry as jest.Mock;
 const mockEnsureFreshLibrary = ensureFreshLibrary as jest.Mock;
 const mockGetAllCachedPhotos = getAllCachedPhotos as jest.Mock;
 const mockGetMetadata = getMetadata as jest.Mock;
+const mockSetMetadata = setMetadata as jest.Mock;
+const mockRecordQuizAssets = recordQuizAssets as jest.Mock;
 const mockGetTagsForIds = getTagsForIds as jest.Mock;
 const mockGetAllVerdicts = getAllVerdicts as jest.Mock;
 const mockUpsertVerdicts = upsertVerdicts as jest.Mock;
@@ -156,6 +159,8 @@ beforeEach(() => {
   let classified = 0;
   mockApi.post.mockImplementation(async (url: string, body: { images?: Array<{ id: string }> }) => {
     if (url === '/quiz') {
+      // A new draft gets a fresh per-draft budget, like the real server.
+      classified = 0;
       return { data: { id: 'quiz-1', state: 'draft' } };
     }
     if (url === '/quiz/eligibility') {
@@ -953,5 +958,130 @@ describe('createQuizFromLibrary - progress pick URIs', () => {
     for (const progress of building) {
       expect(progress.pickUris).toEqual(picks.map((pick) => pick.uri));
     }
+  });
+});
+
+describe('createQuizFromLibrary - repeat creations never reuse photos', () => {
+  const verdict = (id: string, eligible: boolean) => [
+    id,
+    {
+      id,
+      eligible,
+      reason: eligible ? null : 'indoor',
+      landscape: 'alpine',
+      classifierVersion: 'gemini-2.5-flash-lite/v1',
+      classifiedAt: 1_700_000_000_000,
+    },
+  ];
+
+  /** Asset ids the run finalized with (the server never sees asset ids). */
+  function assetsOfRun(index: number): string[] {
+    const call = mockRecordQuizAssets.mock.calls[index];
+    expect(call).toBeDefined();
+    return call[1];
+  }
+
+  function usedLedger(ids: string[]): void {
+    mockGetMetadata.mockImplementation(async (key: string) =>
+      key === 'quiz_used_asset_ids' ? JSON.stringify(ids) : null
+    );
+  }
+
+  beforeEach(() => {
+    mockPrepareVisionImage.mockResolvedValue('base64-image');
+  });
+
+  it('builds a second game from different photos than the first (the reported bug)', async () => {
+    // A real device between two creations: the used-asset ledger and the
+    // verdict cache both persist. Wire them to in-memory stores.
+    const metadata = new Map<string, string>();
+    mockGetMetadata.mockImplementation(async (key: string) => metadata.get(key) ?? null);
+    mockSetMetadata.mockImplementation(async (key: string, value: string) => {
+      metadata.set(key, value);
+    });
+    const verdicts = new Map<string, object>();
+    mockUpsertVerdicts.mockImplementation(async (rows: Array<{ id: string }>) => {
+      for (const row of rows) verdicts.set(row.id, row);
+    });
+    mockGetAllVerdicts.mockImplementation(async () => new Map(verdicts));
+
+    const library = buildCachedLibrary(300);
+    mockGetAllCachedPhotos.mockResolvedValue(library);
+    // The measured pass rate is ~10%: game one stops hunting as soon as it has
+    // ten, leaving fewer than ten fresh eligible verdicts in the cache - the
+    // exact condition under which the seeded game two used to reuse game one.
+    verdictFor = (id: string) => ({
+      eligible: Number(id.split('-')[1]) % 10 === 0,
+      reason: 'indoor',
+    });
+
+    const first = await createQuizFromLibrary();
+    expect(first.status).toBe('created');
+    const firstAssets = assetsOfRun(0);
+    expect(firstAssets).toHaveLength(QUIZ_MAX_PHOTOS);
+
+    const second = await createQuizFromLibrary();
+    expect(second.status).toBe('created');
+    const secondAssets = assetsOfRun(1);
+
+    expect(secondAssets).toHaveLength(QUIZ_MAX_PHOTOS);
+    for (const id of secondAssets) expect(firstAssets).not.toContain(id);
+  });
+
+  it('seeds only photos the owner has not used yet', async () => {
+    const library = buildCachedLibrary(40);
+    mockGetAllCachedPhotos.mockResolvedValue(library);
+    mockGetAllVerdicts.mockResolvedValue(
+      new Map(library.map((photo) => verdict(photo.id, true)) as [string, object][])
+    );
+    const used = library.slice(0, 10).map((photo) => photo.id);
+    usedLedger(used);
+
+    const outcome = await createQuizFromLibrary();
+
+    expect(outcome.status).toBe('created');
+    const assets = assetsOfRun(0);
+    expect(assets).toHaveLength(QUIZ_MAX_PHOTOS);
+    for (const id of used) expect(assets).not.toContain(id);
+  });
+
+  it('keeps hunting when the fresh cached verdicts cannot fill the game', async () => {
+    const library = buildCachedLibrary(40);
+    mockGetAllCachedPhotos.mockResolvedValue(library);
+    const verdicted = library.slice(0, 15);
+    mockGetAllVerdicts.mockResolvedValue(
+      new Map(verdicted.map((photo) => verdict(photo.id, true)) as [string, object][])
+    );
+    const used = verdicted.slice(0, 10).map((photo) => photo.id);
+    usedLedger(used);
+
+    const outcome = await createQuizFromLibrary();
+
+    expect(outcome.status).toBe('created');
+    // Only 5 fresh seeds: the gate must be asked about photos it has not seen.
+    expect(eligibilityBatches().flat().length).toBeGreaterThan(0);
+    const assets = assetsOfRun(0);
+    expect(assets).toHaveLength(QUIZ_MAX_PHOTOS);
+    for (const id of used) expect(assets).not.toContain(id);
+  });
+
+  it('falls back to used photos only once the fresh library is exhausted', async () => {
+    const library = buildCachedLibrary(20);
+    mockGetAllCachedPhotos.mockResolvedValue(library);
+    // Every photo already has a verdict: nothing left to classify.
+    mockGetAllVerdicts.mockResolvedValue(
+      new Map(library.map((photo) => verdict(photo.id, true)) as [string, object][])
+    );
+    const fresh = library.slice(0, 3).map((photo) => photo.id);
+    usedLedger(library.slice(3).map((photo) => photo.id));
+
+    const outcome = await createQuizFromLibrary();
+
+    // KTD12: repeats are allowed once the fresh pool runs dry - never a decline.
+    expect(outcome.status).toBe('created');
+    const assets = assetsOfRun(0);
+    expect(assets).toHaveLength(QUIZ_MAX_PHOTOS);
+    for (const id of fresh) expect(assets).toContain(id);
+    expect(eligibilityBatches()).toHaveLength(0);
   });
 });
