@@ -53,8 +53,38 @@ Push JavaScript/asset changes to TestFlight users without a new build:
 
 ```bash
 cd mobile
-eas update --branch production --message "Description of changes"
+npm run update:production -- --message "Description of changes"
 ```
+
+**Never run a bare `eas update --branch production`.** It shipped a broken
+production update once, and both of its causes are still live on any dev machine:
+
+1. `eas update` bundles **locally**, so it inlines `EXPO_PUBLIC_*` from whatever
+   env the shell has. Without `--environment production` that is your
+   `mobile/.env` — a LAN IP. Every data-fetching screen then hangs on its
+   skeleton forever, because React Query reads the failed requests as
+   still-loading rather than surfacing an error.
+2. Metro's transform cache survives an env change, so a cached module keeps the
+   previously inlined URL and re-bakes the old LAN IP into a publish you already
+   "fixed". `--clear-cache` is not optional.
+
+The `update:production` script runs a preflight (`npm run verify:production`)
+that exports the real bundle and greps the compiled Hermes output for
+local/private URLs, then publishes with `--environment production --clear-cache`.
+Grepping the artifact is the check that matters — the in-app guard in
+`src/config/env.ts` only fires when `EXPO_PUBLIC_APP_ENV=production`, and the
+same leaked `.env` sets it to `development`, so the guard stays silent on exactly
+the publish that breaks.
+
+Note: `eas.json`'s `build.production.env` applies to `eas build` only — it has no
+effect on `eas update`.
+
+Four vars (`EXPO_PUBLIC_SUPABASE_ANON_KEY`, `EXPO_PUBLIC_FB_APP_ID`,
+`EXPO_PUBLIC_FB_CLIENT_TOKEN`, `EXPO_PUBLIC_REVENUECAT_IOS_API_KEY`) exist on EAS
+as **SECRET**, which is readable only on the EAS builder, never during a local
+`eas update` bundle. They are silently filled from your local `mobile/.env`
+instead. Publishing from a machine without that file throws at import
+(`Missing required Supabase environment variables`) and bricks the app on launch.
 
 Users receive updates on next app restart (no active update prompts implemented).
 
