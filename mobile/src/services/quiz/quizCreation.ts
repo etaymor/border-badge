@@ -57,6 +57,7 @@ import {
   selectEligibilityBatch,
   toCandidate,
 } from './candidateSelection';
+import type { GeoEligibleCandidate } from './candidateSelection';
 import {
   CANDIDATE_OVERSELECT,
   classifyBatch,
@@ -314,27 +315,43 @@ async function runQuizCreation(
     Math.min(QUIZ_MAX_PHOTOS, ledger.picks.length + ledger.bench.length);
   let seededEligible = 0;
   let seededIneligible = 0;
+  let seededUsed = 0;
+  /**
+   * Cached-eligible photos the owner has ALREADY spent on a quiz (KTD12).
+   * Held back from the ledger: a repeat creation must be built from photos
+   * nobody has been challenged with yet, and the hunt below keeps classifying
+   * unseen photos until it has them. These are offered only once the fresh
+   * library is exhausted - the alternative is a decline. Before this split,
+   * seeding offered them straight to the ledger (merely ordered last), so as
+   * soon as the fresh eligible cache held fewer than ten photos the previous
+   * game's photos were locked in, the game read as full, no new photo was ever
+   * classified, and every creation after the first repeated the same ten.
+   */
+  let reserve: GeoEligibleCandidate[] = [];
   if (features.enableVerdictCache) {
     const verdicts = await loadCurrentVerdicts();
     if (verdicts.size > 0) {
       const seeded = seedFromVerdicts(rankedPool, verdicts);
       for (const id of seeded.seenIds) classifiedIds.add(id);
+      const fresh = seeded.eligible.filter((candidate) => !usedAssetIds.has(candidate.id));
       // Order them the way a fresh hunt would, so a seeded game has the same
       // country/day spread as a classified one rather than whatever order the
       // cache happened to hold, then let the ledger lock its slots. They are
       // deliberately NOT pushed into `eligible`: that list is the GATE's
       // output and feeds the pass-rate estimate, and these photos were never
       // sent to it.
-      for (const candidate of orderByCountrySpread(
-        seeded.eligible,
-        usedAssetIds,
-        homeCountries,
-        Infinity
-      )) {
+      for (const candidate of orderByCountrySpread(fresh, usedAssetIds, homeCountries, Infinity)) {
         ledger.offer(candidate);
       }
       ledger.topUp();
+      reserve = orderByCountrySpread(
+        seeded.eligible.filter((candidate) => usedAssetIds.has(candidate.id)),
+        usedAssetIds,
+        homeCountries,
+        Infinity
+      );
       seededEligible = seeded.eligibleCount;
+      seededUsed = reserve.length;
       seededIneligible = seeded.ineligibleCount;
       if (ledger.picks.length > 0) {
         onProgress?.({
@@ -347,6 +364,16 @@ async function runQuizCreation(
       }
     }
   }
+
+  /**
+   * The fresh library has nothing more to give: let previously-used photos
+   * fill what the hunt could not. Called only at exhaustion points, never to
+   * shortcut a hunt that could still find unseen photos.
+   */
+  const offerReserve = (): void => {
+    for (const candidate of reserve) ledger.offer(candidate);
+    ledger.topUp();
+  };
 
   // A game already filled from cache needs no candidates at all.
   const firstBatch =
@@ -368,9 +395,13 @@ async function runQuizCreation(
   console.warn(
     `[QuizCreation] funnel: refresh=${refresh.status} cached=${cached.length} ` +
       `geocoded=${pool.reduce((count, photo) => count + (photo.countryCode ? 1 : 0), 0)} ` +
-      `home=${homeCountry ?? 'unset'} ${formatTagFunnel(decorated)} ` +
-      `seeded=${seededEligible}/${seededIneligible} firstBatch=${firstBatch.length}`
+      `home=${homeCountry ?? 'unset'} used=${usedAssetIds.size} ${formatTagFunnel(decorated)} ` +
+      `seeded=${seededEligible - seededUsed}/${seededUsed}/${seededIneligible} ` +
+      `firstBatch=${firstBatch.length}`
   );
+  // Nothing left to classify: every candidate already has a verdict. Only now
+  // may photos from earlier quizzes fill the remaining slots.
+  if (firstBatch.length === 0 && finalizableCount() < QUIZ_MAX_PHOTOS) offerReserve();
   // Nothing left to classify AND not even a relaxed game's worth in hand:
   // give up before creating a server draft. `finalizableCount` is the upper
   // bound on what `ledger.finalize()` could reach, so this never declines a
@@ -437,6 +468,7 @@ async function runQuizCreation(
     typeof firstResult === 'object' ? firstResult.budgetRemaining : CLASSIFICATION_BUDGET_PER_QUIZ;
   let consecutiveFailures = typeof firstResult === 'object' ? 0 : 1;
   let passes = 1;
+  let poolExhausted = false;
 
   while (lastResult !== 'budget-exceeded' && ledger.picks.length < QUIZ_MAX_PHOTOS) {
     if (consecutiveFailures >= MAX_CONSECUTIVE_FAILED_PASSES) break;
@@ -473,7 +505,10 @@ async function runQuizCreation(
       limit: resampleTarget * CANDIDATE_OVERSELECT,
     });
     // Pool exhausted: every remaining candidate has already been classified.
-    if (resampleBatch.length === 0) break;
+    if (resampleBatch.length === 0) {
+      poolExhausted = true;
+      break;
+    }
 
     const resampleResult = await classifyBatch(
       quizId,
@@ -519,6 +554,11 @@ async function runQuizCreation(
   }
   if (signal?.aborted) return { status: 'cancelled' };
 
+  // Repeats are a last resort (KTD12): only when the fresh library ran dry, or
+  // when the game would otherwise fall below playable. A soft-deadline or
+  // budget stop with a playable all-fresh game keeps that shorter game.
+  if (poolExhausted || finalizableCount() < QUIZ_MIN_PHOTOS) offerReserve();
+
   // The hunt is over: settle the game ONCE. Every slot locked during the hunt
   // keeps its photo and its position; this only appends, relaxing the day and
   // country-year rules over the bench when the library was too thin to fill
@@ -544,7 +584,7 @@ async function runQuizCreation(
   console.warn(
     `[QuizCreation] funnel: attempted=${classifiedIds.size} sent=${session.sentCount} ` +
       `eligible=${eligible.length} picks=${picks.length} benched=${ledger.bench.length} ` +
-      `seeded=${seededEligible} passes=${passes} ` +
+      `seeded=${seededEligible - seededUsed}/${seededUsed} passes=${passes} ` +
       `elapsedMs=${Date.now() - startedAt} offloaded=${session.offloadedFailures}` +
       (reasonSummary ? ` ${reasonSummary}` : '')
   );

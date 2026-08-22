@@ -456,6 +456,11 @@ quiz contains it twice.
    assets are only sorted after fresh ones (`orderByCountrySpread`, `candidateSelection.ts:201-213`).
    On a thin library the ordering wraps back around to already-used photos. This is the documented
    KTD12 freshness behavior — worth confirming it can't also surface the same photo twice in one run.
+   **Resolved 2026-08-22:** this was the "every game uses the same 10 photos" App Store bug. Verdict-cache
+   seeding offered used photos to the pick ledger (ordered last, never excluded); with <10 fresh cached
+   verdicts the previous game filled the ledger, `firstBatch` was empty, and nothing new was ever
+   classified. Seeding now hard-excludes used photos and holds them in a reserve offered only when the
+   fresh library is exhausted or the game would drop below `QUIZ_MIN_PHOTOS` (`quizCreation.ts`).
 4. **Swaps can re-introduce a photo already in the quiz.** `loadSwapCandidates`
    (`quizPlay.ts:133-157`) says outright that this quiz's own photos are merely "pushed to the back of
    the picker" — deprioritized, not filtered out. Swapping a question can therefore pick a photo the
