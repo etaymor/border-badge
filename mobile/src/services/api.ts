@@ -2,9 +2,11 @@ import axios, { AxiosError, AxiosInstance, InternalAxiosRequestConfig } from 'ax
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 
+import { env } from '@config/env';
+
 // NOTE: iOS Simulator cannot access localhost. Use your machine's IP address instead.
 // Example: http://192.168.1.100:8000
-const BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:8000';
+const BASE_URL = env.apiUrl;
 
 const TOKEN_KEY = 'auth_token';
 const REFRESH_TOKEN_KEY = 'refresh_token';
