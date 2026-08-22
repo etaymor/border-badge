@@ -2,6 +2,7 @@
 title: Photo Quality Signals - Shared Layer and Surface Integrations - Plan
 type: feat
 date: 2026-08-21
+revised: 2026-08-21 (simplification pass - see Review Notes)
 status: draft
 source_research: Atlasi photo-quality-signals research memo (2026-08)
 ---
@@ -12,22 +13,22 @@ source_research: Atlasi photo-quality-signals research memo (2026-08)
 
 - **Objective:** Turn the quiz-only photo tagger into an app-wide photo quality
   signal layer, add the free signals we are currently ignoring (user intent,
-  capture context, near-duplicate structure), and use them on three surfaces:
-  Guess Where selection, photo-import vision/matching, and best-photo
-  auto-curation. A final phase adds a MobileCLIP embedding for semantic signals
-  the Vision taxonomy cannot express.
+  capture context), and use them on three surfaces: Guess Where selection,
+  photo-import vision selection, and best-photo auto-curation. A final phase
+  adds a MobileCLIP embedding for semantic signals the Vision taxonomy cannot
+  express.
 - **Scope anchor:** Detection, labeling and ranking of photos already in the
   user's library. No capture flow, no editing, no server-side image storage
-  changes.
+  changes, no backend API changes in Phases 1–3.
 - **Platform posture:** iOS-first. Everything platform-bound lives behind the
   existing `isPhotoTaggerAvailable()` no-op degradation; timestamp-derived
   signals (dwell, retry count, sun elevation) are pure TS and work everywhere
   `cached_photos` exists. Android parity via ML Kit / LiteRT is explicitly out
   of scope.
 - **Release shape:** Four phases, each independently shippable and independently
-  killable by feature flag. Phases 1–2 are the "70% of the value" tier (metadata
-  + one new Vision request); Phase 3 is product surface work; Phase 4 is the
-  model investment.
+  killable by feature flag. Phases 1–2 are the "70% of the value" tier and
+  require **no new pixel work at all**; Phase 3 is product surface work;
+  Phase 4 is the model investment.
 - **Non-negotiables carried forward:** raw signals in native / all
   interpretation in TS (OTA-tunable, Jest-testable); the paid Gemini gate stays
   the final quiz verdict; hard drops only for near-certainties; no coordinate,
@@ -36,20 +37,24 @@ source_research: Atlasi photo-quality-signals research memo (2026-08)
 
 ## Context — what exists vs. what the research adds
 
-Already built (see `docs/quiz-photo-pretagging-plan.md`, all shipped):
+Already built and reused by this plan (do NOT rebuild any of it):
 
 - `mobile/modules/photo-tagger/` — iOS Vision pass per photo: scene labels,
   face/human boxes, aesthetics + `isUtility` (iOS 18+), screenshot flag. One
   `VNImageRequestHandler.perform([...])` per asset so the decode is shared.
-- `photo_ml_tags` + `photo_quiz_verdicts` in `photos.db`
-  (`photoTagDb.ts`), background scheduler (`photoTaggingService.ts`),
-  interpretation layer (`quiz/tagSignals.ts`), verdict seeding, agreement
-  telemetry (`tagAgreement.ts`).
+- `photo_ml_tags` + `photo_quiz_verdicts` in `photos.db` (`photoTagDb.ts`),
+  background scheduler (`photoTaggingService.ts`), interpretation layer
+  (`quiz/tagSignals.ts`), verdict seeding, agreement telemetry
+  (`tagAgreement.ts`).
+- **Near-duplicate handling** (`candidateSelection.ts`): `isNearDuplicatePair`
+  (90s window + 100m radius, same country), transitive
+  `collapseNearDuplicates`, swap-picker exclusion via `filterNearDuplicatesOf`,
+  plus day and (country, year) diversity passes in `pickQuizPhotos`. BUG-2 is
+  **fixed** by this machinery — this plan extends it, it does not replace it.
 - Server-side place matcher already consumes dwell and vision category
   (`PLACES_RANK_*_WEIGHT`).
 
-What the research memo adds that we do NOT have today, in its order of
-value-per-cost:
+What the research memo adds that we do NOT have today:
 
 1. **Implicit intent signals** — favorites, edits, albums, bursts, deliberate
    capture modes, saved-from-social detection. Free PhotoKit metadata, no
@@ -59,20 +64,19 @@ value-per-cost:
 2. **Capture-context signals** — dwell-before-shot, retry count, GPS
    speed/altitude, sun elevation. Mostly derivable from data already in
    `cached_photos`; the rest rides free on `PHAsset.location`.
-3. **Near-duplicate structure** — `VNGenerateImageFeaturePrintRequest`. Noted
-   as v2 in the pretagging plan; now promoted because it is also the structural
-   fix for BUG-2 (duplicate photos within one quiz,
-   `docs/quiz-photo-feedback-backlog.md`) and the burst-collapse the backlog's
-   "multiple duplicates" report points at.
-4. **A composite, rank-normalized quality score** with per-purpose weightings
-   instead of raw `aestheticScore` as the only quality lever.
+3. **Quality-aware duplicate representatives** — today's collapse keeps the
+   *newest* frame of a near-dupe run; with intent + aesthetics we can keep the
+   *best* one (favorited > edited > highest quality). A parameter on existing
+   code, not new machinery.
+4. **A composite quality score** with pool-relative normalization instead of
+   raw `aestheticScore` as the only quality lever.
 5. **MobileCLIP embedding** — zero-shot semantics (scenic/selfie/food/saved
-   meme), landmark recognizability, novelty; the one non-Apple model worth
-   shipping.
+   meme); the one non-Apple model worth considering, last.
 
-Deliberately deferred from the memo (recorded in "Deferred" below): on-device
-LLM pairwise judging, deselect-trained learned weights, cross-user postcard
-centroids, personalization heads, Android parity.
+Deliberately deferred from the memo (recorded in "Deferred" below): feature-print
+perceptual dedupe, on-device LLM pairwise judging, deselect-trained learned
+weights, cross-user postcard centroids, personalization heads, novelty scoring,
+backend retry-count ranking, Android parity.
 
 ## Architecture principle: one signal layer, many consumers
 
@@ -80,15 +84,18 @@ Today `tagSignals.ts` lives under `services/quiz/` and interprets tags only as
 "Guess Where suitability". This plan splits interpretation into:
 
 - `mobile/src/services/photoSignals/` (new) — purpose-agnostic derivation:
-  intent flags, capture context, dupe structure, composite quality score with
-  per-purpose weight profiles (`quiz`, `visionPick`, `curation`). Pure TS, no
-  React, no IO except `photoTagDb` reads.
+  intent flags, capture context, composite quality score. Pure TS, no React,
+  no IO except `photoTagDb` reads. The near-duplicate helpers
+  (`isNearDuplicatePair`, `collapseNearDuplicates`, `filterNearDuplicatesOf`)
+  **move here** from `candidateSelection.ts` (one-time move, quiz imports
+  them; their tests move with them) so photo import and curation can reuse
+  them without importing quiz code.
 - `quiz/tagSignals.ts` — stays as the quiz-specific gate approximation
   (prefilter tiers), now importing the shared derivations instead of owning
   them. Its exported behavior with no new signals present must stay
   byte-identical (regression-locked, same technique as the pretagging plan).
 
-Storage stays in `photos.db` next to its siblings; all new tables wire into
+Storage stays in `photos.db` next to its siblings; the one new table wires into
 `clearPhotoCache()` and the cached-photo removal path exactly like
 `photo_ml_tags`.
 
@@ -141,7 +148,7 @@ CREATE TABLE IF NOT EXISTS photo_intent_tags (
   meta_version INTEGER NOT NULL,
   is_favorite INTEGER NOT NULL,
   has_adjustments INTEGER NOT NULL,
-  subtypes TEXT,                 -- JSON array
+  subtypes TEXT,                 -- JSON array, same convention as labels_json
   burst_id TEXT,
   burst_is_representative INTEGER NOT NULL,
   source_user_library INTEGER NOT NULL,
@@ -154,7 +161,9 @@ CREATE TABLE IF NOT EXISTS photo_intent_tags (
 
 Refresh policy: full-library metadata pass at the end of each background photo
 sync, throttled to once per 24h (`photo_cache_metadata` key), plus the same
-on-demand burst quiz creation already uses for pixel tags.
+on-demand burst quiz creation already uses for pixel tags. The scheduler is
+the existing `photoTaggingService.ts` — a metadata pass is a second pass type
+in the same service, not a new service.
 
 ### 1c. Derived context — `photoSignals/captureContext.ts` (pure TS, no storage)
 
@@ -162,8 +171,9 @@ Computed on demand from `cached_photos` rows already in memory for a candidate
 set — cheap enough not to persist:
 
 - `dwellBeforeSec` — gap to the previous photo by `creation_time`.
-- `retryCount` — photos within a 60s window in the same geohash cell. Interest
-  signal (cluster size), not a quality signal.
+- `retryCount` — photos within a 60s window in the same geohash cell. An
+  interest signal feeding the quality score ("the user thought this was worth
+  getting right"); it has no other consumer in this plan.
 - `sunElevation` — solar elevation from lat/lng + timestamp (20-line local
   formula, no network); exposes `goldenHour` / `night` bands.
 - `altitudeDelta` — `photo.altitude − median(altitude of its trip segment)`;
@@ -177,137 +187,113 @@ set — cheap enough not to persist:
 
 ### 1d. Composite quality score — `photoSignals/qualityScore.ts`
 
-The memo's §7 weighted sum, adapted to what we have per phase:
+The memo's §7 weighted sum, adapted to what we have:
 
 ```
-quality(profile) = w1·aestheticPercentile + w2·intent + w3·context (+ later: clip terms)
+quality = w1·aestheticRank + w2·intent + w3·context
 intent  = capped sum of favorite / edited / in-album / burst-representative
-context = goldenHour + altitudeDelta bonus − movingCapture − savedFromSocial
+context = goldenHour + altitudeDelta bonus + retry interest
+          − movingCapture − savedFromSocial
 ```
 
-- **Rank-normalize `aestheticScore` per library** (percentile against the
-  user's own tagged distribution, cached in `photo_cache_metadata`, refreshed
-  per tagging pass). Raw −1..1 values are not comparable across libraries and
-  the range is undocumented — percentiles are the stable currency.
-- Weight profiles per purpose (`quiz` | `visionPick` | `curation`) — one
-  feature vector, different weightings, exactly the memo's "per-purpose heads"
-  in hand-tuned form. All weights are plain TS constants: OTA-retunable.
+- **Normalize `aestheticScore` within the pool being ranked** (rank position
+  among the candidates at hand), not against a persisted whole-library
+  distribution. Raw −1..1 values are not comparable across libraries and the
+  range is undocumented; pool-relative rank compares like with like (same
+  trip, same country pool) and needs zero caching infrastructure.
+- **One scoring function, not per-purpose profiles.** Surfaces differ in how
+  they *use* the score (quiz: tie-break within tiers; vision pick: choose
+  among near-centroid frames; curation: sort), not in what "a good photo"
+  means. A per-purpose weight table is speculative config — add a profile only
+  when telemetry shows two surfaces genuinely disagree.
 - Photos with `status != 'ok'` or missing tags stay exactly neutral — an
   iCloud-offloaded photo is never penalized for being offloaded (existing
   invariant, keep it).
 
-## Phase 2 — Near-duplicate structure (feature print)
+## Phase 2 — Generalize the existing near-duplicate collapse
 
-### 2a. Native
+No new tables, no native work, no feature prints. The timestamp+distance
+collapse in `candidateSelection.ts` already solves grouping; what it lacks is
+quality awareness and reuse outside quiz.
 
-Add `VNGenerateImageFeaturePrintRequest` to the existing single
-`perform([...])` in `tagAsset` — shared decode, one more request. Return the
-print as base64 `Data` on the tag payload. Bump `TAGGER_VERSION` (Swift output
-changed — this is the legitimate bump case).
-
-### 2b. Grouping in TS, storing groups not prints
-
-Storing prints for a 50k library is ~150MB — unacceptable. Instead
-`photoSignals/dupeGroups.ts` groups **within a temporal-spatial neighborhood**
-at tag time (bursts and retries are sub-minute, same geohash cell): compare each
-newly tagged photo's print against its neighbors' prints from the same tagging
-pass plus persisted group exemplars, threshold on Vision's `computeDistance`,
-and persist only:
-
-```sql
-CREATE TABLE IF NOT EXISTS photo_dupe_groups (
-  id TEXT PRIMARY KEY NOT NULL,        -- asset id
-  group_id TEXT NOT NULL,              -- stable id of the dupe cluster
-  group_size INTEGER NOT NULL,
-  role TEXT NOT NULL                   -- 'only' | 'representative' | 'sibling'
-);
-CREATE INDEX IF NOT EXISTS idx_photo_dupe_groups_group ON photo_dupe_groups(group_id);
-```
-
-Representative choice per group: burst representative if flagged, else
-favorited/edited member ("survived the cull"), else highest quality score.
-Exemplar prints (one per group, transient working set) may be kept in a small
-side table capped by count; everything else is discarded after grouping.
-
-- `group_size` doubles as the memo's retry-count **interest** signal where the
-  photos are near-identical (distinct-scene retries still come from
-  `captureContext.retryCount`).
-- Distance threshold is a TS constant; the Swift side only ever returns raw
-  prints. Threshold tuning ships OTA; only re-grouping (not re-tagging) is
-  needed after a change, because prints are re-derivable for the temporal
-  neighborhood being re-grouped. Accepted cost: re-grouping an old
-  neighborhood requires re-tagging those assets first.
-
-### 2c. BUG-2 closure
-
-`pickQuizPhotos` / `orderByCountrySpread` gain: at most one photo per
-`group_id` in a quiz (siblings excluded at pick time, not deprioritized); the
-swap picker excludes groups already present in the quiz. This closes the
-near-identical-assets path of BUG-2; the backlog's same-asset guard
-verification stays a separate bug task (per CLAUDE.md, a reproducing test comes
-first if it turns out to fail).
+- Move `isNearDuplicatePair` / `collapseNearDuplicates` /
+  `filterNearDuplicatesOf` to `photoSignals/nearDuplicates.ts` (pure move;
+  quiz re-imports; tests move with them).
+- `collapseNearDuplicates` gains an optional `representative` comparator.
+  Default: newest frame (today's behavior, so all existing call sites are
+  unchanged). With signals loaded: favorited > edited > highest quality —
+  the memo's "survived the cull" and "burst pick" signals expressed as a sort,
+  plus `burst_id` equality as an additional pairing criterion when intent tags
+  are present (catches bursts that drift past the 100m GPS radius).
+- Known limitation, accepted: a re-save or edited copy appearing hours later
+  is not caught by a time-window collapse. That is what feature-print
+  embeddings would buy, and the day-diversity pass already prevents the
+  user-visible symptom (two lookalikes in one quiz). Feature print stays
+  Deferred until a real recurrence, not a hypothetical, justifies a
+  whole-library re-tag and blob management.
 
 ## Phase 3 — Surface integrations
 
 ### 3a. Guess Where (quiz)
 
 - `tagSignals.deriveSignals` consumes intent + context: `savedFromSocialLikely`
-  and `movingCapture` push to `marginal`; favorite/edited/in-album and golden
-  hour feed the quality tie-break already used by `orderByDaySpread` (line
-  `candidateSelection.ts:336`) via the `quiz` weight profile.
-- Dupe-group exclusion per 2c.
+  and `movingCapture` push to `marginal`; the composite quality score replaces
+  raw `aestheticScore` in the existing `orderByDaySpread` tie-break
+  (`candidateSelection.ts:336`) — same hook, richer input.
+- Duplicate collapse picks the best frame instead of the newest (Phase 2
+  comparator; one-argument change at the existing call sites).
 - Existing invariants preserved: untagged library ⇒ byte-identical ordering;
   hard drops stay exactly the current three (screenshot, `isUtility`, people
   ≥30%) until `tagAgreement` telemetry justifies more.
-- Free extra: `photo_quiz_verdicts.landscape` + dupe groups + quality
-  percentile give an easy/medium/hard difficulty *label* for later product use
-  — recorded as an enabler, no UI in this plan.
+- Free extra: `photo_quiz_verdicts.landscape` + quality rank give an
+  easy/medium/hard difficulty *label* for later product use — recorded as an
+  enabler, no UI in this plan.
 
-### 3b. Photo import / place matching
+### 3b. Photo import vision selection (client-only)
 
-- `selectRepresentativePhotos` (`visionPhoto.ts`) becomes signal-aware via an
-  optional tags map argument (pure function, caller loads tags): keep the
-  closest-to-centroid anchor, but fill the remaining slots preferring distinct
-  dupe groups and the highest `visionPick` quality — never send two frames of
-  the same burst to Gemini, never send the blurry retry when the kept frame
-  exists. Untagged clusters ⇒ current behavior byte-identical.
-- Send one new optional cluster-level field to `/photos/suggest-places`:
-  `retry_count` (max same-scene retries in cluster) as an interest signal the
-  ranking mixin can weight alongside dwell. Backend: one optional Pydantic
-  field + one optional weight (`PLACES_RANK_RETRY_WEIGHT`, default 0 = off),
-  tuned later through the existing offline evaluator. Nothing else server-side
-  changes; no coordinates/ids added to any log line.
+`selectRepresentativePhotos` (`visionPhoto.ts`) becomes signal-aware via an
+optional tags map argument (stays a pure function; caller loads tags): keep the
+closest-to-centroid anchor, but run the candidates through
+`collapseNearDuplicates` first and fill the remaining slots by quality — never
+send two frames of the same burst to Gemini, never send the blurry retry when
+a better frame of the same moment exists. Untagged clusters ⇒ current behavior
+byte-identical.
+
+No backend change in this phase. (Sending a retry-count signal to the place
+matcher is Deferred: it adds API surface for a weight we cannot tune until
+labeled diagnostic data containing it exists.)
 
 ### 3c. Auto-curation ("best photos")
 
 New query layer `photoSignals/bestPhotos.ts`:
 `getBestPhotoIds({ clusterId | segmentId | countryCode, limit })` — quality
-percentile via the `curation` profile, one per dupe group, screenshots/utility
-excluded. Wire into, in order of visibility:
+rank, one per dupe group, screenshots/utility excluded. Two wiring targets in
+this plan, chosen because both already have a photo-choosing code path to swap:
 
 1. `cached_trip_segments.preview_uris` selection (Photo Trips cards) — pick
    best instead of first.
 2. `PhotoGalleryModal` / cluster photo pickers — "best first" default sort,
    chronological toggle retained.
-3. Entry photo attach (`EntryFormScreen`) and `useNearbyPhotos` — surface best
-   candidates first when suggesting photos for an entry.
-4. Country detail / passport surfaces that preview local photos
-   (`useCountryPhotoInfo` consumers) — best-photo thumbnail where a photo is
-   shown at all.
+
+Entry-attach suggestions and passport/country thumbnails are natural follow-ups
+once the layer proves itself; they are follow-up work items, not part of this
+plan's scope.
 
 Explicit non-change: the quiz share card and link-unfurl **no-personal-photos
 privacy rule stays** (`QuizChallengeVariant.tsx`); curation applies only to
 photos the user is already choosing among inside the app, and to media they
 explicitly upload. No auto-publishing of anything.
 
-## Phase 4 — MobileCLIP embedding
+## Phase 4 — MobileCLIP embedding (decide after Phases 1–3 ship)
 
-The one non-Apple component, added last because Phases 1–3 don't depend on it.
+The one non-Apple component. Scoped to the lean core; commit only if the
+Phase 1–3 telemetry shows semantic misses that metadata cannot fix (e.g.
+saved-meme photos surviving the dimension heuristic, scenic misranking).
 
 - **Model:** MobileCLIP2-S0 image encoder as Core ML, delivered by on-demand
   download (not bundled — keep the binary small; cache in Application Support;
   feature no-ops until present). Runs inside the existing budgeted tagging
-  pass at 256–288px input, distinct from the 512px Vision decode.
+  pass, distinct input size from the 512px Vision decode.
 - **Text side stays offline:** prompt embeddings for a curated prompt set
   (scenic / landmark / selfie / food / menu-sign / screenshot-or-meme /
   through-a-window / blurry-accident) are precomputed at build time and shipped
@@ -315,88 +301,81 @@ The one non-Apple component, added last because Phases 1–3 don't depend on it.
   regenerate JSON = OTA ship.
 - **Storage:** int8-quantized 512-d embedding (~0.5KB/photo) in a new
   `photo_clip_embeddings` table, written only for photos the priority order
-  actually reaches (same budget discipline as pixel tags) — ~1–2MB for the
-  quiz-relevant head of a big library, not 100MB for all of it.
-- **Consumers:**
-  - Zero-shot scores join the quality/prefilter feature vector (a second
-    opinion on scenic-vs-not and a saved-meme detector that generalizes past
-    dimension heuristics).
-  - **Landmark recognizability:** backend text-encodes "a photo of {POI name}"
-    server-side (one small addition to the suggest-places response or a tiny
-    endpoint; embeddings only, never images) → client cosine vs. the photo ⇒
-    iconic-view score. Feeds quiz difficulty and curation "hero shot" choice.
-  - **Novelty:** nearest-neighbor distance within the user's own stored
-    embeddings, as a curation tie-breaker.
-  - Embeddings never leave the device; the landmark path ships text embeddings
-    down, not image embeddings up.
+  actually reaches (same budget discipline as pixel tags).
+- **Consumer:** zero-shot scores join the quality feature vector; embeddings
+  never leave the device.
+- **Explicitly split out as a separate go/no-go:** landmark recognizability
+  (server text-encodes "a photo of {POI name}") requires deploying the CLIP
+  text encoder server-side — real infra with one consumer. It is Deferred, not
+  bundled into this phase.
 
 ## Rollout / kill switches
 
 `mobile/src/config/features.ts` gains one flag per phase:
-`enableIntentSignals`, `enableDupeGrouping`, `enableQualityCuration`,
-`enableClipSignals`. Same posture as the pretagging rollout: everything ships
-shadow-first (rank + telemetry), hard behavior (drops, exclusions) tightens OTA
-after agreement data. Module-absent / Android / old-binary ⇒ all signals
-neutral ⇒ today's behavior, verified by regression-locked tests.
+`enableIntentSignals`, `enableQualityRanking` (covers Phases 2–3 — one flag,
+because they ship as one behavior change per surface), `enableClipSignals`.
+Same posture as the pretagging rollout: everything ships shadow-first (rank +
+telemetry), hard behavior tightens OTA after agreement data. Module-absent /
+Android / old-binary ⇒ all signals neutral ⇒ today's behavior, verified by
+regression-locked tests.
 
 ## Telemetry (additive, same privacy rule)
 
 - `quiz_prefilter_agreement` gains per-signal columns (pass rate by
-  intent/dupe/context bucket) so each new signal earns its weight with real
-  verdict data before it can gate anything.
-- New `photo_signal_coverage` event per tagging pass: counts of
-  intent-tagged / pixel-tagged / grouped / embedded, `no-local-image` rate.
-  Counts and ratios only — no ids, no coordinates.
+  intent/context bucket) so each new signal earns its weight with real verdict
+  data before it can gate anything.
+- `photo_signal_coverage` per tagging pass: counts of intent-tagged /
+  pixel-tagged, metadata pass duration, `no-local-image` rate. Counts and
+  ratios only — no ids, no coordinates.
 - Curation surfaces log picked-vs-overridden (user chose a different photo than
-  our best pick) — this is the memo's "learn from deselects" raw material, even
-  though learned weights are deferred.
+  our best pick) — the memo's "learn from deselects" raw material, even though
+  learned weights are deferred.
 
 ## Testing
 
 - Jest, all pure TS: `captureContext` (dwell/retry/sun/altitude tables),
-  `qualityScore` (profiles, percentile normalization, neutral-when-missing),
-  `dupeGroups` (grouping with mocked distances, representative election,
-  re-group stability), `bestPhotos`; extend `candidateSelection.test.ts`
-  (dupe exclusion; no-signals ordering byte-identical — regression lock);
-  `visionPhoto` selection with and without tags map.
+  `qualityScore` (pool-rank normalization, neutral-when-missing),
+  `nearDuplicates` (existing tests move; new cases for the representative
+  comparator and `burst_id` pairing); extend `candidateSelection.test.ts`
+  (no-signals ordering byte-identical — regression lock); `visionPhoto`
+  selection with and without tags map; `bestPhotos`.
 - Native: extend the dev diagnostic grid (behind `showDebugInfo`) with intent
-  badges and dupe-group overlays — the human-eyeball pass is again the highest
-  value test, especially for the feature-print distance threshold and the
-  saved-from-social heuristic.
-- Backend: schema test for optional `retry_count`; evaluator run confirming
-  `PLACES_RANK_RETRY_WEIGHT=0` is a no-op.
+  badges — the human-eyeball pass is again the highest-value test, especially
+  for the saved-from-social heuristic.
 
 ## Risks / watch items
 
 1. **Intent staleness** — favorites drift; mitigated by the cheap 24h
    whole-library metadata refresh. Watch pass duration on 50k-photo libraries.
-2. **Feature-print storage/compute** — grouping is neighborhood-scoped
-   precisely to avoid O(n²) and blob storage; if exemplar tables grow, cap and
-   evict oldest groups.
-3. **`hasAdjustments` via `PHAssetResource`** — resource enumeration cost per
+2. **`hasAdjustments` via `PHAssetResource`** — resource enumeration cost per
    asset must be measured in the metadata pass; if slow, drop to
    favorites/subtypes-only for v1.
-4. **Saved-from-social false positives** (legit photos at social dimensions) —
+3. **Saved-from-social false positives** (legit photos at social dimensions) —
    down-rank only, never drop; watch agreement telemetry before hardening.
-5. **CLIP model delivery** — on-demand download failure modes (offline first
-   run) must degrade silently to Phase 1–3 behavior; version the model file
-   like `modelVersion` in the memo's §8.
-6. **iOS-only skew widens** — Android users get timestamp/context signals only.
+4. **CLIP model delivery** — on-demand download failure modes (offline first
+   run) must degrade silently to Phase 1–3 behavior; version the model file.
+5. **iOS-only skew widens** — Android users get timestamp/context signals only.
    Accepted for now; recorded as the trigger to revisit if Android engagement
    with quiz/curation surfaces materially lags.
 
 ## Deferred (recorded, not planned)
 
-- On-device LLM pairwise judging / flaw tags (Foundation Models) — revisit when
-  iOS 27 image input is broadly deployed; our Gemini gate already covers the
-  quiz's judging need.
-- Learned weights from deselects and true per-purpose trained heads — the
+- **Feature-print perceptual dedupe** — the time-window collapse plus day
+  diversity already covers the user-visible cases; revisit only on a real
+  recurrence of lookalike dupes it cannot catch.
+- **Backend retry-count ranking signal** — needs labeled diagnostic data
+  before a weight is tunable; client keeps the signal local until then.
+- On-device LLM pairwise judging / flaw tags (Foundation Models) — our Gemini
+  gate already covers the quiz's judging need.
+- Learned weights from deselects and per-purpose weight profiles — the
   telemetry to feed them ships in this plan; training does not.
-- Cross-user postcard/centroid labeling — consent + server design of its own.
+- Landmark recognizability (server-side CLIP text encoder), novelty scoring,
+  cross-user postcard/centroid labeling.
 - Full EXIF capture (lens/ISO/zoom) — via `CGImageSource` properties on
   original data if a surface ever needs it; expensive, low marginal value now.
-- Android parity (MediaStore `IS_FAVORITE`, LiteRT CLIP).
-- Live Photo best-frame selection; HDR gain-map display handling.
+- Android parity (MediaStore `IS_FAVORITE`, LiteRT CLIP); Live Photo
+  best-frame; HDR gain-map display handling.
+- Entry-attach and passport/country best-photo wiring (follow-ups to 3c).
 
 ## Sequencing and sizes
 
@@ -404,17 +383,43 @@ neutral ⇒ today's behavior, verified by regression-locked tests.
 | ---- | -------- | ---- | ----- |
 | 1 | `photo_intent_tags` schema + `photoTagDb` additions + Jest | S | merge first, inert |
 | 2 | Native `readPhotoMeta` + metadata pass in `photoTaggingService` | M | needs dev-client rebuild; inert until flag |
-| 3 | `photoSignals/` package: captureContext, qualityScore, profiles | M | OTA |
-| 4 | Quiz integration (tagSignals consumes shared layer; intent/context in tiers) | M | OTA, shadow |
-| 5 | Feature print in tagger + `dupeGroups` + BUG-2 pick/swap exclusion | L | rebuild + OTA |
-| 6 | `visionPhoto` signal-aware selection + backend `retry_count` (weight 0) | M | OTA + backend deploy |
-| 7 | `bestPhotos` + curation wiring (segments, gallery, entry attach, country) | L | OTA |
-| 8 | MobileCLIP: model delivery, encoder in pass, embeddings table, zero-shot + landmark + novelty consumers | XL | rebuild + backend |
+| 3 | `photoSignals/`: captureContext, qualityScore, nearDuplicates move | M | OTA |
+| 4 | Quiz integration (tagSignals consumes shared layer; quality tie-break; best-frame comparator) | S | OTA, shadow |
+| 5 | `visionPhoto` signal-aware selection | S | OTA |
+| 6 | `bestPhotos` + segment previews + gallery best-first | M | OTA |
+| 7 | MobileCLIP go/no-go review, then: model delivery, encoder in pass, embeddings table, zero-shot consumer | L | rebuild |
 
 Critical files — modify: `mobile/modules/photo-tagger/ios/PhotoTaggerModule.swift`,
 `mobile/src/services/photoImport/{photoTagDb,photoTaggingService,visionPhoto,photoCacheDb}.ts`,
-`mobile/src/services/quiz/{tagSignals,candidateSelection,quizPlay}.ts`,
-`mobile/src/config/features.ts`, `backend/app/schemas/photos.py`,
-`backend/app/services/place_matcher/_matcher_ranking.py`.
-Create: `mobile/src/services/photoSignals/{captureContext,qualityScore,dupeGroups,bestPhotos,index}.ts`,
-`photo_intent_tags` / `photo_dupe_groups` / `photo_clip_embeddings` tables.
+`mobile/src/services/quiz/{tagSignals,candidateSelection}.ts`,
+`mobile/src/config/features.ts`.
+Create: `mobile/src/services/photoSignals/{captureContext,qualityScore,nearDuplicates,bestPhotos,index}.ts`,
+`photo_intent_tags` table (Phase 1), `photo_clip_embeddings` table (Phase 4 only).
+
+## Review Notes (2026-08-21 simplification pass)
+
+Reviewed against the repo's reuse/simplification/efficiency criteria before any
+implementation. Changes from the first draft, so the reasoning survives:
+
+1. **Feature-print dedupe phase deleted** (was Phase 2). The first draft claimed
+   it "closes BUG-2"; verification showed BUG-2 is already fixed by
+   `collapseNearDuplicates` + diversity passes in `candidateSelection.ts`. The
+   proposed `photo_dupe_groups` table, exemplar side-table, and
+   `TAGGER_VERSION` bump (whole-library re-tag) rebuilt working 50-line code
+   with ML infrastructure. Replaced by generalizing the existing collapse.
+2. **Backend `retry_count` + `PLACES_RANK_RETRY_WEIGHT` cut to Deferred.** New
+   API surface for a default-off weight nobody can tune until labeled data
+   exists is speculative plumbing.
+3. **Per-purpose weight profiles collapsed to one scoring function.** Three
+   hand-tuned profiles with no data distinguishing them is config for its own
+   sake.
+4. **Persisted aesthetic-percentile distribution cut.** Pool-relative rank at
+   scoring time is simpler and compares a photo against the candidates it
+   actually competes with.
+5. **Curation wiring trimmed 4 → 2 surfaces**; the other two are follow-ups
+   once the layer proves itself.
+6. **Phase 4 slimmed to the zero-shot core with a go/no-go gate**; the
+   server-side text encoder (landmark recognizability) and novelty scoring
+   moved to Deferred — each was a heavy dependency with a single speculative
+   consumer.
+7. **Feature flags 4 → 3** (Phases 2–3 ship as one behavior change).
