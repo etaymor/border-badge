@@ -428,6 +428,35 @@ describe('photoTagDb', () => {
     });
   });
 
+  describe('getStaleIntentIds', () => {
+    const DAY = 24 * 60 * 60 * 1000;
+
+    it('returns every id when no intent rows exist', async () => {
+      mockDb.getAllAsync.mockResolvedValue([]);
+
+      const result = await photoTagDb.getStaleIntentIds(['a', 'b'], DAY);
+
+      expect(result).toEqual(['a', 'b']);
+    });
+
+    it('skips fresh rows and keeps stale ones, preserving order', async () => {
+      const now = 10_000_000_000;
+      mockDb.getAllAsync.mockResolvedValue([
+        { id: 'fresh', meta_version: photoTagDb.INTENT_META_VERSION, refreshed_at: now - 1000 },
+        { id: 'stale', meta_version: photoTagDb.INTENT_META_VERSION, refreshed_at: now - 2 * DAY },
+        { id: 'old-version', meta_version: 0, refreshed_at: now - 1000 },
+      ]);
+
+      const result = await photoTagDb.getStaleIntentIds(
+        ['stale', 'fresh', 'old-version', 'missing'],
+        DAY,
+        now
+      );
+
+      expect(result).toEqual(['stale', 'old-version', 'missing']);
+    });
+  });
+
   describe('upsertVerdicts', () => {
     it('does nothing for an empty batch', async () => {
       await photoTagDb.upsertVerdicts([]);

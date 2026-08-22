@@ -275,6 +275,7 @@ function makeIntentHarness(
 
   const deps: IntentPassDeps = {
     loadAllIds: jest.fn(async () => ids),
+    getStaleIds: jest.fn(async (ordered: string[]) => ordered),
     readPhotoMeta: jest.fn(async (chunk: string[]) => chunk.map(intentTag)),
     upsertIntentTags: jest.fn(async (tags: PhotoIntentTag[]) => {
       committed.push(tags.map((t) => t.id));
@@ -295,6 +296,19 @@ function makeIntentHarness(
 }
 
 describe('runIntentPass', () => {
+  it('resumes into the stale tail instead of re-reading fresh rows', async () => {
+    // A prior time-budgeted sweep already refreshed photo-0..photo-5; the
+    // staleness filter must make this sweep start at the tail.
+    const harness = makeIntentHarness({
+      getStaleIds: jest.fn(async (ordered: string[]) => ordered.slice(6)),
+    });
+
+    const result = await runIntentPass(harness.deps, new AbortController().signal);
+
+    expect(result.tagged).toBe(4);
+    expect(harness.committed).toEqual([['photo-6', 'photo-7', 'photo-8', 'photo-9']]);
+  });
+
   it('sweeps every id and commits after every chunk', async () => {
     const harness = makeIntentHarness();
 

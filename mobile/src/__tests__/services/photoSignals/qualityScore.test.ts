@@ -51,9 +51,9 @@ const item = (id: string, aestheticScore: number | null, rest: Partial<QualityIn
 describe('computeQualityScores', () => {
   it('rank-normalizes aesthetics within the pool', () => {
     const scores = computeQualityScores([item('low', -0.5), item('mid', 0.1), item('high', 0.9)]);
-    expect(scores.get('low')).toBe(0);
-    expect(scores.get('mid')).toBe(0.5);
-    expect(scores.get('high')).toBe(1);
+    expect(scores.get('low')).toBe(-0.5);
+    expect(scores.get('mid')).toBe(0);
+    expect(scores.get('high')).toBe(0.5);
   });
 
   it('gives tied aesthetics identical ranks regardless of input order', () => {
@@ -61,14 +61,20 @@ describe('computeQualityScores', () => {
     expect(scores.get('a')).toBe(scores.get('b'));
   });
 
-  it('scores an unmeasured photo pool-neutral, not bottom', () => {
+  it('scores an unmeasured photo at the 0 neutral, not the bottom', () => {
     const scores = computeQualityScores([item('measured', 0.9), item('unmeasured', null)]);
-    expect(scores.get('unmeasured')).toBe(0.5);
+    expect(scores.get('unmeasured')).toBe(0);
   });
 
-  it('ranks a single measured photo mid-pool rather than at the top', () => {
+  it('ranks a single measured photo neutral rather than at the top', () => {
     const scores = computeQualityScores([item('only', 0.99), item('none', null)]);
-    expect(scores.get('only')).toBe(0.5);
+    expect(scores.get('only')).toBe(0);
+  });
+
+  it('scores an all-neutral row exactly like no row at all', () => {
+    // Consumers default rowless photos to 0; a neutral row must tie them.
+    const scores = computeQualityScores([item('neutral-row', null, { intent: intent() })]);
+    expect(scores.get('neutral-row')).toBe(0);
   });
 
   it('lets a favorite win among aesthetically similar photos', () => {
@@ -101,7 +107,7 @@ describe('computeQualityScores', () => {
         }),
       }),
     ]);
-    expect(scores.get('stacked')).toBe(0.5 + INTENT_CAP);
+    expect(scores.get('stacked')).toBe(INTENT_CAP);
   });
 
   it('encodes favorite above edited', () => {
@@ -113,8 +119,8 @@ describe('computeQualityScores', () => {
       item('golden', null, { context: context({ goldenHour: true }) }),
       item('saved', null, { context: context({ savedFromSocialLikely: true }) }),
     ]);
-    expect(scores.get('golden')).toBeCloseTo(0.5 + WEIGHT_GOLDEN_HOUR);
-    expect(scores.get('saved')).toBeCloseTo(0.5 - PENALTY_SAVED_FROM_SOCIAL);
+    expect(scores.get('golden')).toBeCloseTo(WEIGHT_GOLDEN_HOUR);
+    expect(scores.get('saved')).toBeCloseTo(-PENALTY_SAVED_FROM_SOCIAL);
   });
 
   it('returns an empty map for an empty pool', () => {

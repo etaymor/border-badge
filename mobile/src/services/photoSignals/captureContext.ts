@@ -103,8 +103,15 @@ function median(values: number[]): number {
   return sorted.length % 2 === 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
 }
 
+/**
+ * Country + LOCAL calendar day, with local approximated from longitude
+ * (15 deg/hour). A UTC day would split one day of shooting in two anywhere the
+ * local date rolls over mid-outing (e.g. a morning hike in Tokyo), starving
+ * the median of samples exactly when the viewpoint signal matters.
+ */
 function altitudeGroupKey(photo: CaptureContextPhoto): string {
-  return `${photo.countryCode ?? '?'}:${new Date(photo.creationTime).toISOString().slice(0, 10)}`;
+  const localMs = photo.creationTime + (photo.longitude / 15) * 3_600_000;
+  return `${photo.countryCode ?? '?'}:${new Date(localMs).toISOString().slice(0, 10)}`;
 }
 
 function isSavedFromSocial(

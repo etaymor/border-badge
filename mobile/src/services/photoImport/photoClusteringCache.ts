@@ -185,6 +185,23 @@ export function segmentTripsFromCache(
  * read fails; an untagged library still gets duplicate collapse, which is part
  * of the flagged behavior change.
  */
+/**
+ * Cap on photos ranked (and tag rows read) per segment. Without it, a scan's
+ * preview pass reads and JSON-parses tag rows for effectively the whole
+ * library just to build 30-item strips. Sampling is EVENLY SPACED through the
+ * segment's chronology - a plain prefix would bias every strip toward the
+ * start of the trip.
+ */
+const PREVIEW_RANK_POOL_MAX = 300;
+
+function sampleEvenly<T>(items: T[], max: number): T[] {
+  if (items.length <= max) return items;
+  const step = items.length / max;
+  const sampled: T[] = [];
+  for (let i = 0; i < max; i++) sampled.push(items[Math.floor(i * step)]);
+  return sampled;
+}
+
 export async function rankTripSegmentPreviews(
   candidates: TripCandidateDisplay[],
   photoLookup: Map<string, PhotoWithLocation>
@@ -193,17 +210,19 @@ export async function rankTripSegmentPreviews(
   if (candidates.length === 0) return candidates;
 
   try {
-    const allIds = [...new Set(candidates.flatMap((c) => c.photoIds))];
+    const sampledIds = new Map(
+      candidates.map((c) => [c.id, sampleEvenly(c.photoIds, PREVIEW_RANK_POOL_MAX)])
+    );
+    const allIds = [...new Set([...sampledIds.values()].flat())];
     const [mlTags, intentTags] = await Promise.all([
       getTagsForIds(allIds),
       getIntentTagsForIds(allIds),
     ]);
 
     return candidates.map((candidate) => {
-      // Rank over the segment's full pool (not the current preview slice) so
-      // "best" means best of the trip, and dwell/retry context is measured
-      // against the real timeline.
-      const pool = candidate.photoIds
+      // Rank over a bounded, evenly-spread sample of the segment (not just the
+      // current preview slice) so "best" still means best of the whole trip.
+      const pool = (sampledIds.get(candidate.id) ?? [])
         .map((id) => photoLookup.get(id))
         .filter((p): p is PhotoWithLocation => p !== undefined);
       if (pool.length < 2) return candidate;

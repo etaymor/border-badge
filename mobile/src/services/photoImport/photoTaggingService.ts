@@ -33,6 +33,7 @@ import { getMetadata, setMetadata } from './photoCacheDb';
 import { isBackgroundSyncInProgress } from './photoBackgroundSync';
 import { isScanRunning } from './photoScanState';
 import {
+  getStaleIntentIds,
   getTagCoverageStats,
   getUntaggedIds,
   INTENT_META_VERSION,
@@ -190,12 +191,15 @@ export interface IntentPassResult {
 
 /** Everything the intent sweep touches, injected so it can be driven from a test. */
 export interface IntentPassDeps {
-  /**
-   * Every cached photo id - the sweep is whole-library by design. No priority
-   * order and no "untagged" filter, because intent drifts (favorites come and
-   * go) and every row is refreshed each sweep.
-   */
+  /** Every cached photo id - the sweep is whole-library by design. */
   loadAllIds(): Promise<string[]>;
+  /**
+   * Filter to ids whose row is missing, stale-versioned, or older than the
+   * sweep interval. This is the resume watermark: a time-budgeted sweep
+   * commits per chunk, so the next one skips the fresh prefix and continues
+   * into the tail instead of re-reading the same prefix forever.
+   */
+  getStaleIds(orderedIds: string[]): Promise<string[]>;
   readPhotoMeta(assetIds: string[]): Promise<PhotoIntentTag[]>;
   upsertIntentTags(tags: PhotoIntentTag[]): Promise<void>;
   chunkSize: number;
@@ -221,13 +225,16 @@ export async function runIntentPass(
   const allIds = await deps.loadAllIds();
   if (signal.aborted) return { tagged, chunks, stoppedBy: 'aborted' };
 
-  for (let index = 0; index < allIds.length; index += deps.chunkSize) {
+  const pending = await deps.getStaleIds(allIds);
+  if (signal.aborted) return { tagged, chunks, stoppedBy: 'aborted' };
+
+  for (let index = 0; index < pending.length; index += deps.chunkSize) {
     if (signal.aborted) return { tagged, chunks, stoppedBy: 'aborted' };
     if (deps.now() - startedAt >= INTENT_PASS_TIME_BUDGET_MS) {
       return { tagged, chunks, stoppedBy: 'time-budget' };
     }
 
-    const chunk = allIds.slice(index, index + deps.chunkSize);
+    const chunk = pending.slice(index, index + deps.chunkSize);
     let results: PhotoIntentTag[];
     try {
       results = await deps.readPhotoMeta(chunk);
@@ -378,6 +385,7 @@ export async function maybeRunTaggingPass(): Promise<TaggingPassResult | null> {
         const intentResult = await runIntentPass(
           {
             loadAllIds: () => loadAllCachedIds(),
+            getStaleIds: (ids) => getStaleIntentIds(ids, INTENT_PASS_MIN_INTERVAL_MS),
             readPhotoMeta: (ids) => readPhotoMeta(ids).then(toStoredIntentTags),
             upsertIntentTags,
             chunkSize: META_CHUNK_SIZE,
@@ -388,10 +396,11 @@ export async function maybeRunTaggingPass(): Promise<TaggingPassResult | null> {
           lock.controller.signal
         );
         intentTagged = intentResult.tagged;
-        // An aborted sweep does not stamp the window: unlike pixel tags there
-        // is no per-row resume filter, so stamping would defer the missed
-        // remainder a full day.
-        if (intentResult.stoppedBy !== 'aborted') {
+        // Only a COMPLETE sweep stamps the 24h window. An aborted or
+        // time-budgeted one leaves it unstamped so the next pass (10-minute
+        // cadence) resumes into the tail - per-chunk commits plus the
+        // staleness filter mean it skips everything already fresh.
+        if (intentResult.stoppedBy === 'complete') {
           await setMetadata(LAST_INTENT_PASS_KEY, Date.now().toString());
         }
       }

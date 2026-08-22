@@ -127,13 +127,29 @@ public class PhotoTaggerModule: Module {
     }
   }
 
-  /// Ids of every asset in a user-created album, built ONCE per readPhotoMeta
-  /// call. PhotoKit has no per-id membership query (`fetchAssets(in:)` options
-  /// cannot filter by localIdentifier), so the pragmatic option is enumerating
-  /// every regular album's contents into a Set. That is linear in total album
-  /// size - acceptable because fetch results fault assets lazily, we touch
-  /// nothing but the identifier, and the metadata pass runs at most daily.
+  /// Album-membership cache. A metadata sweep arrives as MANY readPhotoMeta
+  /// calls (one per ~250-id chunk), and enumerating every album's contents per
+  /// chunk would multiply the linear album walk by the chunk count. One walk
+  /// per sweep is the intended cost, so the Set is cached for a window that
+  /// comfortably outlives a sweep (time-budgeted to 30s on the TS side) while
+  /// staying far shorter than the daily sweep interval.
+  private static let albumCacheTTL: TimeInterval = 5 * 60
+  private static var albumCache: (ids: Set<String>, at: Date)?
+  private static let albumCacheLock = NSLock()
+
+  /// Ids of every asset in a user-created album. PhotoKit has no per-id
+  /// membership query (`fetchAssets(in:)` options cannot filter by
+  /// localIdentifier), so the only option is enumerating every regular album's
+  /// contents into a Set - linear in total album size, touching nothing but
+  /// identifiers, and paid once per sweep via the cache above.
   private static func userAlbumAssetIds() -> Set<String> {
+    albumCacheLock.lock()
+    defer { albumCacheLock.unlock() }
+
+    if let cached = albumCache, Date().timeIntervalSince(cached.at) < albumCacheTTL {
+      return cached.ids
+    }
+
     var ids = Set<String>()
     let collections = PHAssetCollection.fetchAssetCollections(
       with: .album,
@@ -145,6 +161,7 @@ public class PhotoTaggerModule: Module {
         ids.insert(asset.localIdentifier)
       }
     }
+    albumCache = (ids, Date())
     return ids
   }
 

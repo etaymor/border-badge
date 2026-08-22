@@ -57,7 +57,9 @@ export type PhotoMetaSubtype = 'pano' | 'hdr' | 'live' | 'depthEffect' | 'screen
  * PhotoKit intent/context metadata for one photo - zero pixels read. Like
  * `NativePhotoTag`, deliberately uninterpreted: raw values only, every
  * threshold lives in TypeScript. An id that no longer resolves still returns a
- * row, with every boolean false and every nullable null.
+ * row, with every boolean false and every nullable null - EXCEPT
+ * `sourceUserLibrary`, which reads true there: false means "saved from another
+ * app" downstream, so an unresolved id must read neutral, not suspicious.
  */
 export interface NativePhotoMeta {
   /** PHAsset localIdentifier; matches `cached_photos.id`. */

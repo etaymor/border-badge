@@ -9,9 +9,13 @@
  * Apple's aesthetic score is normalized by RANK WITHIN THE POOL being scored,
  * not against a persisted library distribution: raw values (-1..1, range
  * undocumented) are not comparable across libraries, and rank compares a photo
- * against the candidates it actually competes with. A photo with no measured
- * aesthetics scores the pool-neutral 0.5 - "unmeasured" must never read as
- * "unattractive".
+ * against the candidates it actually competes with.
+ *
+ * The scale is centered so that NO EVIDENCE scores exactly 0: consumers
+ * default un-scored photos to 0 (`tags?.qualityScore ?? 0`), so a photo whose
+ * only distinction is HAVING a neutral row must tie a photo with no row at
+ * all, not beat it. Aesthetic rank therefore spans -0.5..+0.5 around a 0
+ * neutral, and "unmeasured" never reads as "unattractive".
  */
 
 import type { PhotoIntentTag } from '@services/photoImport/photoTagDb';
@@ -79,9 +83,10 @@ export function computeQualityScores(items: QualityInput[]): Map<string, number>
   const scores = new Map<string, number>();
   if (items.length === 0) return scores;
 
-  // Pool-relative aesthetic rank in 0..1. Ties share the average of their
-  // positions so identical scores get identical ranks regardless of input
-  // order; a single measured item ranks mid-pool rather than claiming the top.
+  // Pool-relative aesthetic rank in -0.5..+0.5 around the 0 neutral. Ties
+  // share the average of their positions so identical scores get identical
+  // ranks regardless of input order; a single measured item ranks neutral
+  // rather than claiming the top.
   const measured = items
     .filter((item) => item.aestheticScore != null)
     .sort((a, b) => a.aestheticScore! - b.aestheticScore!);
@@ -94,7 +99,7 @@ export function computeQualityScores(items: QualityInput[]): Map<string, number>
     ) {
       end++;
     }
-    const rank = measured.length === 1 ? 0.5 : (index + end) / 2 / (measured.length - 1);
+    const rank = measured.length === 1 ? 0 : (index + end) / 2 / (measured.length - 1) - 0.5;
     for (let i = index; i <= end; i++) aestheticRank.set(measured[i].id, rank);
     index = end + 1;
   }
@@ -102,7 +107,7 @@ export function computeQualityScores(items: QualityInput[]): Map<string, number>
   for (const item of items) {
     scores.set(
       item.id,
-      (aestheticRank.get(item.id) ?? 0.5) + intentScore(item.intent) + contextScore(item.context)
+      (aestheticRank.get(item.id) ?? 0) + intentScore(item.intent) + contextScore(item.context)
     );
   }
   return scores;

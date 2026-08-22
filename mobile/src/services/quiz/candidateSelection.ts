@@ -92,21 +92,6 @@ export function toCandidate(cached: CachedPhoto): QuizPhotoCandidate {
 }
 
 /**
- * Pick the frame of a near-duplicate run that should survive: the highest
- * composite quality, falling back to the newest frame (the collapse default)
- * when nothing is scored - so an untagged pool collapses exactly as it always
- * has. "Favorited beats edited beats prettiest" needs no special casing here
- * because the quality weights already encode that ordering.
- */
-function bestFrame<T extends GeoEligibleCandidate>(group: T[]): T {
-  let best = group[group.length - 1];
-  for (const candidate of group) {
-    if ((candidate.tags?.qualityScore ?? 0) > (best.tags?.qualityScore ?? 0)) best = candidate;
-  }
-  return best;
-}
-
-/**
  * Diversity keys (game variety): two photos from the same calendar day - or
  * the same (country, year) pair - play as near-repeats even when they are
  * genuinely distinct shots. UTC days keep the keys deterministic; a photo's
@@ -518,11 +503,17 @@ export function pickQuizPhotos(
   // Belt-and-braces same-id guard, then a final near-duplicate collapse:
   // burst siblings classified in SEPARATE batches can both reach the eligible
   // pool, and the picked quiz must never contain two of them (BUG-2).
+  //
+  // Collapse keeps its newest-frame default deliberately: quality steers WHICH
+  // burst frame gets classified (and so offered to the ledger) first via the
+  // decorate-time ordering, which is where the enableQualityRanking kill
+  // switch lives. Making the collapse itself quality-aware here would bypass
+  // that switch.
   const uniqueById = new Map<string, GeoEligibleCandidate>();
   for (const candidate of eligible) {
     if (!uniqueById.has(candidate.id)) uniqueById.set(candidate.id, candidate);
   }
-  const collapsed = collapseNearDuplicates([...uniqueById.values()], bestFrame);
+  const collapsed = collapseNearDuplicates([...uniqueById.values()]);
   const ordered = orderByCountrySpread(collapsed, usedAssetIds, new Set(), Infinity);
 
   // Diversity passes: a game should never repeat a calendar day or a

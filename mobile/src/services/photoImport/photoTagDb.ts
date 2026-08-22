@@ -468,14 +468,38 @@ export async function getIntentTagsForIds(ids: string[]): Promise<Map<string, Ph
   return result;
 }
 
-/** Row count at the current meta version, for pass telemetry. */
-export async function getIntentTagCount(): Promise<number> {
+/**
+ * Given ids in sweep order, return those whose intent row is missing, below
+ * the current meta version, or older than `maxAgeMs`, preserving that order.
+ *
+ * This is the sweep's RESUME WATERMARK: a time-budgeted sweep commits per
+ * chunk, so the next sweep skips everything still fresh and continues from
+ * where the last one stopped - without it, a library too large for one budget
+ * would re-read the same prefix forever and the tail would never get rows.
+ * Same one-query index load as `getUntaggedIds`.
+ */
+export async function getStaleIntentIds(
+  orderedIds: string[],
+  maxAgeMs: number,
+  now: number = Date.now()
+): Promise<string[]> {
+  if (orderedIds.length === 0) return [];
+
   const database = await getDb();
-  const row = await database.getFirstAsync<{ count: number }>(
-    'SELECT COUNT(*) as count FROM photo_intent_tags WHERE meta_version = ?',
-    [INTENT_META_VERSION]
-  );
-  return row?.count ?? 0;
+  const rows = await database.getAllAsync<{
+    id: string;
+    meta_version: number;
+    refreshed_at: number;
+  }>('SELECT id, meta_version, refreshed_at FROM photo_intent_tags');
+
+  const existing = new Map(rows.map((r) => [r.id, r]));
+
+  return orderedIds.filter((id) => {
+    const row = existing.get(id);
+    if (!row) return true;
+    if (row.meta_version < INTENT_META_VERSION) return true;
+    return now - row.refreshed_at >= maxAgeMs;
+  });
 }
 
 // =============================================================================
