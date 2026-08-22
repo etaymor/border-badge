@@ -309,6 +309,46 @@ saved-meme photos surviving the dimension heuristic, scenic misranking).
   text encoder server-side — real infra with one consumer. It is Deferred, not
   bundled into this phase.
 
+## Phase 5 — On-device eligibility gate (Apple Foundation Models)
+
+Product decision (Emerson, 2026-08-22): migrate the paid Gemini quiz
+eligibility gate to Apple's on-device Foundation Models where the device
+supports it. The wins are latency (no network waves during creation), offline
+quiz creation, no external API dependency, and photos never leaving the device
+— not dollars (current Gemini spend is cents per creation after the prefilter).
+Independent of Phase 4; can start as soon as iOS 27 ships.
+
+**The binding constraint is hardware, not OS version.** Foundation Models runs
+only on Apple Intelligence-capable devices (iPhone 15 Pro and later), and
+image input requires iOS 27. Gemini therefore stays as the fallback gate for
+every other device — this is a migration with a shrinking fallback population,
+not a replacement.
+
+Staged rollout, one stage per release:
+
+1. **Capability telemetry.** Report `SystemLanguageModel.default.availability`
+   (+ image-input support) as a boolean in existing analytics so the capable
+   fraction of the real user base is a number, not a guess.
+2. **Shadow mode.** On capable devices, FM judges photos that already carry a
+   Gemini verdict in `photo_quiz_verdicts` (free labeled data; zero extra paid
+   calls) using a `@Generable` struct mirroring the server verdict schema:
+   `eligible`, `reason`, `landscape`. Log aggregate agreement — same pattern
+   and privacy rules as `tagAgreement`.
+3. **Flip primary on capable devices** once agreement is high (threshold set
+   from stage-2 data; the false-negative asymmetry rule applies — FM must not
+   reject photos Gemini accepts at any meaningful rate). Gemini remains the
+   path for non-capable devices and the automatic fallback on FM
+   errors/timeouts.
+
+Design rules: **one verdict schema, one `quizVerdictStore`, one downstream
+path** — the gate implementation is swappable behind the existing
+`classifyBatch` seam, so no consumer knows which model judged a photo
+(`classifier_version` records it, e.g. `apple-fm/ios27-v1`). Protocol-safe by
+construction: the server never validates per-photo classification at finalize,
+so no backend change. Scope: the quiz gate only — the photo-import vision path
+(signage OCR feeding place matching) stays on Gemini, where extraction quality
+is load-bearing and unproven on FM.
+
 ## Rollout / kill switches
 
 `mobile/src/config/features.ts` gains one flag per phase:
@@ -365,8 +405,9 @@ regression-locked tests.
   recurrence of lookalike dupes it cannot catch.
 - **Backend retry-count ranking signal** — needs labeled diagnostic data
   before a weight is tunable; client keeps the signal local until then.
-- On-device LLM pairwise judging / flaw tags (Foundation Models) — our Gemini
-  gate already covers the quiz's judging need.
+- On-device LLM pairwise judging / flaw tags — Phase 5 migrates the
+  eligibility gate; pairwise "which photo is better" ranking and flaw tagging
+  remain deferred until the gate migration proves FM quality.
 - Learned weights from deselects and per-purpose weight profiles — the
   telemetry to feed them ships in this plan; training does not.
 - Landmark recognizability (server-side CLIP text encoder), novelty scoring,
@@ -388,6 +429,8 @@ regression-locked tests.
 | 5 | `visionPhoto` signal-aware selection | S | OTA |
 | 6 | `bestPhotos` + segment previews + gallery best-first | M | OTA |
 | 7 | MobileCLIP go/no-go review, then: model delivery, encoder in pass, embeddings table, zero-shot consumer | L | rebuild |
+| 8 | FM gate stage 1–2: capability telemetry + shadow agreement (capable devices, iOS 27+) | M | rebuild |
+| 9 | FM gate stage 3: flip primary on capable devices, Gemini fallback retained | S | OTA |
 
 Critical files — modify: `mobile/modules/photo-tagger/ios/PhotoTaggerModule.swift`,
 `mobile/src/services/photoImport/{photoTagDb,photoTaggingService,visionPhoto,photoCacheDb}.ts`,
@@ -423,3 +466,9 @@ implementation. Changes from the first draft, so the reasoning survives:
    moved to Deferred — each was a heavy dependency with a single speculative
    consumer.
 7. **Feature flags 4 → 3** (Phases 2–3 ship as one behavior change).
+
+Addendum 2026-08-22: Phase 5 added by product decision — migrate the quiz
+eligibility gate to Apple Foundation Models on capable devices (Apple
+Intelligence hardware + iOS 27 image input), shadow-validated against cached
+Gemini verdicts, with Gemini retained as the fallback for non-capable devices
+and the photo-import vision path. Adds flag `enableOnDeviceGate`.
