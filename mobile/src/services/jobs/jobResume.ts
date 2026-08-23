@@ -6,11 +6,14 @@
  * should be picked up. Universal preconditions are handled here; job-specific
  * ones come from `descriptor.gates`.
  *
- * There is NO OS-level background execution today (no expo-task-manager, no
- * UIBackgroundModes). "Resume" means: iOS suspended the JS runtime, the user
- * reopened the app, and we continue from the last durable checkpoint. Nothing
- * here makes progress while the app is closed, and no user-facing copy may
- * claim otherwise.
+ * "Resume" means: the job stopped executing — iOS froze or suspended the
+ * process, a continued-processing lease expired and the loop yielded, or a
+ * BGProcessingTask ran out of time — the user reopened the app, and we
+ * continue from the last durable checkpoint. OS-level execution while the app
+ * is away exists in three tiers (see `docs/photo-import.md`, "Library job
+ * runtime and continuation"), but only the iOS 26 continued-processing lease
+ * is something a user can rely on, and the copy says so only while that lease
+ * is actually running. This module is the layer underneath all of them.
  */
 
 import { allDescriptors, getDescriptor } from './jobRegistry';

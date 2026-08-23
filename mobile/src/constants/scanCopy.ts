@@ -43,6 +43,12 @@
  * resumes on next foreground. `__tests__/constants/scanCopy.test.ts` enforces
  * it as a test rather than a convention, because a convention is exactly what
  * a future contributor would not know about.
+ *
+ * THE ONE TIER-GATED EXCEPTION: `leaveHintWhileLeased`. iOS 26's
+ * continued-processing lease (`services/jobs/continuationLease`) IS something
+ * a user can rely on — while it is actually held. That string renders only
+ * while `continuationLeaseStore` reads `running` on the `continued` tier, and
+ * it still never uses the banned words.
  */
 
 export type ScanJobKind = 'trip-scan' | 'quiz-build';

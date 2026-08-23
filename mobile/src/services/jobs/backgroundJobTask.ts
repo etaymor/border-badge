@@ -144,7 +144,7 @@ function defineTask(TaskManager: TaskManagerModule, BackgroundTask: BackgroundTa
 let registration: Promise<void> | null = null;
 
 /**
- * Define the task, install the yield provider, and ask iOS to schedule it.
+ * Define the task, register the yield driver, and ask iOS to schedule it.
  *
  * Call this as early as possible in app startup: TaskManager can hand back a
  * task the OS restored from a previous launch, and it has to be defined before
