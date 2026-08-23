@@ -200,7 +200,7 @@ const quiz = {
     switch (step) {
       case 'scanning':
         return options.isFirstScan
-          ? 'Reading your library — this is the one full pass'
+          ? 'Reading your library. This is the one full pass.'
           : 'Checking for photos added since last time';
       case 'checking':
         return 'Finding photos that make good questions';

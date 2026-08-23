@@ -57,13 +57,6 @@ export const styles = StyleSheet.create({
     color: colors.sunsetGold,
     textAlign: 'center',
   },
-  heroNeutralCopy: {
-    fontFamily: fonts.body.regular,
-    fontSize: 15,
-    lineHeight: 22,
-    color: withAlpha(colors.warmCream, 0.85),
-    textAlign: 'center',
-  },
   sheet: {
     backgroundColor: colors.warmCream,
     borderTopLeftRadius: 36,
@@ -74,6 +67,14 @@ export const styles = StyleSheet.create({
   },
   sheetContent: {
     gap: 14,
+  },
+  // The permission-request sheet carries a longer privacy notice than every
+  // other phase, so it gets its own roomier rhythm rather than stretching
+  // sheetContent (shared by phases with far less to say) to match.
+  permissionSheetContent: {
+    gap: 18,
+    paddingTop: 4,
+    paddingBottom: 12,
   },
   title: {
     fontFamily: fonts.playfair.bold,

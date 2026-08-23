@@ -112,12 +112,9 @@ export function QuizCreationScreen({ navigation, route }: Props) {
     ) : (
       <View style={[styles.heroNeutral, { paddingTop: insets.top }]} testID="quiz-hero-empty">
         <Text style={styles.heroEyebrow}>Guess Where</Text>
-        <Text style={styles.heroNeutralCopy}>
-          {SCAN_COPY.quiz.workingStatus(build.step, { isFirstScan })}
-        </Text>
       </View>
     );
-  } else if (phase === 'intro') {
+  } else if (phase === 'intro' || phase === 'permission-request') {
     hero = posterHero;
   } else if (phase === 'resume-draft') {
     hero = draftHeroUri ? (
@@ -199,7 +196,10 @@ export function QuizCreationScreen({ navigation, route }: Props) {
         )}
 
         {phase === 'permission-request' && (
-          <View style={styles.sheetContent} testID="quiz-permission-request">
+          <View
+            style={[styles.sheetContent, styles.permissionSheetContent]}
+            testID="quiz-permission-request"
+          >
             <Text style={styles.title}>{SCAN_COPY.quiz.permissionTitle}</Text>
             <Text style={styles.body}>{SCAN_COPY.quiz.permissionBody}</Text>
             {/* The literal same component the trips door renders. The hint
