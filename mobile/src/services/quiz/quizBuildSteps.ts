@@ -24,6 +24,8 @@
  * and rebuilds them from SQLite - see `quizPoolSetup.ts`.
  */
 
+import { InteractionManager } from 'react-native';
+
 import { CLASSIFICATION_BUDGET_PER_QUIZ } from './candidateSelection';
 import { runOneHuntPass, settleQuizRun } from './quizHuntLoop';
 import { setUpQuizRun, gamePickUris, withPickUris } from './quizPoolSetup';
@@ -122,6 +124,33 @@ async function restartAfterDraftGone(
   return restartCheckpoint(CLASSIFICATION_BUDGET_PER_QUIZ);
 }
 
+/** How long to wait for the navigation to settle before segmenting anyway. */
+const HANDOFF_TIMEOUT_MS = 3_000;
+
+/**
+ * Resolve once the UI has finished the work it already has in flight.
+ *
+ * `runAfterInteractions` fires when the navigation transition's handles clear,
+ * which is exactly the moment the play screen is on screen. It never fires in
+ * a headless context (a background task has no interactions and no UI), so the
+ * timeout is not a safety net - it is the normal path there.
+ */
+function afterHandoff(): Promise<void> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      resolve();
+    };
+    const timer = setTimeout(finish, HANDOFF_TIMEOUT_MS);
+    InteractionManager.runAfterInteractions(() => {
+      clearTimeout(timer);
+      finish();
+    });
+  });
+}
+
 /**
  * Run exactly one unit of the build and return the next checkpoint.
  *
@@ -194,6 +223,20 @@ export async function advanceQuizBuild(
     }
 
     case 'trips': {
+      // WAIT FOR THE HAND-OFF BEFORE TOUCHING THE THREAD.
+      //
+      // The challenge exists and the store has already been told (the step
+      // loop publishes the outcome the moment this unit's predecessor
+      // returns), so the screen is mid-navigation to the play screen. But
+      // `runQuizTripContinuation` re-segments the WHOLE cached library in one
+      // synchronous call, and starting it in this turn pins the JS thread
+      // before React can paint: the wizard sat at "10 of 10" for as long as
+      // segmentation took, then jumped straight to a finished challenge.
+      // Nothing was broken - the user was simply watching a blocked thread.
+      //
+      // Segmentation is the by-product; the navigation is what the user
+      // waited a minute for. Let it finish first.
+      await afterHandoff();
       // Best-effort by construction; see `quizTripContinuation`.
       await runQuizTripContinuation(env.signal);
       env.heartbeat?.();
