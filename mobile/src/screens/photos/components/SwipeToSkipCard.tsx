@@ -11,8 +11,20 @@
  *    finger to tap by accident.
  * 3. It survives cell recycling. FlashList v2 pools cells by item type and hands
  *    a pooled cell to a new item WITHOUT remounting it, so the class Swipeable's
- *    open state leaked into whatever cluster came next. `useRecyclingState` resets
- *    translateX during the render that reassigns the cell, before it paints.
+ *    open state leaked into whatever cluster came next.
+ *
+ * HOW THE RECYCLE RESET WORKS, AND WHY IT IS NOT `useRecyclingState`. That hook
+ * runs its reset inside a `useMemo`, i.e. DURING RENDER, and the reset here has
+ * to clear a Reanimated shared value. Writing to `.value` in the render phase is
+ * exactly what Reanimated's strict mode forbids and what the React Compiler may
+ * memoize around (CLAUDE.md note 10); on the suggestions list it fired ~1,350
+ * times per screen, each one serializing a stack trace to the console.
+ *
+ * So nothing is written during render. The offset carries an OWNER tag, and the
+ * animated styles ignore it whenever the owner is not the item currently in the
+ * cell. `useAnimatedStyle` re-evaluates when `itemId` changes, so a recycled cell
+ * paints at zero on the same frame the reset used to happen - without a write.
+ * The stale value is cleared on the UI thread when the next drag claims the cell.
  *
  * NEVER animate this card's height. FlashList's ViewHolder puts an onLayout on
  * every cell, which routes to validateItemSize -> recyclerViewContext.layout()
@@ -32,7 +44,6 @@ import Animated, {
   withSpring,
   withTiming,
 } from 'react-native-reanimated';
-import { useRecyclingState } from '@shopify/flash-list';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 
@@ -71,15 +82,15 @@ export function SwipeToSkipCard({
   children,
 }: SwipeToSkipCardProps) {
   const translateX = useSharedValue(0);
+  /** Which item `translateX` belongs to. See the recycle note in the header. */
+  const ownerId = useSharedValue(itemId);
   const reducedMotion = useReducedMotion();
 
-  // The recycling fix. useRecyclingState runs this reset inside a useMemo keyed on
-  // itemId -- i.e. during the render that hands this cell to a new cluster, before
-  // it paints. A useEffect would land a frame too late and flash the previous
-  // cluster's drag offset, which is the bug being fixed.
-  useRecyclingState(0, [itemId], () => {
-    translateX.value = 0;
-  });
+  /** Read the offset only when it belongs to the item currently in this cell. */
+  const ownedOffset = (): number => {
+    'worklet';
+    return ownerId.value === itemId ? translateX.value : 0;
+  };
 
   const commitSkip = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -102,6 +113,10 @@ export function SwipeToSkipCard({
     .activeOffsetX([-12, 12])
     .failOffsetY([-8, 8])
     .onUpdate((e) => {
+      // Claim the pooled cell, on the UI thread. A recycled cell may still be
+      // holding the previous cluster's offset - the styles already mask it, and
+      // this is where it is actually cleared.
+      ownerId.value = itemId;
       // Left-only: clamp any rightward drag so the card can't leave the other edge.
       translateX.value = Math.min(0, e.translationX);
     })
@@ -125,15 +140,16 @@ export function SwipeToSkipCard({
       );
     });
 
-  const cardStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: translateX.value }],
-  }));
+  const cardStyle = useAnimatedStyle(
+    () => ({ transform: [{ translateX: ownedOffset() }] }),
+    [itemId]
+  );
 
   // Skip panel revealed behind the card, intensifying as the card is dragged clear.
   const panelStyle = useAnimatedStyle(() => {
-    const progress = Math.min(1, -translateX.value / (SCREEN_WIDTH * COMMIT_FRACTION));
+    const progress = Math.min(1, -ownedOffset() / (SCREEN_WIDTH * COMMIT_FRACTION));
     return { opacity: interpolate(progress, [0, 0.25, 1], [0, 0.6, 1]) };
-  });
+  }, [itemId]);
 
   return (
     // R28: rows do NOT announce. A large import resolves dozens of rows within a
