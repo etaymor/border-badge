@@ -1,0 +1,17 @@
+node_modules
+tests
+docs
+scripts
+package.json
+package-lock.json
+poetry.lock
+pyproject.toml
+railpack.json
+Procfile
+.env
+.env.example
+.coverage
+.pytest_cache
+.ruff_cache
+**/__pycache__
+**/*.pyc
