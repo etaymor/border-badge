@@ -35,6 +35,10 @@ export default {
       },
       infoPlist: {
         ITSAppUsesNonExemptEncryption: false,
+        // The static continued-processing identifier for modules/job-continuation
+        // (iOS 26 BGContinuedProcessingTask). The expo-background-task plugin
+        // APPENDS its own identifier to this array rather than overwriting it.
+        BGTaskSchedulerPermittedIdentifiers: ['com.atlasi.app.continued-processing'],
         NSPhotoLibraryUsageDescription:
           'We need access to your photos to help create trip entries from your travel photos.',
         NSLocationWhenInUseUsageDescription:
