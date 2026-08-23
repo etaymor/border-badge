@@ -198,6 +198,12 @@ export async function setUpQuizRun(
   let cached: CachedPhoto[];
   const refresh = await ensureFreshLibrary({
     source: 'quiz',
+    // The job runtime marks 'quiz-build' running before this function's
+    // caller (the job itself) even starts (jobRuntime.runStart), so the
+    // freshness check must not read that as an already-active writer - else
+    // it always defers to whatever the cache holds, which on a first build
+    // is nothing, and the scan that should run never does.
+    excludeKind: 'quiz-build',
     onProgress: (progress) => {
       env.heartbeat?.();
       onProgress?.({ step: 'scanning', current: progress.current, total: progress.total });
@@ -206,17 +212,22 @@ export async function setUpQuizRun(
   });
   env.heartbeat?.();
   if (signal?.aborted) return { status: 'outcome', outcome: { status: 'cancelled' } };
-  if (refresh.status === 'failed') {
-    // A failed refresh with an existing cache degrades to stale candidates;
-    // with no cache at all there is nothing to build from - retryable.
+  if (refresh.status === 'failed' || refresh.status === 'no-permission') {
+    // A failed refresh (or a permission read that came back negative even
+    // though the screen already gated permission before starting - the OS
+    // authorization state can lag the grant by a beat right after the
+    // system prompt is dismissed) degrades to stale candidates when a cache
+    // already exists. On a first-ever build there IS no cache yet, so this
+    // must NOT fall through to the geo gate: an empty pool there reads as
+    // "no geotagged travel photos in your library", which is false - the
+    // scan never ran. Retryable instead.
     cached = await getAllCachedPhotos().catch(() => []);
     if (cached.length === 0) {
       return { status: 'outcome', outcome: { status: 'service-error', stage: 'scan' } };
     }
   } else {
-    // 'fresh', 'refreshed', 'deferred' (another writer owns the cache: use
-    // it as-is), and 'no-permission' (screens gate permission before the
-    // build ever starts; an empty cache is caught below) all proceed.
+    // 'fresh', 'refreshed', and 'deferred' (another writer owns the cache:
+    // use it as-is) all proceed.
     cached = await getAllCachedPhotos();
   }
   if (signal?.aborted) return { status: 'outcome', outcome: { status: 'cancelled' } };

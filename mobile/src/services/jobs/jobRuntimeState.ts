@@ -123,6 +123,21 @@ export function isAnyLibraryJobRunning(): boolean {
   return runningKinds.size > 0;
 }
 
+/**
+ * True while some OTHER library job holds the cache - i.e. excluding `kind`
+ * itself. `jobRuntime` marks a job's own kind running BEFORE its work starts
+ * (`runStart`), so a job whose own work calls back into the freshness check
+ * (quiz-build, via `ensureFreshLibrary`) would otherwise always see itself as
+ * an active writer and defer to whatever the cache already holds - on a first
+ * build, nothing, so the scan that should run never does (KTD-self-block).
+ */
+export function isAnyOtherLibraryJobRunning(kind: LibraryJobKind): boolean {
+  for (const running of runningKinds) {
+    if (running !== kind) return true;
+  }
+  return false;
+}
+
 /** The kind currently running, if any. At most one job runs at a time. */
 export function getRunningJobKind(): LibraryJobKind | null {
   for (const kind of runningKinds) return kind;

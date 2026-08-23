@@ -62,7 +62,8 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   titleSheet: {
-    fontSize: 13,
+    fontSize: 15,
+    marginBottom: 10,
   },
   bullet: {
     fontFamily: fonts.openSans.regular,
@@ -72,9 +73,10 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   bulletSheet: {
-    fontSize: 12,
-    lineHeight: 18,
-    color: withAlpha(colors.midnightNavy, 0.6),
+    fontSize: 14,
+    lineHeight: 22,
+    marginBottom: 6,
+    color: withAlpha(colors.midnightNavy, 0.65),
     textAlign: 'center',
   },
 });

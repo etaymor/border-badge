@@ -255,6 +255,34 @@ describe('createQuizFromLibrary - stale cached URIs', () => {
   });
 });
 
+describe('createQuizFromLibrary - permission read lags the grant', () => {
+  it('declines as retryable, not as "no travel photos", on a first build with no cache yet', async () => {
+    // The reported bug: the screen already confirmed permission was granted
+    // and moved to the intro step, but the OS authorization read inside the
+    // scan pipeline (a separate, later MediaLibrary call) came back negative
+    // for a beat. On a first-ever build there is no cache to fall back on, so
+    // the old code silently proceeded with an empty pool and declined with
+    // "we could not find geotagged travel photos in your library" - false,
+    // since the scan never ran at all.
+    mockEnsureFreshLibrary.mockResolvedValue({ status: 'no-permission' });
+    mockGetAllCachedPhotos.mockResolvedValue([]);
+
+    const outcome = await createQuizFromLibrary();
+
+    expect(outcome).toMatchObject({ status: 'service-error', stage: 'scan' });
+  });
+
+  it('still builds from the existing cache when a permission read lags but photos are already cached', async () => {
+    mockPrepareVisionImage.mockResolvedValue('base64-image');
+    mockEnsureFreshLibrary.mockResolvedValue({ status: 'no-permission' });
+    mockGetAllCachedPhotos.mockResolvedValue(buildCachedLibrary(20));
+
+    const outcome = await createQuizFromLibrary();
+
+    expect(outcome.status).toBe('created');
+  });
+});
+
 describe('createQuizFromLibrary - home country', () => {
   beforeEach(() => {
     mockPrepareVisionImage.mockResolvedValue('base64-image');

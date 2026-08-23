@@ -31,7 +31,12 @@ import {
   type LibraryFreshness,
   type SyncSource,
 } from './photoLibrarySyncStatus';
-import { isAnyLibraryJobRunning, _setBackgroundSyncFlag } from '@services/jobs/jobRuntimeState';
+import {
+  isAnyLibraryJobRunning,
+  isAnyOtherLibraryJobRunning,
+  _setBackgroundSyncFlag,
+} from '@services/jobs/jobRuntimeState';
+import type { LibraryJobKind } from '@services/jobs/jobTypes';
 
 // Lazy imports to avoid circular dependency
 let _extractPhotosWithLocation: typeof import('./photoImportService').extractPhotosWithLocation;
@@ -180,18 +185,34 @@ export async function ensureFreshLibrary(
     source?: SyncSource;
     onProgress?: (progress: RefreshProgress) => void;
     signal?: AbortSignal;
+    /**
+     * The calling job's own kind, when this refresh runs from inside a
+     * library job (quiz-build). Without it, the freshness check sees that
+     * job's own "running" flag - set before its work starts - and reads
+     * itself as an active writer, deferring forever with whatever the cache
+     * already holds instead of ever running the scan.
+     */
+    excludeKind?: LibraryJobKind;
   } = {}
 ): Promise<EnsureFreshLibraryResult> {
-  const { maxStalenessMs = LIBRARY_FRESHNESS_MS, source = 'manual', onProgress, signal } = options;
+  const {
+    maxStalenessMs = LIBRARY_FRESHNESS_MS,
+    source = 'manual',
+    onProgress,
+    signal,
+    excludeKind,
+  } = options;
 
-  const freshness = await getLibraryFreshness(maxStalenessMs);
+  const freshness = await getLibraryFreshness(maxStalenessMs, excludeKind);
   if (freshness.reason === 'no-permission') {
     return { status: 'no-permission' };
   }
   if (freshness.reason === 'writer-active') {
     return {
       status: 'deferred',
-      reason: isAnyLibraryJobRunning() ? 'scan-running' : 'sync-running',
+      reason: (excludeKind ? isAnyOtherLibraryJobRunning(excludeKind) : isAnyLibraryJobRunning())
+        ? 'scan-running'
+        : 'sync-running',
     };
   }
   if (freshness.fresh) {

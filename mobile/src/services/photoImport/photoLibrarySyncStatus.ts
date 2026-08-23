@@ -21,7 +21,12 @@
 import * as MediaLibrary from 'expo-media-library';
 
 import { getCachedPhotoCount, getMetadata, setMetadata } from './photoCacheDb';
-import { isAnyLibraryJobRunning, isBackgroundSyncFlagSet } from '@services/jobs/jobRuntimeState';
+import {
+  isAnyLibraryJobRunning,
+  isAnyOtherLibraryJobRunning,
+  isBackgroundSyncFlagSet,
+} from '@services/jobs/jobRuntimeState';
+import type { LibraryJobKind } from '@services/jobs/jobTypes';
 
 export type SyncSource = 'background' | 'quiz' | 'trip-scan' | 'manual';
 
@@ -126,7 +131,16 @@ export interface LibraryFreshness {
  * is being updated right now and a second writer would interleave.
  */
 export async function getLibraryFreshness(
-  maxStalenessMs: number = LIBRARY_FRESHNESS_MS
+  maxStalenessMs: number = LIBRARY_FRESHNESS_MS,
+  /**
+   * The calling job's own kind, when called from inside a running library
+   * job. `jobRuntime` marks a job running before its work starts, so a job
+   * that checks freshness from within its own run (quiz-build) must not
+   * count itself as the "active writer" - that always reads as an active
+   * writer with an empty cache on a first build, and the scan that should
+   * run never does.
+   */
+  excludeKind?: LibraryJobKind
 ): Promise<LibraryFreshness> {
   let permission: LibraryFreshness['permission'] = 'undetermined';
   try {
@@ -148,7 +162,10 @@ export async function getLibraryFreshness(
   if (permission !== 'granted' && permission !== 'limited') {
     return { fresh: false, reason: 'no-permission', ...base };
   }
-  if (isBackgroundSyncFlagSet() || isAnyLibraryJobRunning()) {
+  const otherWriterActive =
+    isBackgroundSyncFlagSet() ||
+    (excludeKind ? isAnyOtherLibraryJobRunning(excludeKind) : isAnyLibraryJobRunning());
+  if (otherWriterActive) {
     return { fresh: true, reason: 'writer-active', ...base };
   }
   if (status.lastSuccessAt === null || cachedPhotoCount === 0) {
