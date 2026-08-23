@@ -2,8 +2,13 @@
  * Best-photo ranking for curation surfaces (segment previews, gallery sort).
  *
  * Pure: callers pass the photos they already hold plus whatever tag maps they
- * loaded; missing maps degrade every photo to neutral, so an untagged library
- * ranks in its original order (minus duplicate collapse). Ranking, not
+ * loaded. Missing maps drop the tag-derived terms (aesthetics, intent) but NOT
+ * the capture-context ones - golden hour and retry count derive from cached
+ * timestamps and coordinates alone, so a wholly untagged pool is still scored
+ * and still reordered. Callers that must preserve their input order on a
+ * library with no tag rows (Android, pre-tagger binaries, an install whose
+ * sweep has not run) have to skip this call, the way
+ * `rankTripSegmentPreviews` and `loadClusterQualityScores` do. Ranking, not
  * gatekeeping - only unambiguous utility images (screenshots, receipts) are
  * excluded outright, and even those are kept when excluding them would leave
  * nothing to show.
@@ -34,8 +39,9 @@ function isUtilityImage(
 
 /**
  * Rank photos best-first: utility images excluded, near-duplicate runs
- * collapsed to their best frame, remainder sorted by composite quality
- * (stable, so an untagged pool keeps its input order).
+ * collapsed to their best frame, remainder sorted by composite quality. The
+ * sort is stable, so photos that tie keep their input order - but an untagged
+ * pool does not necessarily tie, because capture context scores without tags.
  */
 export function rankBestPhotos<T extends CaptureContextPhoto>(
   photos: T[],

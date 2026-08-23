@@ -181,9 +181,12 @@ export function segmentTripsFromCache(
  * `previewAssetIds[i]` stays the asset for `previewUris[i]` — both arrays are
  * rebuilt from the same ranked list.
  *
- * Degrades to the input unchanged when either quality flag is off or the tag
- * read fails; an untagged library still gets duplicate collapse, which is part
- * of the flagged behavior change.
+ * Degrades to the input unchanged when either quality flag is off, when the tag
+ * read fails, and when neither tag table has a single row for the sampled
+ * photos. That last case is not cosmetic: `rankBestPhotos` is NOT order-neutral
+ * without tags — its capture-context terms (golden hour, retry count) come from
+ * cached timestamps and coordinates alone — so an unguarded call on an untagged
+ * library would reorder previews off a signal the user never provided.
  */
 /**
  * Cap on photos ranked (and tag rows read) per segment. Without it, a scan's
@@ -218,6 +221,13 @@ export async function rankTripSegmentPreviews(
       getTagsForIds(allIds),
       getIntentTagsForIds(allIds),
     ]);
+    // No rows at all in EITHER table (Android, a binary older than the tagger,
+    // an install whose sweep has not run yet): bail rather than rank. The
+    // ranker is not neutral without tags — golden hour and retry count come
+    // from cached timestamps and coordinates alone, so ranking here would
+    // silently swap the card thumbnail for whatever was shot near sunset.
+    // Same guard, same reason, as `loadClusterQualityScores` in visionPhoto.ts.
+    if (mlTags.size === 0 && intentTags.size === 0) return candidates;
 
     return candidates.map((candidate) => {
       // Rank over a bounded, evenly-spread sample of the segment (not just the

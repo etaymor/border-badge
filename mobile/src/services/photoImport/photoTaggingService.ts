@@ -186,7 +186,13 @@ export async function runTaggingPass(
 export interface IntentPassResult {
   tagged: number;
   chunks: number;
-  stoppedBy: 'complete' | 'time-budget' | 'aborted';
+  /**
+   * `incomplete` means at least one chunk failed. It is deliberately distinct
+   * from `complete`: a sweep that read nothing because the bridge was down
+   * looks identical to one that found nothing stale, and treating it as
+   * finished would stamp the 24h window over a library that never got swept.
+   */
+  stoppedBy: 'complete' | 'incomplete' | 'time-budget' | 'aborted';
 }
 
 /** Everything the intent sweep touches, injected so it can be driven from a test. */
@@ -221,6 +227,7 @@ export async function runIntentPass(
   const startedAt = deps.now();
   let tagged = 0;
   let chunks = 0;
+  let failedChunks = 0;
 
   const allIds = await deps.loadAllIds();
   if (signal.aborted) return { tagged, chunks, stoppedBy: 'aborted' };
@@ -239,7 +246,9 @@ export async function runIntentPass(
     try {
       results = await deps.readPhotoMeta(chunk);
     } catch {
-      // One bad chunk should not end the sweep; the next one may be fine.
+      // One bad chunk should not end the sweep; the next one may be fine. It
+      // does have to be remembered, though - see `failedChunks` at the return.
+      failedChunks += 1;
       continue;
     }
     if (results.length === 0) continue;
@@ -250,6 +259,7 @@ export async function runIntentPass(
       await deps.upsertIntentTags(results);
     } catch {
       // A failed write costs a re-read next sweep, nothing more.
+      failedChunks += 1;
       continue;
     }
     tagged += results.length;
@@ -258,7 +268,35 @@ export async function runIntentPass(
     await deps.yieldToUI();
   }
 
-  return { tagged, chunks, stoppedBy: 'complete' };
+  // Reaching the end of the list is not the same as having swept it: any failed
+  // chunk leaves stale rows behind, so the caller must not stamp the window.
+  return { tagged, chunks, stoppedBy: failedChunks > 0 ? 'incomplete' : 'complete' };
+}
+
+/**
+ * Run the daily sweep if it is due, and stamp the window only when it actually
+ * finished the library.
+ *
+ * Split out of `maybeRunTaggingPass` for the same reason `runIntentPass` takes
+ * its deps as an argument: the entry point's dynamic imports are invisible to
+ * Jest, and this branch is the one that can silence the sweep for 24h over a
+ * library it never touched.
+ */
+export async function runIntentSweepWithWindow(
+  deps: IntentPassDeps,
+  signal: AbortSignal
+): Promise<IntentPassResult | null> {
+  if (signal.aborted || !(await intentPassIsDue())) return null;
+
+  const result = await runIntentPass(deps, signal);
+  // Only a COMPLETE sweep stamps the 24h window. An aborted, time-budgeted, or
+  // partly failed one leaves it unstamped so the next pass (10-minute cadence)
+  // resumes into the tail - per-chunk commits plus the staleness filter mean it
+  // skips everything already fresh.
+  if (result.stoppedBy === 'complete') {
+    await setMetadata(LAST_INTENT_PASS_KEY, Date.now().toString());
+  }
+  return result;
 }
 
 /**
@@ -269,14 +307,23 @@ export async function runIntentPass(
  * stays low no matter how many passes run, and allowing network access becomes
  * worth considering. Best-effort - telemetry never fails a pass.
  */
-async function reportPass(result: TaggingPassResult, intentTagged: number): Promise<void> {
+async function reportPass(
+  result: TaggingPassResult,
+  intentResult: IntentPassResult | null
+): Promise<void> {
   try {
     const coverage = await getTagCoverageStats();
+    const intentTagged = intentResult?.tagged ?? 0;
+    // How the sweep ENDED is the part telemetry could not see before: a sweep
+    // that failed every chunk reported zero rows, which is what a sweep with
+    // nothing to do reports too.
+    const intentStoppedBy = intentResult?.stoppedBy;
     if (__DEV__) {
       console.log(
         `[PhotoTagging] pass complete: tagged=${result.tagged} chunks=${result.chunks} ` +
           `stoppedBy=${result.stoppedBy} coverage=${coverage.currentVersion}/${coverage.total} ` +
-          `noLocalImage=${coverage.byStatus['no-local-image'] ?? 0} intentTagged=${intentTagged}`
+          `noLocalImage=${coverage.byStatus['no-local-image'] ?? 0} intentTagged=${intentTagged} ` +
+          `intentStoppedBy=${intentStoppedBy ?? 'not-due'}`
       );
     }
     Analytics.photoTaggingPass({
@@ -287,6 +334,7 @@ async function reportPass(result: TaggingPassResult, intentTagged: number): Prom
       coverageCurrentVersion: coverage.currentVersion,
       noLocalImage: coverage.byStatus['no-local-image'] ?? 0,
       intentTagged,
+      intentStoppedBy,
     });
   } catch {
     // Telemetry is never worth failing a pass over.
@@ -380,32 +428,21 @@ export async function maybeRunTaggingPass(): Promise<TaggingPassResult | null> {
       // second pass type in this service, never a competing scheduler. It runs
       // after the pixel pass so a budgeted pixel pass is never starved by
       // metadata work.
-      let intentTagged = 0;
-      if (!lock.controller.signal.aborted && (await intentPassIsDue())) {
-        const intentResult = await runIntentPass(
-          {
-            loadAllIds: () => loadAllCachedIds(),
-            getStaleIds: (ids) => getStaleIntentIds(ids, INTENT_PASS_MIN_INTERVAL_MS),
-            readPhotoMeta: (ids) => readPhotoMeta(ids).then(toStoredIntentTags),
-            upsertIntentTags,
-            chunkSize: META_CHUNK_SIZE,
-            now: () => Date.now(),
-            yieldToUI: () =>
-              new Promise((resolve) => setTimeout(resolve, SCAN_CONFIG.YIELD_INTERVAL_MS)),
-          },
-          lock.controller.signal
-        );
-        intentTagged = intentResult.tagged;
-        // Only a COMPLETE sweep stamps the 24h window. An aborted or
-        // time-budgeted one leaves it unstamped so the next pass (10-minute
-        // cadence) resumes into the tail - per-chunk commits plus the
-        // staleness filter mean it skips everything already fresh.
-        if (intentResult.stoppedBy === 'complete') {
-          await setMetadata(LAST_INTENT_PASS_KEY, Date.now().toString());
-        }
-      }
+      const intentResult = await runIntentSweepWithWindow(
+        {
+          loadAllIds: () => loadAllCachedIds(),
+          getStaleIds: (ids) => getStaleIntentIds(ids, INTENT_PASS_MIN_INTERVAL_MS),
+          readPhotoMeta: (ids) => readPhotoMeta(ids).then(toStoredIntentTags),
+          upsertIntentTags,
+          chunkSize: META_CHUNK_SIZE,
+          now: () => Date.now(),
+          yieldToUI: () =>
+            new Promise((resolve) => setTimeout(resolve, SCAN_CONFIG.YIELD_INTERVAL_MS)),
+        },
+        lock.controller.signal
+      );
 
-      await reportPass(result, intentTagged);
+      await reportPass(result, intentResult);
       return result;
     } finally {
       releaseTaggingLock(lock.passId);

@@ -47,8 +47,23 @@ function favorite(id: string): PhotoIntentTag {
 // An hour apart: distinct scenes, no duplicate collapse in play.
 const HOUR = 3_600_000;
 
+// Two moments at the Rome fixture coordinates that straddle the golden-hour
+// band: sun 3.3 deg up at 04:00Z (inside), 66.3 deg at 10:00Z (outside).
+const GOLDEN_HOUR_MS = Date.parse('2024-06-15T04:00:00Z');
+const MIDDAY_MS = Date.parse('2024-06-15T10:00:00Z');
+
 describe('rankBestPhotos', () => {
-  it('keeps input order for an untagged pool', () => {
+  // Capture context needs no tag row, so "no tags" is NOT "no ranking". Callers
+  // that must preserve input order on an untagged library have to skip the
+  // call; this pair pins which half of that is true.
+  it('still reorders an untagged pool across a golden-hour boundary', () => {
+    const photos = [photo('midday', MIDDAY_MS), photo('sunrise', GOLDEN_HOUR_MS)];
+    expect(rankBestPhotos(photos).map((p) => p.id)).toEqual(['sunrise', 'midday']);
+  });
+
+  it('keeps input order for an untagged pool with no context to separate it', () => {
+    // All three are night shots at the same spot: identical contexts, so the
+    // stable sort has nothing to act on.
     const photos = [photo('a', 0), photo('b', HOUR), photo('c', 2 * HOUR)];
     expect(rankBestPhotos(photos).map((p) => p.id)).toEqual(['a', 'b', 'c']);
   });

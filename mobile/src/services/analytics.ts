@@ -711,6 +711,11 @@ export const Analytics = {
     noLocalImage: number;
     /** Rows written by the intent-metadata sweep that rode this pass; 0 when it did not run. */
     intentTagged?: number;
+    /**
+     * How that sweep ended, or absent when it was not due. Separates a sweep
+     * that wrote nothing because it failed from one that had nothing to write.
+     */
+    intentStoppedBy?: string;
   }) =>
     track('photo_tagging_pass', {
       tagged: props.tagged,
@@ -720,6 +725,7 @@ export const Analytics = {
       coverage_current_version: props.coverageCurrentVersion,
       no_local_image: props.noLocalImage,
       intent_tagged: props.intentTagged ?? 0,
+      intent_stopped_by: props.intentStoppedBy ?? 'not-due',
     }),
 
   // ---------------------------------------------------------------------

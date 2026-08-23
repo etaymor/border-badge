@@ -25,10 +25,11 @@ source_research: Atlasi photo-quality-signals research memo (2026-08)
   signals (dwell, retry count, sun elevation) are pure TS and work everywhere
   `cached_photos` exists. Android parity via ML Kit / LiteRT is explicitly out
   of scope.
-- **Release shape:** Four phases, each independently shippable and independently
+- **Release shape:** Five phases, each independently shippable and independently
   killable by feature flag. Phases 1–2 are the "70% of the value" tier and
   require **no new pixel work at all**; Phase 3 is product surface work;
-  Phase 4 is the model investment.
+  Phase 4 is the model investment; Phase 5 moves the quiz eligibility gate
+  on-device (added as a later addendum — see below).
 - **Non-negotiables carried forward:** raw signals in native / all
   interpretation in TS (OTA-tunable, Jest-testable); the paid Gemini gate stays
   the final quiz verdict; hard drops only for near-certainties; no coordinate,
@@ -160,10 +161,17 @@ CREATE TABLE IF NOT EXISTS photo_intent_tags (
 ```
 
 Refresh policy: full-library metadata pass at the end of each background photo
-sync, throttled to once per 24h (`photo_cache_metadata` key), plus the same
-on-demand burst quiz creation already uses for pixel tags. The scheduler is
+sync, throttled to once per 24h (`photo_cache_metadata` key). The scheduler is
 the existing `photoTaggingService.ts` — a metadata pass is a second pass type
 in the same service, not a new service.
+
+**Known limitation (as shipped):** there is no on-demand refresh. Unlike the
+pixel-tag path, `readPhotoMeta` is reachable only from the 24h-throttled sweep,
+so photos captured or favorited today read as signal-less for up to a day —
+including for a user who imports a trip and immediately curates it, which is
+the case the signals are worth most in. Closing it means a targeted
+`readPhotoMeta` over the candidate ids at the quiz-creation and curation entry
+points; deliberately deferred, not overlooked.
 
 ### 1c. Derived context — `photoSignals/captureContext.ts` (pure TS, no storage)
 
@@ -176,8 +184,9 @@ set — cheap enough not to persist:
   getting right"); it has no other consumer in this plan.
 - `sunElevation` — solar elevation from lat/lng + timestamp (20-line local
   formula, no network); exposes `goldenHour` / `night` bands.
-- `altitudeDelta` — `photo.altitude − median(altitude of its trip segment)`;
-  +50m ⇒ viewpoint prior.
+- `altitudeDelta` — `photo.altitude − median(altitude of its country +
+  local-day group)`, local day approximated from longitude so one morning's
+  shooting does not split across UTC midnight; +50m ⇒ viewpoint prior.
 - `movingCapture` — `gpsSpeed > ~5.5 m/s` (≈20 km/h) ⇒ through-a-window prior.
 - `savedFromSocialLikely` — NOT `sourceUserLibrary`, or dimensions in the
   known social set (1080×1350, 1080×1920, 1080×1080) with no capture subtypes.
@@ -353,11 +362,16 @@ is load-bearing and unproven on FM.
 
 `mobile/src/config/features.ts` gains one flag per phase:
 `enableIntentSignals`, `enableQualityRanking` (covers Phases 2–3 — one flag,
-because they ship as one behavior change per surface), `enableClipSignals`.
+because they ship as one behavior change per surface), `enableClipSignals`,
+`enableOnDeviceGate` (Phase 5).
 Same posture as the pretagging rollout: everything ships shadow-first (rank +
 telemetry), hard behavior tightens OTA after agreement data. Module-absent /
-Android / old-binary ⇒ all signals neutral ⇒ today's behavior, verified by
-regression-locked tests.
+Android / old-binary ⇒ today's behavior, verified by regression-locked tests.
+Note the mechanism: this holds because each consuming surface bails when both
+tag tables come back empty, NOT because the signal layer is neutral without
+tags. `goldenHour` and `retryCount` derive from cached timestamps and
+coordinates alone, so `rankBestPhotos` still scores and reorders a wholly
+untagged pool. Any new consumer must carry that same empty-map guard.
 
 ## Telemetry (additive, same privacy rule)
 

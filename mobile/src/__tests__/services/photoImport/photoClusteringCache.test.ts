@@ -184,6 +184,23 @@ describe('rankTripSegmentPreviews', () => {
     expect(result.previewAssetIds).toEqual(['s1', 's2']);
   });
 
+  it('degrades to the input when neither tag table has a row', async () => {
+    // Android, pre-tagger binaries, and installs whose sweep has not run yet
+    // land here. Timestamps straddle the golden-hour band (sun 3.3 deg up at
+    // 04:00Z at the fixture coordinates, 66.3 deg at 10:00Z), which is exactly
+    // the tag-free context signal that used to reorder these previews.
+    const photos = [
+      photo('midday', Date.parse('2024-06-15T10:00:00Z')),
+      photo('sunrise', Date.parse('2024-06-15T04:00:00Z')),
+    ];
+    const input = [candidate(photos)];
+
+    const [result] = await rankTripSegmentPreviews(input, lookup(photos));
+
+    expect(result.previewAssetIds).toEqual(['midday', 'sunrise']);
+    expect(result.previewUris).toEqual(['file://midday.jpg', 'file://sunrise.jpg']);
+  });
+
   it('degrades to the input when the tag read fails', async () => {
     mockGetTagsForIds.mockRejectedValue(new Error('db locked'));
     const photos = [photo('a', 0), photo('b', HOUR)];

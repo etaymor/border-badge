@@ -352,6 +352,42 @@ describe('runIntentPass', () => {
     expect(result.tagged).toBeLessThan(100);
   });
 
+  it('does not report complete when every chunk fails to read', async () => {
+    // A persistent native failure is not "nothing left to do": reporting
+    // complete would stamp the 24h window and silence the sweep for a day.
+    const harness = makeIntentHarness();
+    (harness.deps.readPhotoMeta as jest.Mock).mockRejectedValue(new Error('bridge down'));
+
+    const result = await runIntentPass(harness.deps, new AbortController().signal);
+
+    expect(result.stoppedBy).toBe('incomplete');
+    expect(result.tagged).toBe(0);
+  });
+
+  it('does not report complete when every write fails', async () => {
+    const harness = makeIntentHarness();
+    (harness.deps.upsertIntentTags as jest.Mock).mockRejectedValue(new Error('db locked'));
+
+    const result = await runIntentPass(harness.deps, new AbortController().signal);
+
+    expect(result.stoppedBy).toBe('incomplete');
+    expect(result.tagged).toBe(0);
+  });
+
+  it('reports incomplete when only some chunks fail', async () => {
+    // Partial progress still leaves stale rows behind, so the window must stay
+    // unstamped and the next pass must pick the survivors up.
+    const harness = makeIntentHarness();
+    (harness.deps.readPhotoMeta as jest.Mock)
+      .mockRejectedValueOnce(new Error('one bad chunk'))
+      .mockImplementation(async (chunk: string[]) => chunk.map(intentTag));
+
+    const result = await runIntentPass(harness.deps, new AbortController().signal);
+
+    expect(result.stoppedBy).toBe('incomplete');
+    expect(result.tagged).toBe(6);
+  });
+
   it('does nothing for an empty library', async () => {
     const harness = makeIntentHarness({ ids: [] });
 
