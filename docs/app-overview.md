@@ -143,6 +143,7 @@ A **Friend** role (seeing friend maps and approved joint trips) is designed but 
 
 **Key capabilities:**
 - Create trips with name, country, dates, cover image
+- Suggested cover photos: when the photo cache holds photos from the trip's country (and date range, if set), the form offers up to 12 ranked candidates from that trip above the system picker — screenshots and burst repeats filtered out. Nothing to suggest means the picker looks exactly as before
 - View trips organized by country
 - Edit trip details
 - Delete trips from the trip edit screen with a confirmation dialog (soft-deleted, cascades to entries and media, 30-day restore window)
@@ -411,6 +412,8 @@ A **Friend** role (seeing friend maps and approved joint trips) is designed but 
 - Photo Trips browser for previously discovered trips
 - Concurrent multi-cluster uploads with per-cluster progress
 - Country filtering for large photo libraries
+- Trip previews lead with the best photo of each segment rather than the newest, so the browser shows the shot worth remembering
+- Matching gallery arrives with screenshots and burst repeats pre-deselected (the counter reads "N of M selected"); "Show all" brings them back, and the anchor photo of a cluster is never deselected
 - Tiered radius search for place matching (50m → 100m → 200m → 500m)
 - **Nearby photo suggestions on the entry form:** when a user picks a place from Google Places autocomplete, the same SQLite photo cache is queried by geohash to surface tappable thumbnails of photos taken near that location. Uses an adaptive radius (500m → 200m → 100m) that narrows automatically in dense areas, and respects the entry's remaining photo slots. If the library has not been scanned yet, a hint prompts the user to run photo import first.
 

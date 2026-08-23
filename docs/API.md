@@ -1485,10 +1485,19 @@ Reading a revoked quiz also retries any pending photo cleanup.
     "correct": 7,
     "total": 10
   },
+  "owner_verdicts": [true, false, true, true, true, false, true, true, true, false],
   "slug": null,
   "share_url": null
 }
 ```
+
+`owner_verdicts` is the per-question correctness of the seeding play, ordered by
+the quiz's current question order, so a share sheet can paint the results grid
+without depending on local play state. It is owner-only — it never appears on a
+public play payload — and is `null` whenever it cannot be stated exactly:
+before a score-to-beat exists, or when any current question has no answer from
+the seeding session (for example a question swapped in and not yet re-answered).
+Treat `null` as "no grid", not as "all wrong".
 
 #### `GET /quiz/{quiz_id}/leaderboard`
 
@@ -1590,9 +1599,16 @@ unlocks it for sharing.
     "correct": 7,
     "total": 10
   },
+  "owner_verdicts": [true, false, true, true, true, false, true, true, true, false],
   "state": "playable"
 }
 ```
+
+`owner_verdicts` follows the same rules as on `GET /quiz/{quiz_id}`: seeding-play
+correctness in current question order, or `null` when it cannot be stated
+exactly. It reflects the score-to-beat session, which on a replay is the earlier
+seeding session rather than the one just completed — so it always matches the
+`score_to_beat` pair in the same response, not `correct`/`total`.
 
 #### `POST /quiz/{quiz_id}/questions/{question_id}/swap`
 
@@ -1613,7 +1629,8 @@ question, so the owner must answer it again before sharing.
 
 **Response:**
 The response is the updated `QuizDetailResponse` shown for
-`GET /quiz/{quiz_id}`.
+`GET /quiz/{quiz_id}`, including a recomputed `owner_verdicts` — `null` while
+the replacement question is unanswered.
 
 #### `DELETE /quiz/{quiz_id}/questions/{question_id}`
 

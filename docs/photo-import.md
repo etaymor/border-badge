@@ -62,6 +62,30 @@ The photo import feature allows users to scan their device photo library and aut
 
 **Batch plan.** `planSuggestionBatches()` splits clusters into a small opening batch (`FIRST_CHUNK_SIZE = 2`) followed by full-size ones (`CHUNK_SIZE = 5`), so time-to-first-suggestion is not gated on a full batch's on-device preparation. Preparation is pipelined exactly one batch ahead and serialized on a per-dispatch tail: Expo's async function queue is serial at the native layer, so extra preparation workers buy no parallelism. A preparation failure never rejects — the batch dispatches without vision images.
 
+**Stall bounds.** Preparation is native work (`Image.getSize`,
+`manipulateAsync` over `ph://` assets), and a native call that never calls back
+neither resolves nor rejects — so the `catch` around preparation covers a
+failure, not a stall. An iCloud-evicted photo ("Optimize iPhone Storage") is the
+reproducible cause, and unbounded it freezes the whole import at
+"Processing 0 of N locations" with nothing to retry. Two nested bounds, both of
+which **degrade instead of failing**:
+
+- `VISION_IMAGE_TIMEOUT_MS` (10s, `visionPhoto.ts`) per native call — the tight
+  bound that normally fires. That photo loses its vision image; the cluster
+  still goes to the place matcher on its coordinates.
+- `PREPARE_WATCHDOG_MS` (60s, `createBatchPreparer`) per batch as the backstop.
+  It *races* rather than rejects, so the worker gets a payload it can post and
+  the serialized preparation tail is released instead of pinning every later
+  batch behind the stalled one; the batch dispatches unprepared.
+
+**Gallery pause.** Opening the photo gallery calls `pause('gallery')`
+(`useGalleryDispatchPause`) — the decode for the photo the user just tapped
+would otherwise queue behind a steady stream of preparation work on Expo's
+serial native queue and take seconds to appear. A pause, never a `reset()`:
+in-flight batches keep running and still cache, workers park rather than exit,
+and the `gallery` owner is independent of the `lifecycle` one, so backgrounding
+with the gallery open behaves. Unmounting with it open (swipe-back) releases it.
+
 **Three cluster sets.** These are distinct on purpose:
 
 - `enqueuedClusterIds` - every cluster the controller has _accepted_, resolved or not. Source of the pending rows: on a 100-cluster import all 100 are enqueued from the first frame, while only ~2-5 are on the wire. Sourcing pending rows from the in-flight set instead would leave the screen mostly empty.
@@ -188,6 +212,21 @@ Guess Where selection, vision-photo selection, and curation surfaces. See
   priors. Ordinal within a pool only.
 - `bestPhotos.ts` - `rankBestPhotos` for curation: utility images excluded,
   dupes collapsed to best frame, quality-sorted.
+- `lowSignalPhotos.ts` - `lowSignalPhotoIds` for the one surface that HIDES
+  rather than reorders. Deliberately narrower than the ranker: only utility
+  images (`isUtilityImage`, shared with `rankBestPhotos`) and the losing frames
+  of a near-duplicate run. The composite score is not a drop input — it is
+  tuned for ordering, and a wrongly hidden photo is the one the user opened the
+  cluster to find. Two floors: the cluster anchor (nearest the centroid) is
+  never hidden, and if the rules would hide everything, nothing is hidden.
+
+**`rankBestPhotos` is not order-neutral on an untagged pool.** `goldenHour` and
+`retryCount` derive from cached timestamps and coordinates alone, so a pool with
+zero tag rows still gets scored and reordered. Every consumer therefore reads
+its tag maps first and bails when both are empty (`rankTripSegmentPreviews`,
+`loadClusterQualityScores`, `useCoverPhotoSuggestions`, the gallery seeding
+effect all carry the same guard). New consumers need it too — the invariant
+lives at the call sites, not in the ranker.
 
 Feeding it, `photo_intent_tags` (in `photos.db`, access via `photoTagDb.ts`)
 stores zero-pixel PhotoKit metadata (favorites, edits, bursts, capture modes,
@@ -196,10 +235,33 @@ source, altitude/speed), refreshed by a whole-library metadata pass in
 photo-tagger module). Intent is refreshable by design - a photo can be
 favorited next month - unlike the write-once-per-version pixel tags.
 
+The sweep is time-budgeted and resumable: `getStaleIntentIds` is a watermark, so
+a pass that runs out of budget continues into the library tail on the next one
+instead of re-reading the same prefix, and only a pass that reports
+`stoppedBy: 'complete'` stamps the 24 h window. A sweep with any failed chunk
+reports `incomplete` and leaves the window unstamped, so the next pass resumes
+into the tail instead of a failure silencing the sweep for a day. Outcome and
+row count both ride out on `photo_tagging_pass` (`intent_stopped_by`,
+`intent_tagged`), which is what separates a sweep that wrote nothing because it
+failed from one that had nothing to write.
+
 Flags: `enableIntentSignals` (metadata pass + intent/context reads) and
 `enableQualityRanking` (composite score changes photo ORDER on quiz, vision
 selection, and curation surfaces). With both off - or on Android/old binaries -
-every surface orders exactly as before the layer existed.
+every surface orders exactly as before the layer existed. The composite score is
+re-centered so a photo with no evidence scores exactly 0: a neutral intent row
+ties a photo with no row at all rather than beating it in tie-breaks.
+
+### Signal consumers
+
+| Surface | Entry point | Behavior |
+| --- | --- | --- |
+| Photo Trips segment previews | `rankTripSegmentPreviews` (`photoClusteringCache.ts`), called from the scan | Rebuilds each segment's preview strip best-first (utility images dropped, bursts collapsed to their best frame), keeping `previewUris` and `previewAssetIds` index-aligned. Bounded to an evenly spaced `PREVIEW_RANK_POOL_MAX` (300) sample per segment so tag reads stay capped per scan |
+| Trip cover photo | `useCoverPhotoSuggestions` + `CoverSuggestionStrip` (`components/media/`) | Narrows the cache to the trip's country (the cache is country-code indexed at scan time) and, when the trip has one, its date window; samples evenly to `COVER_RANK_POOL_MAX` (300), ranks with `rankBestPhotos`, and offers up to `COVER_SUGGESTION_LIMIT` (12) suggestions above the existing picker. Picking one goes through the same validated upload path as the system picker. No country on the trip → the photo DB is never opened |
+| Matching gallery de-emphasis | `lowSignalPhotoIds` seeding effect in `PhotoImportScreen.tsx` | Seeds the per-cluster **excluded** set that already backed manual deselection, so screenshots and burst repeats arrive deselected and the existing "Show all" restores them. Order is untouched — gallery order feeds positional cluster splitting. Cluster ids are claimed in a ref *before* the first await, so an overlapping run cannot re-hide a photo the user restored. One `photo_gallery_deemphasis` event per import reports `seeded_count` vs `restored_count` as a false-positive rate on the rules |
+
+Cluster previews and the matching gallery deliberately stay **chronological**:
+their order is load-bearing for the "Split here" flow, which is positional.
 
 ## Photo Trips Feature
 

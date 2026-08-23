@@ -100,6 +100,25 @@ creator, so "challenges created this month → guest plays → installs, by owne
 cohort" is one query — and the only place that question can be answered
 honestly.
 
+## Photo signal layer (PostHog, mobile only)
+
+The quality-signal surfaces (`docs/photo-import.md` → "Photo Quality Signal
+Layer") are instrumented so the seed rules can be tuned over the air, since they
+are pure TS and ship in a JS update.
+
+| Event | When | Properties |
+| --- | --- | --- |
+| `photo_tagging_pass` | end of every tagging pass (existing event, now covering the intent sweep) | `intent_tagged`, `intent_stopped_by` (`complete` / `incomplete` / `time-budget` / `aborted` / `not-due`) alongside the pixel-tag `tagged` / `stopped_by` / coverage props — a sweep that failed every chunk and one with nothing to write both report zero rows, so only `intent_stopped_by` tells them apart |
+| `trip_cover_suggestion_used` | a trip cover was set | `source` (`suggested` / `picker` / `camera`), `candidate_count`, `chosen_index` (null unless `suggested`) — measures whether the ranked strip beats the system picker |
+| `photo_gallery_deemphasis` | once per matching-gallery import, at departure | `seeded_count`, `restored_count`, `clusters_seeded` |
+
+**Reading `photo_gallery_deemphasis`.** `restored_count / seeded_count` is the
+false-positive rate of the de-emphasis rules: a photo we hid that the user
+brought back. Firing at unmount rather than per restore is what makes it a rate
+— numerator and denominator come from the same import. Meaningfully non-zero
+means loosen the rules; it is the mirror of `quiz_prefilter_agreement`, which
+points the other way (whether to tighten).
+
 ## Library job continuation (PostHog, mobile only)
 
 The continued-processing lease (`mobile/src/services/jobs/continuationLease.ts`,

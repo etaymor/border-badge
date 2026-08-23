@@ -362,6 +362,17 @@ The video extraction pipeline:
 
 The mobile app can also provide pre-sampled video frames via the `video_frames` request parameter, bypassing server-side video download.
 
+**When the speculative download starts.** `/ingest/social` classifies the URL
+before extraction (`is_photo_slideshow`, `allow_video_fallback`,
+`is_known_video_url`) and only a *known* video URL gets the 500ms-delayed
+speculative yt-dlp download. Instagram post URLs are not known video URLs — a
+`/p/` shortcode can be a photo, a carousel, or a video, and Instagram's login
+wall makes a wrong guess a wasted request — so they go through carousel
+extraction first and only then, if the post turns out to be a video, start a
+download (see below). TikTok `/photo/` slideshows disable video fallback
+entirely (`enable_video_fallback=False`): yt-dlp cannot fetch them, so there is
+nothing to fall back to.
+
 **Files:**
 - `app/services/video_extractor/downloader.py` - yt-dlp video download
 - `app/services/video_extractor/frame_extractor.py` - ffmpeg frame extraction
@@ -383,9 +394,28 @@ For TikTok photo slideshows (`/photo/` URLs) and Instagram carousels, the system
 - Check for geotag location data (specific POIs vs generic city names)
 - Fall back to image analysis if geotag is generic
 
+**Instagram videos (`GraphVideo`):** the carousel fetch is also how a video post
+is identified, and it returns what is needed to read one. When Instaloader
+reports `post_type="GraphVideo"` the result carries a signed CDN `video_url`,
+which the orchestrator downloads directly (`download_instagram_cdn_video`)
+instead of invoking yt-dlp, which hits Instagram's login wall. If that URL is
+absent, it falls back to yt-dlp on the original URL. The direct download is
+deliberately narrow: the URL must be on `cdninstagram.com` or `fbcdn.net`
+(`is_instagram_cdn_video_url`), redirects are capped, the body is streamed and
+abandoned past `MAX_VIDEO_BYTES` (100 MB), and the file must start with an mp4
+`ftyp` box — anything else deletes the partial file and returns `None`, leaving
+the pipeline exactly where it was. From there the normal frame-extraction path
+runs, so the extraction reports `source: video_frames`.
+
+A cover-thumbnail-only carousel result therefore no longer dead-ends: a
+`GraphVideo` post whose images yield no places continues into frame extraction
+rather than returning empty. Because of that, a cached *empty* `carousel` result
+is retried when video fallback is enabled instead of being served from cache —
+those negatives were recorded before there was a video path to try.
+
 **Files:**
 - `app/services/tiktok_slideshow.py` - TikTok photo slideshow parser
-- `app/services/instagram_carousel.py` - Instagram carousel fetcher
+- `app/services/instagram_carousel.py` - Instagram carousel fetcher, CDN video URL validation and download
 
 ---
 
@@ -400,6 +430,10 @@ Results are cached in the `social_ingest_job` table to avoid redundant API calls
 | `extraction_at` | Timestamp of extraction |
 
 Cache lookup is keyed by canonical URL. Negative results (no places found) are also cached to prevent repeated failed extractions.
+
+One exception: an empty `carousel` result is re-extracted rather than served
+from cache when video fallback is enabled, so posts cached before the Instagram
+video path existed get one more chance through frame extraction.
 
 **File:** `app/services/extraction_cache.py`
 
