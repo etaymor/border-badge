@@ -30,7 +30,7 @@
 
 import { allDescriptors } from './jobRegistry';
 import { tryResumeJobs } from './jobResume';
-import { setYieldProvider } from './jobRuntimeState';
+import { registerJobDriver } from './jobRuntimeState';
 import { whenJobSettles } from './jobRuntime';
 
 type TaskManagerModule = typeof import('expo-task-manager');
@@ -52,6 +52,15 @@ let executingInBackground = false;
 let expired = false;
 
 /**
+ * True only while the BGProcessingTask handler is on the stack. The
+ * continued-processing lease driver reads this to refuse a lease for a job the
+ * opportunistic task started: a lease may only be acquired from the foreground.
+ */
+export function isExecutingInBackgroundHandler(): boolean {
+  return executingInBackground;
+}
+
+/**
  * Stop after the current unit of work — but only in the background, and only
  * once iOS has warned us.
  *
@@ -61,10 +70,16 @@ let expired = false;
  * would be killed mid-step anyway. The expiration handler is the one signal the
  * system actually provides, and because the checkpoint is written after every
  * unit, being killed without warning costs at most the unit in flight.
+ *
+ * Registered as a runtime driver. The `(kind, generation)` the loop asks about
+ * is irrelevant here: whatever is running inside the handler is what the
+ * handler started, and every run must stop once iOS has warned us.
  */
 function shouldYield(): boolean {
   return executingInBackground && expired;
 }
+
+let removeDriver: (() => void) | null = null;
 
 /**
  * Run the resume pass and WAIT for whatever it started.
@@ -149,10 +164,11 @@ export function registerBackgroundJobTask(): Promise<void> {
     const { TaskManager, BackgroundTask } = native;
 
     defineTask(TaskManager, BackgroundTask);
-    // Installed regardless of whether SCHEDULING succeeds: `shouldYield` is
+    // Registered regardless of whether SCHEDULING succeeds: `shouldYield` is
     // gated on actually executing inside the handler, so a foreground run
     // still never yields.
-    setYieldProvider(shouldYield);
+    removeDriver?.();
+    removeDriver = registerJobDriver({ shouldYield });
 
     try {
       const status = await BackgroundTask.getStatusAsync();
@@ -176,5 +192,6 @@ export function __resetBackgroundJobTaskForTesting(): void {
   registration = null;
   executingInBackground = false;
   expired = false;
-  setYieldProvider(null);
+  removeDriver?.();
+  removeDriver = null;
 }

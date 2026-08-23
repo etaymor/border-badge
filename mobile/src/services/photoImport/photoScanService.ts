@@ -161,7 +161,13 @@ export async function startScan(opts: PhotoScanStartOptions): Promise<PhotoScanS
     return { status: 'queued', blockedBy: 'quiz-build' };
   }
   if (result.status === 'rejected') {
-    return { status: 'rejected', reason: 'no-permission' };
+    return {
+      status: 'rejected',
+      // The runtime rejects for exactly two reasons: an unregistered kind
+      // (impossible here, this module registers it) and a cancel that landed
+      // during the start's durable write.
+      reason: result.reason === 'cancelled' ? 'cancelled' : 'no-permission',
+    };
   }
   return result;
 }

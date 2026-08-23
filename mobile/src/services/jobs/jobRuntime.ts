@@ -13,15 +13,20 @@
  * rather than preempting, and the queued job's slice sits in `waiting` so its
  * screen can explain the wait instead of looking hung.
  *
- * THE BACKGROUND-TASK SEAM. The `while (!step.isDone(...))` loop below lives
- * here rather than inside a job body, and a checkpoint is written after every
- * step. `ctx.shouldYield()` reads `jobRuntimeState.shouldYieldNow()`, which is
- * a constant `false` in the foreground — a user watching a build wants it to
- * finish, and there is no budget to run out of. `backgroundJobTask` installs a
- * real provider backed by an iOS BGProcessingTask expiration handler, and
- * because the checkpoint is already durable at every step boundary, that is
- * purely additive: NO JOB BODY CHANGED to make it work.
+ * THE DRIVER SEAM. The `while (!step.isDone(...))` loop below lives here
+ * rather than inside a job body, and a checkpoint is written after every
+ * step. Between units the loop PULLS `shouldYieldNow(kind, generation)` from
+ * every driver registered on `jobRuntimeState`; with no driver asking it is
+ * always `false`, so a user watching a build sees it finish. The runtime also
+ * tells drivers about every start, settle, heartbeat, and idle, synchronously
+ * and terminal per generation, so a driver (the BGProcessingTask handler, the
+ * continued-processing lease) can hold OS-level state that mirrors the
+ * runtime's own — without the runtime importing any of them. Because the
+ * checkpoint is already durable at every step boundary, all of this is purely
+ * additive: NO JOB BODY CHANGED to make it work.
  */
+
+import { AppState } from 'react-native';
 
 import {
   clearDurableJob,
@@ -31,10 +36,26 @@ import {
 } from './jobDurableFlag';
 import { getDescriptor } from './jobRegistry';
 import {
+  emitSettledOnce,
+  getCancelInFlight,
+  getJobStartedAt,
+  getLastOptions,
+  getLastProgressAt,
+  markForegroundReturn,
+  newSlot,
+  slots,
+  whenJobSettles,
+} from './jobRuntimeSlots';
+import {
+  _emitJobHeartbeat,
+  _emitJobIdle,
+  _emitJobSettled,
+  _emitJobStarted,
   _setJobRunning,
   getRunningJobKind,
   isAnyLibraryJobRunning,
   isJobRunning,
+  nextGeneration,
   shouldYieldNow,
 } from './jobRuntimeState';
 import type {
@@ -47,34 +68,6 @@ import type {
 } from './jobTypes';
 import { patchJobSlice, resetJobSlice, resetLibraryJobStore } from '@stores/libraryJobStore';
 
-interface RuntimeSlot {
-  controller: AbortController | null;
-  generation: number;
-  startedAt: number | null;
-  lastProgressAt: number;
-  cancelInFlight: Promise<void> | null;
-  lastOptions: unknown;
-  /** Settles when the current run ends (completed, cancelled, or suspended). */
-  runPromise: Promise<void> | null;
-}
-
-function newSlot(): RuntimeSlot {
-  return {
-    controller: null,
-    generation: 0,
-    startedAt: null,
-    lastProgressAt: 0,
-    cancelInFlight: null,
-    lastOptions: null,
-    runPromise: null,
-  };
-}
-
-const slots: Record<LibraryJobKind, RuntimeSlot> = {
-  'trip-scan': newSlot(),
-  'quiz-build': newSlot(),
-};
-
 /**
  * Serializes `resumed` starts so rapid app-switcher bounces can't double-fire.
  * Module-global rather than per-kind: one foreground event drives every kind.
@@ -84,38 +77,38 @@ let foregroundEventInFlight: Promise<void> | null = null;
 /** Queue depth 1. Holds the job that asked to run while another one held the cache. */
 let queued: { kind: LibraryJobKind; options: unknown } | null = null;
 
-// ---------------------------------------------------------------------------
-// Introspection (used by resume gates and stuck detection)
-// ---------------------------------------------------------------------------
+/**
+ * Set while `resetAllForUserChange` is clearing state. A `startJob` issued
+ * mid-reset waits for it, so user B's start can never begin under user A's
+ * teardown and then be torn down with it.
+ */
+let resetInFlight: Promise<void> | null = null;
 
-export function getJobStartedAt(kind: LibraryJobKind): number | null {
-  return slots[kind].startedAt;
+/** Emit `onIdle` when nothing is running or waiting. */
+function emitIdleIfQuiet(): void {
+  if (!isAnyLibraryJobRunning() && !queued) _emitJobIdle();
 }
 
-export function getLastProgressAt(kind: LibraryJobKind): number {
-  return slots[kind].lastProgressAt;
-}
-
-export function getCancelInFlight(kind: LibraryJobKind): Promise<void> | null {
-  return slots[kind].cancelInFlight;
-}
-
-export function getLastOptions(kind: LibraryJobKind): unknown {
-  return slots[kind].lastOptions;
-}
+export {
+  isJobRunning,
+  isAnyLibraryJobRunning,
+  getJobStartedAt,
+  getLastProgressAt,
+  getCancelInFlight,
+  getLastOptions,
+  whenJobSettles,
+  markForegroundReturn,
+};
 
 /**
- * Settles when the running job ends, or immediately when none is running.
- *
- * Only the background task needs this. In the foreground a job outliving its
- * caller is the whole point; under a BGProcessingTask the handler returning is
- * what tells iOS it may suspend the app again, so it has to wait.
+ * The job waiting behind the running one, if any. Read by the foreground
+ * resume path: a queued job whose peer settled `suspended` (or whose peer's
+ * breadcrumb was cleared while the app was away) is not drained by the runtime
+ * and must be started by the next foreground.
  */
-export function whenJobSettles(kind: LibraryJobKind): Promise<void> {
-  return slots[kind].runPromise ?? Promise.resolve();
+export function getQueuedJob(): { kind: LibraryJobKind; options: unknown } | null {
+  return queued ? { ...queued } : null;
 }
-
-export { isJobRunning, isAnyLibraryJobRunning };
 
 // ---------------------------------------------------------------------------
 // Start
@@ -133,6 +126,14 @@ export async function startJob(
   options: unknown,
   runtimeOptions: StartJobOptions = {}
 ): Promise<JobStartResult> {
+  // Captured at ENTRY, before any await: the durable write below takes a
+  // SQLite round-trip, and the Photos permission prompt moves AppState to
+  // `inactive` right after a legitimate user start. `inactive` counts as
+  // foreground; only `background` does not.
+  const foregroundAtCall = AppState.currentState !== 'background';
+
+  if (resetInFlight) await resetInFlight;
+
   if (runtimeOptions.resumed) {
     if (foregroundEventInFlight) {
       await foregroundEventInFlight;
@@ -145,19 +146,20 @@ export async function startJob(
       resolveForeground = resolve;
     });
     try {
-      return await runStart(kind, options, runtimeOptions);
+      return await runStart(kind, options, runtimeOptions, foregroundAtCall);
     } finally {
       resolveForeground();
       foregroundEventInFlight = null;
     }
   }
-  return runStart(kind, options, runtimeOptions);
+  return runStart(kind, options, runtimeOptions, foregroundAtCall);
 }
 
 async function runStart(
   kind: LibraryJobKind,
   options: unknown,
-  runtimeOptions: StartJobOptions
+  runtimeOptions: StartJobOptions,
+  foregroundAtCall: boolean
 ): Promise<JobStartResult> {
   const descriptor = getDescriptor(kind);
   if (!descriptor) {
@@ -179,7 +181,8 @@ async function runStart(
   const slot = slots[kind];
   _setJobRunning(kind, true);
   slot.controller = new AbortController();
-  const myGeneration = ++slot.generation;
+  const myGeneration = nextGeneration();
+  slot.generation = myGeneration;
   const localController = slot.controller;
   const startedAt = Date.now();
   slot.startedAt = startedAt;
@@ -198,12 +201,30 @@ async function runStart(
     });
   } catch (error) {
     // A failed breadcrumb write must not leak the in-memory lock.
-    _setJobRunning(kind, false);
-    slot.controller = null;
-    slot.startedAt = null;
-    slot.lastOptions = null;
+    if (slot.controller === localController) {
+      _setJobRunning(kind, false);
+      slot.controller = null;
+      slot.startedAt = null;
+      slot.lastOptions = null;
+    }
     throw error;
   }
+
+  if (slot.controller !== localController) {
+    // A cancel (or a user-change reset) landed during the durable write. It
+    // already released the slot and emitted the driver settle for this
+    // generation; starting the loop now would resurrect a job the user just
+    // stopped, and emitting `onStarted` would hand a driver a run that has
+    // already ended.
+    return { status: 'rejected', reason: 'cancelled' };
+  }
+
+  _emitJobStarted({
+    kind,
+    generation: myGeneration,
+    resumed: runtimeOptions.resumed === true,
+    foregroundAtCall,
+  });
 
   // Held so a caller that must OUTLIVE the job can await it — specifically the
   // background task, whose handler returning is what tells iOS the app may be
@@ -235,18 +256,29 @@ async function runJob(
   let outcome: JobRunOutcome = 'completed';
   let failureError: unknown;
 
+  /**
+   * Only the run that still owns the slot may stamp progress or page drivers.
+   * The controller check makes a context held past its run inert.
+   */
+  const owns = () =>
+    slots[kind] === slot && slot.generation === myGeneration && slot.controller === localController;
+
   const ctx: JobRunContext = {
     signal: localController.signal,
     heartbeat: () => {
+      if (!owns()) return;
       slot.lastProgressAt = Date.now();
+      _emitJobHeartbeat({ kind, generation: myGeneration });
     },
     emit: (progress, detail) => {
+      if (!owns()) return;
       slot.lastProgressAt = Date.now();
       const patch: Record<string, unknown> = { progress };
       if (detail !== undefined) patch.detail = detail;
       patchJobSlice(kind, patch);
+      _emitJobHeartbeat({ kind, generation: myGeneration });
     },
-    shouldYield: shouldYieldNow,
+    shouldYield: () => shouldYieldNow(kind, myGeneration),
     saveCheckpoint: async (checkpoint) => {
       await saveDurableCheckpoint(kind, checkpoint);
     },
@@ -291,29 +323,66 @@ async function runJob(
     if (__DEV__) console.warn(`[jobRuntime] ${kind} failed:`, error);
   } finally {
     // Only the generation that still owns the slot may release it: a
-    // cancel-then-restart advances `generation` past ours.
-    if (slot.generation === myGeneration) {
+    // cancel-then-restart advances `generation` past ours, and a user-change
+    // reset replaces the slot object outright.
+    if (owns()) {
       _setJobRunning(kind, false);
       slot.controller = null;
       if (outcome !== 'suspended') {
         await clearDurableJob(kind).catch(() => {});
       }
+      // Drivers hear the settle BEFORE the owner's hook and before the drain,
+      // so a held OS lease is released (or re-titled) on a fact the runtime
+      // owns. A cancel that already emitted for this generation is a no-op.
+      emitSettledOnce(kind, slot, myGeneration, outcome);
       try {
         await descriptor!.onSettle(outcome, options as never, failureError);
       } catch (settleError) {
         if (__DEV__) console.warn(`[jobRuntime] ${kind} onSettle threw:`, settleError);
       }
-      drainQueue();
+      if (outcome === 'suspended') {
+        // A yield means the process is about to stop executing; the queued
+        // job stays `waiting` and the next foreground's resume starts it
+        // (`jobResume`). Draining here would hand a background lease to a job
+        // the driver could not have acquired one for.
+        emitIdleIfQuiet();
+      } else {
+        drainQueue();
+      }
+    } else {
+      // We lost the slot to a cancel/restart or a reset; those paths already
+      // released the lock and settled the drivers. The owner still hears it.
+      try {
+        await descriptor!.onSettle(outcome, options as never, failureError);
+      } catch (settleError) {
+        if (__DEV__) console.warn(`[jobRuntime] ${kind} onSettle threw:`, settleError);
+      }
     }
   }
 }
 
+/**
+ * Start the waiting job if nothing is running, then tell drivers when the
+ * runtime is idle. `onIdle` fires after EVERY drain attempt that leaves
+ * nothing running or waiting — including one whose queued start failed on its
+ * durable write — so a driver ends its lease on a fact the runtime owns rather
+ * than inferring it from a settle.
+ */
 function drainQueue(): void {
-  if (!queued || isAnyLibraryJobRunning()) return;
+  if (isAnyLibraryJobRunning()) return;
+  if (!queued) {
+    _emitJobIdle();
+    return;
+  }
   const next = queued;
   queued = null;
-  // eslint-disable-next-line @typescript-eslint/no-floating-promises
-  startJob(next.kind, next.options).catch(() => {});
+  startJob(next.kind, next.options)
+    .then((result) => {
+      if (result.status !== 'started') emitIdleIfQuiet();
+    })
+    .catch(() => {
+      emitIdleIfQuiet();
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -322,12 +391,17 @@ function drainQueue(): void {
 
 export function cancelJob(kind: LibraryJobKind): void {
   const slot = slots[kind];
+  const wasRunning = slot.controller !== null;
   slot.controller?.abort();
   slot.controller = null;
   _setJobRunning(kind, false);
   slot.startedAt = null;
   slot.lastOptions = null;
   if (queued?.kind === kind) queued = null;
+  // Synchronous, BEFORE the in-flight step notices the abort: a driver holding
+  // an OS lease must drop it now, not up to 90 s from now when a classification
+  // call returns.
+  if (wasRunning) emitSettledOnce(kind, slot, slot.generation, 'cancelled');
   // Kick off the metadata clear without awaiting it, but keep the promise so
   // resume can await it — a fast cancel + foreground bounce would otherwise
   // read a stale breadcrumb and resurrect the job.
@@ -344,11 +418,13 @@ export function cancelJob(kind: LibraryJobKind): void {
  */
 export function markJobFailed(kind: LibraryJobKind, failure: JobFailure): void {
   const slot = slots[kind];
+  const wasRunning = slot.controller !== null;
   if (slot.controller) {
     slot.controller.abort();
     slot.controller = null;
   }
   _setJobRunning(kind, false);
+  if (wasRunning) emitSettledOnce(kind, slot, slot.generation, 'failed');
   void clearDurableJob(kind).catch(() => {});
   patchJobSlice(kind, {
     phase: 'failed',
@@ -371,17 +447,32 @@ export function publishProgress(kind: LibraryJobKind, progress: JobProgress | nu
 
 /** Sign-out / account switch: abort everything and drop all state. */
 export async function resetAllForUserChange(): Promise<void> {
-  queued = null;
-  for (const kind of Object.keys(slots) as LibraryJobKind[]) {
-    const slot = slots[kind];
-    slot.controller?.abort();
-    slots[kind] = newSlot();
-    _setJobRunning(kind, false);
-    await clearDurableJob(kind).catch(() => {});
+  let resolveReset: () => void = () => {};
+  const previous = resetInFlight;
+  resetInFlight = new Promise<void>((resolve) => {
+    resolveReset = resolve;
+  });
+  try {
+    if (previous) await previous;
+    queued = null;
+    for (const kind of Object.keys(slots) as LibraryJobKind[]) {
+      const slot = slots[kind];
+      const wasRunning = slot.controller !== null;
+      slot.controller?.abort();
+      slots[kind] = newSlot();
+      _setJobRunning(kind, false);
+      if (wasRunning) emitSettledOnce(kind, slot, slot.generation, 'cancelled');
+      await clearDurableJob(kind).catch(() => {});
+    }
+    // The store is part of "all state": leaving a completed slice behind would
+    // show user B a bar for user A's finished job.
+    resetLibraryJobStore();
+    // Always leaves nothing running or waiting.
+    _emitJobIdle();
+  } finally {
+    resolveReset();
+    resetInFlight = null;
   }
-  // The store is part of "all state": leaving a completed slice behind would
-  // show user B a bar for user A's finished job.
-  resetLibraryJobStore();
 }
 
 /** Read the durable breadcrumb without starting anything. */
@@ -391,6 +482,7 @@ export { readDurableJob };
 export function __resetRuntimeForTesting(): void {
   queued = null;
   foregroundEventInFlight = null;
+  resetInFlight = null;
   for (const kind of Object.keys(slots) as LibraryJobKind[]) {
     slots[kind] = newSlot();
     _setJobRunning(kind, false);

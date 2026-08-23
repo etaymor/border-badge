@@ -189,6 +189,12 @@ export function usePhotoScan({
         return { success: true };
       }
 
+      if (result.reason === 'cancelled') {
+        // The user cancelled before the start finished writing its breadcrumb;
+        // the store already reads idle. Nothing to alert about.
+        return { success: true };
+      }
+
       if (result.reason === 'no-home-country') {
         return {
           success: false,

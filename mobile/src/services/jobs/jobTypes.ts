@@ -48,12 +48,14 @@ export interface JobProgress {
 /**
  * The handle a job step uses to talk to the runtime.
  *
- * `shouldYield` is the BGProcessingTask seam. It returns a constant `false`
- * today, which makes the step loop behaviorally identical to the straight-line
- * code it replaced. A future native build supplies an implementation backed by
- * the background task's `expirationHandler` / remaining-time budget; because
- * the runtime (not the job body) owns the loop and the checkpoint is written
- * after every step, that phase is additive and no job body changes.
+ * `shouldYield` is the driver seam. Between units the runtime asks every
+ * registered `JobDriver` (see below) whether this run should stop at the next
+ * boundary; in the foreground with no driver asking, it is always `false`, so
+ * the step loop is behaviorally identical to the straight-line code it
+ * replaced. The iOS BGProcessingTask driver and the continued-processing lease
+ * driver both answer through that seam; because the runtime (not the job body)
+ * owns the loop and the checkpoint is written after every step, both are
+ * additive and no job body changes.
  */
 export interface JobRunContext {
   signal: AbortSignal;
@@ -65,7 +67,7 @@ export interface JobRunContext {
   heartbeat(): void;
   /** Publish a progress snapshot and (optionally) the per-kind detail slice. */
   emit(progress: JobProgress | null, detail?: unknown): void;
-  /** PHASE 1: always false. See the note above. */
+  /** True when a registered driver wants this run to stop at the next unit boundary. */
   shouldYield(): boolean;
   saveCheckpoint(checkpoint: unknown): Promise<void>;
 }
@@ -85,6 +87,55 @@ export interface JobStep<C = unknown> {
 
 /** Outcome of one full run of the step sequence. */
 export type JobRunOutcome = 'completed' | 'cancelled' | 'suspended' | 'failed';
+
+// ---------------------------------------------------------------------------
+// Drivers
+// ---------------------------------------------------------------------------
+
+/**
+ * What a driver learns when a run begins.
+ *
+ * `generation` is a process-monotonic counter that identifies this run and
+ * only this run; a driver keys any per-run state on it so a stale event can
+ * never match a newer run. `foregroundAtCall` is captured at `startJob` entry
+ * (before the durable write), because the Photos permission prompt moves
+ * AppState to `inactive` right after a legitimate user start.
+ */
+export interface JobDriverStartEvent {
+  kind: LibraryJobKind;
+  generation: number;
+  resumed: boolean;
+  foregroundAtCall: boolean;
+}
+
+export interface JobDriverSettleEvent {
+  kind: LibraryJobKind;
+  generation: number;
+  outcome: JobRunOutcome;
+}
+
+export interface JobDriverHeartbeatEvent {
+  kind: LibraryJobKind;
+  generation: number;
+}
+
+/**
+ * A runtime driver: something that watches job lifecycle and may ask the loop
+ * to stop between units.
+ *
+ * `onSettled` is terminal per generation (a cancel that fires synchronously is
+ * never followed by a second settle when the in-flight step returns).
+ * `onIdle` fires after every drain attempt that leaves nothing running or
+ * waiting. `shouldYield` is PULLED by the loop between units — a driver never
+ * clears a flag, and answers only for the `(kind, generation)` it observed.
+ */
+export interface JobDriver {
+  onStarted?(event: JobDriverStartEvent): void;
+  onSettled?(event: JobDriverSettleEvent): void;
+  onHeartbeat?(event: JobDriverHeartbeatEvent): void;
+  onIdle?(): void;
+  shouldYield?(kind: LibraryJobKind, generation: number): boolean;
+}
 
 export type JobStartResult =
   | { status: 'started' }

@@ -16,6 +16,8 @@ export {
   isBackgroundSyncFlagSet,
   _setBackgroundSyncFlag,
   getRunningJobKind,
+  registerJobDriver,
+  shouldYieldNow,
 } from './jobRuntimeState';
 export {
   startJob,
@@ -23,11 +25,14 @@ export {
   markJobFailed,
   publishProgress,
   resetAllForUserChange,
+  markForegroundReturn,
   getJobStartedAt,
   getLastProgressAt,
   getCancelInFlight,
   getLastOptions,
+  getQueuedJob,
 } from './jobRuntime';
+export { isExecutingInBackgroundHandler } from './backgroundJobTask';
 export { tryResumeJobs, tryResumeJob, detectStuckJobs } from './jobResume';
 export type { ResumeOutcome } from './jobResume';
 export { readDurableJob, clearDurableJob } from './jobDurableFlag';

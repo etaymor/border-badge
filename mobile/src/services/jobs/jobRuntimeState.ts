@@ -14,38 +14,101 @@
  * sync interleave SQLite writes with a running quiz build's extract loop.
  */
 
-import type { LibraryJobKind } from './jobTypes';
+import type {
+  JobDriver,
+  JobDriverHeartbeatEvent,
+  JobDriverSettleEvent,
+  JobDriverStartEvent,
+  LibraryJobKind,
+} from './jobTypes';
 
 const runningKinds = new Set<LibraryJobKind>();
 let backgroundSyncFlag = false;
 
-/**
- * Whether the step loop should stop between units and leave the breadcrumb for
- * the next resume.
- *
- * Constant `false` in the foreground: a user watching a build wants it to
- * finish, and there is no budget to run out of. It becomes real only while an
- * iOS BGProcessingTask is executing the same steps — see
- * `services/jobs/backgroundJobTask`, which installs a provider backed by the
- * task's expiration handler.
- *
- * It lives on this LEAF rather than in `jobRuntime` so the background-task
- * module can install it without importing the runtime, which imports the
- * registry, which the job owners import.
- */
-let yieldProvider: () => boolean = () => false;
+// ---------------------------------------------------------------------------
+// Driver registry
+// ---------------------------------------------------------------------------
 
-/** True when the runtime should stop after the current unit of work. */
-export function shouldYieldNow(): boolean {
-  return yieldProvider();
+/**
+ * Drivers watch job lifecycle and may ask the loop to stop between units.
+ *
+ * The registry lives on this LEAF rather than in `jobRuntime` so a driver
+ * module (the BGProcessingTask handler, the continued-processing lease) can
+ * attach without importing the runtime, which imports the registry, which the
+ * job owners import. Several drivers may register; the loop yields when ANY of
+ * them says so, and nothing here is ever true with no driver registered — a
+ * user watching a build in the foreground sees it run to completion.
+ */
+const drivers = new Set<JobDriver>();
+
+/** Attach a driver. Returns a remover. */
+export function registerJobDriver(driver: JobDriver): () => void {
+  drivers.add(driver);
+  return () => {
+    drivers.delete(driver);
+  };
+}
+
+function safely(label: string, fn: () => void): void {
+  try {
+    fn();
+  } catch (error) {
+    // A misbehaving driver must never take the job down with it.
+    console.warn(`[jobRuntimeState] driver ${label} threw:`, error);
+  }
+}
+
+/** True when any driver wants this `(kind, generation)` to stop at the next unit boundary. */
+export function shouldYieldNow(kind: LibraryJobKind, generation: number): boolean {
+  for (const driver of drivers) {
+    if (!driver.shouldYield) continue;
+    try {
+      if (driver.shouldYield(kind, generation)) return true;
+    } catch (error) {
+      console.warn('[jobRuntimeState] driver shouldYield threw:', error);
+    }
+  }
+  return false;
+}
+
+/** Internal — emitted by jobRuntime only. */
+export function _emitJobStarted(event: JobDriverStartEvent): void {
+  for (const driver of drivers) {
+    if (driver.onStarted) safely('onStarted', () => driver.onStarted!(event));
+  }
+}
+
+/** Internal — emitted by jobRuntime only. */
+export function _emitJobSettled(event: JobDriverSettleEvent): void {
+  for (const driver of drivers) {
+    if (driver.onSettled) safely('onSettled', () => driver.onSettled!(event));
+  }
+}
+
+/** Internal — emitted by jobRuntime only. */
+export function _emitJobHeartbeat(event: JobDriverHeartbeatEvent): void {
+  for (const driver of drivers) {
+    if (driver.onHeartbeat) safely('onHeartbeat', () => driver.onHeartbeat!(event));
+  }
+}
+
+/** Internal — emitted by jobRuntime only. */
+export function _emitJobIdle(): void {
+  for (const driver of drivers) {
+    if (driver.onIdle) safely('onIdle', () => driver.onIdle!());
+  }
 }
 
 /**
- * Install the yield provider. Called once, by the background-task driver.
- * Passing `null` restores the foreground default.
+ * Process-monotonic run generation. Never reused within a process — not even
+ * across `resetAllForUserChange` — so a driver's per-run memory can never be
+ * matched by a later run.
  */
-export function setYieldProvider(provider: (() => boolean) | null): void {
-  yieldProvider = provider ?? (() => false);
+let generationCounter = 0;
+
+export function nextGeneration(): number {
+  generationCounter += 1;
+  return generationCounter;
 }
 
 export function isJobRunning(kind: LibraryJobKind): boolean {
@@ -97,5 +160,6 @@ export function _setBackgroundSyncFlag(value: boolean): void {
 export function __resetJobRuntimeStateForTesting(): void {
   runningKinds.clear();
   backgroundSyncFlag = false;
-  yieldProvider = () => false;
+  drivers.clear();
+  generationCounter = 0;
 }

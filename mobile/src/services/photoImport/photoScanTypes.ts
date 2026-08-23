@@ -49,7 +49,7 @@ export type PhotoScanStartResult =
   | { status: 'queued'; blockedBy: 'quiz-build' }
   | {
       status: 'rejected';
-      reason: 'no-home-country' | 'no-permission' | 'not-premium';
+      reason: 'no-home-country' | 'no-permission' | 'not-premium' | 'cancelled';
     };
 
 /**

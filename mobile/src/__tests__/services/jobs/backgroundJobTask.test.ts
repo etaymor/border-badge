@@ -67,9 +67,10 @@ import * as TaskManager from 'expo-task-manager';
 import {
   BACKGROUND_JOB_TASK,
   __resetBackgroundJobTaskForTesting,
+  isExecutingInBackgroundHandler,
   registerBackgroundJobTask,
 } from '@services/jobs/backgroundJobTask';
-import { shouldYieldNow } from '@services/jobs/jobRuntimeState';
+import { __resetJobRuntimeStateForTesting, shouldYieldNow } from '@services/jobs/jobRuntimeState';
 
 const mockGetStatus = BackgroundTask.getStatusAsync as jest.Mock;
 const mockRegisterTask = BackgroundTask.registerTaskAsync as jest.Mock;
@@ -78,6 +79,7 @@ const mockIsRegistered = TaskManager.isTaskRegisteredAsync as jest.Mock;
 beforeEach(async () => {
   jest.clearAllMocks();
   __resetBackgroundJobTaskForTesting();
+  __resetJobRuntimeStateForTesting();
   mockCapture = {};
   mockGetStatus.mockResolvedValue(BackgroundTask.BackgroundTaskStatus.Available);
   mockIsRegistered.mockResolvedValue(false);
@@ -144,14 +146,14 @@ describe('backgroundJobTask', () => {
   describe('shouldYield', () => {
     it('is false in the foreground even after registration', async () => {
       await registerBackgroundJobTask();
-      expect(shouldYieldNow()).toBe(false);
+      expect(shouldYieldNow('trip-scan', 1)).toBe(false);
     });
 
     it('is false inside the handler until iOS actually warns us', async () => {
       const task = await registered();
       mockWhenJobSettles.mockImplementation(async () => {
         // Executing in the background, but no expiration yet.
-        expect(shouldYieldNow()).toBe(false);
+        expect(shouldYieldNow('trip-scan', 1)).toBe(false);
         return undefined;
       });
 
@@ -162,7 +164,7 @@ describe('backgroundJobTask', () => {
       const task = await registered();
       mockWhenJobSettles.mockImplementation(async () => {
         mockCapture.onExpire?.();
-        expect(shouldYieldNow()).toBe(true);
+        expect(shouldYieldNow('trip-scan', 1)).toBe(true);
         return undefined;
       });
 
@@ -170,7 +172,20 @@ describe('backgroundJobTask', () => {
 
       // ...and goes back to false once the handler is off the stack, so the
       // next foreground run is unaffected.
-      expect(shouldYieldNow()).toBe(false);
+      expect(shouldYieldNow('trip-scan', 1)).toBe(false);
+    });
+  });
+
+  describe('isExecutingInBackgroundHandler', () => {
+    it('is true only while the handler is on the stack', async () => {
+      expect(isExecutingInBackgroundHandler()).toBe(false);
+      const task = await registered();
+      mockWhenJobSettles.mockImplementation(async () => {
+        expect(isExecutingInBackgroundHandler()).toBe(true);
+        return undefined;
+      });
+      await task();
+      expect(isExecutingInBackgroundHandler()).toBe(false);
     });
   });
 
@@ -218,7 +233,7 @@ describe('backgroundJobTask', () => {
 
       await expect(registerBackgroundJobTask()).resolves.toBeUndefined();
       // The foreground still behaves exactly as it did.
-      expect(shouldYieldNow()).toBe(false);
+      expect(shouldYieldNow('trip-scan', 1)).toBe(false);
     });
   });
 });
