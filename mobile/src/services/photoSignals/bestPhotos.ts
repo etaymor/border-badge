@@ -17,6 +17,7 @@
 import type { PhotoIntentTag, PhotoMlTag } from '@services/photoImport/photoTagDb';
 
 import { computeCaptureContexts } from './captureContext';
+import { isUtilityImage } from './lowSignalPhotos';
 import { collapseNearDuplicates } from './nearDuplicates';
 import { computeQualityScores } from './qualityScore';
 
@@ -27,14 +28,6 @@ export interface RankBestPhotosOptions {
   intentTags?: Map<string, PhotoIntentTag>;
   /** Cap the result; omit for the full ranked list. */
   limit?: number;
-}
-
-function isUtilityImage(
-  mlTag: PhotoMlTag | undefined,
-  intentTag: PhotoIntentTag | undefined
-): boolean {
-  if (mlTag?.isScreenshot || mlTag?.isUtility === true) return true;
-  return intentTag?.subtypes.includes('screenshot') ?? false;
 }
 
 /**

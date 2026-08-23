@@ -23,3 +23,6 @@ export type { QualityInput } from './qualityScore';
 
 export { rankBestPhotos } from './bestPhotos';
 export type { RankBestPhotosOptions } from './bestPhotos';
+
+export { isUtilityImage, lowSignalPhotoIds } from './lowSignalPhotos';
+export type { LowSignalPhotoOptions } from './lowSignalPhotos';
