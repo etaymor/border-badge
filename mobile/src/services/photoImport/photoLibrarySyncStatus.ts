@@ -21,7 +21,7 @@
 import * as MediaLibrary from 'expo-media-library';
 
 import { getCachedPhotoCount, getMetadata, setMetadata } from './photoCacheDb';
-import { isBackgroundSyncFlagSet, isScanRunning } from './photoScanState';
+import { isAnyLibraryJobRunning, isBackgroundSyncFlagSet } from '@services/jobs/jobRuntimeState';
 
 export type SyncSource = 'background' | 'quiz' | 'trip-scan' | 'manual';
 
@@ -148,7 +148,7 @@ export async function getLibraryFreshness(
   if (permission !== 'granted' && permission !== 'limited') {
     return { fresh: false, reason: 'no-permission', ...base };
   }
-  if (isBackgroundSyncFlagSet() || isScanRunning()) {
+  if (isBackgroundSyncFlagSet() || isAnyLibraryJobRunning()) {
     return { fresh: true, reason: 'writer-active', ...base };
   }
   if (status.lastSuccessAt === null || cachedPhotoCount === 0) {

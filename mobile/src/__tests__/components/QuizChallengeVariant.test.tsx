@@ -70,6 +70,7 @@ jest.mock('react-native-view-shot', () => {
 
 import { loadPlayState, type QuizPlayState } from '@services/quiz/quizPlay';
 import { QuizResultsScreen } from '@screens/quiz/QuizResultsScreen';
+import { buildChallengeMessage } from '@screens/quiz/shareChallenge';
 
 const mockLoadPlayState = loadPlayState as jest.MockedFunction<typeof loadPlayState>;
 const mockApiGet = api.get as jest.Mock;
@@ -112,6 +113,13 @@ function makeDetail(overrides?: Partial<QuizDetail>): QuizDetail {
 }
 
 function makePlayState(): QuizPlayState {
+  const correctness: Record<string, boolean> = {
+    q0: true,
+    q1: false,
+    q2: true,
+    q3: false,
+    q4: true,
+  };
   return {
     quizId: QUIZ_ID,
     sessionId: 'session-1',
@@ -121,7 +129,7 @@ function makePlayState(): QuizPlayState {
         {
           questionId: id,
           selectedOptionIndex: 0,
-          placeCorrect: true,
+          placeCorrect: correctness[id],
           correctOptionIndex: 0,
           correctOption: 'France',
         },
@@ -279,7 +287,13 @@ describe('QuizResultsScreen share wiring (Q10)', () => {
     expect(content.url).toBe('https://borderbadge.app/q/abc123slug');
     expect(content.message).not.toContain('https://');
     expect(content.message).toBe(
-      'Guess where in the world these 5 photos were taken. I got 3/5 — beat me.'
+      buildChallengeMessage({
+        quizId: QUIZ_ID,
+        source: 'results',
+        score: { correct: 3, total: 5 },
+        photoCount: 5,
+        verdicts: [true, false, true, false, true],
+      })
     );
     shareSpy.mockRestore();
   });

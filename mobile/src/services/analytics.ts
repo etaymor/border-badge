@@ -788,6 +788,20 @@ export const Analytics = {
       retry_from: props.retryFrom ?? null,
     }),
 
+  /**
+   * A suspended build picked up where it left off on the next foreground.
+   *
+   * The one number that says whether durability is actually saving runs: a
+   * resume that reaches `quiz_created` is a challenge that, before the job
+   * runtime, would have been thrown away when iOS reclaimed the app.
+   */
+  quizBuildResumed: (props: { stage: string; passes: number; foundCount: number }) =>
+    track('quiz_build_resumed', {
+      stage: props.stage,
+      passes: props.passes,
+      found_count: props.foundCount,
+    }),
+
   quizPhotoPermissionResult: (props: { status: string; entryPoint: QuizEntryPoint }) =>
     track('quiz_photo_permission_result', {
       status: props.status,

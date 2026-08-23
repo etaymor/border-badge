@@ -60,6 +60,7 @@ import { useReducedMotion } from '@hooks/useReducedMotion';
 import { useStableCallback } from '@hooks/useStableCallback';
 import type { QuizShareSource, RootStackScreenProps } from '@navigation/types';
 import { Analytics } from '@services/analytics';
+import { loadPlayState } from '@services/quiz/quizPlay';
 
 import { PhotoHero } from './components/PhotoHero';
 import { QuizTopBar } from './components/QuizTopBar';
@@ -67,8 +68,8 @@ import { RowAction } from './components/RowAction';
 import { SerifScore } from './components/SerifScore';
 import { DURATION_BASE, DURATION_HERO, DURATION_SLOW } from './components/motionTokens';
 import { resultsAccent } from './sampleAssets';
-import { presentChallengeShare } from './shareChallenge';
 import { sortQuestionsByPosition } from './questionOrder';
+import { presentChallengeShare, verdictsForShare } from './shareChallenge';
 
 type Props = RootStackScreenProps<'QuizLeaderboard'>;
 
@@ -250,11 +251,18 @@ export function QuizLeaderboardScreen({ navigation, route }: Props) {
     if (!shareUrl || !scoreToBeat) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
     try {
+      const questions = quiz ? sortQuestionsByPosition(quiz.questions) : [];
+      const playState = await loadPlayState(quizId);
       await presentChallengeShare(shareUrl, {
         quizId,
         source,
         score: scoreToBeat,
-        photoCount: quiz?.questions.length || null,
+        photoCount: questions.length || null,
+        verdicts: verdictsForShare(
+          questions.map((question) => question.id),
+          playState?.answers,
+          scoreToBeat
+        ),
       });
     } catch (error) {
       console.warn(

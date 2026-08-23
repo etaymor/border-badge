@@ -1,21 +1,28 @@
 export { useAuthStore } from './authStore';
 export { useOnboardingStore } from './onboardingStore';
 export {
-  usePhotoScanStore,
-  resetPhotoScanStore,
-  selectPhotoScanPhase,
-  selectPhotoScanProgress,
-  selectPhotoScanDiscoveredCountries,
-  selectPhotoScanIsIncremental,
-  selectPhotoScanFailure,
-  selectPhotoScanHasResult,
-} from './photoScanStore';
+  useLibraryJobStore,
+  resetLibraryJobStore,
+  resetJobSlice,
+  patchJobSlice,
+  selectActiveJob,
+  selectTripScan,
+  selectQuizBuild,
+  selectScanPhase,
+  selectScanProgress,
+  selectScanDiscoveredCountries,
+  selectScanIsIncremental,
+  selectScanFailure,
+  selectScanHasResult,
+} from './libraryJobStore';
 export type {
-  PhotoScanPhase,
-  PhotoScanFailure,
-  PhotoScanFailureReason,
-  PhotoScanState,
-} from './photoScanStore';
+  ActiveJobView,
+  JobResultRoute,
+  LibraryJobSlice,
+  LibraryJobState,
+  QuizBuildDetail,
+  TripScanDetail,
+} from './libraryJobStore';
 export { useSettingsStore, selectClipboardDetectionEnabled } from './settingsStore';
 export {
   useSubscriptionStore,

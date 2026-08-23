@@ -12,7 +12,7 @@ export type GatedFeature = 'shareExtension' | 'photoImport' | 'entries';
 /**
  * Where a Guess Where surface was opened from. Carried as an optional nav
  * param so the quiz funnel can be broken down by entry point in PostHog -
- * the five entries are otherwise indistinguishable once they land.
+ * the entries are otherwise indistinguishable once they land.
  */
 export type QuizEntryPoint =
   | 'passport_card'
@@ -20,6 +20,8 @@ export type QuizEntryPoint =
   | 'profile_settings'
   | 'onboarding_first_quiz'
   | 'guess_where_intro'
+  /** Returned to a build already in progress via the persistent job bar. */
+  | 'scan_banner'
   | 'unknown';
 
 /** Which share affordance opened the OS share sheet for a challenge. */

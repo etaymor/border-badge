@@ -604,3 +604,21 @@ def is_instagram_carousel(url: str) -> bool:
     if "instagram.com" not in parsed.netloc:
         return False
     return bool(re.search(r"/(?:p|reel|reels|tv)/[\w-]+", parsed.path))
+
+
+def is_instagram_reel(url: str) -> bool:
+    """Check if a URL is an Instagram reel, reels, or IGTV video path.
+
+    Unlike is_instagram_carousel(), this excludes /p/ posts, which may be
+    photos, carousels, or videos. Use Instaloader post_type for /p/ videos.
+
+    Args:
+        url: The URL to check
+
+    Returns:
+        True if the URL is an Instagram /reel/, /reels/, or /tv/ path
+    """
+    parsed = urlparse(url)
+    if "instagram.com" not in parsed.netloc:
+        return False
+    return bool(re.search(r"/(?:reel|reels|tv)/[\w-]+", parsed.path))

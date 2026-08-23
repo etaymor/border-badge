@@ -105,6 +105,10 @@ export default {
     },
     plugins: [
       'expo-sqlite',
+      // Adds UIBackgroundModes: ['processing'] and the BGTaskScheduler
+      // identifier to Info.plist. See services/jobs/backgroundJobTask — this
+      // is why that phase needs an `eas build` and cannot ship over the air.
+      'expo-background-task',
       'expo-font',
       'expo-video',
       'expo-apple-authentication',

@@ -23,8 +23,10 @@ import { act, fireEvent, render, screen, waitFor } from '../utils/testUtils';
 import { createMockNavigation } from '../utils/mockFactories';
 
 import { Image as ExpoImage } from 'expo-image';
+import { SCAN_COPY } from '@constants/scanCopy';
 import { QuizCreationScreen } from '@screens/quiz/QuizCreationScreen';
 import type { QuizCreationOutcome, QuizCreationProgress } from '@services/quiz/quizCreation';
+import { patchJobSlice, resetLibraryJobStore } from '@stores/libraryJobStore';
 import type { RootStackScreenProps } from '@navigation/types';
 
 // ---------------------------------------------------------------------------
@@ -63,28 +65,58 @@ let mockHoldWorking = false;
 // already in hand - mirroring the real service, which always emits progress
 // before an interrupted outcome.
 let mockProgressBeforeOutcome: QuizCreationProgress[] = [];
-let capturedOnProgress: ((update: QuizCreationProgress) => void) | undefined;
-const mockMutate = jest.fn(
-  (
-    options: { onProgress?: (update: QuizCreationProgress) => void },
-    callbacks?: { onSuccess?: (outcome: QuizCreationOutcome) => void; onError?: () => void }
-  ) => {
-    capturedOnProgress = options?.onProgress;
-    for (const update of mockProgressBeforeOutcome) {
-      options?.onProgress?.(update);
-    }
-    if (mockHoldWorking) return;
-    callbacks?.onSuccess?.(mockOutcome);
+let capturedOnOutcome: ((outcome: QuizCreationOutcome) => void) | undefined;
+
+/**
+ * Push a progress update the way the real job does: into the library job
+ * store. The screen is a VIEW onto that store now, so driving the store here
+ * exercises the same path production uses rather than a callback the screen
+ * happens to hold.
+ */
+function writeProgress(update: QuizCreationProgress) {
+  patchJobSlice('quiz-build', {
+    progress: {
+      current: update.current ?? 0,
+      total: update.total ?? 0,
+      percentage: update.total ? Math.round(((update.current ?? 0) / update.total) * 100) : 0,
+      phase: update.step,
+    },
+    detail: {
+      step: update.step,
+      pickUris: update.pickUris ?? [],
+      examined: update.examined ?? 0,
+    },
+  });
+}
+
+const mockStart = jest.fn(() => {
+  for (const update of mockProgressBeforeOutcome) {
+    writeProgress(update);
   }
-);
+  if (mockHoldWorking) return;
+  capturedOnOutcome?.(mockOutcome);
+});
+const mockCancel = jest.fn();
 
 function emitProgress(update: QuizCreationProgress) {
   act(() => {
-    capturedOnProgress?.(update);
+    writeProgress(update);
   });
 }
-jest.mock('@hooks/useQuizzes', () => ({
-  useCreateQuiz: () => ({ mutate: mockMutate, isPending: false }),
+
+jest.mock('@hooks/useQuizBuildJob', () => ({
+  useQuizBuildJob: ({ onOutcome }: { onOutcome: (outcome: QuizCreationOutcome) => void }) => {
+    capturedOnOutcome = onOutcome;
+    return {
+      phase: 'idle',
+      percentage: null,
+      detail: { step: 'scanning', pickUris: [], examined: 0 },
+      isActive: false,
+      isWaiting: false,
+      start: mockStart,
+      cancel: mockCancel,
+    };
+  },
 }));
 
 // The screen pre-flights the resumable draft; the creation orchestration
@@ -154,7 +186,8 @@ describe('QuizCreationScreen', () => {
     mockOutcome = { status: 'created', quizId: 'quiz-1', photoCount: 6 };
     mockHoldWorking = false;
     mockProgressBeforeOutcome = [];
-    capturedOnProgress = undefined;
+    capturedOnOutcome = undefined;
+    resetLibraryJobStore();
     mockLoadDraftState.mockResolvedValue(null);
     mockGetLibraryFreshness.mockResolvedValue(freshFreshness());
   });
@@ -166,7 +199,7 @@ describe('QuizCreationScreen', () => {
 
     await waitFor(() => expect(screen.getByTestId('quiz-permission-denied')).toBeTruthy());
     expect(screen.getByText('Open Settings')).toBeTruthy();
-    expect(mockMutate).not.toHaveBeenCalled();
+    expect(mockStart).not.toHaveBeenCalled();
   });
 
   it('renders the permission request state when undetermined', async () => {
@@ -179,7 +212,7 @@ describe('QuizCreationScreen', () => {
     // One scan feeds trips as well, and this is the moment the user decides
     // whether to grant at all - so the second payoff is named here.
     expect(screen.getByText(/builds your trips/i)).toBeTruthy();
-    expect(mockMutate).not.toHaveBeenCalled();
+    expect(mockStart).not.toHaveBeenCalled();
   });
 
   it('confirms on the intro step before creating; no auto-start (Q5)', async () => {
@@ -187,10 +220,10 @@ describe('QuizCreationScreen', () => {
 
     // The wizard never fires the creation without the user's confirm.
     await waitFor(() => expect(screen.getByTestId('quiz-intro-step')).toBeTruthy());
-    expect(mockMutate).not.toHaveBeenCalled();
+    expect(mockStart).not.toHaveBeenCalled();
 
     fireEvent.press(screen.getByTestId('quiz-build-start'));
-    await waitFor(() => expect(mockMutate).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mockStart).toHaveBeenCalledTimes(1));
     // REPLACE, not navigate: the wizard has done its job, and leaving it on the
     // stack meant backing out of play landed on the creation loading screen.
     expect(mockNavigation.replace).toHaveBeenCalledWith('QuizPlay', { quizId: 'quiz-1' });
@@ -245,7 +278,7 @@ describe('QuizCreationScreen', () => {
 
     await waitFor(() => expect(screen.getByTestId('quiz-resume-draft')).toBeTruthy());
     expect(screen.getByText(/1 of 3 photos already made it up/)).toBeTruthy();
-    expect(mockMutate).not.toHaveBeenCalled();
+    expect(mockStart).not.toHaveBeenCalled();
 
     // The hero is the FIRST saved pick's photo, not the intro poster.
     expect(screen.getByTestId('quiz-draft-hero')).toBeTruthy();
@@ -257,7 +290,7 @@ describe('QuizCreationScreen', () => {
     expect(draftHeroImage).toBeTruthy();
 
     fireEvent.press(screen.getByTestId('quiz-resume-start'));
-    await waitFor(() => expect(mockMutate).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mockStart).toHaveBeenCalledTimes(1));
   });
 
   it('renders thin-library guidance naming what is needed (AE2)', async () => {
@@ -296,7 +329,7 @@ describe('QuizCreationScreen', () => {
 
     // Retry restarts the creation flow.
     fireEvent.press(screen.getByText('Retry'));
-    expect(mockMutate).toHaveBeenCalledTimes(2);
+    expect(mockStart).toHaveBeenCalledTimes(2);
   });
 
   describe('working phase (live build)', () => {
@@ -318,7 +351,9 @@ describe('QuizCreationScreen', () => {
       emitProgress({ step: 'checking', current: 3, total: 10, pickUris: picks });
 
       expect(screen.getByText('Building Your Challenge')).toBeTruthy();
-      expect(screen.getByText('Finding your travel photos')).toBeTruthy();
+      expect(
+        screen.getByText(SCAN_COPY.quiz.workingStatus('checking', { isFirstScan: false }))
+      ).toBeTruthy();
       expect(screen.getByTestId('quiz-found-counter')).toBeTruthy();
       expect(screen.getByText('3 of 10')).toBeTruthy();
 
@@ -331,9 +366,14 @@ describe('QuizCreationScreen', () => {
       expect(screen.queryByTestId('quiz-slot-empty-2')).toBeNull();
       expect(screen.queryByTestId('quiz-slot-photo-3')).toBeNull();
 
-      expect(
-        screen.getByText('Your photos stay private until you share the challenge.')
-      ).toBeTruthy();
+      // Three lines now, not one: what has happened on device, what the trip
+      // scan is getting out of it, and what leaving the screen does.
+      expect(screen.getByText(SCAN_COPY.quiz.workingPrivacy[0])).toBeTruthy();
+      expect(screen.getByText(SCAN_COPY.quiz.workingPrivacy[1])).toBeTruthy();
+      expect(screen.getByText(SCAN_COPY.shared.persistenceParagraph)).toBeTruthy();
+      // Leaving is the ordinary action now that the build outlives the screen.
+      expect(screen.getByTestId('quiz-leave-running')).toBeTruthy();
+      expect(screen.getByTestId('quiz-cancel')).toBeTruthy();
     });
 
     it('shows the most recent find as the hero photo', async () => {
@@ -359,12 +399,14 @@ describe('QuizCreationScreen', () => {
       expect(screen.getByText('0 of 10')).toBeTruthy();
     });
 
-    it('keeps thumbnails through the upload stage and says Building your challenge', async () => {
+    it('keeps thumbnails through the upload stage and names the upload', async () => {
       await startHeld();
       emitProgress({ step: 'checking', current: 3, total: 10, pickUris: picks });
       emitProgress({ step: 'building', current: 1, total: 3, pickUris: picks });
 
-      expect(screen.getByText('Building your challenge')).toBeTruthy();
+      expect(
+        screen.getByText(SCAN_COPY.quiz.workingStatus('building', { isFirstScan: false }))
+      ).toBeTruthy();
       // The counter reads FOUND photos, so it does not restart at the
       // handover: the hunt is over and every slot is filled.
       expect(screen.getByText('3 of 3')).toBeTruthy();
@@ -409,7 +451,8 @@ describe('QuizCreationScreen', () => {
       });
 
       expect(screen.getByTestId('quiz-examined-line')).toBeTruthy();
-      expect(screen.getByText('120 photos checked')).toBeTruthy();
+      // Open-ended by design: no implied denominator to wait out.
+      expect(screen.getByText(SCAN_COPY.quiz.examinedLine(120))).toBeTruthy();
 
       // Not during the upload: nothing is being checked any more.
       emitProgress({ step: 'building', current: 0, total: 1, examined: 120, pickUris: [picks[0]] });

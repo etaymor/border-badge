@@ -13,9 +13,12 @@ export * from './photoCacheDbSuggestions';
 export * from './photoBackgroundSync';
 export * from './resolveLoadableUri';
 // Explicit named re-exports of the public photoScanService API. Internal helpers
-// (markFailed, readScanInProgressMetadata, clearScanInProgressMetadata,
-// __resetForTesting) are intentionally NOT re-exported here; package-internal
-// callers reach them via the relative path './photoScanService'.
+// (markFailed, __resetForTesting) are intentionally NOT re-exported here;
+// package-internal callers reach them via the relative path './photoScanService'.
+//
+// Importing this module REGISTERS the `trip-scan` job descriptor as a side
+// effect. Resume is driven by `services/jobs` now, so there is no
+// `photoScanResume` to re-export.
 export {
   startScan,
   cancelScan,
@@ -27,10 +30,12 @@ export {
   resetForUserChange,
 } from './photoScanService';
 export type {
+  PhotoScanFailure,
+  PhotoScanFailureReason,
   PhotoScanResult,
   PhotoScanStartOptions,
   PhotoScanStartResult,
-} from './photoScanService';
-export { isScanRunning } from './photoScanState';
-export * from './photoScanResume';
+} from './photoScanTypes';
+export { isAlertScanFailure } from './photoScanTypes';
+export { isScanRunning } from '@services/jobs/jobRuntimeState';
 export * from './errors';

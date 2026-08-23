@@ -1,4 +1,4 @@
-export { GuessOption } from './GuessOption';
+export { GuessOption, GuessOptionGrid } from './GuessOption';
 export { PhotoHero } from './PhotoHero';
 export { PhotoInspector } from './PhotoInspector';
 export { PolaroidThumb, type PolaroidVerdict } from './PolaroidThumb';

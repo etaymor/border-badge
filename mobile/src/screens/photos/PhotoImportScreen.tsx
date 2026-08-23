@@ -32,6 +32,7 @@ import {
   ScanningPhase,
   SuggestionsPhase,
 } from './components';
+import { getLibraryFreshness } from '@services/photoImport/photoLibrarySyncStatus';
 import { useOnboardingStore, selectHomeCountry } from '@stores/onboardingStore';
 import { usePhotoImportWorkflow } from './usePhotoImportWorkflow';
 import { useClusterItems } from './useClusterItems';
@@ -43,6 +44,26 @@ type Props = PassportStackScreenProps<'PhotoImport'>;
 
 export function PhotoImportScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
+  /**
+   * Library size, for the magnitude and duration lines on the idle screen.
+   * Read once on mount: it only has to be roughly right, and a wrong-by-a-few
+   * number is far better than the screen saying nothing about how long a
+   * 53,000-photo scan will take.
+   */
+  const [cachedPhotoCount, setCachedPhotoCount] = useState<number | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    getLibraryFreshness()
+      .then((freshness) => {
+        if (!cancelled) setCachedPhotoCount(freshness.cachedPhotoCount);
+      })
+      .catch(() => {
+        // No number is a fine outcome: both lines render nothing.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const rootNavigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const {
     countryCode: filterCountryCode,
@@ -452,6 +473,7 @@ export function PhotoImportScreen({ navigation, route }: Props) {
           lastImportTime={lastImportTime}
           homeCountryName={homeCountryData?.name}
           onStartScan={startScan}
+          cachedPhotoCount={cachedPhotoCount}
         />
       )}
 

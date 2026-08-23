@@ -35,8 +35,9 @@ jest.mock('@services/photoImport/photoBackgroundSync', () => ({
   isBackgroundSyncInProgress: jest.fn(() => false),
 }));
 
-jest.mock('@services/photoImport/photoScanState', () => ({
+jest.mock('@services/jobs/jobRuntimeState', () => ({
   isScanRunning: jest.fn(() => false),
+  isAnyLibraryJobRunning: jest.fn(() => false),
 }));
 
 import {

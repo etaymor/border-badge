@@ -31,7 +31,7 @@ import {
   type LibraryFreshness,
   type SyncSource,
 } from './photoLibrarySyncStatus';
-import { isScanRunning, _setBackgroundSyncFlag } from './photoScanState';
+import { isAnyLibraryJobRunning, _setBackgroundSyncFlag } from '@services/jobs/jobRuntimeState';
 
 // Lazy imports to avoid circular dependency
 let _extractPhotosWithLocation: typeof import('./photoImportService').extractPhotosWithLocation;
@@ -189,7 +189,10 @@ export async function ensureFreshLibrary(
     return { status: 'no-permission' };
   }
   if (freshness.reason === 'writer-active') {
-    return { status: 'deferred', reason: isScanRunning() ? 'scan-running' : 'sync-running' };
+    return {
+      status: 'deferred',
+      reason: isAnyLibraryJobRunning() ? 'scan-running' : 'sync-running',
+    };
   }
   if (freshness.fresh) {
     return { status: 'fresh', freshness };
@@ -246,7 +249,7 @@ export async function performBackgroundPhotoSync(
 
   // Skip if the singleton scan service is already doing real work — bg sync
   // and the service share the same SQLite cache and would otherwise interleave.
-  if (isScanRunning()) {
+  if (isAnyLibraryJobRunning()) {
     return null;
   }
 

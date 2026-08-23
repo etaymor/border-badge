@@ -6,7 +6,12 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     import pytest
 
-from app.core.analytics import log_landing_viewed, log_list_viewed, log_trip_viewed
+from app.core.analytics import (
+    log_landing_viewed,
+    log_list_viewed,
+    log_quiz_funnel_event,
+    log_trip_viewed,
+)
 
 
 def test_log_landing_viewed(caplog: "pytest.LogCaptureFixture") -> None:
@@ -30,3 +35,10 @@ def test_log_trip_viewed(caplog: "pytest.LogCaptureFixture") -> None:
         log_trip_viewed("summer-abc123")
     assert "page_view: trip" in caplog.text
     assert "summer-abc123" in caplog.text
+
+
+def test_log_quiz_funnel_event(caplog: "pytest.LogCaptureFixture") -> None:
+    """Quiz guest steps share the analytics logger with other public pages."""
+    with caplog.at_level(logging.INFO, logger="analytics"):
+        log_quiz_funnel_event("page_view", "guest-play-abc123")
+    assert "quiz_funnel: page_view slug=guest-play-abc123" in caplog.text

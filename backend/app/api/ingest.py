@@ -192,13 +192,18 @@ async def ingest_social_url(
     extraction_latency_ms: int = 0
     extraction_error: str | None = None
 
-    # Detect TikTok photo slideshows or Instagram carousels early
-    # These use multimodal extraction instead of video extraction
-    is_photo_slideshow = is_tiktok_photo(canonical_url) or (
+    # Detect TikTok photo slideshows or Instagram carousels early.
+    # Slideshows still try carousel/image extraction first. Video fallback is
+    # disabled only for TikTok /photo/ (yt-dlp cannot fetch those). Instagram
+    # videos use the Instaloader CDN URL after carousel, not speculative yt-dlp.
+    is_tiktok_slideshow = is_tiktok_photo(canonical_url)
+    is_photo_slideshow = is_tiktok_slideshow or (
         provider == SocialProvider.INSTAGRAM
         and is_instagram_carousel(canonical_url)
         and not is_profile
     )
+    allow_video_fallback = not is_tiktok_slideshow
+    is_known_video_url = allow_video_fallback and not is_photo_slideshow
 
     if is_profile and oembed:
         # For profiles, use the profile name (business name) as the search query
@@ -248,11 +253,11 @@ async def ingest_social_url(
             # 3. If caption fails or signals skip_to_video, try video frame extraction
             # 4. Cache results
             #
-            # Note: TikTok photo slideshows (/photo/ URLs) don't support video extraction
-            # via yt-dlp, so we disable video fallback for those URLs.
+            # Note: TikTok photo slideshows (/photo/ URLs) don't support video
+            # extraction via yt-dlp, so we disable video fallback for those only.
             orchestrator = ExtractionOrchestrator(
-                enable_video_fallback=not is_photo_slideshow,
-                total_timeout=10.0 if is_photo_slideshow else 30.0,
+                enable_video_fallback=allow_video_fallback,
+                total_timeout=10.0 if is_tiktok_slideshow else 30.0,
             )
 
             extraction_result = await orchestrator.extract(
@@ -260,7 +265,7 @@ async def ingest_social_url(
                 oembed,
                 data.caption,
                 use_cache=not data.skip_cache,  # Honor skip_cache for cache invalidation
-                is_video_url=not is_photo_slideshow,
+                is_video_url=is_known_video_url,
                 extraction_method=data.extraction_method,
                 is_photo_slideshow=is_photo_slideshow,
             )

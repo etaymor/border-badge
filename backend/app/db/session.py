@@ -256,7 +256,8 @@ class SupabaseClient:
             params: Optional parameters to pass to the function
 
         Returns:
-            The RPC function result payload
+            The RPC function result payload, or None for empty 2xx
+            bodies (PostgREST RETURNS VOID functions).
         """
         try:
             client = get_http_client()
@@ -266,12 +267,25 @@ class SupabaseClient:
                 json=params or {},
             )
             response.raise_for_status()
-            return response.json()
+            return _parse_rpc_payload(response)
         except httpx.HTTPStatusError as e:
             self._handle_http_error(e)
         except httpx.RequestError as e:
             self._handle_request_error(e)
         return None
+
+
+def _parse_rpc_payload(response: httpx.Response) -> Any:
+    """Decode a PostgREST RPC body.
+
+    RETURNS VOID functions (``increment_quiz_funnel``) reply 2xx with an
+    empty body. Treat that as success so a committed increment is not
+    mistaken for a failed write — retrying or logging it as lost would
+    double-count or hide a healthy funnel.
+    """
+    if not response.content.strip():
+        return None
+    return response.json()
 
 
 def get_supabase_client(user_token: str | None = None) -> SupabaseClient:

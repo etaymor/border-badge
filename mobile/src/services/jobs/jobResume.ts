@@ -1,0 +1,156 @@
+/**
+ * jobResume - Foreground auto-resume and stuck detection for library jobs.
+ *
+ * Generalizes the former `photoScanResume`. On app foreground (or another safe
+ * trigger) this checks, for every registered job kind, whether a suspended run
+ * should be picked up. Universal preconditions are handled here; job-specific
+ * ones come from `descriptor.gates`.
+ *
+ * There is NO OS-level background execution today (no expo-task-manager, no
+ * UIBackgroundModes). "Resume" means: iOS suspended the JS runtime, the user
+ * reopened the app, and we continue from the last durable checkpoint. Nothing
+ * here makes progress while the app is closed, and no user-facing copy may
+ * claim otherwise.
+ */
+
+import { allDescriptors, getDescriptor } from './jobRegistry';
+import { clearDurableJob, readDurableJob } from './jobDurableFlag';
+import {
+  getCancelInFlight,
+  getLastProgressAt,
+  isAnyLibraryJobRunning,
+  isJobRunning,
+  markJobFailed,
+  startJob,
+} from './jobRuntime';
+import type { GateOutcome, LibraryJobKind } from './jobTypes';
+import { useLibraryJobStore } from '@stores/libraryJobStore';
+
+/**
+ * Job owners register themselves as a side effect of being imported. Doing
+ * that lazily here — rather than with a static import at the app root — keeps
+ * each pipeline's module graph out of startup; resume is the first moment a
+ * descriptor is actually needed.
+ */
+let registrationPromise: Promise<unknown> | null = null;
+
+async function ensureJobsRegistered(): Promise<void> {
+  if (!registrationPromise) {
+    registrationPromise = Promise.resolve().then(() => {
+      for (const load of [
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        () => require('@services/photoImport/photoScanService'),
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        () => require('@services/quiz/quizBuildJob'),
+      ]) {
+        try {
+          load();
+        } catch {
+          // A pipeline that cannot load must not break resume for the others.
+        }
+      }
+    });
+  }
+  await registrationPromise;
+}
+
+export type ResumeOutcome =
+  | { status: 'started' }
+  | { status: 'skipped'; reason: 'no-flag' | 'already-running' | 'other-job-running' | 'deferred' }
+  | { status: 'failed-gate'; gateId: string };
+
+/**
+ * Try to resume every registered job. Jobs are mutually exclusive, so at most
+ * one actually starts; the rest report `other-job-running` and will be picked
+ * up on a later foreground (or by the runtime's queue drain).
+ */
+export async function tryResumeJobs(): Promise<Record<string, ResumeOutcome>> {
+  await ensureJobsRegistered();
+  const results: Record<string, ResumeOutcome> = {};
+  for (const descriptor of allDescriptors()) {
+    results[descriptor.kind] = await tryResumeJob(descriptor.kind);
+  }
+  return results;
+}
+
+export async function tryResumeJob(kind: LibraryJobKind): Promise<ResumeOutcome> {
+  const descriptor = getDescriptor(kind);
+  if (!descriptor) return { status: 'skipped', reason: 'no-flag' };
+
+  // A recent cancel kicked off async breadcrumb clearing without awaiting it.
+  // Await it before reading, or a fast cancel + foreground bounce reads the
+  // stale record and resurrects the job.
+  const pendingCancel = getCancelInFlight(kind);
+  if (pendingCancel) await pendingCancel;
+
+  if (isJobRunning(kind)) return { status: 'skipped', reason: 'already-running' };
+
+  const record = await readDurableJob(kind);
+  if (!record) return { status: 'skipped', reason: 'no-flag' };
+
+  // Staleness is checked before the other job's lock so a dead breadcrumb is
+  // cleared promptly rather than lingering behind a long-running sibling.
+  if (Date.now() - record.startedAt > descriptor.stalenessMs) {
+    await clearDurableJob(kind);
+    markJobFailed(kind, {
+      reason: 'stale',
+      title: 'Scan Stopped',
+      message: 'The previous scan was interrupted. Tap to start over.',
+    });
+    return { status: 'failed-gate', gateId: 'staleness' };
+  }
+
+  if (isAnyLibraryJobRunning()) {
+    return { status: 'skipped', reason: 'other-job-running' };
+  }
+
+  for (const gate of descriptor.gates) {
+    let outcome: GateOutcome;
+    try {
+      outcome = await gate.check(kind, record);
+    } catch {
+      // A throwing gate must not clear a good breadcrumb; defer instead.
+      return { status: 'skipped', reason: 'deferred' };
+    }
+    if (outcome.status === 'defer') return { status: 'skipped', reason: 'deferred' };
+    if (outcome.status === 'fail') {
+      await clearDurableJob(kind);
+      markJobFailed(kind, outcome.failure);
+      return { status: 'failed-gate', gateId: gate.id };
+    }
+  }
+
+  const result = await startJob(kind, record.options, {
+    resumed: true,
+    checkpoint: record.checkpoint,
+  });
+  if (result.status === 'started') return { status: 'started' };
+  return { status: 'skipped', reason: 'already-running' };
+}
+
+/**
+ * Surface a `failed` state when a job is supposedly running but hasn't made
+ * progress for its descriptor's threshold. Safe to call on any tick.
+ *
+ * This is only correct if long-running steps call `ctx.heartbeat()`. A step
+ * that can exceed the threshold between checkpoints without a heartbeat will
+ * be killed while perfectly healthy.
+ */
+export function detectStuckJobs(): LibraryJobKind[] {
+  const stuck: LibraryJobKind[] = [];
+  const state = useLibraryJobStore.getState();
+  for (const descriptor of allDescriptors()) {
+    const kind = descriptor.kind;
+    if (state.jobs[kind].phase !== 'running') continue;
+    const lastAt = getLastProgressAt(kind);
+    if (lastAt === 0) continue; // Just started; no progress yet is fine.
+    if (Date.now() - lastAt <= descriptor.stuckThresholdMs) continue;
+    markJobFailed(kind, {
+      reason: 'stuck',
+      title: 'Scan Stopped',
+      message: 'The scan stopped making progress. Tap to retry.',
+    });
+    stuck.push(kind);
+  }
+  return stuck;
+}

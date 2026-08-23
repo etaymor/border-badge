@@ -66,7 +66,7 @@ import type { QuizAnswerResult } from '@hooks/useQuizzes';
 import type { RootStackScreenProps } from '@navigation/types';
 import { Analytics } from '@services/analytics';
 
-import { GuessOption } from './components/GuessOption';
+import { GuessOption, GuessOptionGrid } from './components/GuessOption';
 import { BOTTOM_SCRIM_COLORS, BOTTOM_SCRIM_LOCATIONS } from './components/PhotoHero';
 import {
   DURATION_BASE,
@@ -537,7 +537,7 @@ export function QuizPlayScreen({ navigation, route }: Props) {
         <Text style={styles.prompt} testID="quiz-country-prompt">
           Where in the world was this?
         </Text>
-        <View style={styles.optionsGrid}>
+        <GuessOptionGrid>
           {activeQuestion.options.map((option, index) => (
             <GuessOption
               key={option}
@@ -546,11 +546,10 @@ export function QuizPlayScreen({ navigation, route }: Props) {
               disabled={answerMutation.isPending || pendingAnswerKey !== null}
               entranceDelay={reduceMotion ? 0 : DURATION_FAST + index * 30}
               onPress={() => handleSelectCountry(index)}
-              style={styles.optionCell}
               testID={`quiz-option-${index}`}
             />
           ))}
-        </View>
+        </GuessOptionGrid>
       </Animated.View>
     ) : null;
 
@@ -643,13 +642,10 @@ export function QuizPlayScreen({ navigation, route }: Props) {
                 style={StyleSheet.absoluteFill}
                 pointerEvents="none"
               />
-              <View style={styles.topBarRow}>
-                <GlassBackButton
-                  onPress={handleBack}
-                  variant="dark"
-                  size="small"
-                  testID="quiz-play-back"
-                />
+              <View style={styles.topBarRow} pointerEvents="box-none">
+                {/* Absolute-centred like QuizTopBar's title: a flex spacer
+                    still left-aligns the full-width track against the back
+                    button, which is the offset the play screen was showing. */}
                 <ProgressSegments
                   total={questions.length}
                   filled={answeredCount}
@@ -657,8 +653,12 @@ export function QuizPlayScreen({ navigation, route }: Props) {
                   style={styles.tracker}
                   testID="quiz-play-progress"
                 />
-                {/* Spacer mirrors the back button so the tracker stays centered. */}
-                <View style={styles.topBarSpacer} />
+                <GlassBackButton
+                  onPress={handleBack}
+                  variant="dark"
+                  size="small"
+                  testID="quiz-play-back"
+                />
               </View>
             </View>
 
@@ -758,13 +758,11 @@ const styles = StyleSheet.create({
   topBarRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-  },
-  topBarSpacer: {
-    width: 36,
+    minHeight: 36,
   },
   tracker: {
-    flex: 1,
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
   },
   photoLayer: {
     position: 'absolute',
@@ -813,15 +811,6 @@ const styles = StyleSheet.create({
     color: colors.warmCream,
     textAlign: 'center',
     paddingHorizontal: 12,
-  },
-  optionsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 9,
-  },
-  optionCell: {
-    flexBasis: '48%',
-    flexGrow: 1,
   },
   centered: {
     flex: 1,

@@ -251,6 +251,96 @@ class TestIngestSocialUrl:
         finally:
             app.dependency_overrides.clear()
 
+    def _post_ingest_and_capture_orchestrator(
+        self,
+        client,
+        auth_override,
+        *,
+        canonical_url: str,
+        provider: SocialProvider,
+        request_url: str | None = None,
+    ):
+        app.dependency_overrides[get_current_user] = auth_override
+        mock_oembed = OEmbedResponse(
+            title="Test post",
+            author_name="tester",
+            thumbnail_url="https://example.com/thumb.jpg",
+            raw={"title": "Test post"},
+        )
+        try:
+            with patch("app.api.ingest.canonicalize_url") as mock_canonicalize:
+                mock_canonicalize.return_value = (canonical_url, provider)
+                with patch("app.api.ingest.fetch_oembed") as mock_fetch:
+                    mock_fetch.return_value = mock_oembed
+                    with patch(
+                        "app.api.ingest.ExtractionOrchestrator"
+                    ) as mock_orchestrator_class:
+                        mock_orchestrator = MagicMock()
+                        mock_orchestrator.extract = AsyncMock(
+                            return_value=ExtractionResult(
+                                places=[],
+                                method="none",
+                                source="caption",
+                                skip_to_video=False,
+                                context_location=None,
+                                latency_ms=50,
+                                from_cache=False,
+                            )
+                        )
+                        mock_orchestrator_class.return_value = mock_orchestrator
+                        response = client.post(
+                            "/ingest/social",
+                            json={"url": request_url or canonical_url},
+                            headers={"Authorization": "Bearer test-token"},
+                        )
+                        assert response.status_code == 200
+                        return mock_orchestrator_class, mock_orchestrator
+        finally:
+            app.dependency_overrides.clear()
+
+    def test_reel_enables_video_fallback_with_slideshow_carousel(
+        self, client, auth_override
+    ):
+        mock_class, mock_orch = self._post_ingest_and_capture_orchestrator(
+            client,
+            auth_override,
+            canonical_url="https://www.instagram.com/reel/ABC123",
+            provider=SocialProvider.INSTAGRAM,
+        )
+        mock_class.assert_called_once()
+        assert mock_class.call_args.kwargs["enable_video_fallback"] is True
+        assert mock_class.call_args.kwargs["total_timeout"] == 30.0
+        assert mock_orch.extract.await_args.kwargs["is_video_url"] is False
+        assert mock_orch.extract.await_args.kwargs["is_photo_slideshow"] is True
+
+    def test_instagram_p_enables_lazy_video_not_speculative(
+        self, client, auth_override
+    ):
+        mock_class, mock_orch = self._post_ingest_and_capture_orchestrator(
+            client,
+            auth_override,
+            canonical_url="https://www.instagram.com/p/ABC123",
+            provider=SocialProvider.INSTAGRAM,
+        )
+        mock_class.assert_called_once()
+        assert mock_class.call_args.kwargs["enable_video_fallback"] is True
+        assert mock_class.call_args.kwargs["total_timeout"] == 30.0
+        assert mock_orch.extract.await_args.kwargs["is_video_url"] is False
+        assert mock_orch.extract.await_args.kwargs["is_photo_slideshow"] is True
+
+    def test_tiktok_photo_disables_video_fallback(self, client, auth_override):
+        mock_class, mock_orch = self._post_ingest_and_capture_orchestrator(
+            client,
+            auth_override,
+            canonical_url="https://www.tiktok.com/@user/photo/123",
+            provider=SocialProvider.TIKTOK,
+        )
+        mock_class.assert_called_once()
+        assert mock_class.call_args.kwargs["enable_video_fallback"] is False
+        assert mock_class.call_args.kwargs["total_timeout"] == 10.0
+        assert mock_orch.extract.await_args.kwargs["is_video_url"] is False
+        assert mock_orch.extract.await_args.kwargs["is_photo_slideshow"] is True
+
 
 class TestSaveToTrip:
     """Tests for POST /ingest/save-to-trip endpoint."""

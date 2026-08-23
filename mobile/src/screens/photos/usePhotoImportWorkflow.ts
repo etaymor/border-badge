@@ -7,7 +7,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useOnboardingStore, selectHomeCountry } from '@stores/onboardingStore';
-import { isAlertScanFailure, usePhotoScanStore } from '@stores/photoScanStore';
+import { isAlertScanFailure } from '@services/photoImport/photoScanTypes';
+import { useLibraryJobStore } from '@stores/libraryJobStore';
 import { useSubscriptionStore } from '@stores/subscriptionStore';
 import {
   createSubCluster,
@@ -62,9 +63,11 @@ export function usePhotoImportWorkflow({
   // failed-state branch renders the Retry button on first paint.
   const [phase, setPhase] = useState<ImportPhase>(() => {
     if (skipToSuggestions && tripId) return 'loading';
-    const serviceState = usePhotoScanStore.getState();
+    const serviceState = useLibraryJobStore.getState().jobs['trip-scan'];
     const servicePhase = serviceState.phase;
-    if (servicePhase === 'scanning') return 'scanning';
+    // 'waiting' is a queued scan behind a running quiz build. It belongs on the
+    // scanning screen too — the wait is part of the scan from here.
+    if (servicePhase === 'running' || servicePhase === 'waiting') return 'scanning';
     // If the service already has a completed result waiting (because this
     // screen mounted via banner-tap after the scan finished while elsewhere),
     // initialize to 'loading'. usePhotoScan's mount-time recovery effect will
@@ -73,8 +76,8 @@ export function usePhotoImportWorkflow({
     if (servicePhase === 'completed' && serviceState.hasResult) return 'loading';
     if (
       servicePhase === 'failed' &&
-      serviceState.scanFailure &&
-      !isAlertScanFailure(serviceState.scanFailure.reason)
+      serviceState.failure &&
+      !isAlertScanFailure(serviceState.failure.reason)
     ) {
       return 'scanning';
     }
@@ -86,8 +89,10 @@ export function usePhotoImportWorkflow({
   // mount; `useMemo` with an empty dep array communicates intent better than
   // `useState(...)[0]`.
   const initialServiceFailure = useMemo(() => {
-    const state = usePhotoScanStore.getState();
-    return state.phase === 'failed' ? state.scanFailure : null;
+    const slice = useLibraryJobStore.getState().jobs['trip-scan'];
+    if (slice.phase !== 'failed' || !slice.failure) return null;
+    const { reason, title, message } = slice.failure;
+    return { reason: reason as ScanFailureReason, title, message };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const [scanProgress, setScanProgress] = useState<ScanProgress | null>(null);
@@ -262,23 +267,29 @@ export function usePhotoImportWorkflow({
   // stale, no-permission, subscription-expired) keep the screen in 'scanning'
   // so ScanningPhase's failed-state branch renders the inline Retry button.
   useEffect(() => {
-    return usePhotoScanStore.subscribe((state, prev) => {
-      if (state.phase === prev.phase) return;
-      if (state.phase === 'failed' && state.scanFailure) {
-        const reason = state.scanFailure.reason;
+    return useLibraryJobStore.subscribe((state, prev) => {
+      const slice = state.jobs['trip-scan'];
+      const prevSlice = prev.jobs['trip-scan'];
+      if (slice.phase === prevSlice.phase) return;
+      if (slice.phase === 'failed' && slice.failure) {
+        const reason = slice.failure.reason as ScanFailureReason;
         setScanFailure({
           reason,
-          title: state.scanFailure.title,
-          message: state.scanFailure.message,
+          title: slice.failure.title,
+          message: slice.failure.message,
         });
         if (isAlertScanFailure(reason)) {
           setPhase('idle');
         } else {
           setPhase('scanning');
         }
-      } else if (state.phase === 'scanning' && prev.phase !== 'scanning') {
-        // Service spun up a scan from outside this screen (auto-resume,
-        // banner-driven retry). Reflect in the screen's phase.
+      } else if (
+        (slice.phase === 'running' || slice.phase === 'waiting') &&
+        prevSlice.phase !== 'running' &&
+        prevSlice.phase !== 'waiting'
+      ) {
+        // The runtime spun up a scan from outside this screen (auto-resume,
+        // banner-driven retry, a queue drain). Reflect in the screen's phase.
         setScanFailure(null);
         setPhase('scanning');
       }

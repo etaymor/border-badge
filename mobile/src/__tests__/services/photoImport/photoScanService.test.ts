@@ -1,20 +1,24 @@
 /**
- * Tests for photoScanService - the singleton service that owns the scan loop.
+ * Tests for photoScanService - the trip scan's job descriptor and public API.
  *
- * Covers the lock semantics, store state transitions, metadata writes,
- * cancel-during-segmentation, consumeResult, and `start` discriminated outcomes.
+ * Covers the lock semantics, store state transitions, durable-flag writes,
+ * cancel-during-segmentation, consumeResult, and `startScan`'s discriminated
+ * outcomes. The lock, the flag and the generation guard live in `jobRuntime`
+ * now, so these assertions are also the trip scan's contract WITH the runtime.
  */
 
 import {
   __resetForTesting,
   cancelScan,
   consumeResult,
+  getCancelInFlight,
   hasResult,
   isScanRunning,
   markFailed,
   startScan,
 } from '@services/photoImport/photoScanService';
-import { usePhotoScanStore } from '@stores/photoScanStore';
+import { __resetRuntimeForTesting } from '@services/jobs/jobRuntime';
+import { resetLibraryJobStore, useLibraryJobStore } from '@stores/libraryJobStore';
 
 import type { PhotoWithLocation } from '@services/photoImport';
 
@@ -107,6 +111,11 @@ function makePhoto(id: string): PhotoWithLocation {
   };
 }
 
+/** The store slice every assertion below reads. */
+function tripScan() {
+  return useLibraryJobStore.getState().jobs['trip-scan'];
+}
+
 function makeCandidate(id = 'trip-1') {
   return {
     id,
@@ -123,6 +132,8 @@ function makeCandidate(id = 'trip-1') {
 beforeEach(() => {
   jest.clearAllMocks();
   __resetForTesting();
+  __resetRuntimeForTesting();
+  resetLibraryJobStore();
   cacheDb.cachePhotos.mockResolvedValue(undefined);
   cacheDb.clearPhotoCache.mockResolvedValue(undefined);
   cacheDb.getAllCachedPhotos.mockResolvedValue([]);
@@ -185,7 +196,7 @@ describe('photoScanService happy path', () => {
     // Wait microtasks so the floating promise inside startScan resolves.
     await new Promise((r) => setImmediate(r));
 
-    const state = usePhotoScanStore.getState();
+    const state = tripScan();
     expect(state.phase).toBe('completed');
     expect(state.hasResult).toBe(true);
 
@@ -198,7 +209,7 @@ describe('photoScanService happy path', () => {
     expect(result?.candidates).toHaveLength(1);
     // After consume, the service's ref is cleared
     expect(hasResult()).toBe(false);
-    expect(usePhotoScanStore.getState().hasResult).toBe(false);
+    expect(tripScan().hasResult).toBe(false);
     expect(isScanRunning()).toBe(false);
   });
 
@@ -230,7 +241,7 @@ describe('photoScanService happy path', () => {
     expect(importService.extractPhotosWithLocation).toHaveBeenCalled();
     const callArgs = importService.extractPhotosWithLocation.mock.calls[0];
     expect(callArgs[2]).toEqual(new Date(1000)); // since
-    expect(usePhotoScanStore.getState().isIncremental).toBe(true);
+    expect(tripScan().detail.isIncremental).toBe(true);
   });
 });
 
@@ -242,9 +253,9 @@ describe('photoScanService failure paths', () => {
     await startScan({ homeCountry: 'US' });
     await new Promise((r) => setImmediate(r));
 
-    const state = usePhotoScanStore.getState();
+    const state = tripScan();
     expect(state.phase).toBe('failed');
-    expect(state.scanFailure?.reason).toBe('no-photos');
+    expect(state.failure?.reason).toBe('no-photos');
     expect(hasResult()).toBe(false);
     expect(isScanRunning()).toBe(false);
   });
@@ -261,9 +272,9 @@ describe('photoScanService failure paths', () => {
     await startScan({ homeCountry: 'US' });
     await new Promise((r) => setImmediate(r));
 
-    const state = usePhotoScanStore.getState();
+    const state = tripScan();
     expect(state.phase).toBe('failed');
-    expect(state.scanFailure?.reason).toBe('no-trips');
+    expect(state.failure?.reason).toBe('no-trips');
   });
 
   it('surfaces scan-error failure when extraction throws', async () => {
@@ -272,9 +283,9 @@ describe('photoScanService failure paths', () => {
     await startScan({ homeCountry: 'US' });
     await new Promise((r) => setImmediate(r));
 
-    const state = usePhotoScanStore.getState();
+    const state = tripScan();
     expect(state.phase).toBe('failed');
-    expect(state.scanFailure?.reason).toBe('scan-error');
+    expect(state.failure?.reason).toBe('scan-error');
     expect(isScanRunning()).toBe(false);
   });
 });
@@ -288,7 +299,11 @@ describe('photoScanService cancel', () => {
 
     cancelScan();
     expect(isScanRunning()).toBe(false);
-    expect(usePhotoScanStore.getState().phase).toBe('idle');
+    expect(tripScan().phase).toBe('idle');
+    // The breadcrumb clear is kicked off without being awaited so cancel stays
+    // synchronous for the UI. `getCancelInFlight` is the handle resume uses to
+    // avoid reading a stale record, and it is what this assertion waits on.
+    await getCancelInFlight();
     expect(cacheDb.setMetadata).toHaveBeenCalledWith('scan_in_progress', 'false');
   });
 
@@ -314,7 +329,7 @@ describe('photoScanService cancel', () => {
     // Either segmentation was skipped via the abort check, OR it ran but its
     // result was never published. Either is acceptable; key invariants are
     // store=idle and no result published.
-    expect(usePhotoScanStore.getState().phase).toBe('idle');
+    expect(tripScan().phase).toBe('idle');
     expect(hasResult()).toBe(false);
     // Avoid an unused-variable lint complaint while documenting the invariant.
     void segmentationCalled;
@@ -335,7 +350,7 @@ describe('photoScanService markFailed', () => {
 
     markFailed({ reason: 'stuck', title: 'Scan stopped', message: 'Tap to retry' });
     expect(isScanRunning()).toBe(false);
-    expect(usePhotoScanStore.getState().phase).toBe('failed');
-    expect(usePhotoScanStore.getState().scanFailure?.reason).toBe('stuck');
+    expect(tripScan().phase).toBe('failed');
+    expect(tripScan().failure?.reason).toBe('stuck');
   });
 });

@@ -6,6 +6,10 @@
  * same wherever it comes from - and the Q10 link handling stays in one place.
  * The share funnel events (initiated -> completed) also live here, so every
  * surface that shares a challenge is counted the same way.
+ *
+ * The invitation is a Wordle-style paste: a one-line pitch, then a
+ * "Guess Where X/Y" header over a 5-wide grid of green/white squares so the
+ * recipient sees which photos the owner got right before they tap the link.
  */
 
 import { Platform } from 'react-native';
@@ -17,6 +21,12 @@ import { Share } from '@utils/share';
 export interface ChallengeScore {
   correct: number;
   total: number;
+}
+
+/** One stored owner answer, reduced to what the share grid needs. */
+export interface ShareAnswer {
+  placeCorrect: boolean;
+  verdictUnknown?: boolean;
 }
 
 export interface ChallengeShareDetails {
@@ -31,21 +41,84 @@ export interface ChallengeShareDetails {
   score: ChallengeScore | null;
   /** How many photos the challenge holds; falls back to score.total. */
   photoCount?: number | null;
+  /**
+   * Per-photo correctness in question order. Omitted (or ignored) when it
+   * does not line up with `score` - a mismatched grid would lie.
+   */
+  verdicts?: readonly boolean[] | null;
+}
+
+/** Wordle-width rows: 5-10 photos wrap the same way a Wordle board does. */
+export const VERDICT_GRID_COLUMNS = 5;
+const CORRECT_SQUARE = '🟩';
+const INCORRECT_SQUARE = '⬜';
+
+/** Green / white squares, wrapped at 5, matching the owner's photo order. */
+export function buildVerdictGrid(verdicts: readonly boolean[]): string {
+  const rows: string[] = [];
+  for (let i = 0; i < verdicts.length; i += VERDICT_GRID_COLUMNS) {
+    rows.push(
+      verdicts
+        .slice(i, i + VERDICT_GRID_COLUMNS)
+        .map((correct) => (correct ? CORRECT_SQUARE : INCORRECT_SQUARE))
+        .join('')
+    );
+  }
+  return rows.join('\n');
+}
+
+/**
+ * Question-order correctness for the share grid. Returns null when any
+ * photo is unanswered / unknown, or when the pattern disagrees with the
+ * seeded score (stale local play state after a swap/remove).
+ */
+export function verdictsForShare(
+  questionIds: readonly string[],
+  answers: Record<string, ShareAnswer> | undefined,
+  score: ChallengeScore | null
+): boolean[] | null {
+  if (!answers || !score || questionIds.length === 0) return null;
+  const verdicts: boolean[] = [];
+  for (const questionId of questionIds) {
+    const answer = answers[questionId];
+    if (!answer || answer.verdictUnknown) return null;
+    verdicts.push(answer.placeCorrect);
+  }
+  const correctCount = verdicts.filter(Boolean).length;
+  if (verdicts.length !== score.total || correctCount !== score.correct) {
+    return null;
+  }
+  return verdicts;
+}
+
+function gridForShare(details: ChallengeShareDetails): string | null {
+  const verdicts = details.verdicts;
+  if (!verdicts?.length || !details.score) return null;
+  const correctCount = verdicts.filter(Boolean).length;
+  if (verdicts.length !== details.score.total || correctCount !== details.score.correct) {
+    return null;
+  }
+  return buildVerdictGrid(verdicts);
 }
 
 export function buildChallengeMessage(details: ChallengeShareDetails): string {
   const photoCount = details.photoCount ?? details.score?.total ?? null;
-  const photosPhrase = photoCount != null ? `these ${photoCount} photos` : 'my travel photos';
-  // Lead with the game, not with the fact that a thing was made: the recipient
-  // reads this in a message list next to an unfurled link, so the first clause
-  // has to say what they are being asked to do.
-  const invitation = `Guess where in the world ${photosPhrase} were taken.`;
-  if (details.score) {
-    return `${invitation} I got ${details.score.correct}/${details.score.total} — beat me.`;
+  const photosPhrase =
+    photoCount != null ? `${photoCount} of my travel photos` : 'my travel photos';
+  // Pitch first: what the recipient is being asked to do, plus the owner's
+  // score so the Wordle block below has a number to land on.
+  let invitation = `Made a quiz from ${photosPhrase}. Guess the country on each one.`;
+  if (!details.score) {
+    return invitation;
   }
-  // Score unknown (a surface without the seeded pair): keep the invitation
-  // whole without inventing numbers.
-  return invitation;
+  invitation += ` I got ${details.score.correct}/${details.score.total}.`;
+  const lines = [invitation, '', `Guess Where ${details.score.correct}/${details.score.total}`];
+  const grid = gridForShare(details);
+  if (grid) {
+    lines.push(grid);
+  }
+  lines.push('Can you beat me?');
+  return lines.join('\n');
 }
 
 export async function presentChallengeShare(

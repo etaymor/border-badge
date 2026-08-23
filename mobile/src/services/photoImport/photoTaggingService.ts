@@ -31,7 +31,7 @@ import { Analytics } from '@services/analytics';
 
 import { getMetadata, setMetadata } from './photoCacheDb';
 import { isBackgroundSyncInProgress } from './photoBackgroundSync';
-import { isScanRunning } from './photoScanState';
+import { isAnyLibraryJobRunning } from '@services/jobs/jobRuntimeState';
 import {
   getStaleIntentIds,
   getTagCoverageStats,
@@ -345,7 +345,7 @@ async function reportPass(
 async function passIsAllowed(): Promise<boolean> {
   if (!features.enablePhotoTagging) return false;
   // Another writer owns the cache; tagging always yields to it.
-  if (isScanRunning() || isBackgroundSyncInProgress()) return false;
+  if (isAnyLibraryJobRunning() || isBackgroundSyncInProgress()) return false;
 
   const lastPass = await getMetadata(LAST_PASS_KEY);
   if (lastPass) {

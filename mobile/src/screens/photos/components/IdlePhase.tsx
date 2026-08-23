@@ -15,7 +15,9 @@ import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 
 import { Button } from '@components/ui';
+import { PrivacyNotice } from '@components/photos/PrivacyNotice';
 import { colors } from '@constants/colors';
+import { SCAN_COPY } from '@constants/scanCopy';
 import { Analytics } from '@services/analytics';
 import { formatLastScanTime } from '../photoImportHelpers';
 import { styles } from '../photoImportStyles';
@@ -28,6 +30,11 @@ export interface IdlePhaseProps {
   lastImportTime: number | null;
   homeCountryName: string | undefined;
   onStartScan: (forceRefresh: boolean) => void;
+  /**
+   * Photos already in the cache, used for the magnitude and duration lines.
+   * Absent (or 0) renders neither line rather than guessing at a number.
+   */
+  cachedPhotoCount?: number | null;
 }
 
 export function IdlePhase({
@@ -35,6 +42,7 @@ export function IdlePhase({
   lastImportTime,
   homeCountryName,
   onStartScan,
+  cachedPhotoCount,
 }: IdlePhaseProps) {
   // This screen is where the "unlocks Guess Where challenges" promise is made,
   // so the tap is worth counting here rather than relying on the service-level
@@ -45,6 +53,10 @@ export function IdlePhase({
     onStartScan(forceRefresh);
   };
 
+  const isFirstRun = !lastImportTime;
+  const scaleLine = SCAN_COPY.shared.scaleLine(cachedPhotoCount, isFirstRun);
+  const durationLine = SCAN_COPY.shared.durationLine(cachedPhotoCount);
+
   return (
     <View style={styles.idleContainer}>
       {autoStart && lastImportTime ? (
@@ -52,7 +64,9 @@ export function IdlePhase({
         <>
           <ActivityIndicator size="large" color={colors.sunsetGold} />
           <Text style={styles.idleTitle}>Preparing...</Text>
-          <Text style={styles.idleDescription}>Checking for new photos...</Text>
+          <Text style={styles.idleDescription}>
+            {SCAN_COPY.trips.scanningTitle('scanning', true)}
+          </Text>
         </>
       ) : (
         // Normal idle state for manual start
@@ -62,36 +76,34 @@ export function IdlePhase({
             style={{ width: 120, height: 120 }}
             contentFit="contain"
           />
-          {!lastImportTime && (
-            <View style={styles.privacyNotice}>
-              <Text style={styles.privacyTitle}>Your photos stay private</Text>
-              <Text style={styles.privacyBullet}>
-                {'\u2022'} Only GPS data from photos outside{' '}
-                {homeCountryName ?? 'your home country'} is scanned
-              </Text>
-              <Text style={styles.privacyBullet}>
-                {'\u2022'} Nothing is uploaded until you save a place or share a challenge
-              </Text>
-              <Text style={styles.privacyBullet}>
-                {'\u2022'} The scan runs entirely on your device
-              </Text>
-            </View>
+          {isFirstRun && (
+            <PrivacyNotice homeCountryName={homeCountryName} testID="photo-import-privacy" />
           )}
           <Text style={styles.idleTitle}>
-            {lastImportTime ? 'Import Travel Photos' : 'Ready to scan'}
+            {isFirstRun ? SCAN_COPY.trips.idleTitleFirst : SCAN_COPY.trips.idleTitleReturning}
           </Text>
           <Text style={styles.idleDescription}>
-            {lastImportTime
-              ? 'Check for new photos since your last scan, or refresh to re-scan your entire library.'
-              : 'One scan of your library builds trips from where your photos were taken, and unlocks Guess Where challenges.'}
+            {isFirstRun ? SCAN_COPY.trips.idleBodyFirst : SCAN_COPY.trips.idleBodyReturning}
           </Text>
+          {/* Magnitude and duration appear ONCE, here, where they are context
+              rather than a wait the user is watching tick down. */}
+          {scaleLine ? (
+            <Text style={styles.idleScaleLine} testID="photo-import-scale-line">
+              {scaleLine}
+            </Text>
+          ) : null}
+          {durationLine ? (
+            <Text style={styles.idleScaleLine} testID="photo-import-duration-line">
+              {durationLine}
+            </Text>
+          ) : null}
           {lastImportTime && (
             <Text style={styles.lastScanText}>
               Last scanned: {formatLastScanTime(lastImportTime)}
             </Text>
           )}
           <Button
-            title={lastImportTime ? 'Check for New Photos' : 'Start Scan'}
+            title={isFirstRun ? SCAN_COPY.trips.idleCtaFirst : SCAN_COPY.trips.idleCtaReturning}
             onPress={() => startScan(false)}
             style={styles.scanButton}
           />

@@ -30,6 +30,7 @@ from app.services.gallery_dl_client import DEFAULT_TIMEOUT_SECONDS as GALLERY_DL
 from app.services.gallery_dl_client import fetch_tiktok_slideshow_gallery_dl
 from app.services.instagram_carousel import (
     InstagramPostLocation,
+    download_instagram_cdn_video,
     fetch_instagram_carousel,
 )
 from app.services.multimodal_extractor import (
@@ -191,7 +192,13 @@ class ExtractionOrchestrator:
         # Step 1: Check cache
         if use_cache:
             cached = await get_cached_extraction(canonical_url)
-            if cached:
+            empty_carousel_should_retry = (
+                cached is not None
+                and not cached.places
+                and cached.source == "carousel"
+                and self.enable_video_fallback
+            )
+            if cached and not empty_carousel_should_retry:
                 cached_method: ExtractionMethod
                 if not cached.places:
                     cached_method = "none"
@@ -211,7 +218,7 @@ class ExtractionOrchestrator:
         video_task: asyncio.Task | None = None
         temp_dir: Path | None = None
 
-        if self.enable_video_fallback and is_video_url and not is_photo_slideshow:
+        if self.enable_video_fallback and is_video_url:
             temp_dir = Path(tempfile.mkdtemp(prefix="extract_"))
 
             async def delayed_download():
@@ -258,13 +265,8 @@ class ExtractionOrchestrator:
             )
 
             if should_use_caption:
-                # Cancel speculative download
-                if video_task:
-                    video_task.cancel()
-                    try:
-                        await video_task
-                    except asyncio.CancelledError:
-                        pass
+                await self._cancel_video_task(video_task)
+                video_task = None
 
                 # Cache the result
                 if use_cache:
@@ -288,6 +290,8 @@ class ExtractionOrchestrator:
                     canonical_url, start_time
                 )
                 if carousel_result.places:
+                    await self._cancel_video_task(video_task)
+                    video_task = None
                     if use_cache:
                         await self._cache_result(
                             canonical_url, carousel_result.places, "carousel"
@@ -302,6 +306,22 @@ class ExtractionOrchestrator:
                         latency_ms=int((time.monotonic() - start_time) * 1000),
                         from_cache=False,
                     )
+
+                # Instagram GraphVideo: prefer the Instaloader CDN mp4 (yt-dlp
+                # hits Instagram's login wall). Fall back to yt-dlp if missing.
+                if video_task is None and self.enable_video_fallback:
+                    if carousel_result.video_url:
+                        temp_dir = Path(tempfile.mkdtemp(prefix="extract_"))
+                        video_task = asyncio.create_task(
+                            self._download_instagram_video_safe(
+                                carousel_result.video_url, temp_dir
+                            )
+                        )
+                    elif carousel_result.post_type == "GraphVideo":
+                        temp_dir = Path(tempfile.mkdtemp(prefix="extract_"))
+                        video_task = asyncio.create_task(
+                            self._download_video_safe(canonical_url, temp_dir)
+                        )
 
             # Step 5: Caption failed or signaled skip_to_video - try video
             if video_task and self.enable_video_fallback:
@@ -326,14 +346,12 @@ class ExtractionOrchestrator:
 
             # Step 6: Both failed - cache negative result and return caption result
             if use_cache:
-                if is_photo_slideshow:
-                    negative_source: ExtractionSource = "carousel"
+                if video_task and self.enable_video_fallback:
+                    negative_source: ExtractionSource = "video_frames"
+                elif is_photo_slideshow:
+                    negative_source = "carousel"
                 else:
-                    negative_source = (
-                        "video_frames"
-                        if video_task and self.enable_video_fallback
-                        else "caption"
-                    )
+                    negative_source = "caption"
                 await self._cache_result(canonical_url, [], negative_source)
 
             return ExtractionResult(
@@ -460,6 +478,30 @@ class ExtractionOrchestrator:
             latency_ms=int((time.monotonic() - start_time) * 1000),
             from_cache=False,
         )
+
+    async def _cancel_video_task(self, video_task: asyncio.Task | None) -> None:
+        """Cancel an in-flight speculative video download, if any."""
+        if not video_task:
+            return
+        video_task.cancel()
+        try:
+            await video_task
+        except asyncio.CancelledError:
+            pass
+
+    async def _download_instagram_video_safe(
+        self, video_url: str, output_dir: Path
+    ) -> Path | None:
+        """Download an Instagram CDN mp4 with the same timeout as yt-dlp."""
+        try:
+            return await download_instagram_cdn_video(
+                video_url,
+                output_dir=output_dir,
+                timeout=self.video_download_timeout,
+            )
+        except Exception as e:
+            logger.warning(f"instagram_cdn_video_unexpected_error: {e}")
+            return None
 
     async def _download_video_safe(self, url: str, output_dir: Path) -> Path | None:
         """Download video with error handling.
@@ -599,6 +641,8 @@ class ExtractionOrchestrator:
 
         places: list[DetectedPlace]
         frames_processed: int
+        post_type: str | None = None
+        video_url: str | None = None
 
     def _has_country_mismatch(
         self,
@@ -635,14 +679,6 @@ class ExtractionOrchestrator:
         """Calculate remaining time budget from start_time."""
         elapsed = time.monotonic() - start_time
         return max(0, self.total_timeout - elapsed - buffer)
-
-    async def _cancel_video_task(self, video_task: asyncio.Task) -> None:
-        """Cancel and await a video task to avoid orphaned tasks."""
-        video_task.cancel()
-        try:
-            await video_task
-        except asyncio.CancelledError:
-            pass
 
     async def _extract_from_video(
         self,
@@ -756,6 +792,8 @@ class ExtractionOrchestrator:
 
         images: list[bytes] = []
         instagram_location: InstagramPostLocation | None = None
+        post_type: str | None = None
+        video_url: str | None = None
 
         # Try TikTok slideshow via gallery-dl
         if is_tiktok_photo(canonical_url):
@@ -784,6 +822,8 @@ class ExtractionOrchestrator:
                     timeout=min(12.0, max(2.0, remaining)),
                 )
                 if carousel:
+                    post_type = carousel.post_type
+                    video_url = carousel.video_url
                     if carousel.images:
                         images = carousel.images
                     instagram_location = carousel.location
@@ -793,6 +833,7 @@ class ExtractionOrchestrator:
                             "count": len(carousel.images),
                             "post_type": carousel.post_type,
                             "has_geotag": carousel.location is not None,
+                            "has_video_url": carousel.video_url is not None,
                         },
                     )
 
@@ -816,11 +857,32 @@ class ExtractionOrchestrator:
                     return self._CarouselResult(
                         places=[geotag_place],
                         frames_processed=0,
+                        post_type=post_type,
+                        video_url=video_url,
                     )
+
+        # Cover thumbnails on GraphVideo rarely show a POI; fall through to frames.
+        if post_type == "GraphVideo" and self.enable_video_fallback:
+            logger.info(
+                "carousel_graph_video_defer_to_frames",
+                extra={
+                    "post_type": post_type,
+                    "images": len(images),
+                    "has_video_url": video_url is not None,
+                },
+            )
+            return self._CarouselResult(
+                places=[],
+                frames_processed=0,
+                post_type=post_type,
+                video_url=video_url,
+            )
 
         if not images:
             logger.debug("carousel_extraction_no_images")
-            return self._CarouselResult(places=[], frames_processed=0)
+            return self._CarouselResult(
+                places=[], frames_processed=0, post_type=post_type
+            )
 
         remaining = self._get_remaining_time(start_time)
         if remaining <= 0:

@@ -112,6 +112,10 @@
   var index = 0; // next question to show
   var score = 0; // count of correct answers so far (revealed only at the end)
   var lastResults = null; // the latest complete/name response, for sharing
+  // Per-photo correctness in question order - feeds the Wordle-style share
+  // grid. Filled from a resumed session's answered list, then appended as
+  // each new verdict lands.
+  var verdicts = [];
 
   function storedToken() {
     try {
@@ -227,6 +231,9 @@
         score = answered.filter(function (a) {
           return a.correct;
         }).length;
+        verdicts = answered.map(function (a) {
+          return !!a.correct;
+        });
         index = answered.length;
 
         if (session.completed || index >= questions.length) {
@@ -312,6 +319,7 @@
     })
       .then(function (verdict) {
         if (verdict.correct) score += 1;
+        verdicts.push(!!verdict.correct);
         // Drop-off funnel: which question this guest just answered (1-based),
         // so abandonment mid-run is visible per position.
         trackEvent('quiz_answer', {
@@ -488,19 +496,38 @@
   // --- Share My Score ------------------------------------------------------
   var shareResetTimer = null;
 
+  function buildVerdictGrid(marks) {
+    var cols = 5;
+    var rows = [];
+    var i;
+    var j;
+    var row;
+    for (i = 0; i < marks.length; i += cols) {
+      row = '';
+      for (j = i; j < marks.length && j < i + cols; j += 1) {
+        row += marks[j] ? '🟩' : '⬜';
+      }
+      rows.push(row);
+    }
+    return rows.join('\n');
+  }
+
   function shareText() {
     var challenge = config.owner_name
       ? config.owner_name + "'s challenge"
       : 'this challenge';
-    return (
-      'I scored ' +
-      lastResults.score +
-      '/' +
-      lastResults.total +
-      ' on ' +
-      challenge +
-      ' — can you beat me?'
-    );
+    var header = 'Guess Where ' + lastResults.score + '/' + lastResults.total;
+    var parts = [
+      'I scored ' + lastResults.score + '/' + lastResults.total + ' on ' + challenge + '.',
+      '',
+      header,
+    ];
+    var correctCount = verdicts.filter(Boolean).length;
+    if (verdicts.length === lastResults.total && correctCount === lastResults.score) {
+      parts.push(buildVerdictGrid(verdicts));
+    }
+    parts.push('Can you beat me?');
+    return parts.join('\n');
   }
 
   function confirmCopied() {

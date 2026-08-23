@@ -32,19 +32,20 @@ jest.mock('../../../services/photoImport/visionPhoto', () => ({
 }));
 
 // Drives the photoScanService mock — tests push results/failures here, then the
-// mocked startScan call updates the photoScanStore to simulate the service.
+// mocked startScan call updates the trip-scan slice of libraryJobStore to
+// simulate the runtime.
 const mockScanResultRef: {
   current: import('../../../screens/photos/usePhotoScan').ScanResult | null;
 } = {
   current: null,
 };
 const mockServiceFailureRef: {
-  current: import('../../../stores/photoScanStore').PhotoScanFailure | null;
+  current: import('../../../services/photoImport/photoScanTypes').PhotoScanFailure | null;
 } = { current: null };
 
 jest.mock('../../../services/photoImport', () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { usePhotoScanStore } = require('../../../stores/photoScanStore');
+  const { patchJobSlice } = require('../../../stores/libraryJobStore');
   return {
     extractPhotosWithLocation: jest.fn(),
     segmentTripsFromCache: jest.fn(),
@@ -124,7 +125,7 @@ jest.mock('../../../services/photoImport', () => {
     getVisionImagesForCluster: jest.fn().mockResolvedValue([]),
 
     // photoScanService surface mocked here so the workflow's adapter can drive
-    // the real photoScanStore from test setups via mockScanResultRef.
+    // the real libraryJobStore from test setups via mockScanResultRef.
     startScan: jest.fn(async (opts: { homeCountry: string | null }) => {
       if (!opts.homeCountry) {
         return { status: 'rejected', reason: 'no-home-country' };
@@ -132,40 +133,38 @@ jest.mock('../../../services/photoImport', () => {
       // Push the prepared result/failure into the real store so the adapter's
       // subscription forwards it to the workflow callbacks.
       if (mockServiceFailureRef.current) {
-        usePhotoScanStore.setState({
+        patchJobSlice('trip-scan', {
           phase: 'failed',
           progress: null,
-          scanFailure: mockServiceFailureRef.current,
+          failure: mockServiceFailureRef.current,
           hasResult: false,
         });
       } else if (mockScanResultRef.current) {
-        usePhotoScanStore.setState({
+        patchJobSlice('trip-scan', {
           phase: 'completed',
           progress: null,
           hasResult: true,
         });
       } else {
-        usePhotoScanStore.setState({ phase: 'scanning' });
+        patchJobSlice('trip-scan', { phase: 'running' });
       }
       return { status: 'started' };
     }),
     cancelScan: jest.fn(() => {
       mockScanResultRef.current = null;
       mockServiceFailureRef.current = null;
-      usePhotoScanStore.setState({ phase: 'idle', progress: null, hasResult: false });
+      patchJobSlice('trip-scan', { phase: 'idle', progress: null, hasResult: false });
     }),
     consumeResult: jest.fn(() => {
       const result = mockScanResultRef.current;
       mockScanResultRef.current = null;
-      usePhotoScanStore.setState({ hasResult: false });
+      patchJobSlice('trip-scan', { hasResult: false });
       return result;
     }),
     hasResult: jest.fn(() => mockScanResultRef.current !== null),
     isScanRunning: jest.fn(() => false),
     getLastProgressAt: jest.fn(() => 0),
     markFailed: jest.fn(),
-    readScanInProgressMetadata: jest.fn().mockResolvedValue({ inProgress: false, startedAt: null }),
-    clearScanInProgressMetadata: jest.fn().mockResolvedValue(undefined),
   };
 });
 
@@ -372,10 +371,10 @@ describe('usePhotoImportWorkflow', () => {
     mockGetUploadState.mockReturnValue(null);
     mockScanResultRef.current = null;
     mockServiceFailureRef.current = null;
-    // Reset the real photoScanStore so tests start from a known state.
+    // Reset the real libraryJobStore so tests start from a known state.
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { resetPhotoScanStore } = require('../../../stores/photoScanStore');
-    resetPhotoScanStore();
+    const { resetLibraryJobStore } = require('../../../stores/libraryJobStore');
+    resetLibraryJobStore();
 
     // Default mocks
     mockedOnboardingStore.useOnboardingStore.mockReturnValue('US');
@@ -573,11 +572,11 @@ describe('usePhotoImportWorkflow', () => {
     });
   });
 
-  describe('lazy initial state from photoScanStore', () => {
+  describe('lazy initial state from libraryJobStore', () => {
     it('initializes phase=scanning on mount when the service is mid-scan', () => {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const { usePhotoScanStore } = require('../../../stores/photoScanStore');
-      usePhotoScanStore.setState({ phase: 'scanning' });
+      const { patchJobSlice } = require('../../../stores/libraryJobStore');
+      patchJobSlice('trip-scan', { phase: 'running' });
 
       const { result } = renderHook(() => usePhotoImportWorkflow({}), {
         wrapper: createWrapper(queryClient),
@@ -589,10 +588,10 @@ describe('usePhotoImportWorkflow', () => {
 
     it('initializes phase=idle for pre-existing alert-style failures', () => {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const { usePhotoScanStore } = require('../../../stores/photoScanStore');
-      usePhotoScanStore.setState({
+      const { patchJobSlice } = require('../../../stores/libraryJobStore');
+      patchJobSlice('trip-scan', {
         phase: 'failed',
-        scanFailure: {
+        failure: {
           reason: 'no-trips',
           title: 'No Trips Found',
           message: 'No travel photos found.',
@@ -609,10 +608,10 @@ describe('usePhotoImportWorkflow', () => {
 
     it('initializes phase=scanning for pre-existing inline retry failures', () => {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const { usePhotoScanStore } = require('../../../stores/photoScanStore');
-      usePhotoScanStore.setState({
+      const { patchJobSlice } = require('../../../stores/libraryJobStore');
+      patchJobSlice('trip-scan', {
         phase: 'failed',
-        scanFailure: {
+        failure: {
           reason: 'stuck',
           title: 'Scan Stopped',
           message: 'The scan stopped making progress. Tap to retry.',
@@ -638,8 +637,8 @@ describe('usePhotoImportWorkflow', () => {
         isIncremental: false,
       };
       // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const { usePhotoScanStore } = require('../../../stores/photoScanStore');
-      usePhotoScanStore.setState({ phase: 'completed', hasResult: true });
+      const { patchJobSlice } = require('../../../stores/libraryJobStore');
+      patchJobSlice('trip-scan', { phase: 'completed', hasResult: true });
 
       const { result } = renderHook(() => usePhotoImportWorkflow({}), {
         wrapper: createWrapper(queryClient),

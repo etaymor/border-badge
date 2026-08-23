@@ -72,3 +72,22 @@ export interface QuizDraftState {
   /** Empty until final picks are chosen; uploads flip `uploaded` per photo. */
   picks: DraftPick[];
 }
+
+/**
+ * What a creation step needs from whoever is driving it.
+ *
+ * Two drivers exist and must stay behaviorally identical: the job runtime
+ * (`quizBuildJob`), which checkpoints between steps and can yield to a
+ * background task, and `createQuizFromLibrary`, which runs the same steps
+ * straight through in one process. Keeping the steps' dependency this narrow
+ * is what lets both exist without a second implementation.
+ */
+export interface QuizRunEnv {
+  signal?: AbortSignal;
+  onProgress?: (progress: QuizCreationProgress) => void;
+  /**
+   * Stamp the stuck-detector heartbeat. A single hunt pass can run most of a
+   * minute, so any step that waits on the network calls this.
+   */
+  heartbeat?: () => void;
+}
