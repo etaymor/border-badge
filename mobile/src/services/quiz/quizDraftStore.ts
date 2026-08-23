@@ -37,7 +37,15 @@ export async function clearDraftState(): Promise<void> {
   await setMetadata(DRAFT_STATE_KEY, '');
 }
 
-/** Asset ids already used by the owner's existing quizzes (KTD12). */
+/**
+ * Asset ids already used by the owner's existing quizzes (KTD12).
+ *
+ * ITERATION ORDER IS LOAD-BEARING: oldest use first. `markAssetsUsed` only
+ * ever appends, so the stored array is the order photos were spent, and the
+ * Set preserves it. `quizPoolSetup` ranks the repeat reserve by that position,
+ * so an unavoidable repeat reaches for the photo the owner saw longest ago
+ * rather than the one from last night's challenge. Never sort or re-key this.
+ */
 export async function getUsedAssetIds(): Promise<Set<string>> {
   try {
     const raw = await getMetadata(USED_ASSET_IDS_KEY);
@@ -49,7 +57,12 @@ export async function getUsedAssetIds(): Promise<Set<string>> {
   }
 }
 
-/** Record asset ids as quiz-used (KTD12). Exported for the swap flow. */
+/**
+ * Record asset ids as quiz-used (KTD12). Exported for the swap flow.
+ *
+ * Appends: already-known ids keep their original position, so the array stays
+ * ordered oldest-use-first (see `getUsedAssetIds`).
+ */
 export async function markAssetsUsed(assetIds: string[]): Promise<void> {
   const existing = await getUsedAssetIds();
   for (const id of assetIds) existing.add(id);

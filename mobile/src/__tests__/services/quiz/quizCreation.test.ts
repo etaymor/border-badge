@@ -1125,6 +1125,37 @@ describe('createQuizFromLibrary - repeat creations never reuse photos', () => {
     for (const id of used) expect(assets).not.toContain(id);
   });
 
+  it("backfills with the photos used LONGEST AGO, not the last game's", async () => {
+    // The reported bug: on a starved pool the backfill reproduced the previous
+    // challenge almost photo for photo, because the reserve was ordered the way
+    // a fresh hunt would order it. The used ledger is append-only, so its own
+    // order is the answer - oldest use first.
+    const library = buildCachedLibrary(20);
+    mockGetAllCachedPhotos.mockResolvedValue(library);
+    // Every photo already has a verdict: nothing left to classify, so the game
+    // can only be filled from the fresh remainder plus the reserve.
+    mockGetAllVerdicts.mockResolvedValue(
+      new Map(library.map((photo) => verdict(photo.id, true)) as [string, object][])
+    );
+    const fresh = library.slice(0, 3).map((photo) => photo.id);
+    // Ledger order = the order the photos were spent: index 3 longest ago,
+    // index 19 in the most recent challenge.
+    usedLedger(library.slice(3).map((photo) => photo.id));
+
+    const outcome = await createQuizFromLibrary();
+
+    expect(outcome.status).toBe('created');
+    const assets = assetsOfRun(0);
+    expect(assets).toHaveLength(QUIZ_MAX_PHOTOS);
+    const backfilled = assets.filter((id) => !fresh.includes(id));
+    // The seven oldest-used photos - and emphatically NOT the tail of the
+    // ledger, which is what the owner just played.
+    expect(new Set(backfilled)).toEqual(
+      new Set(library.slice(3, 3 + backfilled.length).map((photo) => photo.id))
+    );
+    for (const photo of library.slice(-4)) expect(assets).not.toContain(photo.id);
+  });
+
   it('falls back to used photos only once the fresh library is exhausted', async () => {
     const library = buildCachedLibrary(20);
     mockGetAllCachedPhotos.mockResolvedValue(library);

@@ -314,12 +314,23 @@ export async function setUpQuizRun(
         ledger.offer(candidate);
       }
       ledger.topUp();
-      reserve = orderByCountrySpread(
-        seeded.eligible.filter((candidate) => usedAssetIds.has(candidate.id)),
-        usedAssetIds,
-        homeCountries,
-        Infinity
-      );
+      // OLDEST USE FIRST, deliberately not country-spread order.
+      //
+      // A backfilled game is going to repeat something; which photo it repeats
+      // is the whole difference between "huh, I've seen this before" and "this
+      // is the same challenge I built last night". Country spread put the
+      // reserve in the same order a fresh hunt would, which on a starved pool
+      // reproduced the PREVIOUS game almost photo for photo. Ranking by
+      // position in the used ledger (append-only, so oldest first - see
+      // `getUsedAssetIds`) reaches for the photo the owner saw longest ago.
+      //
+      // Variety inside the game is not lost by dropping the spread: the ledger
+      // still enforces distinct day and distinct (country, year) on every
+      // offer, which is what actually keeps a game from playing as one trip.
+      const usedRank = new Map([...usedAssetIds].map((id, index) => [id, index]));
+      reserve = seeded.eligible
+        .filter((candidate) => usedAssetIds.has(candidate.id))
+        .sort((a, b) => (usedRank.get(a.id) ?? 0) - (usedRank.get(b.id) ?? 0));
       seededEligible = seeded.eligibleCount;
       seededUsed = reserve.length;
       seededIneligible = seeded.ineligibleCount;

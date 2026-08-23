@@ -309,9 +309,16 @@ export async function settleQuizRun(
   reportPrefilterAgreement(run);
 
   const reasonSummary = summarizeRejections(session);
+  // `repeats` is the number the owner actually feels: how many photos of the
+  // finished game they have already been challenged with. It is never a
+  // failure of the ledger - the ledger holds every one of them back - it is
+  // the backfill above firing because the fresh pool ran dry, and it stayed
+  // invisible in this log while it did.
+  const repeats = picks.filter((pick) => run.usedAssetIds.has(pick.id)).length;
   console.warn(
     `[QuizCreation] funnel: attempted=${session.classifiedIds.size} sent=${totalSent(run)} ` +
       `eligible=${totalEligible(run)} picks=${picks.length} benched=${session.ledger.bench.length} ` +
+      `repeats=${repeats} reserve=${run.reserve.length} exhausted=${checkpoint.poolExhausted} ` +
       `seeded=${run.seededEligible - run.reserve.length}/${run.reserve.length} ` +
       `passes=${checkpoint.passes} elapsedMs=${Date.now() - run.huntStartedAt} ` +
       `offloaded=${session.offloadedFailures}` +
