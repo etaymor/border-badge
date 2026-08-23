@@ -12,11 +12,45 @@ if (!supabaseUrl || !supabaseAnonKey) {
   );
 }
 
+// A production bundle whose API URL resolves to localhost or a private LAN
+// address means a dev machine's .env.local leaked into the build/publish
+// step (EXPO_PUBLIC_* vars are inlined at bundle time, not read at runtime).
+// Every screen that fetches data hangs on the skeleton/loading state instead
+// of erroring, so this is silent until someone notices nothing loads.
+function assertSafeProductionApiUrl(url: string, appEnv: string): void {
+  if (appEnv !== 'production') return;
+  let hostname: string;
+  try {
+    hostname = new URL(url).hostname;
+  } catch {
+    throw new Error(`Invalid EXPO_PUBLIC_API_URL in production: "${url}".`);
+  }
+  const isLocalOrPrivate =
+    hostname === 'localhost' ||
+    hostname === '127.0.0.1' ||
+    hostname === '0.0.0.0' ||
+    /^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname) ||
+    /^192\.168\.\d{1,3}\.\d{1,3}$/.test(hostname) ||
+    /^172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}$/.test(hostname);
+  if (isLocalOrPrivate) {
+    throw new Error(
+      `EXPO_PUBLIC_API_URL resolves to "${hostname}" in a production build. ` +
+        "This usually means a dev machine's .env.local leaked into the build/publish " +
+        'step. Set EXPO_PUBLIC_API_URL=https://atlasi.app explicitly for production ' +
+        '(e.g. as an env var on the `eas update`/`eas build` command, not from .env.local).'
+    );
+  }
+}
+
+const resolvedApiUrl = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:8000';
+const resolvedAppEnv = process.env.EXPO_PUBLIC_APP_ENV || 'development';
+assertSafeProductionApiUrl(resolvedApiUrl, resolvedAppEnv);
+
 export const env = {
   // API Configuration
   // NOTE: iOS Simulator cannot access localhost. Use your machine's IP address instead.
   // Example: EXPO_PUBLIC_API_URL=http://192.168.1.100:8000
-  apiUrl: process.env.EXPO_PUBLIC_API_URL || 'http://localhost:8000',
+  apiUrl: resolvedApiUrl,
 
   // Supabase Configuration (for direct auth)
   supabaseUrl,
