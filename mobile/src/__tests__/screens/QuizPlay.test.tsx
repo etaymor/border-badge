@@ -30,6 +30,7 @@ declare global {
 const mockAlert = global.__mockAlert.alert;
 
 import { Image as MockedExpoImage } from 'expo-image';
+import { StyleSheet } from 'react-native';
 import { Analytics } from '@services/analytics';
 import { api } from '@services/api';
 import * as ShareModule from '@utils/share';
@@ -109,6 +110,7 @@ import {
 import { useReducedMotion } from '@hooks/useReducedMotion';
 import { deriveOrientation, QuizPlayScreen } from '@screens/quiz/QuizPlayScreen';
 import { QuizResultsScreen } from '@screens/quiz/QuizResultsScreen';
+import { buildChallengeMessage } from '@screens/quiz/shareChallenge';
 
 const mockEnsurePlaySession = ensurePlaySession as jest.MockedFunction<typeof ensurePlaySession>;
 const mockLoadPlayState = loadPlayState as jest.MockedFunction<typeof loadPlayState>;
@@ -161,11 +163,22 @@ function makeAnswer(questionId: string, overrides?: Partial<StoredQuizAnswer>): 
   };
 }
 
-function makePlayState(answeredIds: string[]): QuizPlayState {
+function makePlayState(
+  answeredIds: string[],
+  correctness?: Record<string, boolean>
+): QuizPlayState {
   return {
     quizId: QUIZ_ID,
     sessionId: SESSION_ID,
-    answers: Object.fromEntries(answeredIds.map((id) => [id, makeAnswer(id)])),
+    answers: Object.fromEntries(
+      answeredIds.map((id) => [
+        id,
+        makeAnswer(
+          id,
+          correctness?.[id] === undefined ? undefined : { placeCorrect: correctness[id] }
+        ),
+      ])
+    ),
   };
 }
 
@@ -210,7 +223,10 @@ function renderPlayScreen() {
   return { navigation, ...rendered };
 }
 
-function renderResultsScreen(results: typeof COMPLETE_RESULTS | 'none' = COMPLETE_RESULTS) {
+/** The base shape plus anything the results route now carries optionally. */
+type ResultsParam = typeof COMPLETE_RESULTS & { owner_verdicts?: boolean[] | null };
+
+function renderResultsScreen(results: ResultsParam | 'none' = COMPLETE_RESULTS) {
   const navigation =
     createMockNavigation() as unknown as RootStackScreenProps<'QuizResults'>['navigation'];
   const route = {
@@ -547,6 +563,19 @@ describe('QuizPlayScreen', () => {
     );
     // Resuming never starts a fresh grading pass on already-answered questions.
     expect(mockApiPost).not.toHaveBeenCalled();
+  });
+
+  it('centres the question tracker on the screen, not in the leftover slot beside the back button', async () => {
+    mockQuizDetail(makeDetail());
+    mockEnsurePlaySession.mockResolvedValue(makePlayState([]));
+
+    renderPlayScreen();
+
+    await waitFor(() => expect(screen.getByTestId('quiz-play-progress')).toBeTruthy());
+    const style = StyleSheet.flatten(screen.getByTestId('quiz-play-progress').props.style);
+    expect(style.position).toBe('absolute');
+    expect(style.left).toBe(0);
+    expect(style.right).toBe(0);
   });
 
   it('acknowledges an answer without revealing the verdict and advances (Q8)', async () => {
@@ -965,6 +994,103 @@ describe('QuizResultsScreen', () => {
     });
   });
 
+  it('shows tap feedback on the chosen thumbnail while the swap upload is in flight', async () => {
+    mockQuizDetail(makeDetail({ state: 'playable', score_to_beat: { correct: 3, total: 5 } }));
+    mockLoadPlayState.mockResolvedValue(makePlayState(['q0', 'q1', 'q2', 'q3', 'q4']));
+    const candidate = {
+      id: 'asset-9',
+      uri: 'file:///photos/asset-9.jpg',
+      creationTime: new Date('2021-06-01').getTime(),
+      latitude: 48.85,
+      longitude: 2.35,
+      countryCode: 'FR',
+    };
+    const other = { ...candidate, id: 'asset-10', uri: 'file:///photos/asset-10.jpg' };
+    mockLoadSwapCandidates.mockResolvedValue([candidate, other]);
+
+    let resolveUpload!: (value: {
+      storagePath: string;
+      countryCode: string;
+      landscape: null;
+    }) => void;
+    mockUploadSwapPhoto.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveUpload = resolve;
+        })
+    );
+    mockPostRoutes({
+      [`/quiz/${QUIZ_ID}/questions/q2/swap`]: makeDetail({
+        state: 'playable',
+        score_to_beat: { correct: 3, total: 5 },
+      }),
+    });
+
+    const { navigation } = renderResultsScreen();
+
+    await waitFor(() => expect(screen.getByTestId('quiz-recap-thumb-2')).toBeTruthy());
+    fireEvent.press(screen.getByTestId('quiz-recap-thumb-2'));
+    await waitFor(() => expect(screen.getByTestId('quiz-swap-candidate-0')).toBeTruthy());
+
+    fireEvent.press(screen.getByTestId('quiz-swap-candidate-0'));
+
+    // The overlay and status land on tap, before the upload promise settles.
+    await waitFor(() => expect(screen.getByTestId('quiz-swap-candidate-0-loading')).toBeTruthy());
+    expect(screen.getByText('Swapping photo…')).toBeTruthy();
+    expect(screen.queryByTestId('quiz-swap-candidate-1-loading')).toBeNull();
+    expect(navigation.navigate).not.toHaveBeenCalled();
+
+    // Dismiss is ignored mid-upload so the spinner stays the acknowledgement.
+    fireEvent.press(screen.getByTestId('quiz-swap-top-bar-close'));
+    expect(screen.getByTestId('quiz-swap-picker')).toBeTruthy();
+    expect(screen.queryByTestId('quiz-remove-2')).toBeNull();
+
+    await act(async () => {
+      resolveUpload({
+        storagePath: `quiz/${QUIZ_ID}/new-object.jpg`,
+        countryCode: 'FR',
+        landscape: null,
+      });
+    });
+
+    await waitFor(() =>
+      expect(navigation.navigate).toHaveBeenCalledWith('QuizPlay', { quizId: QUIZ_ID })
+    );
+  });
+
+  it('keeps the swap picker open and reports an error if the upload fails', async () => {
+    mockQuizDetail(makeDetail({ state: 'playable', score_to_beat: { correct: 3, total: 5 } }));
+    mockLoadPlayState.mockResolvedValue(makePlayState(['q0', 'q1', 'q2', 'q3', 'q4']));
+    mockLoadSwapCandidates.mockResolvedValue([
+      {
+        id: 'asset-9',
+        uri: 'file:///photos/asset-9.jpg',
+        creationTime: new Date('2021-06-01').getTime(),
+        latitude: 48.85,
+        longitude: 2.35,
+        countryCode: 'FR',
+      },
+    ]);
+    mockUploadSwapPhoto.mockRejectedValue(new Error('upload failed'));
+
+    renderResultsScreen();
+
+    await waitFor(() => expect(screen.getByTestId('quiz-recap-thumb-2')).toBeTruthy());
+    fireEvent.press(screen.getByTestId('quiz-recap-thumb-2'));
+    await waitFor(() => expect(screen.getByTestId('quiz-swap-candidate-0')).toBeTruthy());
+    fireEvent.press(screen.getByTestId('quiz-swap-candidate-0'));
+
+    await waitFor(() =>
+      expect(mockAlert).toHaveBeenCalledWith(
+        'Error',
+        'Could not swap this photo. Please try another.'
+      )
+    );
+    expect(screen.getByTestId('quiz-swap-picker')).toBeTruthy();
+    expect(screen.queryByTestId('quiz-swap-candidate-0-loading')).toBeNull();
+    expect(screen.getByText('You will answer it before the challenge can be shared.')).toBeTruthy();
+  });
+
   it('remove rescales the displayed score to X of N', async () => {
     const sixQuestions = [0, 1, 2, 3, 4, 5].map((n) => makeQuestion(n));
     mockQuizDetail(
@@ -1030,7 +1156,15 @@ describe('QuizResultsScreen', () => {
       .spyOn(ShareModule.Share, 'share')
       .mockResolvedValue({ action: 'sharedAction' } as never);
     mockQuizDetail(makeDetail({ state: 'playable', score_to_beat: { correct: 3, total: 5 } }));
-    mockLoadPlayState.mockResolvedValue(makePlayState(['q0', 'q1', 'q2', 'q3', 'q4']));
+    mockLoadPlayState.mockResolvedValue(
+      makePlayState(['q0', 'q1', 'q2', 'q3', 'q4'], {
+        q0: true,
+        q1: false,
+        q2: true,
+        q3: false,
+        q4: true,
+      })
+    );
     mockPostRoutes({
       [`/quiz/${QUIZ_ID}/share`]: {
         slug: 'abc123slug',
@@ -1051,10 +1185,62 @@ describe('QuizResultsScreen', () => {
     // iOS: the link travels in the url slot so destinations unfurl it.
     expect(content.url).toBe('https://borderbadge.app/q/abc123slug');
     expect(content.message).not.toContain('https://borderbadge.app/q/abc123slug');
-    // Challenge framing carries the photo count and the score to beat.
+    // Challenge framing carries the photo count, the score, and the Wordle grid.
     expect(content.message).toBe(
-      'Guess where in the world these 5 photos were taken. I got 3/5 — beat me.'
+      buildChallengeMessage({
+        quizId: QUIZ_ID,
+        source: 'results',
+        score: { correct: 3, total: 5 },
+        photoCount: 5,
+        verdicts: [true, false, true, false, true],
+      })
     );
+    shareSpy.mockRestore();
+  });
+
+  it('shares the Wordle grid from completion verdicts when local play state is missing', async () => {
+    // The recap's disk mirror is best-effort; a failed persist (or a share
+    // from My Quizzes on a fresh install) used to drop the grid entirely.
+    const shareSpy = jest
+      .spyOn(ShareModule.Share, 'share')
+      .mockResolvedValue({ action: 'sharedAction' } as never);
+    const ownerVerdicts = [true, false, true, false, true];
+    mockQuizDetail(
+      makeDetail({
+        state: 'playable',
+        score_to_beat: { correct: 3, total: 5 },
+        owner_verdicts: ownerVerdicts,
+      })
+    );
+    mockLoadPlayState.mockResolvedValue(null);
+    mockPostRoutes({
+      [`/quiz/${QUIZ_ID}/share`]: {
+        slug: 'abc123slug',
+        share_url: 'https://borderbadge.app/q/abc123slug',
+        state: 'shared',
+      },
+    });
+
+    renderResultsScreen({
+      ...COMPLETE_RESULTS,
+      owner_verdicts: ownerVerdicts,
+    });
+
+    await waitFor(() => expect(screen.getByTestId('quiz-share')).toBeTruthy());
+    fireEvent.press(screen.getByTestId('quiz-share'));
+
+    await waitFor(() => expect(shareSpy).toHaveBeenCalled());
+    const content = shareSpy.mock.calls[0][0] as { message?: string };
+    expect(content.message).toBe(
+      buildChallengeMessage({
+        quizId: QUIZ_ID,
+        source: 'results',
+        score: { correct: 3, total: 5 },
+        photoCount: 5,
+        verdicts: ownerVerdicts,
+      })
+    );
+    expect(content.message).toContain('🟩⬜🟩⬜🟩');
     shareSpy.mockRestore();
   });
 

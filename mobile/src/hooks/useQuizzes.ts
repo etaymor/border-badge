@@ -14,13 +14,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Analytics } from '@services/analytics';
 import { api } from '@services/api';
 import { clearStoredAnswer, uploadSwapPhoto } from '@services/quiz/quizPlay';
-import {
-  clearDraftState,
-  createQuizFromLibrary,
-  loadDraftState,
-  type CreateQuizOptions,
-  type QuizCreationOutcome,
-} from '@services/quiz/quizCreation';
+import { clearDraftState, loadDraftState } from '@services/quiz/quizCreation';
 import type { GeoEligibleCandidate } from '@services/quiz/candidateSelection';
 import { STALE_TIMES } from '../queryClient';
 
@@ -45,13 +39,15 @@ export interface QuizDetail {
   score_to_beat?: QuizScoreToBeat | null;
   slug?: string | null;
   share_url?: string | null;
+  /** Seeding-play correctness in question order; null until the owner finishes. */
+  owner_verdicts?: boolean[] | null;
 }
 
-const QUIZZES_QUERY_KEY = ['quizzes'];
+export const QUIZZES_QUERY_KEY = ['quizzes'];
 // The management-surface list. Lives under the quizzes namespace but with its
 // own segment so per-quiz invalidations (['quizzes', quizId]) never have to
 // refetch the whole list, and vice versa.
-const QUIZ_LIST_QUERY_KEY = [...QUIZZES_QUERY_KEY, 'list'];
+export const QUIZ_LIST_QUERY_KEY = [...QUIZZES_QUERY_KEY, 'list'];
 
 // One owned quiz in the management list; matches backend QuizSummary.
 export interface QuizSummary {
@@ -95,29 +91,14 @@ export function useQuiz(quizId: string | undefined) {
 }
 
 /**
- * Build a quiz from the photo library (draft -> eligibility -> upload ->
- * finalize). The mutation resolves with a QuizCreationOutcome for every
- * business result (created / thin-library / interrupted / ...); it only
- * rejects on unexpected errors.
+ * There is deliberately NO `useCreateQuiz` here.
+ *
+ * A React mutation is OWNED by the component that fires it, so unmounting the
+ * creation screen aborted the build — up to 90 seconds of hunting and up to
+ * `CLASSIFICATION_BUDGET_PER_QUIZ` classified images, thrown away because the
+ * user tapped away. Ownership now lives in the `quiz-build` library job; the
+ * screen is a view onto it. Use `useQuizBuildJob`.
  */
-export function useCreateQuiz() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: (options?: CreateQuizOptions): Promise<QuizCreationOutcome> =>
-      createQuizFromLibrary(options),
-    onSuccess: (outcome) => {
-      if (outcome.status === 'created') {
-        // Funnel: quiz created (the top of the viral loop).
-        Analytics.quizCreated({ quizId: outcome.quizId, photoCount: outcome.photoCount });
-        // Scoped invalidation: only the newly created quiz's detail query,
-        // plus the management list it now appears on.
-        queryClient.invalidateQueries({ queryKey: [...QUIZZES_QUERY_KEY, outcome.quizId] });
-        queryClient.invalidateQueries({ queryKey: QUIZ_LIST_QUERY_KEY });
-      }
-    },
-  });
-}
 
 // ---------------------------------------------------------------------------
 // Owner play, pre-share editing, and share
@@ -138,6 +119,7 @@ export interface QuizCompleteResult {
   total: number;
   score_to_beat: QuizScoreToBeat;
   state: string;
+  owner_verdicts?: boolean[] | null;
 }
 
 // Matches backend QuizShareResponse.

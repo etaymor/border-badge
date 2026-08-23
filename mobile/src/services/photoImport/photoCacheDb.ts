@@ -68,6 +68,7 @@ const SCHEMA_VERSION = 4;
  * - getCachedSuggestions: 100 IDs = 100 params
  * - upsertTags (photoTagDb): 50 rows × 13 params = 650 params
  * - upsertVerdicts (photoTagDb): 50 rows × 6 params = 300 params
+ * - upsertIntentTags (photoTagDb): 50 rows × 12 params = 600 params
  * - getTagsForIds / getVerdictsForIds (photoTagDb): 100 IDs = 100 params
  */
 export const SQLITE_PARAM_LIMIT = 999;
@@ -273,6 +274,21 @@ async function initSchema(conn: SQLite.SQLiteDatabase): Promise<void> {
       landscape TEXT,
       classifier_version TEXT NOT NULL,
       classified_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS photo_intent_tags (
+      id TEXT PRIMARY KEY NOT NULL,
+      meta_version INTEGER NOT NULL,
+      is_favorite INTEGER NOT NULL,
+      has_adjustments INTEGER NOT NULL,
+      subtypes TEXT,
+      burst_id TEXT,
+      burst_is_representative INTEGER NOT NULL,
+      source_user_library INTEGER NOT NULL,
+      in_user_album INTEGER NOT NULL,
+      altitude REAL,
+      gps_speed REAL,
+      refreshed_at INTEGER NOT NULL
     );
 
     CREATE INDEX IF NOT EXISTS idx_cached_photos_creation_time ON cached_photos(creation_time);
@@ -599,6 +615,7 @@ export async function removeCachedPhotos(ids: string[]): Promise<void> {
         `DELETE FROM photo_quiz_verdicts WHERE id IN (${placeholders})`,
         batch
       );
+      await database.runAsync(`DELETE FROM photo_intent_tags WHERE id IN (${placeholders})`, batch);
     }
   });
 }
@@ -628,15 +645,17 @@ export async function clearPhotoCache(): Promise<void> {
       await database.runAsync('DELETE FROM saved_cluster_photos');
       await database.runAsync('DELETE FROM photo_ml_tags');
       await database.runAsync('DELETE FROM photo_quiz_verdicts');
+      await database.runAsync('DELETE FROM photo_intent_tags');
       await database.runAsync("DELETE FROM photo_cache_metadata WHERE key = 'last_import_time'");
       await database.runAsync(
         "DELETE FROM photo_cache_metadata WHERE key = 'last_background_sync_time'"
       );
-      // Tags were just wiped, so drop the pass throttle too - otherwise the first
-      // re-tagging pass after a full refresh waits out a stale 10-minute window.
+      // Tags were just wiped, so drop the pass throttles too - otherwise the
+      // first re-tagging/refresh pass after a full reset waits out a stale window.
       await database.runAsync(
         "DELETE FROM photo_cache_metadata WHERE key = 'last_tagging_pass_at'"
       );
+      await database.runAsync("DELETE FROM photo_cache_metadata WHERE key = 'last_intent_pass_at'");
       // Clear last_candidate_* metadata keys to avoid stale selections.
       // Note: The LIKE pattern is a hardcoded string literal, not user input,
       // so there is no SQL injection risk here.

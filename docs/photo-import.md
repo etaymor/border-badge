@@ -170,6 +170,37 @@ The vision call sites budget `VISION_MAX_TOKENS` (`app/core/llm_utils.py`)
 specifically so an env-var-only model swap survives this; they also measured
 ~2x slower against a 5s timeout, and ~4x the cost.
 
+## Photo Quality Signal Layer (`mobile/src/services/photoSignals/`)
+
+Purpose-agnostic interpretation of the photo cache's raw signals, shared by
+Guess Where selection, vision-photo selection, and curation surfaces. See
+`docs/plans/2026-08-21-001-feat-photo-quality-signals-plan.md` for the design.
+
+- `nearDuplicates.ts` - the burst/HDR/re-save collapse (moved from
+  `quiz/candidateSelection.ts`, which re-exports it), now with an optional
+  representative picker so signal-aware callers keep the best frame instead of
+  the newest.
+- `captureContext.ts` - dwell, same-scene retry count, sun elevation
+  (golden hour/night), altitude delta vs the country-day median, moving-capture
+  and saved-from-social priors. Pure, computed on demand, never persisted.
+- `qualityScore.ts` - one composite quality score: pool-relative aesthetic
+  rank + capped intent evidence (favorite/edited/album/burst-pick) + context
+  priors. Ordinal within a pool only.
+- `bestPhotos.ts` - `rankBestPhotos` for curation: utility images excluded,
+  dupes collapsed to best frame, quality-sorted.
+
+Feeding it, `photo_intent_tags` (in `photos.db`, access via `photoTagDb.ts`)
+stores zero-pixel PhotoKit metadata (favorites, edits, bursts, capture modes,
+source, altitude/speed), refreshed by a whole-library metadata pass in
+`photoTaggingService.ts` at most every 24h (`readPhotoMeta` on the native
+photo-tagger module). Intent is refreshable by design - a photo can be
+favorited next month - unlike the write-once-per-version pixel tags.
+
+Flags: `enableIntentSignals` (metadata pass + intent/context reads) and
+`enableQualityRanking` (composite score changes photo ORDER on quiz, vision
+selection, and curation surfaces). With both off - or on Android/old binaries -
+every surface orders exactly as before the layer existed.
+
 ## Photo Trips Feature
 
 The Photo Trips screen (`PhotoTripsScreen.tsx`) displays all photo-discovered trips from the SQLite cache, allowing users to browse and select trips for import without re-scanning their photo library.
@@ -313,6 +344,72 @@ The once-per-lifetime photo-import ad conversion (`AdEvents.firstPhotoImportDone
 | W-2                | _fill before release_    |
 | W-1                | _fill before release_    |
 | **Baseline mean**  | _fill before release_    |
+
+## Library job runtime and continuation
+
+Both long-running library passes — the trip scan and the Guess Where build —
+run inside one checkpointed **job runtime** (`mobile/src/services/jobs/`).
+Job owners register a `JobDescriptor` (ordered `steps`, resume `gates`,
+staleness / stuck thresholds); the runtime owns the start lock, the durable
+breadcrumb (`job:<kind>:state` in the photo cache DB, with `lastCheckpointAt`),
+the step loop, cancellation, and a depth-1 queue (the two kinds are mutually
+exclusive — they share the SQLite cache writer lock).
+
+**Drivers.** The runtime exposes `registerJobDriver({onStarted, onSettled,
+onHeartbeat, onIdle, shouldYield})` on `jobRuntimeState`. Drivers get a
+synchronous view of every start / settle / heartbeat / idle, keyed by a
+process-monotonic `generation`, and the loop *pulls* `shouldYield(kind,
+generation)` from every driver between units. No driver ever aborts a step:
+stopping happens only at a unit boundary, after the checkpoint is written, and
+settles as `suspended` with the breadcrumb kept.
+
+Three layers try to keep a job moving when the user leaves the app, from most
+to least reliable:
+
+1. **Continued-processing lease (iOS 26+)** — `continuationLease.ts` +
+   `modules/job-continuation/` (Swift). When a job starts in the foreground the
+   driver `begin()`s a `BGContinuedProcessingTask` (one static identifier,
+   `com.atlasi.app.continued-processing`, registered at launch, submitted with
+   `.queue`). iOS shows a system progress UI with a cancel control and keeps the
+   app executing while the task reports progress. The lease is held **per
+   runtime**: a queued job takes it over with `updateTitle()`, and `end()` fires
+   on runtime idle. Progress is a stage-weighted, never-decreasing synthetic
+   value (`continuationProgress.ts`), coalesced to ≤4 pushes/s. An expiration
+   (system reclaim or system-UI cancel — indistinguishable) marks the leased
+   `(kind, generation)`; `shouldYield` answers yes only while the app is still
+   not active at pull time, and the job settles `suspended`. A resumed run may
+   re-acquire **once per kind** after an expiration. Kill switch:
+   `features.enableJobContinuationLease` (JS, ships OTA).
+2. **Grace window (any iOS)** — the same module starts a named
+   `UIBackgroundTask` on `OnAppEntersBackground` while a lease is active.
+   Its expiry (~30 s) **does not** request a yield: iOS freezes the process and
+   a frozen process that survives continues where it was on the next
+   foreground (the scan's extraction pass is one unit anyway).
+3. **Opportunistic `BGProcessingTask`** — `backgroundJobTask.ts`. iOS may run
+   it overnight on charge; it cannot be requested. It never acquires a lease
+   (`isExecutingInBackgroundHandler()`), and its expiration is a yield request.
+
+**Resume gates (foreground).** `useAppStateTracking` calls
+`markForegroundReturn()` then `tryResumeJobs()` *synchronously* on
+`background → active` (outside the cancellable rAF burst). For each kind:
+await a pending cancel → skip if running → read the breadcrumb → staleness
+(from the most recent of `startedAt` / `lastCheckpointAt`; 60 min scan,
+30 min quiz) → other job running → descriptor gates → `startJob(resumed:true)`.
+A `waiting` job whose peer is no longer running is started too. Stuck
+detection (`detectStuckJobs`, in the burst) only considers kinds the runtime is
+actually running — a suspended job keeps its `running` slice and belongs to
+resume. The quiz hunt's 90 s soft deadline counts **executing** time
+(`quizHuntClock.ts`), so frozen minutes never finalize a build at the minimum.
+
+**Copy.** `constants/scanCopy.ts` still bans "background" / "while the app is
+closed". The one tier-gated exception, `leaveHintWhileLeased(kind)`, renders
+only while `continuationLeaseStore` reads `running` on the `continued` tier.
+
+**OTA safety.** The JS never imports the native module statically from runtime
+code; `modules/job-continuation/index.ts` uses `requireOptionalNativeModule`
+and every function is a no-op when it is absent, so the bundle can publish onto
+binaries built before the module. On-device verification:
+`docs/plans/2026-08-23-1325-on-device-continuation-checklist.md`.
 
 ## Key Files
 

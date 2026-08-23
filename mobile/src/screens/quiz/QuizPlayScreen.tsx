@@ -66,7 +66,7 @@ import type { QuizAnswerResult } from '@hooks/useQuizzes';
 import type { RootStackScreenProps } from '@navigation/types';
 import { Analytics } from '@services/analytics';
 
-import { GuessOption } from './components/GuessOption';
+import { GuessOption, GuessOptionGrid } from './components/GuessOption';
 import { BOTTOM_SCRIM_COLORS, BOTTOM_SCRIM_LOCATIONS } from './components/PhotoHero';
 import {
   DURATION_BASE,
@@ -188,6 +188,7 @@ export function QuizPlayScreen({ navigation, route }: Props) {
   // tracker and the answer sheet without hardcoding either.
   const [headerHeight, setHeaderHeight] = useState(0);
   const [sheetHeight, setSheetHeight] = useState(0);
+  const [answerAreaHeight, setAnswerAreaHeight] = useState(0);
   // Tap-to-inspect (Unit 1.2). The inspector is an opaque overlay ABOVE the
   // play interface - nothing underneath unmounts, so selection, the answer
   // lock, and the watchdog are untouched by an open/close round-trip.
@@ -502,6 +503,11 @@ export function QuizPlayScreen({ navigation, route }: Props) {
     setSheetHeight((prev) => (prev === next ? prev : next));
   });
 
+  const handleAnswerAreaLayout = useStableCallback((event: LayoutChangeEvent) => {
+    const next = event.nativeEvent.layout.height;
+    setAnswerAreaHeight((prev) => (prev === next ? prev : next));
+  });
+
   const showQuestion = phase === 'country' && activeQuestion;
   const entering = reduceMotion ? FadeIn.duration(0) : photoIn;
   // No lateral toss: the answered photo simply fades toward the navy stage.
@@ -511,6 +517,14 @@ export function QuizPlayScreen({ navigation, route }: Props) {
   const measuredHeader = headerHeight || insets.top + HEADER_FALLBACK_HEIGHT;
   const measuredSheet = sheetHeight || SHEET_FALLBACK_HEIGHT;
   const landscapePhotoHeight = Math.round(windowHeight * LANDSCAPE_PHOTO_RATIO);
+  // The landscape answer ground starts where the photo ends, but it may need
+  // MORE room than that leaves (a two-line prompt over a 2x2 grid): pinning
+  // both its top and its bottom cut the last row off, so it is bottom-anchored
+  // with that gap as a floor and grows upward over the photo when it must.
+  // The scrim strip rides on its measured top edge so the two grounds always
+  // meet in a fade rather than a hard band.
+  const landscapeAnswerFloor = Math.max(0, windowHeight - measuredHeader - landscapePhotoHeight);
+  const landscapeAnswerTop = windowHeight - Math.max(answerAreaHeight, landscapeAnswerFloor);
 
   // Portrait/square photos own the whole stage; landscape photos hold the top
   // ~62% edge to edge; unknown dimensions keep the contained treatment so the
@@ -537,7 +551,7 @@ export function QuizPlayScreen({ navigation, route }: Props) {
         <Text style={styles.prompt} testID="quiz-country-prompt">
           Where in the world was this?
         </Text>
-        <View style={styles.optionsGrid}>
+        <GuessOptionGrid>
           {activeQuestion.options.map((option, index) => (
             <GuessOption
               key={option}
@@ -546,11 +560,10 @@ export function QuizPlayScreen({ navigation, route }: Props) {
               disabled={answerMutation.isPending || pendingAnswerKey !== null}
               entranceDelay={reduceMotion ? 0 : DURATION_FAST + index * 30}
               onPress={() => handleSelectCountry(index)}
-              style={styles.optionCell}
               testID={`quiz-option-${index}`}
             />
           ))}
-        </View>
+        </GuessOptionGrid>
       </Animated.View>
     ) : null;
 
@@ -643,22 +656,26 @@ export function QuizPlayScreen({ navigation, route }: Props) {
                 style={StyleSheet.absoluteFill}
                 pointerEvents="none"
               />
-              <View style={styles.topBarRow}>
+              <View style={styles.topBarRow} pointerEvents="box-none">
+                {/* Absolute-centred like QuizTopBar's title: a flex spacer
+                    still left-aligns the full-width track against the back
+                    button, which is the offset the play screen was showing. */}
+                <ProgressSegments
+                  total={questions.length}
+                  // The segment for the question on screen reads as filled:
+                  // `2 OF 10` over a single gold tick looked like the tracker
+                  // was one behind, and question one showed an empty track.
+                  filled={activeNumber}
+                  label={`${activeNumber} OF ${questions.length}`}
+                  style={styles.tracker}
+                  testID="quiz-play-progress"
+                />
                 <GlassBackButton
                   onPress={handleBack}
                   variant="dark"
                   size="small"
                   testID="quiz-play-back"
                 />
-                <ProgressSegments
-                  total={questions.length}
-                  filled={answeredCount}
-                  label={`${activeNumber} OF ${questions.length}`}
-                  style={styles.tracker}
-                  testID="quiz-play-progress"
-                />
-                {/* Spacer mirrors the back button so the tracker stays centered. */}
-                <View style={styles.topBarSpacer} />
               </View>
             </View>
 
@@ -687,9 +704,7 @@ export function QuizPlayScreen({ navigation, route }: Props) {
                   locations={BOTTOM_SCRIM_LOCATIONS}
                   style={[
                     styles.answerAreaFade,
-                    {
-                      top: measuredHeader + landscapePhotoHeight - LANDSCAPE_ANSWER_FADE_HEIGHT,
-                    },
+                    { top: landscapeAnswerTop - LANDSCAPE_ANSWER_FADE_HEIGHT },
                   ]}
                   pointerEvents="none"
                   testID="quiz-answer-fade"
@@ -698,10 +713,11 @@ export function QuizPlayScreen({ navigation, route }: Props) {
                   style={[
                     styles.answerAreaSolid,
                     {
-                      top: measuredHeader + landscapePhotoHeight,
+                      minHeight: landscapeAnswerFloor,
                       paddingBottom: insets.bottom + 16,
                     },
                   ]}
+                  onLayout={handleAnswerAreaLayout}
                   testID="quiz-answer-solid"
                 >
                   {answerContent}
@@ -758,13 +774,11 @@ const styles = StyleSheet.create({
   topBarRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-  },
-  topBarSpacer: {
-    width: 36,
+    minHeight: 36,
   },
   tracker: {
-    flex: 1,
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
   },
   photoLayer: {
     position: 'absolute',
@@ -783,7 +797,18 @@ const styles = StyleSheet.create({
   },
   // The tall paddingTop is the fade itself: the eased scrim needs room to
   // dissolve the photo into solid navy before the serif prompt begins.
+  //
+  // Anchored to the bottom edge rather than stacked after the flex spacer:
+  // as the last child of a fixed-height column it kept its natural height
+  // (flexShrink is 0), so once the prompt wrapped to two lines and the grid
+  // ran 2x2, the sheet simply spilled past the bottom of the screen and the
+  // second row of answers was unreachable. Growing upward from the bottom
+  // can never do that.
   bottomSheet: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
     paddingHorizontal: 20,
     paddingTop: 108,
   },
@@ -813,15 +838,6 @@ const styles = StyleSheet.create({
     color: colors.warmCream,
     textAlign: 'center',
     paddingHorizontal: 12,
-  },
-  optionsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 9,
-  },
-  optionCell: {
-    flexBasis: '48%',
-    flexGrow: 1,
   },
   centered: {
     flex: 1,

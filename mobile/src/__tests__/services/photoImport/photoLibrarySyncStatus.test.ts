@@ -26,8 +26,9 @@ jest.mock('expo-media-library', () => ({
 
 const mockIsScanRunning = jest.fn(() => false);
 const mockIsBackgroundSyncFlagSet = jest.fn(() => false);
-jest.mock('@services/photoImport/photoScanState', () => ({
+jest.mock('@services/jobs/jobRuntimeState', () => ({
   isScanRunning: () => mockIsScanRunning(),
+  isAnyLibraryJobRunning: () => mockIsScanRunning(),
   isBackgroundSyncFlagSet: () => mockIsBackgroundSyncFlagSet(),
 }));
 

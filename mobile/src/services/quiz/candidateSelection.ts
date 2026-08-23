@@ -22,12 +22,23 @@
  * `@rapideditor/country-coder` import (kept off the boot path deliberately).
  */
 
-import { haversine } from '@services/photoImport/photoClustering';
+import { collapseNearDuplicates } from '@services/photoSignals/nearDuplicates';
 
 import type { CachedPhoto } from '@services/photoImport/types';
 
 import { DEFAULT_TIER, TIER_ORDER } from './tagSignals';
 import type { PrefilterTier, TagSignals } from './tagSignals';
+
+// The near-duplicate machinery moved to the shared signal layer so photo
+// import and curation can use it; re-exported here so quiz callers and tests
+// are unchanged.
+export {
+  NEAR_DUPLICATE_RADIUS_M,
+  NEAR_DUPLICATE_WINDOW_MS,
+  collapseNearDuplicates,
+  filterNearDuplicatesOf,
+  isNearDuplicatePair,
+} from '@services/photoSignals/nearDuplicates';
 
 /** country-coder's iso1A2Code call shape (the subset we use). */
 export type CountryCoderFn = (
@@ -45,6 +56,9 @@ export interface QuizPhotoCandidate {
   longitude: number;
   /** Precomputed country code from the photo cache; null = no fix. */
   countryCode: string | null;
+  /** Pixel dimensions when the scan captured them (saved-from-social check). */
+  width?: number;
+  height?: number;
   /**
    * On-device Vision signals, attached by the caller when available. Absent for
    * untagged photos, on Android, and in builds without the native module -- in
@@ -72,72 +86,9 @@ export function toCandidate(cached: CachedPhoto): QuizPhotoCandidate {
     latitude: cached.latitude,
     longitude: cached.longitude,
     countryCode: cached.countryCode,
+    width: cached.width,
+    height: cached.height,
   };
-}
-
-/**
- * Near-duplicate window (BUG-2): burst frames, HDR pairs, and re-saves land
- * seconds apart at effectively the same coordinate. Frames this close in time
- * AND space play as the same photo, so only one of them may reach a quiz.
- */
-export const NEAR_DUPLICATE_WINDOW_MS = 90_000;
-export const NEAR_DUPLICATE_RADIUS_M = 100;
-
-export function isNearDuplicatePair(a: QuizPhotoCandidate, b: QuizPhotoCandidate): boolean {
-  return (
-    a.countryCode !== null &&
-    a.countryCode === b.countryCode &&
-    Math.abs(a.creationTime - b.creationTime) < NEAR_DUPLICATE_WINDOW_MS &&
-    haversine(a.latitude, a.longitude, b.latitude, b.longitude) < NEAR_DUPLICATE_RADIUS_M
-  );
-}
-
-/**
- * Collapse near-duplicate runs to their newest frame. Groups chain
- * transitively off each group's latest frame, so a long burst spanning more
- * than one window still collapses to a single photo. Input order is preserved.
- */
-export function collapseNearDuplicates<T extends GeoEligibleCandidate>(candidates: T[]): T[] {
-  if (candidates.length < 2) return candidates;
-  const sorted = [...candidates].sort((a, b) => a.creationTime - b.creationTime);
-  const groups: T[][] = [];
-  // Only groups whose latest frame is still inside the window can absorb the
-  // next candidate, so the scan stays near-linear on real libraries.
-  let open: T[][] = [];
-  for (const candidate of sorted) {
-    open = open.filter(
-      (group) =>
-        candidate.creationTime - group[group.length - 1].creationTime < NEAR_DUPLICATE_WINDOW_MS
-    );
-    const match = open.find((group) => isNearDuplicatePair(group[group.length - 1], candidate));
-    if (match) {
-      match.push(candidate);
-    } else {
-      const group = [candidate];
-      groups.push(group);
-      open.push(group);
-    }
-  }
-  const keep = new Set(groups.map((group) => group[group.length - 1].id));
-  return candidates.filter((candidate) => keep.has(candidate.id));
-}
-
-/**
- * Drop pool entries that are near-duplicates of any anchor (including the
- * anchors themselves). Used by the swap picker so a quiz's own photos - and
- * their burst siblings - never re-enter the candidate list (BUG-2).
- */
-export function filterNearDuplicatesOf<T extends QuizPhotoCandidate>(
-  pool: T[],
-  anchors: QuizPhotoCandidate[]
-): T[] {
-  if (anchors.length === 0) return pool;
-  return pool.filter(
-    (candidate) =>
-      !anchors.some(
-        (anchor) => anchor.id === candidate.id || isNearDuplicatePair(anchor, candidate)
-      )
-  );
 }
 
 /**
@@ -552,6 +503,12 @@ export function pickQuizPhotos(
   // Belt-and-braces same-id guard, then a final near-duplicate collapse:
   // burst siblings classified in SEPARATE batches can both reach the eligible
   // pool, and the picked quiz must never contain two of them (BUG-2).
+  //
+  // Collapse keeps its newest-frame default deliberately: quality steers WHICH
+  // burst frame gets classified (and so offered to the ledger) first via the
+  // decorate-time ordering, which is where the enableQualityRanking kill
+  // switch lives. Making the collapse itself quality-aware here would bypass
+  // that switch.
   const uniqueById = new Map<string, GeoEligibleCandidate>();
   for (const candidate of eligible) {
     if (!uniqueById.has(candidate.id)) uniqueById.set(candidate.id, candidate);

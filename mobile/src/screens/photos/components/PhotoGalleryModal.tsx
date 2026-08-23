@@ -4,6 +4,7 @@
  * Displays photos in a horizontal paged list. Users can:
  * - Swipe between photos
  * - Toggle photo inclusion/exclusion for upload
+ * - Restore every hidden photo in the cluster at once
  * - Split a cluster at the current photo position
  */
 
@@ -34,6 +35,12 @@ export interface PhotoGalleryModalProps {
   excludedPhotoIds: Map<string, Set<string>>;
   /** Toggle a photo's inclusion/exclusion */
   onTogglePhotoSelection: (clusterId: string, photoId: string) => void;
+  /**
+   * U4 - restore every hidden photo in this cluster at once. The escape hatch
+   * for an auto-hidden (seeded) photo the user actually wanted, without making
+   * them tap each one back.
+   */
+  onRestoreAllPhotos: (clusterId: string) => void;
   /** Split cluster into two groups at the current position */
   onSplitCluster: (clusterId: string, groupA: string[], groupB: string[]) => void;
 }
@@ -45,8 +52,10 @@ export function PhotoGalleryModal({
   onGalleryIndexChange,
   excludedPhotoIds,
   onTogglePhotoSelection,
+  onRestoreAllPhotos,
   onSplitCluster,
 }: PhotoGalleryModalProps) {
+  const excludedCount = excludedPhotoIds.get(previewGallery.clusterId)?.size ?? 0;
   const handleSplit = useCallback(() => {
     const photos = previewGallery.photos;
     const clusterId = previewGallery.clusterId;
@@ -131,13 +140,13 @@ export function PhotoGalleryModal({
           />
         </View>
 
-        {/* Gallery Bottom Bar: Counter + Split */}
+        {/* Gallery Bottom Bar: Counter + Show all + Split */}
         <View style={styles.galleryBottomBar}>
           <View style={styles.galleryCounter}>
             <Text style={styles.galleryCounterText}>
               {(() => {
                 const total = previewGallery.photos.length;
-                const excluded = excludedPhotoIds.get(previewGallery.clusterId)?.size ?? 0;
+                const excluded = excludedCount;
                 const selected = total - excluded;
                 if (excluded > 0) {
                   return `${selected} of ${total} selected`;
@@ -146,6 +155,16 @@ export function PhotoGalleryModal({
               })()}
             </Text>
           </View>
+
+          {excludedCount > 0 && (
+            <TouchableOpacity
+              style={styles.gallerySplitButton}
+              onPress={() => onRestoreAllPhotos(previewGallery.clusterId)}
+              accessibilityRole="button"
+            >
+              <Text style={styles.gallerySplitButtonText}>Show all</Text>
+            </TouchableOpacity>
+          )}
 
           {previewGallery.photos.length >= 4 &&
             currentGalleryIndex > 0 &&

@@ -99,3 +99,29 @@ double-counted on refresh or resume. `quiz.owner_id` joins them back to the
 creator, so "challenges created this month → guest plays → installs, by owner
 cohort" is one query — and the only place that question can be answered
 honestly.
+
+## Library job continuation (PostHog, mobile only)
+
+The continued-processing lease (`mobile/src/services/jobs/continuationLease.ts`,
+`docs/photo-import.md` → "Library job runtime and continuation") reports
+every tier transition so the reliability of each tier is measurable from the
+first build. Every event carries `tier` (`continued` | `grace` | `none`) and
+`kind` (`trip-scan` | `quiz-build`).
+
+| Event | When | Properties |
+| --- | --- | --- |
+| `job_continuation_capabilities` | once per app launch, flag on or off | `module_available`, `continued_processing`, `grace_window`, `os_major`, `flag_enabled` — "is the feature live on this build" without starting a job |
+| `lease_begin` | a job started and the driver decided whether to acquire | `tier`, `resumed`, `low_power_mode`, `background_refresh_status`, `skipped_reason` (`bg-handler` / `not-foreground` / `reacquire-cap` / a native submit reason, else null) |
+| `lease_handler_fired` | the continued task's launch handler ran | `latency_ms` since `begin()` |
+| `lease_expired` | the system ended the task, or the user cancelled it in the system UI (indistinguishable), or the grace window ran out | `tier`, `app_state`, `elapsed_ms`, `percentage` (synthetic) |
+| `lease_ended` | the driver released the lease | `outcome` (`completed` / `cancelled` / `suspended` / `expired-active` / `expired-then-active` / `grace-expired` / …), `elapsed_ms` |
+| `trip_scan_resumed` | a suspended scan picked back up on foreground (mirror of `quiz_build_resumed`) | `had_checkpoint` |
+| `job_resume_gate_hit` | a resume gate tripped and the breadcrumb was cleared | `gate_id` (`staleness` or a descriptor gate id) |
+
+**Kill-switch reading (`features.enableJobContinuationLease`).** Review when
+`lease_expired{tier:'continued'}` exceeds 30% of `lease_begin{tier:'continued'}`
+in the first 48 h after a build promotes — evaluated only once at least 20
+`lease_begin{tier:'continued'}` have arrived from devices other than the
+checklist device, and read together with the `elapsed_ms` distribution:
+`lease_expired` includes system-UI cancels, so the ratio is a review trigger,
+not an automatic flip.

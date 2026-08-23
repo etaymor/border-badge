@@ -1,5 +1,8 @@
 """Tests for SupabaseClient header configuration."""
 
+import json
+
+import httpx
 import pytest
 
 from app.db.session import SupabaseClient
@@ -40,23 +43,10 @@ def test_user_scoped_headers_use_anon_key_and_user_token(monkeypatch) -> None:
     assert client.headers["Authorization"] == f"Bearer {user_token}"
 
 
-class _DummyResponse:
-    """Simple stub response for RPC tests."""
-
-    def __init__(self, payload: object) -> None:
-        self._payload = payload
-
-    def raise_for_status(self) -> None:
-        return None
-
-    def json(self) -> object:
-        return self._payload
-
-
 class _DummyRPCClient:
     """Stub HTTP client capturing RPC requests."""
 
-    def __init__(self, response: _DummyResponse) -> None:
+    def __init__(self, response: httpx.Response) -> None:
         self.response = response
         self.calls: list[dict[str, object]] = []
 
@@ -65,14 +55,23 @@ class _DummyRPCClient:
         return self.response
 
 
+def _rpc_response(
+    status_code: int, *, content: bytes | None = None, payload: object = None
+) -> httpx.Response:
+    """Build a PostgREST-like response that httpx will accept for raise_for_status."""
+    request = httpx.Request("POST", "https://example.supabase.co/rest/v1/rpc/fn")
+    if content is not None:
+        return httpx.Response(status_code, content=content, request=request)
+    return httpx.Response(status_code, json=payload, request=request)
+
+
 @pytest.mark.asyncio
 async def test_rpc_invokes_function_with_payload(monkeypatch) -> None:
     """Ensure RPC helper posts to function endpoint with provided params."""
     dummy_settings = DummySettings()
     monkeypatch.setattr("app.db.session.get_settings", lambda: dummy_settings)
 
-    response = _DummyResponse("slug-123")
-    dummy_client = _DummyRPCClient(response)
+    dummy_client = _DummyRPCClient(_rpc_response(200, payload="slug-123"))
     monkeypatch.setattr("app.db.session.get_http_client", lambda: dummy_client)
 
     client = SupabaseClient()
@@ -87,3 +86,58 @@ async def test_rpc_invokes_function_with_payload(monkeypatch) -> None:
         f"Bearer {dummy_settings.supabase_service_role_key}"
     )
     assert dummy_client.calls[0]["json"] == {"trip_name": "Trip"}
+
+
+@pytest.mark.asyncio
+async def test_rpc_treats_empty_2xx_body_as_success(monkeypatch) -> None:
+    """PostgREST RETURNS VOID RPCs reply 2xx with an empty body.
+
+    increment_quiz_funnel is one of these. Parsing the body as JSON raises
+    ``JSONDecodeError: Expecting value: line 1 column 1 (char 0)`` and the
+    quiz funnel logger then records a false failure for a write that already
+    committed. Empty 2xx must be success so we do not lose or double-count.
+    """
+    dummy_settings = DummySettings()
+    monkeypatch.setattr("app.db.session.get_settings", lambda: dummy_settings)
+
+    dummy_client = _DummyRPCClient(_rpc_response(204, content=b""))
+    monkeypatch.setattr("app.db.session.get_http_client", lambda: dummy_client)
+
+    client = SupabaseClient()
+    result = await client.rpc(
+        "increment_quiz_funnel",
+        {
+            "p_quiz_id": "a932ffdc-867f-463e-8d23-579d5a02d2ad",
+            "p_event": "page_view",
+        },
+    )
+
+    assert result is None
+    assert dummy_client.calls[0]["url"].endswith("/rpc/increment_quiz_funnel")
+
+
+@pytest.mark.asyncio
+async def test_rpc_treats_whitespace_2xx_body_as_success(monkeypatch) -> None:
+    """A 200 with only whitespace is the same void-RPC contract as 204."""
+    dummy_settings = DummySettings()
+    monkeypatch.setattr("app.db.session.get_settings", lambda: dummy_settings)
+
+    dummy_client = _DummyRPCClient(_rpc_response(200, content=b" \n"))
+    monkeypatch.setattr("app.db.session.get_http_client", lambda: dummy_client)
+
+    client = SupabaseClient()
+    assert await client.rpc("increment_quiz_funnel") is None
+
+
+@pytest.mark.asyncio
+async def test_rpc_still_raises_on_non_json_2xx_payload(monkeypatch) -> None:
+    """Non-empty garbage on 2xx is a real client bug, not a void success."""
+    dummy_settings = DummySettings()
+    monkeypatch.setattr("app.db.session.get_settings", lambda: dummy_settings)
+
+    dummy_client = _DummyRPCClient(_rpc_response(200, content=b"<html>nope</html>"))
+    monkeypatch.setattr("app.db.session.get_http_client", lambda: dummy_client)
+
+    client = SupabaseClient()
+    with pytest.raises(json.JSONDecodeError):
+        await client.rpc("increment_quiz_funnel")

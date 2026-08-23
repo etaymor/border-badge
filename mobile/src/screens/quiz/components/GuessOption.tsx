@@ -6,8 +6,8 @@
  * revealed at the end).
  */
 
-import { useEffect } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, type ViewStyle } from 'react-native';
+import { Children, isValidElement, useEffect, type ReactNode } from 'react';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View, type ViewStyle } from 'react-native';
 import Animated, {
   Easing,
   interpolate,
@@ -92,7 +92,7 @@ export function GuessOption({
   };
 
   return (
-    <Animated.View style={[animatedStyle, style]}>
+    <Animated.View style={[styles.shell, animatedStyle, style]}>
       <Pressable
         onPress={onPress}
         onPressIn={handlePressIn}
@@ -120,8 +120,51 @@ export function GuessOption({
   );
 }
 
+const COLUMNS = 2;
+
+interface GuessOptionGridProps {
+  children: ReactNode;
+  gap?: number;
+  style?: ViewStyle;
+  testID?: string;
+}
+
+/**
+ * Two-up rows that stretch to the tallest sibling. A wrapping country name
+ * (e.g. "Bosnia and Herzegovina") must not leave its neighbour short.
+ */
+export function GuessOptionGrid({ children, gap = 9, style, testID }: GuessOptionGridProps) {
+  const items = Children.toArray(children);
+  const rows: ReactNode[][] = [];
+  for (let i = 0; i < items.length; i += COLUMNS) {
+    rows.push(items.slice(i, i + COLUMNS));
+  }
+
+  return (
+    <View style={[styles.grid, { gap }, style]} testID={testID}>
+      {rows.map((row, rowIndex) => (
+        <View key={rowIndex} style={[styles.gridRow, { gap }]}>
+          {row.map((child, index) => (
+            <View
+              key={isValidElement(child) && child.key != null ? String(child.key) : index}
+              style={styles.gridCell}
+            >
+              {child}
+            </View>
+          ))}
+        </View>
+      ))}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
+  shell: {
+    flex: 1,
+    alignSelf: 'stretch',
+  },
   option: {
+    flex: 1,
     minHeight: 48,
     borderRadius: 14,
     paddingVertical: 10,
@@ -146,5 +189,15 @@ const styles = StyleSheet.create({
   },
   labelSelected: {
     color: colors.warmCream,
+  },
+  grid: {
+    width: '100%',
+  },
+  gridRow: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+  },
+  gridCell: {
+    flex: 1,
   },
 });

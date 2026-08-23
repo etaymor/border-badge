@@ -3,7 +3,7 @@
  *
  * Covers:
  * - useQuiz: owner detail query
- * - useCreateQuiz driving createQuizFromLibrary:
+ * - createQuizFromLibrary, end to end:
  *   - AE2: 6 eligible -> 6-photo quiz; 4 eligible -> decline (draft deleted)
  *   - KTD3: first batch <= 50, one resample <= 20 (front-loaded people shots)
  *   - KTD2: border/no-fix/unmapped photos never reach the classifier
@@ -19,7 +19,8 @@ import { renderHook, act, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fetch as expoFetch } from 'expo/fetch';
 
-import { useCompleteQuizPlay, useCreateQuiz, useDeleteQuiz, useQuiz } from '@hooks/useQuizzes';
+import { useCompleteQuizPlay, useDeleteQuiz, useQuiz } from '@hooks/useQuizzes';
+import { createQuizFromLibrary } from '@services/quiz/quizCreation';
 import { api } from '@services/api';
 import { Analytics } from '@services/analytics';
 import type { QuizCreationOutcome, QuizCreationProgress } from '@services/quiz/quizCreation';
@@ -73,8 +74,9 @@ jest.mock('@services/photoImport/photoBackgroundSync', () => ({
   })),
 }));
 
-jest.mock('@services/photoImport/photoScanState', () => ({
+jest.mock('@services/jobs/jobRuntimeState', () => ({
   isScanRunning: jest.fn(() => false),
+  isAnyLibraryJobRunning: jest.fn(() => false),
 }));
 
 jest.mock('@services/photoImport/visionPhoto', () => ({
@@ -201,16 +203,22 @@ function installQuizApi({
   return { eligibilityBatches };
 }
 
+/**
+ * Run one creation end to end.
+ *
+ * Calls the pipeline DIRECTLY. It used to go through a `useCreateQuiz`
+ * mutation, but that hook is gone on purpose: a mutation is owned by the
+ * component that fires it, so unmounting the creation screen destroyed the
+ * build. Ownership moved to the `quiz-build` library job, and what these tests
+ * are actually about — the creation pipeline — never needed React at all.
+ */
 async function runCreation(
-  queryClient: QueryClient,
+  _queryClient: QueryClient,
   onProgress?: (progress: QuizCreationProgress) => void
 ): Promise<QuizCreationOutcome> {
-  const { result } = renderHook(() => useCreateQuiz(), {
-    wrapper: createWrapper(queryClient),
-  });
   let outcome: QuizCreationOutcome | undefined;
   await act(async () => {
-    outcome = await result.current.mutateAsync({ onProgress });
+    outcome = await createQuizFromLibrary({ onProgress });
   });
   return outcome!;
 }
@@ -700,17 +708,6 @@ describe('useQuizzes', () => {
     });
   });
 
-  // ============ scoped invalidation ============
-
-  it('invalidates only the created quiz query on success', async () => {
-    const photos = Array.from({ length: 8 }, () => makeCachedPhoto());
-    mockGetAllCachedPhotos.mockResolvedValue(photos);
-    installQuizApi({ eligibleIds: new Set(photos.map((p) => p.id)) });
-
-    const invalidateSpy = jest.spyOn(queryClient, 'invalidateQueries');
-    const outcome = await runCreation(queryClient);
-
-    expect(outcome.status).toBe('created');
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['quizzes', 'quiz-1'] });
-  });
+  // Scoped invalidation on success moved with ownership: it now lives in
+  // `useQuizBuildJob`, and is covered by that hook's own test file.
 });

@@ -30,6 +30,31 @@ import type {
 import type { CompositeScreenProps } from '@react-navigation/native';
 import { getFlagEmoji } from '@utils/flags';
 
+/**
+ * Parse a PostgreSQL daterange ("[2024-01-01,2024-01-15]") into inclusive
+ * epoch-ms bounds for the cover-photo suggestion window. Returns nulls for an
+ * absent, unbounded, or unparseable range — suggestions then narrow by country
+ * alone. The end bound is pushed to the end of its day so photos taken on the
+ * last day of the trip fall inside the window.
+ */
+function parseDateRangeMs(dateRange?: string): { startMs: number | null; endMs: number | null } {
+  const empty = { startMs: null, endMs: null };
+  if (!dateRange) return empty;
+
+  const match = dateRange.match(/\[([^,]+),([^\]]+)\]/);
+  if (!match) return empty;
+
+  const [, startStr, endStr] = match;
+  if (startStr === '-infinity' || endStr === 'infinity') return empty;
+
+  const start = new Date(startStr).getTime();
+  const end = new Date(endStr).getTime();
+  if (isNaN(start) || isNaN(end)) return empty;
+
+  const END_OF_DAY_MS = 24 * 60 * 60 * 1000 - 1;
+  return { startMs: start, endMs: end + END_OF_DAY_MS };
+}
+
 // TripFormScreen can be rendered in TripsNavigator, PassportNavigator, or DreamsNavigator
 // Use CompositeScreenProps to create a union type that covers all three cases
 type Props = CompositeScreenProps<
@@ -106,6 +131,13 @@ export function TripFormScreen({ navigation, route }: Props) {
       .filter((c) => c.name.toLowerCase().includes(query) || c.code.toLowerCase().includes(query))
       .slice(0, 10);
   }, [countries, countrySearch]);
+
+  // Trip window for cover-photo suggestions. New trips have no dates yet, so
+  // the suggestions narrow by country alone.
+  const suggestionWindow = useMemo(
+    () => parseDateRangeMs(existingTrip?.date_range),
+    [existingTrip?.date_range]
+  );
 
   // Get selected country object
   const selectedCountry = useMemo(() => {
@@ -394,6 +426,9 @@ export function TripFormScreen({ navigation, route }: Props) {
                 value={coverImageUrl || undefined}
                 onChange={(url) => setCoverImageUrl(url || '')}
                 disabled={isLoading}
+                suggestionCountryCode={selectedCountryCode}
+                suggestionStartDateMs={suggestionWindow.startMs}
+                suggestionEndDateMs={suggestionWindow.endMs}
               />
             </View>
           </View>

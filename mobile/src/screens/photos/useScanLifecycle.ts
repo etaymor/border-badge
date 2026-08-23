@@ -18,7 +18,10 @@ import { Alert } from 'react-native';
 import { useIsFocused } from '@react-navigation/native';
 
 import type { PassportStackScreenProps } from '@navigation/types';
-import { isAlertScanFailure, type PhotoScanFailureReason } from '@stores/photoScanStore';
+import {
+  isAlertScanFailure,
+  type PhotoScanFailureReason,
+} from '@services/photoImport/photoScanTypes';
 
 import type { ImportPhase } from './photoImportTypes';
 import { confirmCancelScan } from './cancelScanConfirmation';
@@ -32,7 +35,7 @@ export interface UseScanLifecycleOptions {
    * Non-null when the scan ended with a user-facing failure. The optional
    * `reason` field gates the alert: only legacy "alert-and-back" reasons
    * (no-photos / no-trips / home-country / scan-error) trigger the alert;
-   * service-level reasons (stuck, stale, no-permission, subscription-expired)
+   * runtime-level reasons (stuck, stale, no-permission, subscription-expired)
    * render the failed-state branch in ScanningPhase with a Retry button instead.
    */
   scanFailure: { title: string; message: string; reason?: PhotoScanFailureReason } | null;

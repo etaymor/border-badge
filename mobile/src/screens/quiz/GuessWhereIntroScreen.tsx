@@ -28,7 +28,7 @@ import { useStableCallback } from '@hooks/useStableCallback';
 import type { RootStackScreenProps } from '@navigation/types';
 import { Analytics } from '@services/analytics';
 
-import { GuessOption } from './components/GuessOption';
+import { GuessOption, GuessOptionGrid } from './components/GuessOption';
 import { QuizTopBar } from './components/QuizTopBar';
 import { SerifScore } from './components/SerifScore';
 import { DURATION_BASE } from './components/motionTokens';
@@ -222,18 +222,17 @@ export function GuessWhereIntroScreen({ navigation, route }: Props) {
             {guessed === null ? (
               <>
                 <Text style={styles.prompt}>try one - where was this taken?</Text>
-                <View style={styles.optionsGrid}>
+                <GuessOptionGrid gap={10}>
                   {options.map((option, index) => (
                     <GuessOption
                       key={option}
                       label={option}
                       entranceDelay={reduceMotion ? 0 : 100 + index * 50}
                       onPress={() => handleGuess(index)}
-                      style={styles.optionCell}
                       testID={`guess-where-demo-option-${index}`}
                     />
                   ))}
-                </View>
+                </GuessOptionGrid>
               </>
             ) : (
               <Animated.View
@@ -335,15 +334,6 @@ const styles = StyleSheet.create({
     lineHeight: 28,
     color: colors.sunsetGold,
     textAlign: 'center',
-  },
-  optionsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
-  },
-  optionCell: {
-    flexBasis: '48%',
-    flexGrow: 1,
   },
   revealBlock: {
     gap: 6,

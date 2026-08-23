@@ -32,17 +32,215 @@ import {
   ScanningPhase,
   SuggestionsPhase,
 } from './components';
+import { Analytics } from '@services/analytics';
+import { features } from '@config/features';
+import { getLibraryFreshness } from '@services/photoImport/photoLibrarySyncStatus';
+import { getCachedPhotosByCountry } from '@services/photoImport/photoCacheDb';
+import { getIntentTagsForIds, getTagsForIds } from '@services/photoImport/photoTagDb';
+import { lowSignalPhotoIds } from '@services/photoSignals';
 import { useOnboardingStore, selectHomeCountry } from '@stores/onboardingStore';
 import { usePhotoImportWorkflow } from './usePhotoImportWorkflow';
 import { useClusterItems } from './useClusterItems';
+import { useGalleryDispatchPause } from './useGalleryDispatchPause';
 import { useScanLifecycle } from './useScanLifecycle';
 import { styles } from './photoImportStyles';
 import type { ClusterDisplayItem } from './photoImportHelpers';
 
 type Props = PassportStackScreenProps<'PhotoImport'>;
 
+export interface LowSignalSeedingArgs {
+  /** Country of the selected candidate; the photo cache read is scoped to it. */
+  countryCode: string | undefined;
+  clusterDisplays: Map<string, LocationClusterDisplay>;
+  setExcludedPhotoIds: React.Dispatch<React.SetStateAction<Map<string, Set<string>>>>;
+  /**
+   * The live exclusion map, read ONLY at unmount to count how many seeded
+   * photos the user brought back (U5). Optional so the hook can be hosted
+   * without it; the restore count is then always zero.
+   */
+  excludedPhotoIds?: Map<string, Set<string>>;
+}
+
+/**
+ * U2 - seed the EXISTING per-cluster exclusion set with the cluster's
+ * low-signal photos (screenshots, near-duplicate frames), once.
+ *
+ * Once is the whole point. A re-render, a re-fetch, or coming back to the
+ * screen must never resurrect an exclusion the user restored, so a cluster is
+ * claimed in `seededClusterIdsRef` before any await and is never revisited.
+ * The claim is released only when the effect is torn down before it applied
+ * anything - at that moment there is no user decision to overwrite.
+ *
+ * Returns the seeded ids per cluster so the list can name the cause (U3).
+ */
+export function useLowSignalSeeding({
+  countryCode,
+  clusterDisplays,
+  setExcludedPhotoIds,
+  excludedPhotoIds,
+}: LowSignalSeedingArgs): Map<string, Set<string>> {
+  const [seededPhotoIds, setSeededPhotoIds] = useState<Map<string, Set<string>>>(new Map());
+  const seededClusterIdsRef = useRef<Set<string>>(new Set());
+
+  // U5 counters, read once at unmount. Both are synced in an effect rather than
+  // assigned during render - the React Compiler may memoize around a render-time
+  // ref write and hand back a stale closure (CLAUDE.md 10).
+  const seededRef = useRef(seededPhotoIds);
+  const excludedRef = useRef(excludedPhotoIds);
+  useEffect(() => {
+    seededRef.current = seededPhotoIds;
+  }, [seededPhotoIds]);
+  useEffect(() => {
+    excludedRef.current = excludedPhotoIds;
+  }, [excludedPhotoIds]);
+
+  /**
+   * One event per import, at departure.
+   *
+   * `restored_count` is the false-positive rate on the seed rules: a photo we
+   * hid and the user brought back. The rules are pure TS, so a meaningfully
+   * non-zero restore count is the signal to loosen them over the air. Firing at
+   * unmount rather than on each restore is what makes it a RATE - the numerator
+   * and the denominator come from the same import.
+   */
+  useEffect(() => {
+    return () => {
+      const seeded = seededRef.current;
+      if (seeded.size === 0) return;
+      let seededCount = 0;
+      let restoredCount = 0;
+      for (const [clusterId, hidden] of seeded) {
+        const stillExcluded = excludedRef.current?.get(clusterId);
+        for (const id of hidden) {
+          seededCount += 1;
+          if (!stillExcluded?.has(id)) restoredCount += 1;
+        }
+      }
+      Analytics.photoGalleryDeemphasis({
+        seededCount,
+        restoredCount,
+        clustersSeeded: seeded.size,
+      });
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!features.enableQualityRanking || !features.enableIntentSignals) return;
+    if (!countryCode) return;
+
+    // The Set instance itself never changes; hold it so the cleanup below
+    // releases claims on the same object the effect claimed them on.
+    const seededClusterIds = seededClusterIdsRef.current;
+
+    const pending = [...clusterDisplays.values()].filter(
+      (cluster) => !seededClusterIds.has(cluster.id)
+    );
+    if (pending.length === 0) return;
+    // Claim before the first await: two overlapping runs must not both seed.
+    for (const cluster of pending) seededClusterIds.add(cluster.id);
+
+    let cancelled = false;
+    let applied = false;
+
+    void (async () => {
+      try {
+        // One tag read for every pending cluster, not one per cluster.
+        const ids = [...new Set(pending.flatMap((cluster) => cluster.previewAssetIds))];
+        if (ids.length === 0) return;
+        const [mlTags, intentTags] = await Promise.all([
+          getTagsForIds(ids),
+          getIntentTagsForIds(ids),
+        ]);
+        if (cancelled) return;
+        // No rows in EITHER table (Android, a binary older than the tagger, an
+        // install whose sweep has not run): hide nothing. Same guard, same
+        // reason, as `rankTripSegmentPreviews`.
+        if (mlTags.size === 0 && intentTags.size === 0) return;
+
+        const cached = await getCachedPhotosByCountry(countryCode);
+        if (cancelled) return;
+        const lookup = new Map(cached.map((photo) => [photo.id, photo]));
+
+        const seeds = new Map<string, Set<string>>();
+        for (const cluster of pending) {
+          // Only the preview slice: those are the ids the gallery and the
+          // per-cluster counts are built from.
+          const photos = cluster.previewAssetIds
+            .map((id) => lookup.get(id))
+            .filter((photo): photo is NonNullable<typeof photo> => photo !== undefined)
+            .map((photo) => ({
+              id: photo.id,
+              creationTime: photo.creationTime,
+              latitude: photo.latitude,
+              longitude: photo.longitude,
+              countryCode: photo.countryCode,
+              width: photo.width,
+              height: photo.height,
+            }));
+          const hidden = lowSignalPhotoIds(photos, {
+            mlTags,
+            intentTags,
+            anchor: cluster.centroid,
+          });
+          if (hidden.size > 0) seeds.set(cluster.id, hidden);
+        }
+        if (cancelled || seeds.size === 0) return;
+
+        applied = true;
+        setSeededPhotoIds((prev) => {
+          const next = new Map(prev);
+          for (const [clusterId, hidden] of seeds) next.set(clusterId, hidden);
+          return next;
+        });
+        setExcludedPhotoIds((prev) => {
+          const next = new Map(prev);
+          for (const [clusterId, hidden] of seeds) {
+            const merged = new Set(next.get(clusterId) ?? []);
+            for (const id of hidden) merged.add(id);
+            next.set(clusterId, merged);
+          }
+          return next;
+        });
+      } catch (error) {
+        // Seeding is best effort: a failed cache or tag read leaves the screen
+        // exactly as it is today.
+        console.warn('[photoImport] low-signal seeding skipped', error);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      if (!applied) {
+        for (const cluster of pending) seededClusterIds.delete(cluster.id);
+      }
+    };
+  }, [clusterDisplays, countryCode, setExcludedPhotoIds]);
+
+  return seededPhotoIds;
+}
+
 export function PhotoImportScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
+  /**
+   * Library size, for the magnitude and duration lines on the idle screen.
+   * Read once on mount: it only has to be roughly right, and a wrong-by-a-few
+   * number is far better than the screen saying nothing about how long a
+   * 53,000-photo scan will take.
+   */
+  const [cachedPhotoCount, setCachedPhotoCount] = useState<number | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    getLibraryFreshness()
+      .then((freshness) => {
+        if (!cancelled) setCachedPhotoCount(freshness.cachedPhotoCount);
+      })
+      .catch(() => {
+        // No number is a fine outcome: both lines render nothing.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const rootNavigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const {
     countryCode: filterCountryCode,
@@ -333,6 +531,31 @@ export function PhotoImportScreen({ navigation, route }: Props) {
     });
   }, []);
 
+  // Restore every photo the cluster hid - the one-tap escape hatch when the
+  // seed (U2) got it wrong, and the reason auto-hiding is safe to ship.
+  const restoreAllPhotos = useCallback((clusterId: string) => {
+    setExcludedPhotoIds((prev) => {
+      if (!prev.get(clusterId)?.size) return prev;
+      const next = new Map(prev);
+      next.set(clusterId, new Set());
+      return next;
+    });
+  }, []);
+
+  // U2: de-emphasize a cluster's screenshots and burst repeats by seeding the
+  // same exclusion set the user's own taps fill. Once per cluster, never over
+  // a restore.
+  // The gallery the user just tapped open must not wait behind vision
+  // preparation on the serial native image queue.
+  useGalleryDispatchPause(previewGallery !== null);
+
+  const seededPhotoIds = useLowSignalSeeding({
+    countryCode: selectedCandidate?.countryCode,
+    clusterDisplays,
+    setExcludedPhotoIds,
+    excludedPhotoIds,
+  });
+
   // Build photo list from cluster display data and open gallery
   const openGalleryForCluster = useCallback(
     (uri: string, clusterId: string, cluster: LocationClusterDisplay) => {
@@ -377,6 +600,7 @@ export function PhotoImportScreen({ navigation, route }: Props) {
         uploadingClusterIds={uploadingClusterIds}
         getUploadState={getUploadState}
         excludedPhotoIds={excludedPhotoIds}
+        seededPhotoIds={seededPhotoIds}
         onConfirmPlace={handleConfirmPlaceWithTracking}
         onRejectPlace={handleRejectPlace}
         onHideCluster={handleHideCluster}
@@ -401,6 +625,7 @@ export function PhotoImportScreen({ navigation, route }: Props) {
       openGalleryForCluster,
       openGalleryForMerged,
       excludedPhotoIds,
+      seededPhotoIds,
     ]
   );
 
@@ -452,6 +677,7 @@ export function PhotoImportScreen({ navigation, route }: Props) {
           lastImportTime={lastImportTime}
           homeCountryName={homeCountryData?.name}
           onStartScan={startScan}
+          cachedPhotoCount={cachedPhotoCount}
         />
       )}
 
@@ -507,6 +733,7 @@ export function PhotoImportScreen({ navigation, route }: Props) {
           onGalleryIndexChange={setCurrentGalleryIndex}
           excludedPhotoIds={excludedPhotoIds}
           onTogglePhotoSelection={togglePhotoSelection}
+          onRestoreAllPhotos={restoreAllPhotos}
           onSplitCluster={handleSplitCluster}
         />
       )}

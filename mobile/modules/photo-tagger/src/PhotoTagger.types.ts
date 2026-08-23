@@ -47,6 +47,42 @@ export interface NativePhotoTag {
   isUtility: boolean | null;
 }
 
+/**
+ * Deliberate-capture subtypes reported by `readPhotoMeta` (nobody takes an
+ * accidental panorama). Mirrors `PhotoCaptureSubtype` in `photoTagDb.ts`.
+ */
+export type PhotoMetaSubtype = 'pano' | 'hdr' | 'live' | 'depthEffect' | 'screenshot';
+
+/**
+ * PhotoKit intent/context metadata for one photo - zero pixels read. Like
+ * `NativePhotoTag`, deliberately uninterpreted: raw values only, every
+ * threshold lives in TypeScript. An id that no longer resolves still returns a
+ * row, with every boolean false and every nullable null - EXCEPT
+ * `sourceUserLibrary`, which reads true there: false means "saved from another
+ * app" downstream, so an unresolved id must read neutral, not suspicious.
+ */
+export interface NativePhotoMeta {
+  /** PHAsset localIdentifier; matches `cached_photos.id`. */
+  id: string;
+  /** Explicit like - PHAsset.isFavorite. */
+  isFavorite: boolean;
+  /** The asset carries adjustment data (the user edited it). */
+  hasAdjustments: boolean;
+  subtypes: PhotoMetaSubtype[];
+  /** PHAsset.burstIdentifier; null outside a burst. */
+  burstId: string | null;
+  /** iOS (or the user) picked this as the best frame of its burst. */
+  burstIsRepresentative: boolean;
+  /** True when the asset came from the camera/user library, not an app save. */
+  sourceUserLibrary: boolean;
+  /** GPS altitude in meters; null when the fix carried no valid altitude. */
+  altitude: number | null;
+  /** GPS speed in m/s at capture; null when unknown. */
+  gpsSpeed: number | null;
+  /** Member of at least one user-created album. */
+  inUserAlbum: boolean;
+}
+
 export type ThermalState = 'nominal' | 'fair' | 'serious' | 'critical';
 
 export interface PhotoTaggerCapabilities {

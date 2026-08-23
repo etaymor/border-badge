@@ -205,6 +205,11 @@ class QuizDetailResponse(BaseModel):
     score_to_beat: ScoreToBeat | None = None
     slug: str | None = None
     share_url: str | None = None
+    # Per-photo correctness of the seeding play, in question order. None
+    # until the owner has finished that first run. Owner-only -- never on
+    # the public play payload -- so a share sheet can paint the Wordle grid
+    # without depending on local play-state.
+    owner_verdicts: list[bool] | None = None
 
 
 class QuizPlayResponse(BaseModel):
@@ -242,6 +247,9 @@ class QuizCompleteResponse(BaseModel):
     total: int
     score_to_beat: ScoreToBeat
     state: str
+    # Same seeding-play pattern the detail payload serves -- so the results
+    # screen can share the Wordle grid on the first tap, before detail loads.
+    owner_verdicts: list[bool] | None = None
 
 
 # ============================================================================

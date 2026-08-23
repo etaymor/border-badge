@@ -14,7 +14,9 @@ import type {
 } from './types';
 import { segmentTripsByTimeGap } from './photoClusteringTrips';
 
-const MAX_PREVIEW_URIS = 30; // Limit preview URIs stored per candidate/cluster (selection pool for upload)
+// Limit preview URIs stored per candidate/cluster (selection pool for upload).
+// Exported for the best-first preview reranker in photoClusteringCache.
+export const MAX_PREVIEW_URIS = 30;
 
 /**
  * Create a photo lookup map from an array of photos.

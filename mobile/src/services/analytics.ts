@@ -709,6 +709,13 @@ export const Analytics = {
     coverageTotal: number;
     coverageCurrentVersion: number;
     noLocalImage: number;
+    /** Rows written by the intent-metadata sweep that rode this pass; 0 when it did not run. */
+    intentTagged?: number;
+    /**
+     * How that sweep ended, or absent when it was not due. Separates a sweep
+     * that wrote nothing because it failed from one that had nothing to write.
+     */
+    intentStoppedBy?: string;
   }) =>
     track('photo_tagging_pass', {
       tagged: props.tagged,
@@ -717,6 +724,48 @@ export const Analytics = {
       coverage_total: props.coverageTotal,
       coverage_current_version: props.coverageCurrentVersion,
       no_local_image: props.noLocalImage,
+      intent_tagged: props.intentTagged ?? 0,
+      intent_stopped_by: props.intentStoppedBy ?? 'not-due',
+    }),
+
+  /**
+   * Which source produced a trip's cover photo, and how the suggestion strip
+   * performed when it was offered.
+   *
+   * `candidate_count` of 0 means the strip was not shown at all (no photo
+   * cache, no tags, or a trip with no country) — the difference between "not
+   * offered" and "offered and ignored" is the whole point of the event, and it
+   * is what decides whether the TripDetail affordance is worth building.
+   */
+  tripCoverSuggestionUsed: (props: {
+    source: 'suggested' | 'picker' | 'camera';
+    candidateCount: number;
+    chosenIndex: number | null;
+  }) =>
+    track('trip_cover_suggestion_used', {
+      source: props.source,
+      candidate_count: props.candidateCount,
+      chosen_index: props.chosenIndex ?? null,
+    }),
+
+  /**
+   * Per import: how many cluster photos were auto-hidden as screenshots or
+   * near-duplicate repeats, and how many the user brought back.
+   *
+   * `restored_count` IS the false-positive rate. The seed rules are pure TS and
+   * OTA-shippable, so a meaningfully non-zero restore count is the signal to
+   * loosen them — the same lever `quiz_prefilter_agreement` provides for the
+   * quiz prefilter, pointed the other way (that one asks whether to tighten).
+   */
+  photoGalleryDeemphasis: (props: {
+    seededCount: number;
+    restoredCount: number;
+    clustersSeeded: number;
+  }) =>
+    track('photo_gallery_deemphasis', {
+      seeded_count: props.seededCount,
+      restored_count: props.restoredCount,
+      clusters_seeded: props.clustersSeeded,
     }),
 
   // ---------------------------------------------------------------------
@@ -778,6 +827,99 @@ export const Analytics = {
       limited_access: props.limitedAccess,
       retry_from: props.retryFrom ?? null,
     }),
+
+  /**
+   * A suspended build picked up where it left off on the next foreground.
+   *
+   * The one number that says whether durability is actually saving runs: a
+   * resume that reaches `quiz_created` is a challenge that, before the job
+   * runtime, would have been thrown away when iOS reclaimed the app.
+   */
+  quizBuildResumed: (props: { stage: string; passes: number; foundCount: number }) =>
+    track('quiz_build_resumed', {
+      stage: props.stage,
+      passes: props.passes,
+      found_count: props.foundCount,
+    }),
+
+  // --- Continued-processing lease (docs/plans/2026-08-23-1325) -------------
+  // Every event carries the tier so the reliability of each is measurable from
+  // the first build. `job_continuation_capabilities` fires once per launch so
+  // "is the feature live on this build" is answerable without starting a job.
+
+  jobContinuationCapabilities: (props: {
+    moduleAvailable: boolean;
+    continuedProcessing: boolean;
+    graceWindow: boolean;
+    osMajor: number | null;
+    flagEnabled: boolean;
+  }) =>
+    track('job_continuation_capabilities', {
+      module_available: props.moduleAvailable,
+      continued_processing: props.continuedProcessing,
+      grace_window: props.graceWindow,
+      os_major: props.osMajor,
+      flag_enabled: props.flagEnabled,
+    }),
+
+  leaseBegin: (props: {
+    tier: 'continued' | 'grace' | 'none';
+    kind: string;
+    resumed: boolean;
+    lowPowerMode: boolean | null;
+    backgroundRefreshStatus: string | null;
+    skippedReason: string | null;
+  }) =>
+    track('lease_begin', {
+      tier: props.tier,
+      kind: props.kind,
+      resumed: props.resumed,
+      low_power_mode: props.lowPowerMode,
+      background_refresh_status: props.backgroundRefreshStatus,
+      skipped_reason: props.skippedReason,
+    }),
+
+  leaseHandlerFired: (props: { kind: string; latencyMs: number }) =>
+    track('lease_handler_fired', { kind: props.kind, latency_ms: props.latencyMs }),
+
+  leaseExpired: (props: {
+    tier: 'continued' | 'grace';
+    kind: string;
+    appState: string;
+    elapsedMs: number;
+    percentage: number;
+  }) =>
+    track('lease_expired', {
+      tier: props.tier,
+      kind: props.kind,
+      app_state: props.appState,
+      elapsed_ms: props.elapsedMs,
+      percentage: props.percentage,
+    }),
+
+  leaseEnded: (props: {
+    tier: 'continued' | 'grace';
+    kind: string;
+    outcome: string;
+    elapsedMs: number;
+  }) =>
+    track('lease_ended', {
+      tier: props.tier,
+      kind: props.kind,
+      outcome: props.outcome,
+      elapsed_ms: props.elapsedMs,
+    }),
+
+  /** The trip-scan mirror of `quizBuildResumed`: a suspended scan picked back up. */
+  tripScanResumed: (props: { hadCheckpoint: boolean }) =>
+    track('trip_scan_resumed', { had_checkpoint: props.hadCheckpoint }),
+
+  /**
+   * A resume gate tripped and the breadcrumb was cleared instead of resumed.
+   * `gateId` is `staleness` or a descriptor gate id.
+   */
+  jobResumeGateHit: (props: { kind: string; gateId: string }) =>
+    track('job_resume_gate_hit', { kind: props.kind, gate_id: props.gateId }),
 
   quizPhotoPermissionResult: (props: { status: string; entryPoint: QuizEntryPoint }) =>
     track('quiz_photo_permission_result', {

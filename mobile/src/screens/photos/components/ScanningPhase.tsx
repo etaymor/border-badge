@@ -11,7 +11,8 @@ import { ActivityIndicator, Text, TouchableOpacity, View } from 'react-native';
 
 import type { ScanProgress } from '@services/photoImport';
 import { colors } from '@constants/colors';
-import { getFlagEmoji } from '@utils/flags';
+import { SCAN_COPY } from '@constants/scanCopy';
+import { useLeaseKeepsRunning } from '@hooks/useContinuationLeaseState';
 import { styles } from '../photoImportStyles';
 
 export interface ScanningPhaseProps {
@@ -31,6 +32,9 @@ export function ScanningPhase({
   scanFailure,
   onRetryScan,
 }: ScanningPhaseProps) {
+  // Tier-gated hint: only while a continued-processing lease is actually held.
+  const leaseKeepsRunning = useLeaseKeepsRunning();
+
   if (scanFailure) {
     return (
       <View style={styles.scanningContainer}>
@@ -49,30 +53,32 @@ export function ScanningPhase({
     <View style={styles.scanningContainer}>
       <ActivityIndicator size="large" color={colors.sunsetGold} />
       <Text style={styles.scanningTitle}>
-        {scanProgress?.phase === 'geocoding'
-          ? 'Identifying Countries...'
-          : isIncremental
-            ? 'Checking for New Photos...'
-            : 'Scanning Photos...'}
+        {SCAN_COPY.trips.scanningTitle(scanProgress?.phase, isIncremental)}
       </Text>
       <Text style={styles.scanningProgress}>
-        {scanProgress?.current ?? 0} / {scanProgress?.total ?? 0}
-        {scanProgress?.phase === 'scanning' &&
-          scanProgress?.gpsPhotoCount !== undefined &&
-          ` (${scanProgress.gpsPhotoCount} with GPS)`}
+        {SCAN_COPY.trips.scanningProgress(
+          scanProgress?.current ?? 0,
+          scanProgress?.total ?? 0,
+          scanProgress?.phase === 'scanning' ? scanProgress?.gpsPhotoCount : undefined
+        )}
       </Text>
       <View style={styles.progressBar}>
         <View style={[styles.progressFill, { width: `${scanProgress?.percentage ?? 0}%` }]} />
       </View>
       <Text style={styles.scanningHint}>
-        Feel free to use the rest of the app while we scan. Progress shows in the bar at the bottom
-        and resumes the next time you open the app.
+        {leaseKeepsRunning
+          ? SCAN_COPY.shared.persistenceParagraphWhileLeased('trip-scan')
+          : SCAN_COPY.shared.persistenceParagraph}
       </Text>
       {scanProgress?.discoveredCountries && scanProgress.discoveredCountries.length > 0 && (
-        <View style={styles.discoveryFeed}>
+        // Announced live: this is the longest wait in the app, and the finds
+        // are the only evidence anything is happening. The country NAME, not
+        // a bare flag - VoiceOver announces regional-indicator pairs
+        // inconsistently, so a flag-only line reads as a truncated sentence.
+        <View style={styles.discoveryFeed} accessibilityLiveRegion="polite">
           {scanProgress.discoveredCountries.slice(-5).map((country) => (
             <Text key={country.code} style={styles.discoveryItem}>
-              Found photos from {getFlagEmoji(country.code)}
+              {SCAN_COPY.trips.discovery(country.name ?? country.code)}
             </Text>
           ))}
         </View>

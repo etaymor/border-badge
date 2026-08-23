@@ -12,7 +12,7 @@ import { StyleSheet } from 'react-native';
 import { render, screen } from '../utils/testUtils';
 
 import { colors } from '@constants/colors';
-import { GuessOption } from '@screens/quiz/components/GuessOption';
+import { GuessOption, GuessOptionGrid } from '@screens/quiz/components/GuessOption';
 
 function flattenedStyle(testID: string) {
   return StyleSheet.flatten(screen.getByTestId(testID).props.style);
@@ -52,5 +52,34 @@ describe('GuessOption', () => {
     render(<GuessOption label="Spain" onPress={onPress} disabled testID="opt" />);
 
     expect(screen.getByTestId('opt').props.accessibilityState.disabled).toBe(true);
+  });
+
+  it('stretches to fill its cell so a wrapping neighbour can equalise the row', () => {
+    render(<GuessOption label="France" onPress={jest.fn()} testID="opt" />);
+
+    expect(flattenedStyle('opt').flex).toBe(1);
+  });
+});
+
+describe('GuessOptionGrid', () => {
+  it('pairs options into stretch rows', () => {
+    render(
+      <GuessOptionGrid testID="grid">
+        <GuessOption label="France" onPress={jest.fn()} />
+        <GuessOption label="Bosnia and Herzegovina" onPress={jest.fn()} />
+        <GuessOption label="Italy" onPress={jest.fn()} />
+        <GuessOption label="Spain" onPress={jest.fn()} />
+      </GuessOptionGrid>
+    );
+
+    const grid = screen.getByTestId('grid');
+    expect(grid.children).toHaveLength(2);
+    const firstRow = grid.children[0];
+    if (typeof firstRow === 'string') {
+      throw new Error('expected a row view');
+    }
+    const firstRowStyle = StyleSheet.flatten(firstRow.props.style);
+    expect(firstRowStyle.flexDirection).toBe('row');
+    expect(firstRowStyle.alignItems).toBe('stretch');
   });
 });

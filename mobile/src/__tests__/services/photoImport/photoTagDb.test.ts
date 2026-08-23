@@ -3,7 +3,11 @@
  * substring) so the module singleton is rebuilt for every test.
  */
 
-import type { PhotoMlTag, PhotoQuizVerdict } from '../../../services/photoImport/photoTagDb';
+import type {
+  PhotoIntentTag,
+  PhotoMlTag,
+  PhotoQuizVerdict,
+} from '../../../services/photoImport/photoTagDb';
 
 describe('photoTagDb', () => {
   let mockDb: {
@@ -32,6 +36,22 @@ describe('photoTagDb', () => {
     aestheticScore: 0.5,
     isUtility: false,
     computedAt: 1_700_000_000_000,
+    ...over,
+  });
+
+  const baseIntentTag = (over: Partial<PhotoIntentTag> = {}): PhotoIntentTag => ({
+    id: 'photo-1',
+    metaVersion: 1,
+    isFavorite: false,
+    hasAdjustments: false,
+    subtypes: ['hdr', 'live'],
+    burstId: null,
+    burstIsRepresentative: false,
+    sourceUserLibrary: true,
+    inUserAlbum: false,
+    altitude: 12.5,
+    gpsSpeed: null,
+    refreshedAt: 1_700_000_000_000,
     ...over,
   });
 
@@ -304,6 +324,136 @@ describe('photoTagDb', () => {
 
       expect(result).toEqual([]);
       expect(mockDb.getAllAsync).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('upsertIntentTags', () => {
+    it('does nothing for an empty batch', async () => {
+      await photoTagDb.upsertIntentTags([]);
+
+      expect(mockDb.runAsync).not.toHaveBeenCalled();
+    });
+
+    it('writes booleans as 0/1, subtypes as JSON, and preserves nullables', async () => {
+      await photoTagDb.upsertIntentTags([
+        baseIntentTag({ isFavorite: true, burstId: 'burst-1', sourceUserLibrary: false }),
+      ]);
+
+      const call = callWith('INSERT OR REPLACE INTO photo_intent_tags');
+      expect(call).toBeDefined();
+      const values = call?.[1] as unknown[];
+      expect(values[0]).toBe('photo-1');
+      expect(values[2]).toBe(1); // is_favorite
+      expect(values[3]).toBe(0); // has_adjustments
+      expect(values[4]).toBe(JSON.stringify(['hdr', 'live'])); // subtypes
+      expect(values[5]).toBe('burst-1'); // burst_id
+      expect(values[7]).toBe(0); // source_user_library
+      expect(values[9]).toBe(12.5); // altitude
+      expect(values[10]).toBeNull(); // gps_speed
+    });
+
+    it('stores an empty subtypes list as null, not "[]"', async () => {
+      await photoTagDb.upsertIntentTags([baseIntentTag({ subtypes: [] })]);
+
+      const values = callWith('INSERT OR REPLACE INTO photo_intent_tags')?.[1] as unknown[];
+      expect(values[4]).toBeNull();
+    });
+
+    it('wraps the write in a transaction', async () => {
+      await photoTagDb.upsertIntentTags([baseIntentTag()]);
+
+      expect(mockDb.withTransactionAsync).toHaveBeenCalled();
+    });
+  });
+
+  describe('getIntentTagsForIds', () => {
+    const intentRow = (over: Record<string, unknown> = {}) => ({
+      id: 'photo-1',
+      meta_version: 1,
+      is_favorite: 1,
+      has_adjustments: 0,
+      subtypes: JSON.stringify(['pano']),
+      burst_id: 'burst-1',
+      burst_is_representative: 1,
+      source_user_library: 1,
+      in_user_album: 0,
+      altitude: 100,
+      gps_speed: 2.5,
+      refreshed_at: 123,
+      ...over,
+    });
+
+    it('returns an empty map without querying for an empty id list', async () => {
+      const result = await photoTagDb.getIntentTagsForIds([]);
+
+      expect(result.size).toBe(0);
+      expect(mockDb.getAllAsync).not.toHaveBeenCalled();
+    });
+
+    it('maps snake_case rows back to typed intent tags', async () => {
+      mockDb.getAllAsync.mockResolvedValue([intentRow()]);
+
+      const tag = (await photoTagDb.getIntentTagsForIds(['photo-1'])).get('photo-1');
+
+      expect(tag).toEqual({
+        id: 'photo-1',
+        metaVersion: 1,
+        isFavorite: true,
+        hasAdjustments: false,
+        subtypes: ['pano'],
+        burstId: 'burst-1',
+        burstIsRepresentative: true,
+        sourceUserLibrary: true,
+        inUserAlbum: false,
+        altitude: 100,
+        gpsSpeed: 2.5,
+        refreshedAt: 123,
+      });
+    });
+
+    it('degrades a malformed subtypes blob to an empty list instead of throwing', async () => {
+      mockDb.getAllAsync.mockResolvedValue([intentRow({ subtypes: '{not json' })]);
+
+      const tag = (await photoTagDb.getIntentTagsForIds(['photo-1'])).get('photo-1');
+
+      expect(tag?.subtypes).toEqual([]);
+    });
+
+    it('reads a null subtypes column back as an empty list', async () => {
+      mockDb.getAllAsync.mockResolvedValue([intentRow({ subtypes: null })]);
+
+      const tag = (await photoTagDb.getIntentTagsForIds(['photo-1'])).get('photo-1');
+
+      expect(tag?.subtypes).toEqual([]);
+    });
+  });
+
+  describe('getStaleIntentIds', () => {
+    const DAY = 24 * 60 * 60 * 1000;
+
+    it('returns every id when no intent rows exist', async () => {
+      mockDb.getAllAsync.mockResolvedValue([]);
+
+      const result = await photoTagDb.getStaleIntentIds(['a', 'b'], DAY);
+
+      expect(result).toEqual(['a', 'b']);
+    });
+
+    it('skips fresh rows and keeps stale ones, preserving order', async () => {
+      const now = 10_000_000_000;
+      mockDb.getAllAsync.mockResolvedValue([
+        { id: 'fresh', meta_version: photoTagDb.INTENT_META_VERSION, refreshed_at: now - 1000 },
+        { id: 'stale', meta_version: photoTagDb.INTENT_META_VERSION, refreshed_at: now - 2 * DAY },
+        { id: 'old-version', meta_version: 0, refreshed_at: now - 1000 },
+      ]);
+
+      const result = await photoTagDb.getStaleIntentIds(
+        ['stale', 'fresh', 'old-version', 'missing'],
+        DAY,
+        now
+      );
+
+      expect(result).toEqual(['stale', 'old-version', 'missing']);
     });
   });
 

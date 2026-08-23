@@ -11,14 +11,24 @@ jest.mock('react-native', () => ({
   Image: { getSize: jest.fn() },
 }));
 
+// Empty maps = no signals cached, so the quality-aware wiring degrades to the
+// legacy selection and every pre-signals test in this file stays valid as-is.
+jest.mock('../../../services/photoImport/photoTagDb', () => ({
+  getTagsForIds: jest.fn().mockResolvedValue(new Map()),
+  getIntentTagsForIds: jest.fn().mockResolvedValue(new Map()),
+}));
+
 import * as ImageManipulator from 'expo-image-manipulator';
 import { Image } from 'react-native';
 import {
   selectRepresentativePhoto,
   selectRepresentativePhotos,
   prepareVisionImage,
+  VISION_IMAGE_TIMEOUT_MS,
   getVisionImagesForCluster,
 } from '../../../services/photoImport/visionPhoto';
+import { getIntentTagsForIds } from '../../../services/photoImport/photoTagDb';
+import type { PhotoIntentTag } from '../../../services/photoImport/photoTagDb';
 import type { LocationCluster, PhotoWithLocation } from '../../../services/photoImport/types';
 
 function createPhoto(id: string, lat: number, lng: number, daysAgo: number = 0): PhotoWithLocation {
@@ -122,6 +132,93 @@ describe('selectRepresentativePhotos', () => {
   });
 });
 
+/** Photo with an exact timestamp — quality tests need seconds-level control. */
+function createPhotoAt(id: string, lat: number, lng: number, timeMs: number): PhotoWithLocation {
+  return {
+    id,
+    uri: `file://${id}.jpg`,
+    filename: `${id}.jpg`,
+    creationTime: new Date(timeMs),
+    location: { latitude: lat, longitude: lng },
+  };
+}
+
+describe('selectRepresentativePhotos with quality signals', () => {
+  const BASE_TIME = Date.UTC(2025, 5, 10, 3, 0, 0);
+
+  it('regression lock: absent/empty quality map is byte-identical to legacy selection', () => {
+    const p1 = createPhoto('p1', 35.6762, 139.6503, 5); // earliest
+    const p2 = createPhoto('p2', 35.67621, 139.6503, 4); // closest
+    const p3 = createPhoto('p3', 35.6772, 139.6503, 1); // latest
+    const p4 = createPhoto('p4', 35.6782, 139.6503, 2);
+    const cluster = createCluster([p1, p2, p3, p4], 35.67621, 139.6503);
+
+    const legacy = selectRepresentativePhotos(cluster, 3);
+
+    // Anchor, then earliest, then latest — the exact pre-signals strategy.
+    expect(legacy.map((p) => p.id)).toEqual(['p2', 'p1', 'p3']);
+    expect(selectRepresentativePhotos(cluster, 3, undefined)).toEqual(legacy);
+    expect(selectRepresentativePhotos(cluster, 3, new Map())).toEqual(legacy);
+  });
+
+  it('collapses a burst to its best-quality frame — never both', () => {
+    const anchor = createPhotoAt('anchor', 35.6762, 139.6503, BASE_TIME);
+    // Burst pair: 20s and ~33m apart (inside the near-duplicate window), but
+    // 10 minutes after the anchor so the anchor is not part of the group.
+    const burstA = createPhotoAt('burst-a', 35.6765, 139.6503, BASE_TIME + 600_000);
+    const burstB = createPhotoAt('burst-b', 35.6765, 139.6503, BASE_TIME + 620_000);
+    const cluster = createCluster([anchor, burstA, burstB], 35.6762, 139.6503);
+    cluster.countryCode = 'JP'; // near-duplicate detection requires a country match
+
+    const quality = new Map([
+      ['anchor', 0.5],
+      ['burst-a', 0.2],
+      ['burst-b', 0.9],
+    ]);
+
+    const selected = selectRepresentativePhotos(cluster, 3, quality);
+
+    expect(selected.map((p) => p.id)).toEqual(['anchor', 'burst-b']);
+  });
+
+  it('always keeps the closest-to-centroid anchor, even when it scores lowest', () => {
+    const anchor = createPhotoAt('anchor', 35.6762, 139.6503, BASE_TIME);
+    // Non-duplicates: each pair is separated by more than the 90s window.
+    const far1 = createPhotoAt('far1', 35.6772, 139.6503, BASE_TIME + 600_000);
+    const far2 = createPhotoAt('far2', 35.6782, 139.6503, BASE_TIME + 1_200_000);
+    const cluster = createCluster([anchor, far1, far2], 35.6762, 139.6503);
+    cluster.countryCode = 'JP';
+
+    const quality = new Map([
+      ['anchor', -5],
+      ['far1', 1],
+      ['far2', 2],
+    ]);
+
+    const selected = selectRepresentativePhotos(cluster, 2, quality);
+
+    expect(selected[0].id).toBe('anchor');
+    // The remaining slot goes to the highest quality, not the next closest.
+    expect(selected.map((p) => p.id)).toEqual(['anchor', 'far2']);
+  });
+
+  it('fills scored photos by descending quality, then unscored in distance order', () => {
+    const anchor = createPhotoAt('anchor', 35.6762, 139.6503, BASE_TIME);
+    const near = createPhotoAt('near', 35.6767, 139.6503, BASE_TIME + 600_000);
+    const mid = createPhotoAt('mid', 35.6772, 139.6503, BASE_TIME + 1_200_000);
+    const far = createPhotoAt('far', 35.6782, 139.6503, BASE_TIME + 1_800_000);
+    const cluster = createCluster([anchor, near, mid, far], 35.6762, 139.6503);
+    cluster.countryCode = 'JP';
+
+    // Only the farthest photo is scored; the unscored rest keep distance order.
+    const quality = new Map([['far', 2]]);
+
+    const selected = selectRepresentativePhotos(cluster, 4, quality);
+
+    expect(selected.map((p) => p.id)).toEqual(['anchor', 'far', 'near', 'mid']);
+  });
+});
+
 describe('prepareVisionImage', () => {
   const mockManipulate = ImageManipulator.manipulateAsync as jest.Mock;
   const mockGetSize = Image.getSize as jest.Mock;
@@ -212,6 +309,39 @@ describe('prepareVisionImage', () => {
 
     expect(result).toBeNull();
     expect(mockManipulate).not.toHaveBeenCalled();
+  });
+
+  // ── Stalled native calls (iCloud-evicted assets) ─────────────────────────
+  //
+  // `Image.getSize` and `manipulateAsync` over a `ph://` asset whose pixels
+  // live only in iCloud can never call back at all — not a rejection, no
+  // callback of either kind. A silent stall here is what freezes the whole
+  // import: preparation never settles, so no suggestion request is ever posted
+  // and every location sits on "Checking this location…" with nothing to retry.
+  describe('stalled native calls', () => {
+    it('gives up on a dimension probe that never calls back', async () => {
+      jest.useFakeTimers();
+      mockGetSize.mockImplementation(() => {});
+
+      const pending = prepareVisionImage('file://evicted.jpg');
+      jest.advanceTimersByTime(VISION_IMAGE_TIMEOUT_MS);
+      const result = await pending;
+
+      expect(result).toBeNull();
+      expect(mockManipulate).not.toHaveBeenCalled();
+      jest.useRealTimers();
+    });
+
+    it('gives up on an encode that never settles', async () => {
+      jest.useFakeTimers();
+      mockManipulate.mockImplementation(() => new Promise(() => {}));
+
+      const pending = prepareVisionImage('file://evicted.jpg', { width: 1600, height: 900 });
+      jest.advanceTimersByTime(VISION_IMAGE_TIMEOUT_MS);
+
+      await expect(pending).resolves.toBeNull();
+      jest.useRealTimers();
+    });
   });
 
   // ── U5/R7: cached dimensions replace the probe decode ────────────────────
@@ -354,5 +484,53 @@ describe('getVisionImagesForCluster', () => {
     const images = await getVisionImagesForCluster(cluster, 3);
 
     expect(images).toEqual(['a1']);
+  });
+
+  it('loads signals and collapses a burst to the intent-favored frame', async () => {
+    const BASE_TIME = Date.UTC(2025, 5, 10, 3, 0, 0);
+    const anchor = createPhotoAt('anchor', 35.6762, 139.6503, BASE_TIME);
+    const burstA = createPhotoAt('burst-a', 35.6765, 139.6503, BASE_TIME + 600_000);
+    const burstB = createPhotoAt('burst-b', 35.6765, 139.6503, BASE_TIME + 620_000);
+    const cluster = createCluster([anchor, burstA, burstB], 35.6762, 139.6503);
+    cluster.countryCode = 'JP';
+
+    // A favorite on burst-b outscores its sibling; anchor stays unconditional.
+    const favoriteIntent: PhotoIntentTag = {
+      id: 'burst-b',
+      metaVersion: 1,
+      isFavorite: true,
+      hasAdjustments: false,
+      subtypes: [],
+      burstId: null,
+      burstIsRepresentative: false,
+      sourceUserLibrary: true,
+      inUserAlbum: false,
+      altitude: null,
+      gpsSpeed: null,
+      refreshedAt: 0,
+    };
+    (getIntentTagsForIds as jest.Mock).mockResolvedValueOnce(
+      new Map([['burst-b', favoriteIntent]])
+    );
+
+    mockManipulate.mockImplementation((uri: string) => Promise.resolve({ uri, base64: uri }));
+
+    const images = await getVisionImagesForCluster(cluster, 3);
+
+    expect(images).toEqual(['file://anchor.jpg', 'file://burst-b.jpg']);
+  });
+
+  it('degrades to the legacy selection when the signal load throws', async () => {
+    const BASE_TIME = Date.UTC(2025, 5, 10, 3, 0, 0);
+    const p1 = createPhotoAt('p1', 35.6762, 139.6503, BASE_TIME);
+    const p2 = createPhotoAt('p2', 35.6763, 139.6503, BASE_TIME + 600_000);
+    const cluster = createCluster([p1, p2], 35.6762, 139.6503);
+
+    (getIntentTagsForIds as jest.Mock).mockRejectedValueOnce(new Error('sqlite closed'));
+    mockManipulate.mockImplementation((uri: string) => Promise.resolve({ uri, base64: uri }));
+
+    const images = await getVisionImagesForCluster(cluster, 3);
+
+    expect(images).toEqual(['file://p1.jpg', 'file://p2.jpg']);
   });
 });

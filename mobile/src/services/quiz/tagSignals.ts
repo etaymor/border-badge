@@ -38,6 +38,14 @@ export interface TagSignals {
   utilityLikely: boolean;
   /** Higher is better. Neutral (0) when the OS could not measure it. */
   qualityScore: number;
+  /**
+   * Capture-context priors, attached at pool decoration time when intent
+   * signals are enabled (see `quizCandidateTags.ts`). Both are down-rank-only:
+   * a photo saved from Instagram or shot through a car window probably fails
+   * the gate, but "probably" is a `marginal`, never a drop.
+   */
+  savedFromSocialLikely?: boolean;
+  movingCapture?: boolean;
 }
 
 export type TagCategory = 'scenery' | 'landmark' | 'building' | 'other' | 'unknown';
@@ -349,6 +357,7 @@ export function classifyPrefilter(signals: TagSignals): PrefilterTier {
   if (signals.peopleProminence > PEOPLE_PROMINENCE_MARGINAL) return 'marginal';
   if (signals.categoryGuess === 'other') return 'marginal';
   if (signals.outdoorScore < 0) return 'marginal';
+  if (signals.savedFromSocialLikely || signals.movingCapture) return 'marginal';
 
   if (
     signals.outdoorScore > 0 &&

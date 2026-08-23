@@ -5,7 +5,7 @@
 import { renderHook } from '@testing-library/react-native';
 
 import { useAppStateTracking } from '../../hooks/useAppStateTracking';
-import { resetPhotoScanStore, usePhotoScanStore } from '../../stores/photoScanStore';
+import { patchJobSlice, resetLibraryJobStore } from '../../stores/libraryJobStore';
 
 // --- Mocks ---
 
@@ -43,9 +43,16 @@ jest.mock('@services/shareExtensionAnalytics', () => ({
 
 jest.mock('@services/photoImport', () => ({
   resetForUserChange: jest.fn().mockResolvedValue(undefined),
-  detectStuckScan: jest.fn(),
   performBackgroundPhotoSync: jest.fn().mockResolvedValue(null),
-  tryResumeScan: jest.fn().mockResolvedValue({ status: 'skipped', reason: 'no-flag' }),
+}));
+
+// Same reasoning for the job runtime barrel: it reaches subscriptionStore and
+// its App Group bridge, which the two-property AppState stub cannot satisfy.
+jest.mock('@services/jobs', () => ({
+  tryResumeJobs: jest.fn().mockResolvedValue({}),
+  detectStuckJobs: jest.fn(() => []),
+  markForegroundReturn: jest.fn(),
+  resetAllForUserChange: jest.fn().mockResolvedValue(undefined),
 }));
 
 // The controller is mocked rather than imported: this suite replaces the whole
@@ -57,6 +64,7 @@ jest.mock('@services/photoImport/suggestionDispatch', () => ({
 }));
 
 const photoImportMock = jest.requireMock('@services/photoImport');
+const jobsMock = jest.requireMock('@services/jobs');
 const { suggestionDispatch: dispatchMock } = jest.requireMock(
   '@services/photoImport/suggestionDispatch'
 );
@@ -64,7 +72,7 @@ const { suggestionDispatch: dispatchMock } = jest.requireMock(
 beforeEach(() => {
   jest.clearAllMocks();
   appStateListeners.length = 0;
-  resetPhotoScanStore();
+  resetLibraryJobStore();
 });
 
 function makeSession(userId: string) {
@@ -92,24 +100,54 @@ function fireForeground() {
 }
 
 describe('useAppStateTracking foreground resume', () => {
-  it('calls tryResumeScan and detectStuckScan on foreground when authenticated', async () => {
+  it('resumes every library job and runs stuck detection when authenticated', async () => {
     renderHook(() => useAppStateTracking(makeSession('user-1'), jest.fn(), 'US'));
 
     fireForeground();
     await flushStagger();
 
-    expect(photoImportMock.tryResumeScan).toHaveBeenCalled();
-    expect(photoImportMock.detectStuckScan).toHaveBeenCalled();
+    // One entry covers the trip scan and the quiz build: the scan lost its
+    // separate resume path when it moved onto the runtime.
+    expect(jobsMock.tryResumeJobs).toHaveBeenCalledTimes(1);
+    expect(jobsMock.detectStuckJobs).toHaveBeenCalledTimes(1);
     expect(photoImportMock.performBackgroundPhotoSync).toHaveBeenCalledWith('US');
   });
 
-  it('does not call tryResumeScan when unauthenticated', async () => {
+  it('resumes library jobs SYNCHRONOUSLY, before any rAF callback, after stamping the heartbeat', () => {
+    renderHook(() => useAppStateTracking(makeSession('user-1'), jest.fn(), 'US'));
+
+    fireForeground();
+
+    // No frame has run yet. A suspended job whose resume sat in the
+    // cancellable burst could miss its foreground entirely.
+    expect(jobsMock.tryResumeJobs).toHaveBeenCalledTimes(1);
+    expect(jobsMock.markForegroundReturn).toHaveBeenCalledTimes(1);
+    expect(jobsMock.markForegroundReturn.mock.invocationCallOrder[0]).toBeLessThan(
+      jobsMock.tryResumeJobs.mock.invocationCallOrder[0]
+    );
+    // Stuck detection stays in the burst, so it has NOT run yet.
+    expect(jobsMock.detectStuckJobs).not.toHaveBeenCalled();
+  });
+
+  it('a second foreground within the same frame does not cancel the first resume', async () => {
+    renderHook(() => useAppStateTracking(makeSession('user-1'), jest.fn(), 'US'));
+
+    fireForeground();
+    fireForeground();
+    await flushStagger();
+
+    // Both foreground events resumed; the burst cancellation that the second
+    // event performs cannot reach a call that already happened synchronously.
+    expect(jobsMock.tryResumeJobs).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not resume jobs when unauthenticated', async () => {
     renderHook(() => useAppStateTracking(null, jest.fn(), 'US'));
 
     fireForeground();
     await flushStagger();
 
-    expect(photoImportMock.tryResumeScan).not.toHaveBeenCalled();
+    expect(jobsMock.tryResumeJobs).not.toHaveBeenCalled();
     expect(photoImportMock.performBackgroundPhotoSync).not.toHaveBeenCalled();
   });
 });
@@ -181,7 +219,7 @@ describe('useAppStateTracking suggestion-dispatch lifecycle (U9/R15/KTD19)', () 
 
 describe('useAppStateTracking auth-state reset', () => {
   it('resets scan state when user signs out (session goes from non-null to null)', () => {
-    usePhotoScanStore.setState({ phase: 'scanning' });
+    patchJobSlice('trip-scan', { phase: 'running' });
     const { rerender } = renderHook(
       ({ session }: { session: ReturnType<typeof makeSession> | null }) =>
         useAppStateTracking(session, jest.fn(), 'US'),
@@ -195,7 +233,7 @@ describe('useAppStateTracking auth-state reset', () => {
   });
 
   it('still resets when there is no in-flight scan (defensive)', () => {
-    usePhotoScanStore.setState({ phase: 'idle' });
+    patchJobSlice('trip-scan', { phase: 'idle' });
     const { rerender } = renderHook(
       ({ session }: { session: ReturnType<typeof makeSession> | null }) =>
         useAppStateTracking(session, jest.fn(), 'US'),

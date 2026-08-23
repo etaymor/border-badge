@@ -9,7 +9,7 @@
 import { renderHook, act } from '@testing-library/react-native';
 
 import { usePhotoScan } from '../../../screens/photos/usePhotoScan';
-import { resetPhotoScanStore, usePhotoScanStore } from '../../../stores/photoScanStore';
+import { patchJobSlice, resetLibraryJobStore } from '../../../stores/libraryJobStore';
 
 // --- Mocks ---
 
@@ -43,7 +43,7 @@ const mockedService = jest.requireMock('@services/photoImport');
 
 beforeEach(() => {
   jest.clearAllMocks();
-  resetPhotoScanStore();
+  resetLibraryJobStore();
   mockResultRef.current = null;
   mockedService.startScan.mockImplementation(async (opts: { homeCountry: string | null }) => {
     if (!opts.homeCountry) return { status: 'rejected', reason: 'no-home-country' };
@@ -137,7 +137,7 @@ describe('usePhotoScan adapter', () => {
     );
 
     act(() => {
-      usePhotoScanStore.setState({
+      patchJobSlice('trip-scan', {
         progress: { phase: 'scanning', current: 50, total: 100, percentage: 50 },
       });
     });
@@ -178,7 +178,7 @@ describe('usePhotoScan adapter', () => {
     );
 
     act(() => {
-      usePhotoScanStore.setState({ phase: 'completed', hasResult: true });
+      patchJobSlice('trip-scan', { phase: 'completed', hasResult: true });
     });
 
     expect(onScanComplete).toHaveBeenCalledWith(result);
@@ -223,7 +223,7 @@ describe('usePhotoScan adapter', () => {
     );
 
     act(() => {
-      usePhotoScanStore.setState({ phase: 'completed', hasResult: true });
+      patchJobSlice('trip-scan', { phase: 'completed', hasResult: true });
     });
 
     expect(onScanComplete).toHaveBeenCalledWith({
@@ -254,14 +254,14 @@ describe('usePhotoScan adapter', () => {
     );
 
     act(() => {
-      usePhotoScanStore.setState({ phase: 'completed', hasResult: true });
+      patchJobSlice('trip-scan', { phase: 'completed', hasResult: true });
     });
     // Idempotent additional set; same importTime — adapter should not re-fire onScanComplete.
     act(() => {
-      usePhotoScanStore.setState({ phase: 'idle' });
+      patchJobSlice('trip-scan', { phase: 'idle' });
     });
     act(() => {
-      usePhotoScanStore.setState({ phase: 'completed', hasResult: false });
+      patchJobSlice('trip-scan', { phase: 'completed', hasResult: false });
     });
 
     expect(onScanComplete).toHaveBeenCalledTimes(1);
@@ -279,9 +279,9 @@ describe('usePhotoScan adapter', () => {
     );
 
     act(() => {
-      usePhotoScanStore.setState({
+      patchJobSlice('trip-scan', {
         phase: 'failed',
-        scanFailure: { reason: 'scan-error', title: 'X', message: 'y' },
+        failure: { reason: 'scan-error', title: 'X', message: 'y' },
       });
     });
 
@@ -329,7 +329,7 @@ describe('usePhotoScan adapter', () => {
       isIncremental: false,
     };
     mockResultRef.current = result;
-    usePhotoScanStore.setState({ phase: 'completed', hasResult: true });
+    patchJobSlice('trip-scan', { phase: 'completed', hasResult: true });
 
     const onScanComplete = jest.fn();
     renderHook(() =>

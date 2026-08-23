@@ -4,8 +4,13 @@ from app.services.extraction_orchestrator import _is_specific_place_name
 from app.services.instagram_carousel import (
     InstagramCarouselData,
     InstagramPostLocation,
+    is_instagram_cdn_video_url,
 )
-from app.services.url_resolver import extract_instagram_shortcode, is_instagram_carousel
+from app.services.url_resolver import (
+    extract_instagram_shortcode,
+    is_instagram_carousel,
+    is_instagram_reel,
+)
 
 
 class TestIsInstagramCarousel:
@@ -46,6 +51,38 @@ class TestIsInstagramCarousel:
     def test_handles_url_without_www(self):
         url = "https://instagram.com/p/ABC123/"
         assert is_instagram_carousel(url) is True
+
+
+class TestIsInstagramReel:
+    """Tests for is_instagram_reel function."""
+
+    def test_detects_reel_url(self):
+        url = "https://www.instagram.com/reel/DEF456abc/"
+        assert is_instagram_reel(url) is True
+
+    def test_detects_reels_url(self):
+        url = "https://www.instagram.com/reels/GHI789xyz/"
+        assert is_instagram_reel(url) is True
+
+    def test_detects_tv_url(self):
+        url = "https://www.instagram.com/tv/JKL012mno/"
+        assert is_instagram_reel(url) is True
+
+    def test_returns_false_for_post_url(self):
+        url = "https://www.instagram.com/p/ABC123xyz/"
+        assert is_instagram_reel(url) is False
+
+    def test_returns_false_for_profile_url(self):
+        url = "https://www.instagram.com/username/"
+        assert is_instagram_reel(url) is False
+
+    def test_returns_false_for_non_instagram_url(self):
+        url = "https://www.tiktok.com/@user/video/123"
+        assert is_instagram_reel(url) is False
+
+    def test_handles_url_without_www(self):
+        url = "https://instagram.com/reel/ABC123/"
+        assert is_instagram_reel(url) is True
 
 
 class TestExtractInstagramShortcode:
@@ -176,3 +213,43 @@ class TestInstagramCarouselData:
         )
         assert carousel.location is None
         assert carousel.post_type == "GraphImage"
+        assert carousel.video_url is None
+
+    def test_graph_video_keeps_cdn_url(self):
+        carousel = InstagramCarouselData(
+            caption="Reel caption",
+            images=[b"thumb"],
+            image_urls=["https://example.com/thumb.jpg"],
+            post_type="GraphVideo",
+            location=None,
+            video_url="https://scontent-lga3-3.cdninstagram.com/v/video.mp4",
+        )
+        assert carousel.video_url is not None
+        assert is_instagram_cdn_video_url(carousel.video_url) is True
+
+
+class TestIsInstagramCdnVideoUrl:
+    def test_accepts_cdninstagram_host(self):
+        assert (
+            is_instagram_cdn_video_url(
+                "https://scontent-lga3-3.cdninstagram.com/v/t16/video.mp4?_nc_ohc=abc"
+            )
+            is True
+        )
+
+    def test_accepts_fbcdn_host(self):
+        assert (
+            is_instagram_cdn_video_url(
+                "https://instagram.fxxx.fna.fbcdn.net/v/t50.2886-16/video.mp4"
+            )
+            is True
+        )
+
+    def test_rejects_page_url(self):
+        assert (
+            is_instagram_cdn_video_url("https://www.instagram.com/reel/ABC123/")
+            is False
+        )
+
+    def test_rejects_unrelated_host(self):
+        assert is_instagram_cdn_video_url("https://evil.example/video.mp4") is False

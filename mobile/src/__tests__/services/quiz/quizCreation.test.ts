@@ -55,6 +55,17 @@ jest.mock('@services/quiz/quizAssets', () => ({
   recordQuizAssets: jest.fn().mockResolvedValue(undefined),
 }));
 
+/**
+ * The hunt's soft deadline reads EXECUTING time from `quizHuntClock`, not the
+ * wall clock, so a test drives it directly. `var` because the mock factory is
+ * hoisted above any `let`.
+ */
+// eslint-disable-next-line no-var
+var mockExecutingMs = 0;
+jest.mock('@services/quiz/quizHuntClock', () => ({
+  createHuntClock: () => ({ executingMs: () => mockExecutingMs, stop: jest.fn() }),
+}));
+
 jest.mock(
   'expo-image-manipulator',
   () => ({
@@ -137,6 +148,7 @@ function eligibilityBatches(): string[][] {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockExecutingMs = 0;
 
   mockGetAllCountries.mockResolvedValue([
     { code: 'FR' },
@@ -240,6 +252,34 @@ describe('createQuizFromLibrary - stale cached URIs', () => {
 
     expect(outcome.status).toBe('created');
     expect(mockResolveLoadableUri).not.toHaveBeenCalled();
+  });
+});
+
+describe('createQuizFromLibrary - permission read lags the grant', () => {
+  it('declines as retryable, not as "no travel photos", on a first build with no cache yet', async () => {
+    // The reported bug: the screen already confirmed permission was granted
+    // and moved to the intro step, but the OS authorization read inside the
+    // scan pipeline (a separate, later MediaLibrary call) came back negative
+    // for a beat. On a first-ever build there is no cache to fall back on, so
+    // the old code silently proceeded with an empty pool and declined with
+    // "we could not find geotagged travel photos in your library" - false,
+    // since the scan never ran at all.
+    mockEnsureFreshLibrary.mockResolvedValue({ status: 'no-permission' });
+    mockGetAllCachedPhotos.mockResolvedValue([]);
+
+    const outcome = await createQuizFromLibrary();
+
+    expect(outcome).toMatchObject({ status: 'service-error', stage: 'scan' });
+  });
+
+  it('still builds from the existing cache when a permission read lags but photos are already cached', async () => {
+    mockPrepareVisionImage.mockResolvedValue('base64-image');
+    mockEnsureFreshLibrary.mockResolvedValue({ status: 'no-permission' });
+    mockGetAllCachedPhotos.mockResolvedValue(buildCachedLibrary(20));
+
+    const outcome = await createQuizFromLibrary();
+
+    expect(outcome.status).toBe('created');
   });
 });
 
@@ -435,22 +475,42 @@ describe('createQuizFromLibrary - resampling and declines', () => {
   });
 
   it('builds the game it has once the soft deadline passes', async () => {
+    mockGetAllCachedPhotos.mockResolvedValue(buildCachedLibrary(600));
+    let seen = 0;
+    verdictFor = () => {
+      seen += 1;
+      // Six photos found, then the hunt crosses 90 s of EXECUTING time looking
+      // for a seventh.
+      if (seen === 50) mockExecutingMs = 95_000;
+      return seen <= 6 ? { eligible: true } : { eligible: false, reason: 'indoor' };
+    };
+
+    const outcome = await createQuizFromLibrary();
+
+    // A playable game in hand beats a longer wait for a fuller one.
+    expect(outcome).toMatchObject({ status: 'created', photoCount: 6 });
+    expect(eligibilityBatches()).toHaveLength(1);
+  });
+
+  it('does not finalize at the minimum when only the WALL clock jumped (a frozen gap)', async () => {
+    // iOS froze the process for three minutes mid-hunt. Date.now() says 180 s
+    // passed; the clock credits one capped tick. Six photos in hand must not
+    // become the game the user gets just because they pressed home.
     const clock = jest.spyOn(Date, 'now').mockReturnValue(1_000_000);
     try {
       mockGetAllCachedPhotos.mockResolvedValue(buildCachedLibrary(600));
       let seen = 0;
       verdictFor = () => {
         seen += 1;
-        // Six photos found, then the hunt crosses 90s looking for a seventh.
-        if (seen === 50) clock.mockReturnValue(1_000_000 + 95_000);
-        return seen <= 6 ? { eligible: true } : { eligible: false, reason: 'indoor' };
+        if (seen === 50) clock.mockReturnValue(1_000_000 + 180_000);
+        return seen <= 6 || seen > 80 ? { eligible: true } : { eligible: false, reason: 'indoor' };
       };
 
       const outcome = await createQuizFromLibrary();
 
-      // A playable game in hand beats a longer wait for a fuller one.
-      expect(outcome).toMatchObject({ status: 'created', photoCount: 6 });
-      expect(eligibilityBatches()).toHaveLength(1);
+      // The hunt kept going past the gap and found the rest of the game.
+      expect(outcome).toMatchObject({ status: 'created', photoCount: 10 });
+      expect(eligibilityBatches().length).toBeGreaterThan(1);
     } finally {
       clock.mockRestore();
     }
@@ -1063,6 +1123,37 @@ describe('createQuizFromLibrary - repeat creations never reuse photos', () => {
     const assets = assetsOfRun(0);
     expect(assets).toHaveLength(QUIZ_MAX_PHOTOS);
     for (const id of used) expect(assets).not.toContain(id);
+  });
+
+  it("backfills with the photos used LONGEST AGO, not the last game's", async () => {
+    // The reported bug: on a starved pool the backfill reproduced the previous
+    // challenge almost photo for photo, because the reserve was ordered the way
+    // a fresh hunt would order it. The used ledger is append-only, so its own
+    // order is the answer - oldest use first.
+    const library = buildCachedLibrary(20);
+    mockGetAllCachedPhotos.mockResolvedValue(library);
+    // Every photo already has a verdict: nothing left to classify, so the game
+    // can only be filled from the fresh remainder plus the reserve.
+    mockGetAllVerdicts.mockResolvedValue(
+      new Map(library.map((photo) => verdict(photo.id, true)) as [string, object][])
+    );
+    const fresh = library.slice(0, 3).map((photo) => photo.id);
+    // Ledger order = the order the photos were spent: index 3 longest ago,
+    // index 19 in the most recent challenge.
+    usedLedger(library.slice(3).map((photo) => photo.id));
+
+    const outcome = await createQuizFromLibrary();
+
+    expect(outcome.status).toBe('created');
+    const assets = assetsOfRun(0);
+    expect(assets).toHaveLength(QUIZ_MAX_PHOTOS);
+    const backfilled = assets.filter((id) => !fresh.includes(id));
+    // The seven oldest-used photos - and emphatically NOT the tail of the
+    // ledger, which is what the owner just played.
+    expect(new Set(backfilled)).toEqual(
+      new Set(library.slice(3, 3 + backfilled.length).map((photo) => photo.id))
+    );
+    for (const photo of library.slice(-4)) expect(assets).not.toContain(photo.id);
   });
 
   it('falls back to used photos only once the fresh library is exhausted', async () => {

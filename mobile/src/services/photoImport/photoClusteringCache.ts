@@ -7,14 +7,27 @@
 
 import * as geohash from 'ngeohash';
 
+import { features } from '@config/features';
+import { rankBestPhotos } from '@services/photoSignals/bestPhotos';
+
 import { iso1A2Code } from './countryCoder';
-import type { CachedPhoto, LocationCluster, PhotoWithLocation } from './types';
+import { getIntentTagsForIds, getTagsForIds } from './photoTagDb';
+import type {
+  CachedPhoto,
+  LocationCluster,
+  PhotoWithLocation,
+  TripCandidateDisplay,
+} from './types';
 import {
   mergeAdjacentClusters,
   splitMultiVenueGroup,
   VENUE_SPLIT_ID_SEPARATOR,
 } from './photoClustering';
-import { segmentTripsOptimized, type OptimizedTripData } from './photoClusteringDisplay';
+import {
+  MAX_PREVIEW_URIS,
+  segmentTripsOptimized,
+  type OptimizedTripData,
+} from './photoClusteringDisplay';
 
 const GEOHASH_PRECISION = 7; // ~153m cells for location clustering
 
@@ -151,4 +164,104 @@ export function segmentTripsFromCache(
 
   // Use existing segmentation logic
   return segmentTripsOptimized(clusters, homeCountryCode);
+}
+
+/**
+ * Rewrite each trip segment's preview strip to pick the BEST photos of the
+ * segment instead of the chronologically first ones (plan 2026-08-21-001,
+ * step 3c target 1). Quality comes from `rankBestPhotos`: screenshots/utility
+ * images excluded, near-duplicate runs collapsed to their best frame,
+ * remainder ordered by composite quality.
+ *
+ * Scope is deliberately the CANDIDATE previews only (Photo Trips cards,
+ * `cached_trip_segments.preview_uris`, callouts) — display-only strips.
+ * Cluster previews are NOT touched: they feed the gallery, the upload
+ * selection pool, and "Split here", where chronological order is load-bearing.
+ *
+ * `previewAssetIds[i]` stays the asset for `previewUris[i]` — both arrays are
+ * rebuilt from the same ranked list.
+ *
+ * Degrades to the input unchanged when either quality flag is off, when the tag
+ * read fails, and when neither tag table has a single row for the sampled
+ * photos. That last case is not cosmetic: `rankBestPhotos` is NOT order-neutral
+ * without tags — its capture-context terms (golden hour, retry count) come from
+ * cached timestamps and coordinates alone — so an unguarded call on an untagged
+ * library would reorder previews off a signal the user never provided.
+ */
+/**
+ * Cap on photos ranked (and tag rows read) per segment. Without it, a scan's
+ * preview pass reads and JSON-parses tag rows for effectively the whole
+ * library just to build 30-item strips. Sampling is EVENLY SPACED through the
+ * segment's chronology - a plain prefix would bias every strip toward the
+ * start of the trip.
+ */
+const PREVIEW_RANK_POOL_MAX = 300;
+
+function sampleEvenly<T>(items: T[], max: number): T[] {
+  if (items.length <= max) return items;
+  const step = items.length / max;
+  const sampled: T[] = [];
+  for (let i = 0; i < max; i++) sampled.push(items[Math.floor(i * step)]);
+  return sampled;
+}
+
+export async function rankTripSegmentPreviews(
+  candidates: TripCandidateDisplay[],
+  photoLookup: Map<string, PhotoWithLocation>
+): Promise<TripCandidateDisplay[]> {
+  if (!features.enableQualityRanking || !features.enableIntentSignals) return candidates;
+  if (candidates.length === 0) return candidates;
+
+  try {
+    const sampledIds = new Map(
+      candidates.map((c) => [c.id, sampleEvenly(c.photoIds, PREVIEW_RANK_POOL_MAX)])
+    );
+    const allIds = [...new Set([...sampledIds.values()].flat())];
+    const [mlTags, intentTags] = await Promise.all([
+      getTagsForIds(allIds),
+      getIntentTagsForIds(allIds),
+    ]);
+    // No rows at all in EITHER table (Android, a binary older than the tagger,
+    // an install whose sweep has not run yet): bail rather than rank. The
+    // ranker is not neutral without tags — golden hour and retry count come
+    // from cached timestamps and coordinates alone, so ranking here would
+    // silently swap the card thumbnail for whatever was shot near sunset.
+    // Same guard, same reason, as `loadClusterQualityScores` in visionPhoto.ts.
+    if (mlTags.size === 0 && intentTags.size === 0) return candidates;
+
+    return candidates.map((candidate) => {
+      // Rank over a bounded, evenly-spread sample of the segment (not just the
+      // current preview slice) so "best" still means best of the whole trip.
+      const pool = (sampledIds.get(candidate.id) ?? [])
+        .map((id) => photoLookup.get(id))
+        .filter((p): p is PhotoWithLocation => p !== undefined);
+      if (pool.length < 2) return candidate;
+
+      const ranked = rankBestPhotos(
+        pool.map((p) => ({
+          id: p.id,
+          uri: p.uri,
+          creationTime: p.creationTime.getTime(),
+          latitude: p.location.latitude,
+          longitude: p.location.longitude,
+          // Segments are per-country, so the candidate's code holds for
+          // every photo (PhotoWithLocation itself doesn't carry one).
+          countryCode: candidate.countryCode,
+          width: p.width,
+          height: p.height,
+        })),
+        { mlTags, intentTags, limit: MAX_PREVIEW_URIS }
+      );
+
+      return {
+        ...candidate,
+        previewUris: ranked.map((p) => p.uri),
+        previewAssetIds: ranked.map((p) => p.id),
+      };
+    });
+  } catch {
+    // Tag read failed (fresh install, DB migration in flight): previews keep
+    // their chronological order — never fail the scan over curation.
+    return candidates;
+  }
 }

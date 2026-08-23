@@ -477,6 +477,34 @@ describe('suggestionDispatch - batch ramp and pipelined preparation (U5)', () =>
     expect(suggestionDispatch.getState().failedClusterIds.size).toBe(0);
   });
 
+  it('dispatches the batch anyway when its preparation never settles', async () => {
+    const clusters = buildClustersForBatches(2);
+    // A native call that never calls back: `Image.getSize` on an iCloud-evicted
+    // `ph://` asset, or `manipulateAsync` waiting on the same materialization.
+    // It neither resolves nor rejects, so the `catch` that covers a preparation
+    // FAILURE never runs — and without a watchdog the worker parks on
+    // `await entry.payload` forever, leaving every cluster a pending row that
+    // can never resolve and never fail ("Processing 0 of N locations").
+    const prepareBatch = jest.fn(
+      (_batch: PlaceSuggestionCluster[]) => new Promise<PlaceSuggestionCluster[]>(() => {})
+    );
+    mockedApi.post.mockResolvedValue(emptyResponse);
+
+    await expect(
+      suggestionDispatch.dispatch({ clusters, prepareBatch, prepareTimeoutMs: 20 })
+    ).resolves.toBeDefined();
+
+    // Both batches went out unprepared (no vision images) rather than stalling.
+    expect(mockedApi.post).toHaveBeenCalledTimes(2);
+    const batches = planSuggestionBatches(clusters);
+    mockedApi.post.mock.calls.forEach((call, i) => {
+      const body = call[1] as { clusters: { id: string; vision_images_base64?: string[] }[] };
+      expect(body.clusters.map((c) => c.id)).toEqual(batches[i].map((c) => c.id));
+      expect(body.clusters.every((c) => c.vision_images_base64 === undefined)).toBe(true);
+    });
+    expect(suggestionDispatch.getState().failedClusterIds.size).toBe(0);
+  });
+
   it('U15: stamps firstSuggestionAt on the first batch that CARRIES a suggestion', async () => {
     const clusters = buildClustersForBatches(2);
     mockedApi.post
@@ -1267,6 +1295,71 @@ describe('suggestionDispatch - lifecycle pause / resume (U9/R15)', () => {
   it('resume is idempotent, so a foreground with no matching background costs nothing', () => {
     suggestionDispatch.resume();
     expect(suggestionDispatch.getState().isPaused).toBe(false);
+  });
+});
+
+describe('suggestionDispatch - pause owners are independent', () => {
+  beforeEach(() => {
+    suggestionDispatch.resetForTests();
+    jest.clearAllMocks();
+  });
+
+  afterEach(() => {
+    suggestionDispatch.resetForTests();
+  });
+
+  // Two unrelated things pause dispatch: backgrounding the app, and opening the
+  // photo gallery (which must not compete with vision preparation for the
+  // serial native image queue). With one boolean, whichever RESUMED last won —
+  // closing the gallery would un-pause a backgrounded import, and foregrounding
+  // would un-pause one whose gallery is still open. Each owner releases only
+  // its own hold.
+  it('stays paused while ANY owner still holds it', () => {
+    suggestionDispatch.pause('lifecycle');
+    suggestionDispatch.pause('gallery');
+
+    suggestionDispatch.resume('gallery');
+    expect(suggestionDispatch.getState().isPaused).toBe(true);
+
+    suggestionDispatch.resume('lifecycle');
+    expect(suggestionDispatch.getState().isPaused).toBe(false);
+  });
+
+  it('is idempotent per owner, so a repeated resume cannot release another owner', () => {
+    suggestionDispatch.pause('lifecycle');
+    suggestionDispatch.pause('gallery');
+
+    suggestionDispatch.resume('gallery');
+    suggestionDispatch.resume('gallery');
+    suggestionDispatch.resume('gallery');
+
+    expect(suggestionDispatch.getState().isPaused).toBe(true);
+  });
+
+  it('holds a dispatch parked until the LAST owner resumes', async () => {
+    const clusters = buildClustersForBatches(2);
+    mockedApi.post.mockResolvedValue(emptyResponse);
+
+    suggestionDispatch.pause('lifecycle');
+    suggestionDispatch.pause('gallery');
+
+    let settled = false;
+    const run = suggestionDispatch.dispatch({ clusters }).then((result) => {
+      settled = true;
+      return result;
+    });
+
+    await flush();
+    expect(mockedApi.post).not.toHaveBeenCalled();
+
+    suggestionDispatch.resume('gallery');
+    await flush();
+    expect(mockedApi.post).not.toHaveBeenCalled();
+    expect(settled).toBe(false);
+
+    suggestionDispatch.resume('lifecycle');
+    await run;
+    expect(mockedApi.post).toHaveBeenCalledTimes(2);
   });
 });
 

@@ -16,26 +16,32 @@ jest.mock('@services/photoImport/photoCacheDb', () => ({
 jest.mock('@services/photoImport/photoTagDb', () => ({
   getUntaggedIds: jest.fn(),
   upsertTags: jest.fn(),
+  upsertIntentTags: jest.fn(),
   TAGGER_VERSION: 1,
+  INTENT_META_VERSION: 1,
 }));
 
 jest.mock('@services/photoImport/photoBackgroundSync', () => ({
   isBackgroundSyncInProgress: jest.fn(() => false),
 }));
 
-jest.mock('@services/photoImport/photoScanState', () => ({
+jest.mock('@services/jobs/jobRuntimeState', () => ({
   isScanRunning: jest.fn(() => false),
+  isAnyLibraryJobRunning: jest.fn(() => false),
 }));
 
 import {
   abortTaggingPass,
+  INTENT_PASS_TIME_BUDGET_MS,
   isTaggingPassInProgress,
+  runIntentPass,
   runTaggingPass,
   TAGGING_PASS_PHOTO_BUDGET,
   TAGGING_PASS_TIME_BUDGET_MS,
+  type IntentPassDeps,
   type TaggingPassDeps,
 } from '@services/photoImport/photoTaggingService';
-import type { PhotoMlTag } from '@services/photoImport/photoTagDb';
+import type { PhotoIntentTag, PhotoMlTag } from '@services/photoImport/photoTagDb';
 
 const CHUNK = 32;
 
@@ -235,6 +241,162 @@ describe('runTaggingPass', () => {
     await runTaggingPass(harness.deps, new AbortController().signal);
 
     expect(harness.deps.yieldToUI).toHaveBeenCalledTimes(2);
+  });
+});
+
+function intentTag(id: string): PhotoIntentTag {
+  return {
+    id,
+    metaVersion: 1,
+    isFavorite: false,
+    hasAdjustments: false,
+    subtypes: [],
+    burstId: null,
+    burstIsRepresentative: false,
+    sourceUserLibrary: true,
+    inUserAlbum: false,
+    altitude: null,
+    gpsSpeed: null,
+    refreshedAt: 1,
+  };
+}
+
+interface IntentHarness {
+  deps: IntentPassDeps;
+  committed: string[][];
+  advance(ms: number): void;
+}
+
+function makeIntentHarness(
+  overrides: Partial<IntentPassDeps> & { ids?: string[] } = {}
+): IntentHarness {
+  const ids = overrides.ids ?? Array.from({ length: 10 }, (_, i) => `photo-${i}`);
+  const committed: string[][] = [];
+  let clock = 0;
+
+  const deps: IntentPassDeps = {
+    loadAllIds: jest.fn(async () => ids),
+    getStaleIds: jest.fn(async (ordered: string[]) => ordered),
+    readPhotoMeta: jest.fn(async (chunk: string[]) => chunk.map(intentTag)),
+    upsertIntentTags: jest.fn(async (tags: PhotoIntentTag[]) => {
+      committed.push(tags.map((t) => t.id));
+    }),
+    chunkSize: 4,
+    now: () => clock,
+    yieldToUI: jest.fn(async () => {}),
+    ...overrides,
+  };
+
+  return {
+    deps,
+    committed,
+    advance: (ms: number) => {
+      clock += ms;
+    },
+  };
+}
+
+describe('runIntentPass', () => {
+  it('resumes into the stale tail instead of re-reading fresh rows', async () => {
+    // A prior time-budgeted sweep already refreshed photo-0..photo-5; the
+    // staleness filter must make this sweep start at the tail.
+    const harness = makeIntentHarness({
+      getStaleIds: jest.fn(async (ordered: string[]) => ordered.slice(6)),
+    });
+
+    const result = await runIntentPass(harness.deps, new AbortController().signal);
+
+    expect(result.tagged).toBe(4);
+    expect(harness.committed).toEqual([['photo-6', 'photo-7', 'photo-8', 'photo-9']]);
+  });
+
+  it('sweeps every id and commits after every chunk', async () => {
+    const harness = makeIntentHarness();
+
+    const result = await runIntentPass(harness.deps, new AbortController().signal);
+
+    expect(result.stoppedBy).toBe('complete');
+    expect(result.tagged).toBe(10);
+    // Per-chunk commits are what let an interrupted sweep keep finished work.
+    expect(harness.committed).toEqual([
+      ['photo-0', 'photo-1', 'photo-2', 'photo-3'],
+      ['photo-4', 'photo-5', 'photo-6', 'photo-7'],
+      ['photo-8', 'photo-9'],
+    ]);
+  });
+
+  it('stops when aborted mid-pass but keeps the in-flight chunk', async () => {
+    const controller = new AbortController();
+    const harness = makeIntentHarness();
+    (harness.deps.readPhotoMeta as jest.Mock).mockImplementation(async (chunk: string[]) => {
+      controller.abort();
+      return chunk.map(intentTag);
+    });
+
+    const result = await runIntentPass(harness.deps, controller.signal);
+
+    expect(result.stoppedBy).toBe('aborted');
+    expect(harness.committed).toHaveLength(1);
+  });
+
+  it('stops at the time budget even when ids remain', async () => {
+    const harness = makeIntentHarness({
+      ids: Array.from({ length: 100 }, (_, i) => `photo-${i}`),
+    });
+    (harness.deps.yieldToUI as jest.Mock).mockImplementation(async () => {
+      harness.advance(INTENT_PASS_TIME_BUDGET_MS / 2);
+    });
+
+    const result = await runIntentPass(harness.deps, new AbortController().signal);
+
+    expect(result.stoppedBy).toBe('time-budget');
+    expect(result.tagged).toBeLessThan(100);
+  });
+
+  it('does not report complete when every chunk fails to read', async () => {
+    // A persistent native failure is not "nothing left to do": reporting
+    // complete would stamp the 24h window and silence the sweep for a day.
+    const harness = makeIntentHarness();
+    (harness.deps.readPhotoMeta as jest.Mock).mockRejectedValue(new Error('bridge down'));
+
+    const result = await runIntentPass(harness.deps, new AbortController().signal);
+
+    expect(result.stoppedBy).toBe('incomplete');
+    expect(result.tagged).toBe(0);
+  });
+
+  it('does not report complete when every write fails', async () => {
+    const harness = makeIntentHarness();
+    (harness.deps.upsertIntentTags as jest.Mock).mockRejectedValue(new Error('db locked'));
+
+    const result = await runIntentPass(harness.deps, new AbortController().signal);
+
+    expect(result.stoppedBy).toBe('incomplete');
+    expect(result.tagged).toBe(0);
+  });
+
+  it('reports incomplete when only some chunks fail', async () => {
+    // Partial progress still leaves stale rows behind, so the window must stay
+    // unstamped and the next pass must pick the survivors up.
+    const harness = makeIntentHarness();
+    (harness.deps.readPhotoMeta as jest.Mock)
+      .mockRejectedValueOnce(new Error('one bad chunk'))
+      .mockImplementation(async (chunk: string[]) => chunk.map(intentTag));
+
+    const result = await runIntentPass(harness.deps, new AbortController().signal);
+
+    expect(result.stoppedBy).toBe('incomplete');
+    expect(result.tagged).toBe(6);
+  });
+
+  it('does nothing for an empty library', async () => {
+    const harness = makeIntentHarness({ ids: [] });
+
+    const result = await runIntentPass(harness.deps, new AbortController().signal);
+
+    expect(result).toMatchObject({ tagged: 0, chunks: 0, stoppedBy: 'complete' });
+    expect(harness.deps.readPhotoMeta).not.toHaveBeenCalled();
+    expect(harness.deps.upsertIntentTags).not.toHaveBeenCalled();
   });
 });
 

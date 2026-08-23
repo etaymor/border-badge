@@ -31,7 +31,12 @@ import {
   type LibraryFreshness,
   type SyncSource,
 } from './photoLibrarySyncStatus';
-import { isScanRunning, _setBackgroundSyncFlag } from './photoScanState';
+import {
+  isAnyLibraryJobRunning,
+  isAnyOtherLibraryJobRunning,
+  _setBackgroundSyncFlag,
+} from '@services/jobs/jobRuntimeState';
+import type { LibraryJobKind } from '@services/jobs/jobTypes';
 
 // Lazy imports to avoid circular dependency
 let _extractPhotosWithLocation: typeof import('./photoImportService').extractPhotosWithLocation;
@@ -180,16 +185,35 @@ export async function ensureFreshLibrary(
     source?: SyncSource;
     onProgress?: (progress: RefreshProgress) => void;
     signal?: AbortSignal;
+    /**
+     * The calling job's own kind, when this refresh runs from inside a
+     * library job (quiz-build). Without it, the freshness check sees that
+     * job's own "running" flag - set before its work starts - and reads
+     * itself as an active writer, deferring forever with whatever the cache
+     * already holds instead of ever running the scan.
+     */
+    excludeKind?: LibraryJobKind;
   } = {}
 ): Promise<EnsureFreshLibraryResult> {
-  const { maxStalenessMs = LIBRARY_FRESHNESS_MS, source = 'manual', onProgress, signal } = options;
+  const {
+    maxStalenessMs = LIBRARY_FRESHNESS_MS,
+    source = 'manual',
+    onProgress,
+    signal,
+    excludeKind,
+  } = options;
 
-  const freshness = await getLibraryFreshness(maxStalenessMs);
+  const freshness = await getLibraryFreshness(maxStalenessMs, excludeKind);
   if (freshness.reason === 'no-permission') {
     return { status: 'no-permission' };
   }
   if (freshness.reason === 'writer-active') {
-    return { status: 'deferred', reason: isScanRunning() ? 'scan-running' : 'sync-running' };
+    return {
+      status: 'deferred',
+      reason: (excludeKind ? isAnyOtherLibraryJobRunning(excludeKind) : isAnyLibraryJobRunning())
+        ? 'scan-running'
+        : 'sync-running',
+    };
   }
   if (freshness.fresh) {
     return { status: 'fresh', freshness };
@@ -246,7 +270,7 @@ export async function performBackgroundPhotoSync(
 
   // Skip if the singleton scan service is already doing real work — bg sync
   // and the service share the same SQLite cache and would otherwise interleave.
-  if (isScanRunning()) {
+  if (isAnyLibraryJobRunning()) {
     return null;
   }
 

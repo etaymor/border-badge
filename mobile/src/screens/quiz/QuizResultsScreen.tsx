@@ -81,7 +81,7 @@ import {
   DURATION_HERO,
   DURATION_SLOW,
 } from './components/motionTokens';
-import { presentChallengeShare } from './shareChallenge';
+import { pickShareVerdicts, presentChallengeShare, verdictsForShare } from './shareChallenge';
 import { sortQuestionsByPosition } from './questionOrder';
 
 type Props = RootStackScreenProps<'QuizResults'>;
@@ -134,6 +134,10 @@ export function QuizResultsScreen({ navigation, route }: Props) {
   // Distinguishes a candidate-load failure from an empty library so the swap
   // modal can offer retry instead of the "no eligible photos" dead end.
   const [swapLoadFailed, setSwapLoadFailed] = useState(false);
+  // Set on tap, before the mutation's isPending flips: the upload (resize +
+  // storage PUT) is the long part, and a disabled grid with no overlay reads
+  // as a dead tap. Same idea as QuizPlay's pendingAnswerKey.
+  const [swappingCandidateId, setSwappingCandidateId] = useState<string | null>(null);
   // Country name -> ISO2, from the module-cached countries hook. Powers the
   // small stamp accents in the opened review; absent names (including the
   // pre-load window, when `countries` is still empty) just skip the art.
@@ -213,25 +217,39 @@ export function QuizResultsScreen({ navigation, route }: Props) {
     await loadCandidates();
   });
 
-  const closeSwapPicker = useStableCallback(() => {
+  const resetSwapPicker = useStableCallback(() => {
     setSwapTargetId(null);
     setSwapCandidates(null);
     setSwapLoadFailed(false);
+    setSwappingCandidateId(null);
+  });
+
+  const closeSwapPicker = useStableCallback(() => {
+    // Leave the sheet up while a swap is in flight so the spinner stays the
+    // acknowledgement. Dismissing mid-upload would look like a cancel, then
+    // still bounce the owner into play on success.
+    if (swappingCandidateId) return;
+    resetSwapPicker();
   });
 
   const handlePickCandidate = useStableCallback((candidate: GeoEligibleCandidate) => {
-    if (!swapTargetId || swapMutation.isPending) return;
+    if (!swapTargetId || swappingCandidateId) return;
+    // Immediate acknowledgement: overlay + status render on this state, not
+    // on the mutation flag (which lags the first frame of the upload).
+    setSwappingCandidateId(candidate.id);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     swapMutation.mutate(
       { questionId: swapTargetId, candidate },
       {
         onSuccess: () => {
-          closeSwapPicker();
+          resetSwapPicker();
           // Force the owner through play for the new photo (R5): share stays
           // unavailable until the replacement is answered.
           navigation.navigate('QuizPlay', { quizId });
         },
         onError: () => {
-          closeSwapPicker();
+          setSwappingCandidateId(null);
+          Alert.alert('Error', 'Could not swap this photo. Please try another.');
         },
       }
     );
@@ -255,11 +273,29 @@ export function QuizResultsScreen({ navigation, route }: Props) {
     try {
       const shared = await shareMutation.mutateAsync();
       stage = 'sheet';
+      // Read play state and questions at share time, not from the render
+      // that opened the sheet: a tap can land before the recap's local
+      // answers have committed, and that stale closure would drop the grid.
+      const latestPlay = playState ?? (await loadPlayState(quizId));
+      const latestQuiz = questions.length > 0 ? quiz : (await refetch()).data;
+      const latestQuestions = latestQuiz
+        ? sortQuestionsByPosition(latestQuiz.questions)
+        : questions;
       await presentChallengeShare(shared.share_url, {
         quizId,
         source: 'results',
         score: scoreToBeat,
-        photoCount: questions.length || null,
+        photoCount: latestQuestions.length || null,
+        verdicts: pickShareVerdicts(
+          scoreToBeat,
+          results?.owner_verdicts,
+          latestQuiz?.owner_verdicts,
+          verdictsForShare(
+            latestQuestions.map((question) => question.id),
+            latestPlay?.answers,
+            scoreToBeat
+          )
+        ),
       });
     } catch (error) {
       console.warn('[QuizResults] Share failed:', error instanceof Error ? error.message : error);
@@ -514,12 +550,12 @@ export function QuizResultsScreen({ navigation, route }: Props) {
               variant="light"
               testID="quiz-swap-top-bar"
               rightActions={
-                canRemove && swapTarget ? (
+                canRemove && swapTarget && !swappingCandidateId ? (
                   <GlassIconButton
                     icon="trash-outline"
                     onPress={() => {
                       const questionId = swapTarget.id;
-                      closeSwapPicker();
+                      resetSwapPicker();
                       handleRemove(questionId);
                     }}
                     accessibilityLabel="Remove this photo from the challenge"
@@ -532,8 +568,10 @@ export function QuizResultsScreen({ navigation, route }: Props) {
               style={[styles.pickerContainer, { paddingBottom: insets.bottom + 16 }]}
               testID="quiz-swap-picker"
             >
-              <Text style={styles.body}>
-                You will answer it before the challenge can be shared.
+              <Text style={styles.body} testID="quiz-swap-status" accessibilityLiveRegion="polite">
+                {swappingCandidateId
+                  ? 'Swapping photo…'
+                  : 'You will answer it before the challenge can be shared.'}
               </Text>
               {swapLoadFailed ? (
                 <View style={styles.pickerError} testID="quiz-swap-error">
@@ -555,25 +593,48 @@ export function QuizResultsScreen({ navigation, route }: Props) {
                   style={styles.candidateScroll}
                   contentContainerStyle={styles.candidateGrid}
                 >
-                  {swapCandidates.map((candidate, index) => (
-                    <Pressable
-                      key={candidate.id}
-                      onPress={() => handlePickCandidate(candidate)}
-                      disabled={swapMutation.isPending}
-                      testID={`quiz-swap-candidate-${index}`}
-                    >
-                      <Image
-                        source={{ uri: candidate.uri }}
-                        style={[
-                          styles.candidateThumb,
-                          { width: candidateSize, height: candidateSize },
+                  {swapCandidates.map((candidate, index) => {
+                    const isSwapping = swappingCandidateId === candidate.id;
+                    return (
+                      <Pressable
+                        key={candidate.id}
+                        onPress={() => handlePickCandidate(candidate)}
+                        disabled={swappingCandidateId !== null}
+                        accessibilityRole="button"
+                        accessibilityLabel="Use this photo"
+                        accessibilityState={{
+                          disabled: swappingCandidateId !== null,
+                          busy: isSwapping,
+                        }}
+                        style={({ pressed }) => [
+                          styles.candidateCell,
+                          swappingCandidateId !== null && !isSwapping && styles.candidateDimmed,
+                          pressed && swappingCandidateId === null && styles.pressedDim,
                         ]}
-                        contentFit="cover"
-                        recyclingKey={candidate.id}
-                        cachePolicy="memory-disk"
-                      />
-                    </Pressable>
-                  ))}
+                        testID={`quiz-swap-candidate-${index}`}
+                      >
+                        <Image
+                          source={{ uri: candidate.uri }}
+                          style={[
+                            styles.candidateThumb,
+                            { width: candidateSize, height: candidateSize },
+                          ]}
+                          contentFit="cover"
+                          recyclingKey={candidate.id}
+                          cachePolicy="memory-disk"
+                        />
+                        {isSwapping ? (
+                          <View
+                            style={styles.candidateOverlay}
+                            pointerEvents="none"
+                            testID={`quiz-swap-candidate-${index}-loading`}
+                          >
+                            <ActivityIndicator size="small" color={colors.sunsetGold} />
+                          </View>
+                        ) : null}
+                      </Pressable>
+                    );
+                  })}
                 </ScrollView>
               )}
             </View>
@@ -742,8 +803,21 @@ const styles = StyleSheet.create({
     gap: CANDIDATE_GAP,
     paddingBottom: 8,
   },
+  candidateCell: {
+    borderRadius: 8,
+    overflow: 'hidden',
+    backgroundColor: withAlpha(colors.midnightNavy, 0.08),
+  },
   candidateThumb: {
     borderRadius: 8,
-    backgroundColor: withAlpha(colors.midnightNavy, 0.08),
+  },
+  candidateOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: colors.overlayMedium,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  candidateDimmed: {
+    opacity: 0.4,
   },
 });

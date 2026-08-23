@@ -31,6 +31,24 @@ export const features = {
   enableTagPrefilter: true,
   enableVerdictCache: true,
 
+  // Photo quality signal layer (docs/plans/2026-08-21-001). Two flags:
+  // - intent signals are background metadata reads (kill if the whole-library
+  //   pass is slow or PHAssetResource enumeration misbehaves at scale)
+  // - quality ranking changes photo ORDER on quiz/vision/curation surfaces
+  //   (kill if the composite score surfaces worse photos than chronology)
+  enableIntentSignals: true,
+  enableQualityRanking: true,
+
+  // Continued-processing lease for library jobs (docs/plans/2026-08-23-1325).
+  // The driver is JS, so flipping this ships over the air without a native
+  // build: the module stays in the binary and simply is never called. Kill
+  // trigger: `lease_expired{tier:'continued'}` above 30% of
+  // `lease_begin{tier:'continued'}` in the first 48 h after a build promotes
+  // (min 20 begins from non-checklist devices, read with the elapsedMs
+  // distribution — system-UI cancels count as expiries), or any tester report
+  // of the system progress UI misbehaving.
+  enableJobContinuationLease: true,
+
   // Debug features (only in development)
   showDebugInfo: isDevelopment && env.enableDevTools,
   enableNetworkInspector: isDevelopment,

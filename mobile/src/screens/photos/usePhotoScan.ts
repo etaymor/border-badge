@@ -1,10 +1,11 @@
 /**
  * usePhotoScan - Thin adapter that delegates the scan to `photoScanService`.
  *
- * The hook subscribes to `photoScanStore` and fans store updates back into the
- * existing callback shape (`onScanProgress`, `onScanComplete`, `onScanError`)
- * so callers (`usePhotoImportWorkflow`) keep the same surface area while the
- * scan itself lives in the singleton service and survives navigation.
+ * The hook subscribes to the `trip-scan` slice of `libraryJobStore` and fans
+ * store updates back into the existing callback shape (`onScanProgress`,
+ * `onScanComplete`, `onScanError`) so callers (`usePhotoImportWorkflow`) keep
+ * the same surface area while the scan itself runs on the library job runtime
+ * and survives navigation.
  */
 
 import { useCallback, useEffect, useRef } from 'react';
@@ -24,13 +25,15 @@ import {
 } from '@services/photoImport';
 import {
   isAlertScanFailure,
-  selectPhotoScanFailure,
-  selectPhotoScanHasResult,
-  selectPhotoScanPhase,
-  selectPhotoScanProgress,
-  usePhotoScanStore,
   type PhotoScanFailureReason,
-} from '@stores/photoScanStore';
+} from '@services/photoImport/photoScanTypes';
+import {
+  selectScanFailure,
+  selectScanHasResult,
+  selectScanPhase,
+  selectScanProgress,
+  useLibraryJobStore,
+} from '@stores/libraryJobStore';
 
 /** Reason the scan did not succeed. Mirrors the historical shape consumers expect. */
 export type ScanFailureReason = PhotoScanFailureReason;
@@ -106,11 +109,8 @@ export function usePhotoScan({
   // result is consumed.
   useEffect(() => {
     if (!isFocused) return;
-    if (
-      usePhotoScanStore.getState().phase === 'completed' &&
-      usePhotoScanStore.getState().hasResult &&
-      serviceHasResult()
-    ) {
+    const slice = useLibraryJobStore.getState().jobs['trip-scan'];
+    if (slice.phase === 'completed' && slice.hasResult && serviceHasResult()) {
       const result = consumeResult();
       if (result && consumedImportTimeRef.current !== result.importTime) {
         consumedImportTimeRef.current = result.importTime;
@@ -124,9 +124,9 @@ export function usePhotoScan({
   // Progress fan-out
   useEffect(
     () =>
-      usePhotoScanStore.subscribe((state, prev) => {
-        if (selectPhotoScanProgress(state) !== selectPhotoScanProgress(prev)) {
-          onScanProgressRef.current(state.progress);
+      useLibraryJobStore.subscribe((state, prev) => {
+        if (selectScanProgress(state) !== selectScanProgress(prev)) {
+          onScanProgressRef.current(selectScanProgress(state));
         }
       }),
     []
@@ -136,12 +136,12 @@ export function usePhotoScan({
   // failed → onScanError (only for alert-style reasons).
   useEffect(
     () =>
-      usePhotoScanStore.subscribe((state, prev) => {
-        const phase = selectPhotoScanPhase(state);
-        const prevPhase = selectPhotoScanPhase(prev);
+      useLibraryJobStore.subscribe((state, prev) => {
+        const phase = selectScanPhase(state);
+        const prevPhase = selectScanPhase(prev);
         if (phase === prevPhase) return;
 
-        if (phase === 'completed' && selectPhotoScanHasResult(state) && serviceHasResult()) {
+        if (phase === 'completed' && selectScanHasResult(state) && serviceHasResult()) {
           // Cross-tab guard: only the focused tab consumes the singleton result.
           if (!isFocusedRef.current) return;
           const result = consumeResult();
@@ -151,10 +151,10 @@ export function usePhotoScan({
           }
         } else if (phase === 'failed') {
           // Only fire onScanError for alert-style reasons (no-photos, no-trips,
-          // home-country, scan-error). Service-level reasons (stuck, stale,
+          // home-country, scan-error). Runtime-level reasons (stuck, stale,
           // no-permission, subscription-expired) keep the screen in 'scanning'
           // so the workflow's mirror effect renders the inline retry button.
-          const failure = selectPhotoScanFailure(state);
+          const failure = selectScanFailure(state);
           if (failure && isAlertScanFailure(failure.reason)) {
             onScanErrorRef.current();
           }
@@ -175,10 +175,23 @@ export function usePhotoScan({
         forceRefresh,
       });
 
-      if (result.status === 'started' || result.status === 'already-running') {
+      if (
+        result.status === 'started' ||
+        result.status === 'already-running' ||
+        // Queued behind a running quiz build. The runtime drains the queue when
+        // that job settles, so this is a wait, not a failure — the screen stays
+        // in 'scanning' and the banner explains what it is waiting on.
+        result.status === 'queued'
+      ) {
         // Outcome resolves immediately; the actual scan completion is delivered
         // through the store subscription. Returning success here is consistent
         // with the old behavior — callers don't await `complete`.
+        return { success: true };
+      }
+
+      if (result.reason === 'cancelled') {
+        // The user cancelled before the start finished writing its breadcrumb;
+        // the store already reads idle. Nothing to alert about.
         return { success: true };
       }
 
@@ -190,9 +203,9 @@ export function usePhotoScan({
           message: 'Please set your home country in settings first.',
         };
       }
-      // Future-proof for `no-permission` / `not-premium` reasons surfaced by the
-      // service. Not produced by `start` today (homeCountry is the only sync gate),
-      // but the discriminated union allows them.
+      // `no-permission` / `not-premium` are surfaced by the runtime rather than
+      // by `startScan`'s own synchronous check, but the discriminated union
+      // allows them and they land here rather than in an unhandled branch.
       return {
         success: false,
         reason: 'scan-error',

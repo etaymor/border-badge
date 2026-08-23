@@ -793,3 +793,288 @@ class TestCountryMismatchFallback:
         orchestrator._extract_from_video.assert_not_awaited()
         assert result.places[0].country_code == "SI"
         assert result.method == "llm"
+
+
+def _empty_caption_result(orchestrator: ExtractionOrchestrator):
+    return orchestrator._CaptionResult(
+        places=[],
+        method="none",
+        skip_to_video=False,
+        context_location=None,
+        location_hint_country_codes=[],
+    )
+
+
+class TestInstagramVideoFallback:
+    """Carousel miss should fall through to video for reels and /p/ GraphVideo."""
+
+    @pytest.mark.asyncio
+    async def test_reel_empty_carousel_uses_video_frames(self):
+        orchestrator = ExtractionOrchestrator(enable_video_fallback=True)
+        video_place = DetectedPlace(
+            google_place_id="ChIJ789",
+            name="Almaty Landmark",
+            country_code="KZ",
+            confidence=0.9,
+        )
+        orchestrator._extract_from_caption = AsyncMock(
+            return_value=_empty_caption_result(orchestrator)
+        )
+        orchestrator._extract_from_carousel = AsyncMock(
+            return_value=orchestrator._CarouselResult(
+                places=[],
+                frames_processed=1,
+                post_type="GraphVideo",
+            )
+        )
+        orchestrator._extract_from_video = AsyncMock(
+            return_value=orchestrator._VideoResult(places=[video_place])
+        )
+        orchestrator._cache_result = AsyncMock()
+
+        with patch(
+            "app.services.extraction_orchestrator.get_cached_extraction",
+            return_value=None,
+        ):
+            with patch(
+                "app.services.extraction_orchestrator.download_video",
+                new_callable=AsyncMock,
+                return_value="/tmp/video.mp4",
+            ):
+                result = await orchestrator.extract(
+                    "https://www.instagram.com/reel/DbYra-aAOYC",
+                    oembed=None,
+                    caption=None,
+                    use_cache=True,
+                    is_video_url=True,
+                    is_photo_slideshow=True,
+                )
+
+        orchestrator._extract_from_carousel.assert_awaited_once()
+        orchestrator._extract_from_video.assert_awaited_once()
+        assert result.places[0].name == "Almaty Landmark"
+        assert result.source == "video_frames"
+        assert result.method == "video"
+
+    @pytest.mark.asyncio
+    async def test_p_graph_video_starts_lazy_download(self):
+        orchestrator = ExtractionOrchestrator(enable_video_fallback=True)
+        video_place = DetectedPlace(
+            google_place_id="ChIJ456",
+            name="Video Cafe",
+            country_code="FR",
+            confidence=0.88,
+        )
+        orchestrator._extract_from_caption = AsyncMock(
+            return_value=_empty_caption_result(orchestrator)
+        )
+        orchestrator._extract_from_carousel = AsyncMock(
+            return_value=orchestrator._CarouselResult(
+                places=[],
+                frames_processed=1,
+                post_type="GraphVideo",
+            )
+        )
+        orchestrator._extract_from_video = AsyncMock(
+            return_value=orchestrator._VideoResult(places=[video_place])
+        )
+        orchestrator._download_video_safe = AsyncMock(return_value="/tmp/video.mp4")
+        orchestrator._cache_result = AsyncMock()
+
+        with patch(
+            "app.services.extraction_orchestrator.get_cached_extraction",
+            return_value=None,
+        ):
+            result = await orchestrator.extract(
+                "https://www.instagram.com/p/ABC123",
+                oembed=None,
+                caption=None,
+                use_cache=True,
+                is_video_url=False,
+                is_photo_slideshow=True,
+            )
+
+        orchestrator._extract_from_video.assert_awaited_once()
+        assert result.source == "video_frames"
+        assert result.places[0].name == "Video Cafe"
+
+    @pytest.mark.asyncio
+    async def test_graph_video_prefers_cdn_url_over_ytdlp(self):
+        orchestrator = ExtractionOrchestrator(enable_video_fallback=True)
+        video_place = DetectedPlace(
+            google_place_id="ChIJ777",
+            name="CDN Cafe",
+            country_code="KZ",
+            confidence=0.91,
+        )
+        cdn_url = "https://scontent-lga3-3.cdninstagram.com/v/t16/video.mp4"
+        orchestrator._extract_from_caption = AsyncMock(
+            return_value=_empty_caption_result(orchestrator)
+        )
+        orchestrator._extract_from_carousel = AsyncMock(
+            return_value=orchestrator._CarouselResult(
+                places=[],
+                frames_processed=0,
+                post_type="GraphVideo",
+                video_url=cdn_url,
+            )
+        )
+        orchestrator._extract_from_video = AsyncMock(
+            return_value=orchestrator._VideoResult(places=[video_place])
+        )
+        orchestrator._download_instagram_video_safe = AsyncMock(
+            return_value="/tmp/ig.mp4"
+        )
+        orchestrator._download_video_safe = AsyncMock()
+        orchestrator._cache_result = AsyncMock()
+
+        with patch(
+            "app.services.extraction_orchestrator.get_cached_extraction",
+            return_value=None,
+        ):
+            result = await orchestrator.extract(
+                "https://www.instagram.com/reel/DbYra-aAOYC",
+                oembed=None,
+                caption=None,
+                use_cache=True,
+                is_video_url=False,
+                is_photo_slideshow=True,
+            )
+
+        orchestrator._download_instagram_video_safe.assert_called_once()
+        orchestrator._download_video_safe.assert_not_called()
+        orchestrator._extract_from_video.assert_awaited_once()
+        assert result.places[0].name == "CDN Cafe"
+
+    @pytest.mark.asyncio
+    async def test_p_graph_image_does_not_start_video(self):
+        orchestrator = ExtractionOrchestrator(enable_video_fallback=True)
+        orchestrator._extract_from_caption = AsyncMock(
+            return_value=_empty_caption_result(orchestrator)
+        )
+        orchestrator._extract_from_carousel = AsyncMock(
+            return_value=orchestrator._CarouselResult(
+                places=[],
+                frames_processed=1,
+                post_type="GraphImage",
+            )
+        )
+        orchestrator._extract_from_video = AsyncMock()
+        orchestrator._download_video_safe = AsyncMock()
+        orchestrator._cache_result = AsyncMock()
+
+        with patch(
+            "app.services.extraction_orchestrator.get_cached_extraction",
+            return_value=None,
+        ):
+            result = await orchestrator.extract(
+                "https://www.instagram.com/p/ABC123",
+                oembed=None,
+                caption=None,
+                use_cache=True,
+                is_video_url=False,
+                is_photo_slideshow=True,
+            )
+
+        orchestrator._download_video_safe.assert_not_awaited()
+        orchestrator._extract_from_video.assert_not_awaited()
+        assert result.places == []
+        orchestrator._cache_result.assert_awaited_once_with(
+            "https://www.instagram.com/p/ABC123", [], "carousel"
+        )
+
+    @pytest.mark.asyncio
+    async def test_carousel_places_skip_video(self):
+        orchestrator = ExtractionOrchestrator(enable_video_fallback=True)
+        carousel_place = DetectedPlace(
+            google_place_id="ChIJ111",
+            name="Sidecar Restaurant",
+            country_code="IT",
+            confidence=0.92,
+        )
+        orchestrator._extract_from_caption = AsyncMock(
+            return_value=_empty_caption_result(orchestrator)
+        )
+        orchestrator._extract_from_carousel = AsyncMock(
+            return_value=orchestrator._CarouselResult(
+                places=[carousel_place],
+                frames_processed=2,
+                post_type="GraphSidecar",
+            )
+        )
+        orchestrator._extract_from_video = AsyncMock()
+        orchestrator._cache_result = AsyncMock()
+
+        with patch(
+            "app.services.extraction_orchestrator.get_cached_extraction",
+            return_value=None,
+        ):
+            with patch(
+                "app.services.extraction_orchestrator.download_video",
+                new_callable=AsyncMock,
+                return_value="/tmp/video.mp4",
+            ):
+                result = await orchestrator.extract(
+                    "https://www.instagram.com/reel/ABC123",
+                    oembed=None,
+                    caption=None,
+                    use_cache=True,
+                    is_video_url=True,
+                    is_photo_slideshow=True,
+                )
+
+        orchestrator._extract_from_video.assert_not_awaited()
+        assert result.source == "carousel"
+        assert result.places[0].name == "Sidecar Restaurant"
+
+    @pytest.mark.asyncio
+    async def test_empty_carousel_cache_retries_when_video_enabled(self):
+        orchestrator = ExtractionOrchestrator(enable_video_fallback=True)
+        video_place = DetectedPlace(
+            google_place_id="ChIJ999",
+            name="Retried Place",
+            country_code="KZ",
+            confidence=0.8,
+        )
+        cached = CachedExtractionResult(
+            places=[],
+            source="carousel",
+            extraction_at=datetime.now(UTC),
+        )
+        orchestrator._extract_from_caption = AsyncMock(
+            return_value=_empty_caption_result(orchestrator)
+        )
+        orchestrator._extract_from_carousel = AsyncMock(
+            return_value=orchestrator._CarouselResult(
+                places=[],
+                frames_processed=0,
+                post_type="GraphVideo",
+            )
+        )
+        orchestrator._extract_from_video = AsyncMock(
+            return_value=orchestrator._VideoResult(places=[video_place])
+        )
+        orchestrator._cache_result = AsyncMock()
+
+        with patch(
+            "app.services.extraction_orchestrator.get_cached_extraction",
+            return_value=cached,
+        ):
+            with patch(
+                "app.services.extraction_orchestrator.download_video",
+                new_callable=AsyncMock,
+                return_value="/tmp/video.mp4",
+            ):
+                result = await orchestrator.extract(
+                    "https://www.instagram.com/reel/DbYra-aAOYC",
+                    oembed=None,
+                    caption=None,
+                    use_cache=True,
+                    is_video_url=True,
+                    is_photo_slideshow=True,
+                )
+
+        orchestrator._extract_from_caption.assert_awaited_once()
+        orchestrator._extract_from_video.assert_awaited_once()
+        assert result.from_cache is False
+        assert result.places[0].name == "Retried Place"

@@ -57,6 +57,7 @@ import { loadPlayState } from '@services/quiz/quizPlay';
 import { MyQuizzesScreen } from '@screens/quiz/MyQuizzesScreen';
 import { QuizLeaderboardScreen } from '@screens/quiz/QuizLeaderboardScreen';
 import { QuizResultsScreen } from '@screens/quiz/QuizResultsScreen';
+import { buildChallengeMessage } from '@screens/quiz/shareChallenge';
 import * as ShareModule from '@utils/share';
 
 const mockLoadPlayState = loadPlayState as jest.MockedFunction<typeof loadPlayState>;
@@ -715,9 +716,15 @@ describe('QuizLeaderboardScreen', () => {
     // Q10: the link travels in its own slot, never buried in the message.
     expect(content.url).toBe('https://border.badge/q/abc123');
     // The fixture detail has no questions loaded, so the photo count falls
-    // back to the score total instead of reading "0 of my travel photos".
+    // back to the score total instead of reading "0 of my travel photos",
+    // and the Wordle grid is omitted (no local verdicts).
     expect(content.message).toBe(
-      'Guess where in the world these 5 photos were taken. I got 3/5 — beat me.'
+      buildChallengeMessage({
+        quizId: 'quiz-1',
+        source: 'leaderboard_top_bar',
+        score: { correct: 3, total: 5 },
+        photoCount: 5,
+      })
     );
     // Re-sharing presents the minted link; it never mints another one.
     expect(mockApiPost).not.toHaveBeenCalledWith('/quiz/quiz-1/share');

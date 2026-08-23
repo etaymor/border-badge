@@ -9,13 +9,14 @@ import {
   syncShareExtensionUsageFromAppGroup,
 } from '@services/shareExtensionBridge';
 import { syncAnalyticsFromExtension } from '@services/shareExtensionAnalytics';
-import {
-  detectStuckScan,
-  performBackgroundPhotoSync,
-  resetForUserChange,
-  tryResumeScan,
-} from '@services/photoImport';
+import { performBackgroundPhotoSync, resetForUserChange } from '@services/photoImport';
 import { suggestionDispatch } from '@services/photoImport/suggestionDispatch';
+import {
+  detectStuckJobs,
+  markForegroundReturn,
+  resetAllForUserChange as resetAllJobsForUserChange,
+  tryResumeJobs,
+} from '@services/jobs';
 
 function generateSessionId(): string {
   return Crypto.randomUUID();
@@ -92,6 +93,10 @@ export function useAppStateTracking(
         // reset the store. Stronger than cancelScan() so user A's photo data
         // cannot leak into user B's session via consumeResult().
         void resetForUserChange();
+        // Same reasoning for every runtime-owned job: a quiz build carries
+        // user A's photo URIs on a module ref, so it must be aborted and its
+        // breadcrumb cleared before user B can consume anything.
+        void resetAllJobsForUserChange();
       }
       prevUserIdRef.current = userId;
     }
@@ -131,6 +136,21 @@ export function useAppStateTracking(
         // expensive jobs belong in the stagger.
         suggestionDispatch.resume();
 
+        // Library jobs — the trip scan and the quiz build — resume
+        // SYNCHRONOUSLY here, for the same reason as the dispatch resume
+        // above: as a member of the staggered burst this ran six frames later
+        // and was cancelled wholesale by the effect cleanup or by the next
+        // foreground event, and a suspended job that misses its resume stays
+        // suspended until the user happens to foreground again. The heartbeat
+        // stamp comes first so a job frozen while the app was away is not
+        // read as "stopped making progress" by the stuck check in the burst.
+        if (userId) {
+          markForegroundReturn();
+          tryResumeJobs().catch((err) => {
+            if (__DEV__) console.warn('[AppStateTracking] tryResumeJobs failed:', err);
+          });
+        }
+
         // Build the foreground job list. WHAT runs is unchanged from before —
         // these jobs are only spread across successive frames (see
         // scheduleStaggered) so resume doesn't spike a single frame.
@@ -167,16 +187,10 @@ export function useAppStateTracking(
             () => {
               void checkAppGroupForSharedURL();
             },
-            // First, check whether a prior scan was suspended mid-run.
-            // tryResumeScan runs the seven-gate check, transitions the store to
-            // `failed` when a gate trips, and otherwise calls
-            // photoScanService.start({ resumed: true }). If a scan is currently
-            // running, also surface a stuck-detection check.
+            // Stuck detection for anything that claims to be running. Resume
+            // itself runs synchronously above, outside the cancellable burst.
             () => {
-              tryResumeScan().catch((err) => {
-                if (__DEV__) console.warn('[AppStateTracking] tryResumeScan failed:', err);
-              });
-              detectStuckScan();
+              detectStuckJobs();
             },
             // Background photo sync - silently cache new photos for faster photo
             // import. No-ops when the scan service is running (early-return inside).
