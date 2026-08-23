@@ -16,7 +16,6 @@ import { createMockNavigation } from '../../utils/mockFactories';
 
 import { QuizCreationScreen } from '@screens/quiz/QuizCreationScreen';
 import { patchJobSlice, resetLibraryJobStore } from '@stores/libraryJobStore';
-import { SCAN_COPY } from '@constants/scanCopy';
 import type { QuizCreationOutcome } from '@services/quiz/quizCreation';
 import type { RootStackScreenProps } from '@navigation/types';
 
@@ -125,9 +124,6 @@ describe('reattaching to a build already in progress', () => {
     expect(screen.queryByTestId('quiz-slot-photo-3')).toBeNull();
     expect(screen.getByTestId('quiz-slot-empty-3')).toBeTruthy();
     expect(screen.getByText('3 of 10')).toBeTruthy();
-    // The examined count survives the remount too, so the "photos checked"
-    // line does not reset to zero and imply the scan started over.
-    expect(screen.getByText(SCAN_COPY.quiz.examinedLine(4_500))).toBeTruthy();
   });
 
   it('does not start a second build when attaching to a running one', async () => {

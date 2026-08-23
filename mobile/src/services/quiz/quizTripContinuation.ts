@@ -141,17 +141,3 @@ export async function runQuizTripContinuation(
     return { status: 'failed' };
   }
 }
-
-/**
- * How many segments the continuation left for the user to review, or 0 when it
- * has not run. Read by the results-screen cross-sell so it can stay silent
- * until there is genuinely something to offer.
- */
-export async function countUnreviewedTripSegments(): Promise<number> {
-  try {
-    const segments = await getTripSegments();
-    return segments.length;
-  } catch {
-    return 0;
-  }
-}

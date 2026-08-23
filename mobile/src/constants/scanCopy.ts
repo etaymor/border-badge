@@ -210,16 +210,6 @@ const quiz = {
   },
 
   /**
-   * THE highest-value string here. The old line sat directly under the serif
-   * `n of m` counter with an implied total, so `4,500 of 53,282` read as "you
-   * must wait for 53,282". Open-ended "so far" plus an explicit early-exit
-   * promise turns a denominator into evidence of thoroughness.
-   */
-  examinedLine(checked: number): string {
-    return `${checked.toLocaleString()} photos checked so far — we stop as soon as your challenge is full.`;
-  },
-
-  /**
    * Two lines, not the full bullets: the working phase is not a consent
    * moment, and the bullets would crowd the slot grid.
    */
@@ -241,18 +231,6 @@ const quiz = {
     const count = cachedPhotoCount > 0 ? ` — ${cachedPhotoCount.toLocaleString()} photos` : '';
     return `Your photo library is ready${when}${count}. No scan needed.`;
   },
-
-  /**
-   * The cross-sell, and the only place the quiz side ever names a trip count.
-   * Deliberately phrased as work already done, not work now offered.
-   */
-  crossSell(tripCount: number): string {
-    return tripCount === 1
-      ? 'That same scan also turned up 1 trip you haven’t reviewed.'
-      : `That same scan also turned up ${tripCount.toLocaleString()} trips you haven’t reviewed.`;
-  },
-  crossSellCta: 'Review Trips',
-  crossSellDismiss: 'Not Now',
 } as const;
 
 // ---------------------------------------------------------------------------

@@ -366,14 +366,44 @@ describe('QuizCreationScreen', () => {
       expect(screen.queryByTestId('quiz-slot-empty-2')).toBeNull();
       expect(screen.queryByTestId('quiz-slot-photo-3')).toBeNull();
 
-      // Three lines now, not one: what has happened on device, what the trip
-      // scan is getting out of it, and what leaving the screen does.
+      // A returning build explains NOTHING: the library is already scanned,
+      // so the wall of scan copy and the leave/stop pair are noise on a run
+      // that is over in seconds.
+      expect(screen.queryByTestId('quiz-privacy-line')).toBeNull();
+      expect(screen.queryByTestId('quiz-trips-line')).toBeNull();
+      expect(screen.queryByTestId('quiz-persistence-line')).toBeNull();
+      expect(screen.queryByTestId('quiz-leave-running')).toBeNull();
+      expect(screen.queryByTestId('quiz-cancel')).toBeNull();
+      // The counter it IS about is untouched.
+      expect(screen.getByTestId('quiz-progress-track')).toBeTruthy();
+    });
+
+    it('explains itself only on the very first scan', async () => {
+      // never-synced: the one run with a long scan to explain and a reason to
+      // teach that leaving the screen does not kill it.
+      mockGetLibraryFreshness.mockResolvedValue(neverSyncedFreshness());
+      await startHeld();
+      emitProgress({ step: 'checking', current: 3, total: 10, pickUris: picks });
+
       expect(screen.getByText(SCAN_COPY.quiz.workingPrivacy[0])).toBeTruthy();
       expect(screen.getByText(SCAN_COPY.quiz.workingPrivacy[1])).toBeTruthy();
       expect(screen.getByText(SCAN_COPY.shared.persistenceParagraph)).toBeTruthy();
-      // Leaving is the ordinary action now that the build outlives the screen.
       expect(screen.getByTestId('quiz-leave-running')).toBeTruthy();
       expect(screen.getByTestId('quiz-cancel')).toBeTruthy();
+    });
+
+    it('drops even the first-scan copy once the upload starts', async () => {
+      mockGetLibraryFreshness.mockResolvedValue(neverSyncedFreshness());
+      await startHeld();
+      emitProgress({ step: 'building', current: 2, total: 3, pickUris: picks });
+
+      // The upload is finished work being sent: "nothing is uploaded yet" is
+      // no longer true, and Stop reads as a way to throw away a challenge
+      // that is seconds from existing.
+      expect(screen.queryByTestId('quiz-privacy-line')).toBeNull();
+      expect(screen.queryByTestId('quiz-persistence-line')).toBeNull();
+      expect(screen.queryByTestId('quiz-leave-running')).toBeNull();
+      expect(screen.queryByTestId('quiz-cancel')).toBeNull();
     });
 
     it('shows the most recent find as the hero photo', async () => {
@@ -436,27 +466,6 @@ describe('QuizCreationScreen', () => {
       expect(screen.getByTestId('quiz-slot-photo-2').props.source.uri).toBe(picks[2]);
       expect(screen.getByText('3 of 3')).toBeTruthy();
       expect(screen.queryByText('0 of 3')).toBeNull();
-    });
-
-    it('shows how many photos have been checked while a batch is in flight', async () => {
-      await startHeld();
-      // A classification batch can take most of a minute; without this the
-      // whole screen sits still through it.
-      emitProgress({
-        step: 'checking',
-        current: 1,
-        total: 10,
-        examined: 120,
-        pickUris: [picks[0]],
-      });
-
-      expect(screen.getByTestId('quiz-examined-line')).toBeTruthy();
-      // Open-ended by design: no implied denominator to wait out.
-      expect(screen.getByText(SCAN_COPY.quiz.examinedLine(120))).toBeTruthy();
-
-      // Not during the upload: nothing is being checked any more.
-      emitProgress({ step: 'building', current: 0, total: 1, examined: 120, pickUris: [picks[0]] });
-      expect(screen.queryByTestId('quiz-examined-line')).toBeNull();
     });
 
     it('keeps the way out live during the build', async () => {

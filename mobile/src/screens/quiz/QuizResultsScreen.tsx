@@ -72,7 +72,6 @@ import type { RootStackScreenProps } from '@navigation/types';
 import { Analytics } from '@services/analytics';
 
 import { PhotoHero } from './components/PhotoHero';
-import { TripCrossSellRow } from './components/TripCrossSellRow';
 import { QuizTopBar } from './components/QuizTopBar';
 import { VerdictMark } from './components/VerdictMark';
 import { SerifScore } from './components/SerifScore';
@@ -342,18 +341,6 @@ export function QuizResultsScreen({ navigation, route }: Props) {
     navigation.goBack();
   });
 
-  /**
-   * Open the suggestions list the trip continuation already filled in.
-   * `skipToSuggestions` is what makes the promise good: no second scan, the
-   * candidates are simply there.
-   */
-  const handleReviewTrips = useStableCallback(() => {
-    navigation.navigate('Main', {
-      screen: 'Passport',
-      params: { screen: 'PhotoImport', params: { skipToSuggestions: true } },
-    });
-  });
-
   // Without navigation results, the score pair arrives with the quiz detail.
   if (!scoreToBeat) {
     // The fetch failed (or the route arrived without params) and there is no
@@ -536,10 +523,6 @@ export function QuizResultsScreen({ navigation, route }: Props) {
                 testID="quiz-revoke"
               />
             )}
-            {/* BELOW the CTA, never above it: appended, so it can never shove
-                the button the user is reaching for. Renders nothing unless the
-                trip continuation actually produced trips. */}
-            <TripCrossSellRow onReviewTrips={handleReviewTrips} testID="quiz-trip-crosssell" />
           </Animated.View>
         </View>
       </ScrollView>

@@ -87,7 +87,6 @@ function allStrings(): Array<[string, string]> {
       );
     }
   }
-  push('quiz.examinedLine', quiz.examinedLine(4_500));
   push('quiz.workingPrivacy', quiz.workingPrivacy);
   push('quiz.leaveCta', quiz.leaveCta);
   push('quiz.stopCta', quiz.stopCta);
@@ -96,10 +95,6 @@ function allStrings(): Array<[string, string]> {
   push('quiz.freshnessSyncing', quiz.freshnessSyncing);
   push('quiz.freshnessReady', quiz.freshnessReady('2 hours ago', 53_282));
   push('quiz.freshnessReady(bare)', quiz.freshnessReady(null, 0));
-  push('quiz.crossSell(1)', quiz.crossSell(1));
-  push('quiz.crossSell(4)', quiz.crossSell(4));
-  push('quiz.crossSellCta', quiz.crossSellCta);
-  push('quiz.crossSellDismiss', quiz.crossSellDismiss);
 
   for (const kind of ['trip-scan', 'quiz-build'] as const) {
     for (const state of ['running', 'waiting', 'completed', 'failed'] as const) {
@@ -215,15 +210,6 @@ describe('SCAN_COPY - magnitude without a false denominator', () => {
     expect(SCAN_COPY.shared.durationLine(900)).toBe('Usually under a minute.');
     expect(SCAN_COPY.shared.durationLine(12_000)).toBe('Usually a few minutes.');
     expect(SCAN_COPY.shared.durationLine(53_282)).toMatch(/several minutes/);
-  });
-
-  it('gives the examined count no implied total and an explicit early exit', () => {
-    const line = SCAN_COPY.quiz.examinedLine(4_500);
-    // The number that used to read as "you must wait for 53,282".
-    expect(line).toContain('4,500');
-    expect(line).not.toMatch(/\bof\b/);
-    expect(line).toMatch(/so far/);
-    expect(line).toMatch(/stop as soon as/);
   });
 
   it('tells the truth about which pass this is', () => {

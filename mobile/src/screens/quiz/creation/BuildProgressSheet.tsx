@@ -59,19 +59,6 @@ export function BuildProgressSheet({
         </Text>
       )}
 
-      {/* The only number that moves during a classification batch: one
-          batch can take most of a minute, and without this the whole
-          screen sits still through it.
-
-          It carries NO denominator on purpose. Sitting directly under
-          the serif `n of m` counter, an implied total made `4,500 of
-          53,282` read as "you must wait for 53,282" - so the line is
-          open-ended and states the early exit instead. */}
-      {step === 'checking' && build.examined ? (
-        <Text style={styles.examinedLine} testID="quiz-examined-line">
-          {SCAN_COPY.quiz.examinedLine(build.examined)}
-        </Text>
-      ) : null}
       {step === 'scanning' && durationLine ? (
         <Text style={styles.examinedLine} testID="quiz-working-duration">
           {durationLine}
@@ -121,37 +108,52 @@ export function BuildProgressSheet({
         })}
       </View>
 
-      {/* Two lines, not the full bullets: the working phase is not a
-          consent moment and they would crowd the slot grid. One
-          STATEMENT about trips, never a button - nothing competes with
-          the challenge the user is waiting for. */}
-      <Text style={styles.privacyLine} testID="quiz-privacy-line">
-        {SCAN_COPY.quiz.workingPrivacy[0]}
-      </Text>
-      <Text style={styles.privacyLine} testID="quiz-trips-line">
-        {SCAN_COPY.quiz.workingPrivacy[1]}
-      </Text>
-      <Text style={styles.privacyLine} testID="quiz-persistence-line">
-        {leaseKeepsRunning
-          ? SCAN_COPY.shared.persistenceParagraphWhileLeased('quiz-build')
-          : SCAN_COPY.shared.persistenceParagraph}
-      </Text>
+      {/* THE EXPLAINERS BELONG TO THE FIRST SCAN, AND ONLY TO IT.
+          All of this used to render on every build, so someone creating
+          their fifth challenge - no scan, nothing to explain, twenty
+          seconds of work - got a wall of text about a library scan that
+          was not running. It answers a question only a first-time user
+          has. `isFirstScan` is the never-synced case, which is exactly
+          "the first round". */}
+      {isFirstScan && !uploading ? (
+        <>
+          <Text style={styles.privacyLine} testID="quiz-privacy-line">
+            {SCAN_COPY.quiz.workingPrivacy[0]}
+          </Text>
+          {/* One STATEMENT about trips, never a button - nothing competes
+              with the challenge the user is waiting for. */}
+          <Text style={styles.privacyLine} testID="quiz-trips-line">
+            {SCAN_COPY.quiz.workingPrivacy[1]}
+          </Text>
+          <Text style={styles.privacyLine} testID="quiz-persistence-line">
+            {leaseKeepsRunning
+              ? SCAN_COPY.shared.persistenceParagraphWhileLeased('quiz-build')
+              : SCAN_COPY.shared.persistenceParagraph}
+          </Text>
+        </>
+      ) : null}
 
-      {/* Leaving is now the safe, ordinary action - the build outlives
-          this screen - so the ghost button says so, and stopping is the
-          deliberate one behind the confirm. */}
-      <Button
-        title={SCAN_COPY.quiz.leaveCta}
-        variant="ghost"
-        onPress={onLeave}
-        testID="quiz-leave-running"
-      />
-      <Button
-        title={SCAN_COPY.quiz.stopCta}
-        variant="ghost"
-        onPress={onStop}
-        testID="quiz-cancel"
-      />
+      {/* Same gate: the leave/stop pair exists to teach that a first,
+          long scan survives leaving the screen. A repeat build is over in
+          seconds, so the pair is noise - and "Stop" next to a nearly-full
+          grid reads as a way to lose it. The header back control still
+          leaves from every phase. */}
+      {isFirstScan && !uploading ? (
+        <>
+          <Button
+            title={SCAN_COPY.quiz.leaveCta}
+            variant="ghost"
+            onPress={onLeave}
+            testID="quiz-leave-running"
+          />
+          <Button
+            title={SCAN_COPY.quiz.stopCta}
+            variant="ghost"
+            onPress={onStop}
+            testID="quiz-cancel"
+          />
+        </>
+      ) : null}
     </View>
   );
 }
