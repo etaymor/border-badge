@@ -802,6 +802,74 @@ export const Analytics = {
       found_count: props.foundCount,
     }),
 
+  // --- Continued-processing lease (docs/plans/2026-08-23-1325) -------------
+  // Every event carries the tier so the reliability of each is measurable from
+  // the first build. `job_continuation_capabilities` fires once per launch so
+  // "is the feature live on this build" is answerable without starting a job.
+
+  jobContinuationCapabilities: (props: {
+    moduleAvailable: boolean;
+    continuedProcessing: boolean;
+    graceWindow: boolean;
+    osMajor: number | null;
+    flagEnabled: boolean;
+  }) =>
+    track('job_continuation_capabilities', {
+      module_available: props.moduleAvailable,
+      continued_processing: props.continuedProcessing,
+      grace_window: props.graceWindow,
+      os_major: props.osMajor,
+      flag_enabled: props.flagEnabled,
+    }),
+
+  leaseBegin: (props: {
+    tier: 'continued' | 'grace' | 'none';
+    kind: string;
+    resumed: boolean;
+    lowPowerMode: boolean | null;
+    backgroundRefreshStatus: string | null;
+    skippedReason: string | null;
+  }) =>
+    track('lease_begin', {
+      tier: props.tier,
+      kind: props.kind,
+      resumed: props.resumed,
+      low_power_mode: props.lowPowerMode,
+      background_refresh_status: props.backgroundRefreshStatus,
+      skipped_reason: props.skippedReason,
+    }),
+
+  leaseHandlerFired: (props: { kind: string; latencyMs: number }) =>
+    track('lease_handler_fired', { kind: props.kind, latency_ms: props.latencyMs }),
+
+  leaseExpired: (props: {
+    tier: 'continued' | 'grace';
+    kind: string;
+    appState: string;
+    elapsedMs: number;
+    percentage: number;
+  }) =>
+    track('lease_expired', {
+      tier: props.tier,
+      kind: props.kind,
+      app_state: props.appState,
+      elapsed_ms: props.elapsedMs,
+      percentage: props.percentage,
+    }),
+
+  leaseEnded: (props: {
+    tier: 'continued' | 'grace';
+    kind: string;
+    outcome: string;
+    elapsedMs: number;
+  }) =>
+    track('lease_ended', {
+      tier: props.tier,
+      kind: props.kind,
+      outcome: props.outcome,
+      elapsed_ms: props.elapsedMs,
+    }),
+
   /** The trip-scan mirror of `quizBuildResumed`: a suspended scan picked back up. */
   tripScanResumed: (props: { hadCheckpoint: boolean }) =>
     track('trip_scan_resumed', { had_checkpoint: props.hadCheckpoint }),

@@ -44,6 +44,7 @@ import type { RootStackParamList } from '@navigation/types';
 import { queryClient } from './src/queryClient';
 import { initAnalytics } from '@services/analytics';
 import { registerBackgroundJobTask } from '@services/jobs/backgroundJobTask';
+import { registerContinuationLease } from '@services/jobs/continuationLease';
 import { initializeRevenueCat } from '@services/revenueCat';
 import {
   syncApiUrlToAppGroup,
@@ -95,6 +96,10 @@ function useAppInitialization() {
     // launch. Opportunistic only — iOS decides if and when it ever runs, so
     // nothing in the app or its copy may depend on it. See backgroundJobTask.
     void registerBackgroundJobTask();
+    // The continued-processing lease driver (iOS 26+). Inert without the
+    // native module and behind `features.enableJobContinuationLease`; fires
+    // `job_continuation_capabilities` once per launch either way.
+    registerContinuationLease();
     void initAnalytics();
     initializeRevenueCat().catch((error) => {
       console.error('Failed to initialize RevenueCat:', error);
