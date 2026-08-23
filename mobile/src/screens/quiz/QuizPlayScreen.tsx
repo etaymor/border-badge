@@ -781,7 +781,18 @@ const styles = StyleSheet.create({
   },
   // The tall paddingTop is the fade itself: the eased scrim needs room to
   // dissolve the photo into solid navy before the serif prompt begins.
+  //
+  // Anchored to the bottom edge rather than stacked after the flex spacer:
+  // as the last child of a fixed-height column it kept its natural height
+  // (flexShrink is 0), so once the prompt wrapped to two lines and the grid
+  // ran 2x2, the sheet simply spilled past the bottom of the screen and the
+  // second row of answers was unreachable. Growing upward from the bottom
+  // can never do that.
   bottomSheet: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
     paddingHorizontal: 20,
     paddingTop: 108,
   },
