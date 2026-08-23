@@ -24,6 +24,7 @@ import {
   selectRepresentativePhoto,
   selectRepresentativePhotos,
   prepareVisionImage,
+  VISION_IMAGE_TIMEOUT_MS,
   getVisionImagesForCluster,
 } from '../../../services/photoImport/visionPhoto';
 import { getIntentTagsForIds } from '../../../services/photoImport/photoTagDb';
@@ -308,6 +309,39 @@ describe('prepareVisionImage', () => {
 
     expect(result).toBeNull();
     expect(mockManipulate).not.toHaveBeenCalled();
+  });
+
+  // ── Stalled native calls (iCloud-evicted assets) ─────────────────────────
+  //
+  // `Image.getSize` and `manipulateAsync` over a `ph://` asset whose pixels
+  // live only in iCloud can never call back at all — not a rejection, no
+  // callback of either kind. A silent stall here is what freezes the whole
+  // import: preparation never settles, so no suggestion request is ever posted
+  // and every location sits on "Checking this location…" with nothing to retry.
+  describe('stalled native calls', () => {
+    it('gives up on a dimension probe that never calls back', async () => {
+      jest.useFakeTimers();
+      mockGetSize.mockImplementation(() => {});
+
+      const pending = prepareVisionImage('file://evicted.jpg');
+      jest.advanceTimersByTime(VISION_IMAGE_TIMEOUT_MS);
+      const result = await pending;
+
+      expect(result).toBeNull();
+      expect(mockManipulate).not.toHaveBeenCalled();
+      jest.useRealTimers();
+    });
+
+    it('gives up on an encode that never settles', async () => {
+      jest.useFakeTimers();
+      mockManipulate.mockImplementation(() => new Promise(() => {}));
+
+      const pending = prepareVisionImage('file://evicted.jpg', { width: 1600, height: 900 });
+      jest.advanceTimersByTime(VISION_IMAGE_TIMEOUT_MS);
+
+      await expect(pending).resolves.toBeNull();
+      jest.useRealTimers();
+    });
   });
 
   // ── U5/R7: cached dimensions replace the probe decode ────────────────────

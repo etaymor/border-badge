@@ -25,14 +25,52 @@ const VISION_JPEG_QUALITY = 0.8;
 const MAX_VISION_PHOTOS_PER_CLUSTER = 3;
 const MAX_VISION_BASE64_LENGTH = 200_000; // Matches backend 200,000 char limit
 
-function getImageDimensions(photoUri: string): Promise<{ width: number; height: number }> {
-  return new Promise((resolve, reject) => {
-    Image.getSize(
-      photoUri,
-      (width, height) => resolve({ width, height }),
-      () => reject(new Error('Failed to get image size'))
+/**
+ * Bound on ONE photo's native preparation (probe + encode), in ms.
+ *
+ * `Image.getSize` and `manipulateAsync` are the only unbounded waits in the
+ * suggestion pipeline. Over a `ph://` asset whose pixels live only in iCloud
+ * ("Optimize iPhone Storage") either can hang without ever calling back — not a
+ * rejection, so the `catch` below never runs — and a preparation that never
+ * settles freezes the entire import: no batch is posted, no cluster is
+ * attributed a failure, and every location renders a pending row forever.
+ *
+ * Ten seconds is far above a healthy local encode (tens of ms) and below the
+ * batch-level backstop in `suggestionDispatch`, so the tight bound is the one
+ * that normally fires. Timing out costs this photo its vision image, nothing
+ * more — the cluster still goes to the place matcher on its coordinates.
+ */
+export const VISION_IMAGE_TIMEOUT_MS = 10000;
+
+/**
+ * Reject if `work` hasn't settled within `VISION_IMAGE_TIMEOUT_MS`.
+ *
+ * A rejection rather than a null so it lands in the existing `catch` and is
+ * reported through the one failure path. The abandoned promise is left to
+ * settle whenever the native layer gets to it; nothing reads it.
+ */
+function withNativeTimeout<T>(work: Promise<T>, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  const watchdog = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`${label} timed out after ${VISION_IMAGE_TIMEOUT_MS}ms`)),
+      VISION_IMAGE_TIMEOUT_MS
     );
   });
+  return Promise.race([work, watchdog]).finally(() => clearTimeout(timer)) as Promise<T>;
+}
+
+function getImageDimensions(photoUri: string): Promise<{ width: number; height: number }> {
+  return withNativeTimeout(
+    new Promise<{ width: number; height: number }>((resolve, reject) => {
+      Image.getSize(
+        photoUri,
+        (width, height) => resolve({ width, height }),
+        () => reject(new Error('Failed to get image size'))
+      );
+    }),
+    'Image.getSize'
+  );
 }
 
 /**
@@ -230,11 +268,14 @@ export async function prepareVisionImage(
         ]
       : [];
 
-    const result = await manipulateAsync(photoUri, resizeActions, {
-      format: SaveFormat.JPEG,
-      compress: VISION_JPEG_QUALITY,
-      base64: true,
-    });
+    const result = await withNativeTimeout<{ uri: string; base64?: string }>(
+      manipulateAsync(photoUri, resizeActions, {
+        format: SaveFormat.JPEG,
+        compress: VISION_JPEG_QUALITY,
+        base64: true,
+      }),
+      'manipulateAsync'
+    );
     const base64 = result.base64 ?? null;
     if (base64 && base64.length > MAX_VISION_BASE64_LENGTH) {
       if (__DEV__) {

@@ -96,6 +96,25 @@ export const FIRST_CHUNK_SIZE = 2;
 export const SUGGEST_PLACES_TIMEOUT_MS = 90000;
 
 /**
+ * Watchdog on one batch's `prepareBatch` (ms).
+ *
+ * Preparation is native work — `Image.getSize` and `manipulateAsync` over
+ * `ph://` assets — and a native call that never calls back neither resolves nor
+ * rejects. The `catch` around preparation covers a FAILURE; it cannot cover a
+ * stall. Without this bound a worker parks on `await entry.payload` forever, so
+ * no request is ever posted, no cluster is ever attributed a failure, and every
+ * row stays pending behind "Processing 0 of N locations" with nothing to retry.
+ * An iCloud-evicted photo (Optimize iPhone Storage) is the reproducible cause.
+ *
+ * Timing out DEGRADES rather than fails: the batch goes out unprepared, which
+ * the backend already handles — place matching without vision images. Generous
+ * on purpose, because a slow-but-progressing preparation must not be cut off;
+ * the per-cluster bound in `prepareVisionImagesBounded` is the tight one, and
+ * this is the backstop for anything it doesn't cover.
+ */
+export const PREPARE_WATCHDOG_MS = 60000;
+
+/**
  * Upper bound on the client dispatch pool, independent of what the derivation
  * below returns.
  *
@@ -395,6 +414,11 @@ export interface ChunkedPlaceSuggestionResult extends PlaceSuggestionResponse {
  * before that batch is dispatched (U5/R5). Without it, `clusters` must already
  * be complete payloads and is sent as-is.
  */
+/**
+ * Independent holders of the dispatch pause. See `pauseOwners`.
+ */
+export type PauseOwner = 'lifecycle' | 'gallery';
+
 export interface ChunkedPlaceSuggestionRequest extends PlaceSuggestionRequest {
   prepareBatch?: (batch: PlaceSuggestionCluster[]) => Promise<PlaceSuggestionCluster[]>;
   /**
@@ -405,6 +429,11 @@ export interface ChunkedPlaceSuggestionRequest extends PlaceSuggestionRequest {
    * the module constant, so it stays a single over-the-air lever.
    */
   concurrency?: number;
+  /**
+   * Override for `PREPARE_WATCHDOG_MS`. Tests only — app code ships the
+   * constant so the bound stays a single over-the-air lever.
+   */
+  prepareTimeoutMs?: number;
   /**
    * ADDITIVE run: this dispatch is a RETRY of clusters an earlier run left
    * unfinished (U9 bulk retry), not a fresh candidate fetch.
@@ -608,6 +637,22 @@ class SuggestionDispatchController {
    */
   private paused = false;
 
+  /**
+   * Who is currently holding the pause, and why one boolean was not enough.
+   *
+   * Two unrelated things pause dispatch. `lifecycle` is the app backgrounding
+   * (U9/R15/KTD19). `gallery` is the photo gallery being open: preparation is
+   * native image work on Expo's SERIAL async queue, so a 40-location import
+   * encoding vision payloads makes the user's own tap — opening a photo — wait
+   * behind it. The user's interaction wins; the import resumes when they close.
+   *
+   * With a single flag whichever owner resumed LAST won, so closing the gallery
+   * would un-pause a backgrounded import and foregrounding would un-pause one
+   * whose gallery is still open. Each owner now releases only its own hold, and
+   * `paused` stays true while any remain.
+   */
+  private pauseOwners = new Set<PauseOwner>();
+
   /** Resolvers for every worker currently parked on `paused`. */
   private resumeWaiters = new Set<() => void>();
 
@@ -808,7 +853,9 @@ class SuggestionDispatchController {
    * go out burns the serial native queue and pins their memory for the whole
    * background window.
    */
-  pause = (): void => {
+  pause = (owner: PauseOwner = 'lifecycle'): void => {
+    if (this.pauseOwners.has(owner)) return;
+    this.pauseOwners.add(owner);
     if (this.paused) return;
     this.paused = true;
     this.setState({ isPaused: true });
@@ -822,8 +869,9 @@ class SuggestionDispatchController {
    * back into the same bounded pool, so at most `concurrency` batches go on the
    * wire, and the rest follow as those settle.
    */
-  resume = (): void => {
-    if (!this.paused) return;
+  resume = (owner: PauseOwner = 'lifecycle'): void => {
+    if (!this.pauseOwners.delete(owner)) return;
+    if (this.pauseOwners.size > 0) return;
     this.paused = false;
     this.setState({ isPaused: false });
     this.releaseParkedWorkers();
@@ -982,6 +1030,7 @@ class SuggestionDispatchController {
     this.currentGeneration = 0;
     this.activeAborts.clear();
     this.paused = false;
+    this.pauseOwners.clear();
     this.resetTelemetry();
     this.releaseParkedWorkers();
     this.state = INITIAL_STATE;
@@ -1154,7 +1203,7 @@ class SuggestionDispatchController {
     // "retries this import needed" answerable at exit.
     if (!isRetry) this.resetTelemetry();
     // Per-dispatch preparation pipeline (U5/KTD10): serialized, one batch ahead.
-    const startPreparing = createBatchPreparer(request.prepareBatch);
+    const startPreparing = createBatchPreparer(request.prepareBatch, request.prepareTimeoutMs);
 
     // Local accumulator mirrored into state — avoids losing entries to React
     // state batching across concurrent batches. A bulk retry seeds it with the
@@ -1534,15 +1583,46 @@ class SuggestionDispatchController {
  * cannot serialize behind each other.
  */
 function createBatchPreparer(
-  prepare?: (batch: PlaceSuggestionCluster[]) => Promise<PlaceSuggestionCluster[]>
+  prepare?: (batch: PlaceSuggestionCluster[]) => Promise<PlaceSuggestionCluster[]>,
+  timeoutMs: number = PREPARE_WATCHDOG_MS
 ): (batch: PlaceSuggestionCluster[]) => Promise<PlaceSuggestionCluster[]> {
   let prepareTail: Promise<unknown> = Promise.resolve();
 
+  /**
+   * Resolve to the UNPREPARED batch if preparation hasn't settled in time.
+   *
+   * Racing (rather than rejecting) matters twice: the worker gets a payload it
+   * can post, and `prepareTail` chains on the RACE, so a stalled preparation
+   * releases the serialized queue instead of pinning every later batch behind
+   * itself. The abandoned promise is left to settle whenever the native layer
+   * gets around to it; nothing reads it.
+   */
+  const withWatchdog = (
+    work: Promise<PlaceSuggestionCluster[]>,
+    batch: PlaceSuggestionCluster[]
+  ): Promise<PlaceSuggestionCluster[]> => {
+    let timer: ReturnType<typeof setTimeout>;
+    const watchdog = new Promise<PlaceSuggestionCluster[]>((resolve) => {
+      timer = setTimeout(() => {
+        if (__DEV__) {
+          console.warn(
+            `[PhotoImport] Batch preparation exceeded ${timeoutMs}ms, dispatching without it`
+          );
+        }
+        resolve(batch);
+      }, timeoutMs);
+    });
+    return Promise.race([work, watchdog]).finally(() => clearTimeout(timer));
+  };
+
   return (batch) => {
     if (!prepare) return Promise.resolve(batch);
-    const run = prepareTail.then(
-      () => prepare(batch),
-      () => prepare(batch)
+    const run = withWatchdog(
+      prepareTail.then(
+        () => prepare(batch),
+        () => prepare(batch)
+      ),
+      batch
     );
     prepareTail = run.then(
       () => undefined,
