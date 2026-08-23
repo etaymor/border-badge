@@ -728,6 +728,46 @@ export const Analytics = {
       intent_stopped_by: props.intentStoppedBy ?? 'not-due',
     }),
 
+  /**
+   * Which source produced a trip's cover photo, and how the suggestion strip
+   * performed when it was offered.
+   *
+   * `candidate_count` of 0 means the strip was not shown at all (no photo
+   * cache, no tags, or a trip with no country) — the difference between "not
+   * offered" and "offered and ignored" is the whole point of the event, and it
+   * is what decides whether the TripDetail affordance is worth building.
+   */
+  tripCoverSuggestionUsed: (props: {
+    source: 'suggested' | 'picker' | 'camera';
+    candidateCount: number;
+    chosenIndex: number | null;
+  }) =>
+    track('trip_cover_suggestion_used', {
+      source: props.source,
+      candidate_count: props.candidateCount,
+      chosen_index: props.chosenIndex ?? null,
+    }),
+
+  /**
+   * Per import: how many cluster photos were auto-hidden as screenshots or
+   * near-duplicate repeats, and how many the user brought back.
+   *
+   * `restored_count` IS the false-positive rate. The seed rules are pure TS and
+   * OTA-shippable, so a meaningfully non-zero restore count is the signal to
+   * loosen them — the same lever `quiz_prefilter_agreement` provides for the
+   * quiz prefilter, pointed the other way (that one asks whether to tighten).
+   */
+  photoGalleryDeemphasis: (props: {
+    seededCount: number;
+    restoredCount: number;
+    clustersSeeded: number;
+  }) =>
+    track('photo_gallery_deemphasis', {
+      seeded_count: props.seededCount,
+      restored_count: props.restoredCount,
+      clusters_seeded: props.clustersSeeded,
+    }),
+
   // ---------------------------------------------------------------------
   // Guess Where funnel instrumentation
   //

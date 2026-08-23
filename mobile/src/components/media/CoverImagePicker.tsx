@@ -20,28 +20,99 @@ import { env } from '@config/env';
 import { supabase } from '@services/supabase';
 import {
   pickImages,
+  resizeImageForUpload,
   takePhoto,
   validateFile,
   type LocalFile,
   MediaUploadError,
 } from '@services/mediaUpload';
+import { resolveLoadableUri } from '@services/photoImport/resolveLoadableUri';
+import type { CachedPhoto } from '@services/photoImport/types';
+import { useCoverPhotoSuggestions } from '@hooks/useCoverPhotoSuggestions';
+import { Analytics } from '@services/analytics';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { logger } from '@utils/logger';
+
+import { CoverSuggestionStrip } from './CoverSuggestionStrip';
+
+/**
+ * Bound on the native calls a suggested cover goes through (asset re-resolve,
+ * resize). An iCloud-evicted original can leave either pending forever; the
+ * caller falls back to the URI/file it already had rather than hanging the
+ * form. Same idiom as `withNativeTimeout` in visionPhoto.ts.
+ */
+const NATIVE_STEP_TIMEOUT_MS = 15_000;
+
+function withNativeTimeout<T>(work: Promise<T>, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  const watchdog = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`${label} timed out after ${NATIVE_STEP_TIMEOUT_MS}ms`)),
+      NATIVE_STEP_TIMEOUT_MS
+    );
+  });
+  return Promise.race([work, watchdog]).finally(() => clearTimeout(timer)) as Promise<T>;
+}
+
+function mimeTypeForName(name: string): string {
+  const ext = name.split('.').pop()?.toLowerCase();
+  if (ext === 'png') return 'image/png';
+  if (ext === 'heic') return 'image/heic';
+  if (ext === 'heif') return 'image/heif';
+  return 'image/jpeg';
+}
 
 interface CoverImagePickerProps {
   value?: string;
   onChange: (url: string | undefined) => void;
   disabled?: boolean;
+  /**
+   * ISO 3166-1 alpha-2 for the trip's country. Omit (or pass undefined) and the
+   * component is exactly what it was before suggestions existed.
+   */
+  suggestionCountryCode?: string | null;
+  /** Trip window (epoch ms). Applied only when BOTH bounds are present. */
+  suggestionStartDateMs?: number | null;
+  suggestionEndDateMs?: number | null;
 }
 
-export function CoverImagePicker({ value, onChange, disabled = false }: CoverImagePickerProps) {
+export function CoverImagePicker({
+  value,
+  onChange,
+  disabled = false,
+  suggestionCountryCode,
+  suggestionStartDateMs,
+  suggestionEndDateMs,
+}: CoverImagePickerProps) {
   const [localUri, setLocalUri] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
   const abortControllerRef = useRef<AbortController | null>(null);
+
+  /**
+   * Which control started the upload that is currently running, read once when
+   * it succeeds (U5).
+   *
+   * A ref rather than state because nothing renders from it, and it is only
+   * ever written from an event handler — never during render (CLAUDE.md 10).
+   * Success is the only thing worth counting here: `uploadImage` swallows its
+   * own failures into the error banner, so awaiting it says nothing.
+   */
+  const uploadSourceRef = useRef<{
+    source: 'suggested' | 'picker' | 'camera';
+    chosenIndex: number | null;
+  } | null>(null);
+
+  // On-device cover candidates. Empty (and the strip absent) without a country,
+  // without a photo cache, or without tags.
+  const { photos: suggestions } = useCoverPhotoSuggestions(
+    suggestionCountryCode,
+    suggestionStartDateMs,
+    suggestionEndDateMs
+  );
 
   // Cleanup: abort any in-flight upload on unmount
   useEffect(() => {
@@ -133,6 +204,18 @@ export function CoverImagePicker({ value, onChange, disabled = false }: CoverIma
 
         setProgress(100);
         setLocalUri(null);
+        const started = uploadSourceRef.current;
+        uploadSourceRef.current = null;
+        if (started) {
+          // `candidateCount` of 0 means the strip was never offered (no
+          // country, no cache, no tags) — the difference between "not offered"
+          // and "offered and ignored" is what this event exists to answer.
+          Analytics.tripCoverSuggestionUsed({
+            source: started.source,
+            candidateCount: suggestions.length,
+            chosenIndex: started.chosenIndex,
+          });
+        }
         onChange(urlData.publicUrl);
       } catch (err) {
         // Silently ignore aborted requests (component unmounted or new upload started)
@@ -152,13 +235,14 @@ export function CoverImagePicker({ value, onChange, disabled = false }: CoverIma
         }
       }
     },
-    [onChange]
+    [onChange, suggestions.length]
   );
 
   const handlePickImage = useCallback(async () => {
     try {
       const files = await pickImages({ maxCount: 1, allowsEditing: true });
       if (files.length > 0) {
+        uploadSourceRef.current = { source: 'picker', chosenIndex: null };
         await uploadImage(files[0]);
       }
     } catch (err) {
@@ -172,6 +256,7 @@ export function CoverImagePicker({ value, onChange, disabled = false }: CoverIma
     try {
       const file = await takePhoto();
       if (file) {
+        uploadSourceRef.current = { source: 'camera', chosenIndex: null };
         await uploadImage(file);
       }
     } catch (err) {
@@ -180,6 +265,51 @@ export function CoverImagePicker({ value, onChange, disabled = false }: CoverIma
       }
     }
   }, [uploadImage]);
+
+  const handleSuggestionSelect = useCallback(
+    async (photo: CachedPhoto, index: number) => {
+      uploadSourceRef.current = { source: 'suggested', chosenIndex: index };
+      try {
+        // Cover candidates are old photos - exactly the ones iCloud offloads -
+        // so re-resolve a loadable URI before handing it to the manipulator or
+        // the streaming upload. Bounded: an evicted original can hang forever.
+        let uri = photo.uri;
+        try {
+          const fresh = await withNativeTimeout(resolveLoadableUri(photo.id), 'resolveLoadableUri');
+          if (fresh) uri = fresh;
+        } catch {
+          // Keep the scan-time URI; the upload may still succeed with it.
+        }
+
+        const name = photo.filename || `${photo.id}.jpg`;
+        let size = 0;
+        try {
+          size = new ExpoFile(uri).size ?? 0;
+        } catch {
+          // Unknown size: validateFile's 10MB cap can't judge it, and the
+          // resize below usually replaces this file anyway.
+        }
+
+        const original: LocalFile = { uri, name, type: mimeTypeForName(name), size };
+
+        // Cover suggestions are full-resolution originals; downscale before
+        // upload. Falls back to the original on failure OR timeout.
+        let file = original;
+        try {
+          file = await withNativeTimeout(resizeImageForUpload(original), 'resizeImageForUpload');
+        } catch (err) {
+          logger.warn('Cover suggestion resize failed, uploading original:', err);
+        }
+
+        await uploadImage(file);
+      } catch (err) {
+        if (err instanceof MediaUploadError) {
+          Alert.alert('Error', err.message);
+        }
+      }
+    },
+    [uploadImage]
+  );
 
   const handleRemove = useCallback(() => {
     Alert.alert('Remove Cover Image', 'Are you sure you want to remove this image?', [
@@ -241,6 +371,12 @@ export function CoverImagePicker({ value, onChange, disabled = false }: CoverIma
 
   return (
     <View style={styles.container}>
+      <CoverSuggestionStrip
+        photos={suggestions}
+        onSelect={handleSuggestionSelect}
+        disabled={disabled || uploading}
+      />
+
       <Pressable
         style={[styles.picker, disabled && styles.pickerDisabled]}
         onPress={showOptions}
