@@ -18,11 +18,16 @@ import {
   __resetRuntimeForTesting,
   cancelJob,
   getCancelInFlight,
+  getLastProgressAt,
   isJobRunning,
+  markForegroundReturn,
   startJob,
 } from '@services/jobs/jobRuntime';
-import { __resetJobRuntimeStateForTesting } from '@services/jobs/jobRuntimeState';
-import { detectStuckJobs, tryResumeJob } from '@services/jobs/jobResume';
+import {
+  __resetJobRuntimeStateForTesting,
+  registerJobDriver,
+} from '@services/jobs/jobRuntimeState';
+import { detectStuckJobs, tryResumeJob, tryResumeJobs } from '@services/jobs/jobResume';
 import { patchJobSlice, resetLibraryJobStore, useLibraryJobStore } from '@stores/libraryJobStore';
 import type { JobDescriptor } from '@services/jobs/jobRegistry';
 import type { GateOutcome, JobRunContext, LibraryJobKind } from '@services/jobs/jobTypes';
@@ -279,5 +284,136 @@ describe('detectStuckJobs', () => {
     }
     expect(useLibraryJobStore.getState().jobs['trip-scan'].failure?.reason).toBe('stuck');
     expect(isJobRunning('trip-scan')).toBe(false);
+  });
+});
+
+describe('suspended and frozen jobs (continuation hardening)', () => {
+  /**
+   * With a continued-processing lease, a job can be SUSPENDED (the loop
+   * yielded between units and kept the breadcrumb) or FROZEN (iOS stopped the
+   * process mid-unit and thawed it on foreground). Neither is stuck, and
+   * neither is stale just because time passed while the app was away.
+   */
+
+  function withNow<T>(now: number, fn: () => T): T {
+    const realNow = Date.now;
+    Date.now = () => now;
+    try {
+      return fn();
+    } finally {
+      Date.now = realNow;
+    }
+  }
+
+  it('does not mark a suspended job stuck (running slice, not isJobRunning), and resumes it', async () => {
+    const onStart = jest.fn();
+    registerJob(makeDescriptor('trip-scan', { onStart, stuckThresholdMs: 5 * 60 * 1000 }));
+    // The slice still reads `running` — a suspended job keeps it — but the
+    // runtime is not executing it, and its last heartbeat was 6 minutes ago.
+    patchJobSlice('trip-scan', { phase: 'running' });
+    writeBreadcrumb('trip-scan', Date.now() - 6 * 60 * 1000);
+
+    expect(withNow(Date.now() + 6 * 60 * 1000, () => detectStuckJobs())).toEqual([]);
+    expect(useLibraryJobStore.getState().jobs['trip-scan'].phase).toBe('running');
+
+    const results = await tryResumeJobs();
+    expect(results['trip-scan']).toEqual({ status: 'started' });
+    await flush();
+    expect(onStart).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ resumed: true })
+    );
+  });
+
+  it('still marks a job the runtime IS running stuck after the threshold', async () => {
+    registerJob(makeDescriptor('trip-scan', { stuckThresholdMs: 5 * 60 * 1000 }));
+    await startJob('trip-scan', {});
+    await flush();
+    patchJobSlice('trip-scan', { phase: 'running' });
+
+    expect(withNow(Date.now() + 6 * 60 * 1000, () => detectStuckJobs())).toEqual(['trip-scan']);
+  });
+
+  it('measures staleness from lastCheckpointAt, falling back to startedAt', async () => {
+    const THIRTY_MIN = 30 * 60 * 1000;
+    registerJob(makeDescriptor('quiz-build', { stalenessMs: THIRTY_MIN }));
+    mockMetadata.set(
+      'job:quiz-build:state',
+      JSON.stringify({
+        v: 1,
+        startedAt: Date.now() - 40 * 60 * 1000,
+        lastCheckpointAt: Date.now() - 2 * 60 * 1000,
+        options: {},
+      })
+    );
+    expect(await tryResumeJob('quiz-build')).toEqual({ status: 'started' });
+
+    cancelJob('quiz-build');
+    await getCancelInFlight('quiz-build');
+    // No lastCheckpointAt: a 40-minute-old start IS stale.
+    writeBreadcrumb('quiz-build', Date.now() - 40 * 60 * 1000);
+    expect(await tryResumeJob('quiz-build')).toEqual({
+      status: 'failed-gate',
+      gateId: 'staleness',
+    });
+  });
+
+  it('starts a waiting job with resumed:true when its peer is no longer running', async () => {
+    // A scan runs; a quiz queues behind it; the scan then yields (suspended),
+    // which does NOT drain the queue. On the next foreground the scan's
+    // breadcrumb is gone (say a gate cleared it), so the waiting quiz is the
+    // foreground's to start.
+    let yieldNow = false;
+    registerJobDriver({ shouldYield: () => yieldNow });
+    registerJob(
+      makeDescriptor('trip-scan', {
+        steps: [
+          {
+            id: 'one',
+            isDone: (c) => c.n >= 2,
+            run: async (_ctx, c) => {
+              yieldNow = true;
+              return { n: c.n + 1 };
+            },
+          },
+        ],
+      })
+    );
+    const quizOnStart = jest.fn();
+    registerJob(makeDescriptor('quiz-build', { onStart: quizOnStart }));
+
+    await startJob('trip-scan', {});
+    expect(await startJob('quiz-build', { seed: 1 })).toEqual({
+      status: 'queued',
+      blockedBy: 'trip-scan',
+    });
+    await flush(30);
+    expect(isJobRunning('trip-scan')).toBe(false);
+    expect(useLibraryJobStore.getState().jobs['quiz-build'].phase).toBe('waiting');
+    expect(quizOnStart).not.toHaveBeenCalled();
+
+    // The scan's breadcrumb (and its legacy mirror) is cleared out from under it.
+    mockMetadata.delete('job:trip-scan:state');
+    mockMetadata.set('scan_in_progress', 'false');
+    await tryResumeJobs();
+    await flush();
+
+    expect(quizOnStart).toHaveBeenCalledWith(
+      { seed: 1 },
+      expect.objectContaining({ resumed: true })
+    );
+    expect(isJobRunning('quiz-build')).toBe(true);
+  });
+
+  it('markForegroundReturn() re-stamps every running kind so a thaw is not read as silence', async () => {
+    registerJob(makeDescriptor('trip-scan', { stuckThresholdMs: 1000 }));
+    await startJob('trip-scan', {});
+    await flush();
+    patchJobSlice('trip-scan', { phase: 'running' });
+
+    const later = Date.now() + 60_000;
+    withNow(later, () => markForegroundReturn());
+    expect(withNow(later + 500, () => detectStuckJobs())).toEqual([]);
+    expect(getLastProgressAt('trip-scan')).toBe(later);
   });
 });

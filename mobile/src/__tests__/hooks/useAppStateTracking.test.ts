@@ -51,6 +51,7 @@ jest.mock('@services/photoImport', () => ({
 jest.mock('@services/jobs', () => ({
   tryResumeJobs: jest.fn().mockResolvedValue({}),
   detectStuckJobs: jest.fn(() => []),
+  markForegroundReturn: jest.fn(),
   resetAllForUserChange: jest.fn().mockResolvedValue(undefined),
 }));
 
@@ -110,6 +111,34 @@ describe('useAppStateTracking foreground resume', () => {
     expect(jobsMock.tryResumeJobs).toHaveBeenCalledTimes(1);
     expect(jobsMock.detectStuckJobs).toHaveBeenCalledTimes(1);
     expect(photoImportMock.performBackgroundPhotoSync).toHaveBeenCalledWith('US');
+  });
+
+  it('resumes library jobs SYNCHRONOUSLY, before any rAF callback, after stamping the heartbeat', () => {
+    renderHook(() => useAppStateTracking(makeSession('user-1'), jest.fn(), 'US'));
+
+    fireForeground();
+
+    // No frame has run yet. A suspended job whose resume sat in the
+    // cancellable burst could miss its foreground entirely.
+    expect(jobsMock.tryResumeJobs).toHaveBeenCalledTimes(1);
+    expect(jobsMock.markForegroundReturn).toHaveBeenCalledTimes(1);
+    expect(jobsMock.markForegroundReturn.mock.invocationCallOrder[0]).toBeLessThan(
+      jobsMock.tryResumeJobs.mock.invocationCallOrder[0]
+    );
+    // Stuck detection stays in the burst, so it has NOT run yet.
+    expect(jobsMock.detectStuckJobs).not.toHaveBeenCalled();
+  });
+
+  it('a second foreground within the same frame does not cancel the first resume', async () => {
+    renderHook(() => useAppStateTracking(makeSession('user-1'), jest.fn(), 'US'));
+
+    fireForeground();
+    fireForeground();
+    await flushStagger();
+
+    // Both foreground events resumed; the burst cancellation that the second
+    // event performs cannot reach a call that already happened synchronously.
+    expect(jobsMock.tryResumeJobs).toHaveBeenCalledTimes(2);
   });
 
   it('does not resume jobs when unauthenticated', async () => {

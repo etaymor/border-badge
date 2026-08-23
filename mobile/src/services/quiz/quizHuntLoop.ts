@@ -99,6 +99,12 @@ function snapshot(
   };
 }
 
+/** The hunt is over for this run: stop its executing-time clock. */
+function stopped<T>(run: QuizRunState, result: T): T {
+  run.huntClock.stop();
+  return result;
+}
+
 /** Images the SERVER has received for this draft, across suspends. */
 function totalSent(run: QuizRunState): number {
   return run.priorSent + run.session.sentCount;
@@ -137,8 +143,8 @@ export async function runOneHuntPass(
       huntProgress
     );
     env.heartbeat?.();
-    if (result === 'draft-gone') return { status: 'draft-gone' };
-    if (env.signal?.aborted) return { status: 'cancelled' };
+    if (result === 'draft-gone') return stopped(run, { status: 'draft-gone' });
+    if (env.signal?.aborted) return stopped(run, { status: 'cancelled' });
     ledger.topUp();
     reportFound(session, huntProgress);
     return {
@@ -166,8 +172,10 @@ export async function runOneHuntPass(
   }
   // Past the deadline with a playable game in hand: build it. Below the
   // minimum, the deadline is ignored - a slow hunt beats a false decline.
+  // EXECUTING time, not wall time: a process frozen for three minutes while
+  // backgrounded has not spent three minutes classifying (see quizHuntClock).
   if (
-    Date.now() - run.huntStartedAt >= HUNT_SOFT_DEADLINE_MS &&
+    run.huntClock.executingMs() >= HUNT_SOFT_DEADLINE_MS &&
     finalizableCount(run) >= QUIZ_MIN_PHOTOS
   ) {
     return { status: 'done', checkpoint };
@@ -215,8 +223,8 @@ export async function runOneHuntPass(
   );
   env.heartbeat?.();
   const passes = checkpoint.passes + 1;
-  if (result === 'draft-gone') return { status: 'draft-gone' };
-  if (env.signal?.aborted) return { status: 'cancelled' };
+  if (result === 'draft-gone') return stopped(run, { status: 'draft-gone' });
+  if (env.signal?.aborted) return stopped(run, { status: 'cancelled' });
 
   if (result === 'no-images' || result === 'unavailable') {
     // 'no-images': nothing in this draw could be read locally (iCloud-
@@ -275,6 +283,7 @@ export async function settleQuizRun(
   checkpoint: QuizBuildCheckpoint
 ): Promise<SettleResult> {
   const { session } = run;
+  run.huntClock.stop();
   if (env.signal?.aborted) return { status: 'outcome', outcome: { status: 'cancelled' } };
 
   // Repeats are a last resort (KTD12): only when the fresh library ran dry, or

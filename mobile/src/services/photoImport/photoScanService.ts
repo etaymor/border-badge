@@ -268,6 +268,11 @@ registerJob<ScanCheckpoint, PhotoScanStartOptions>({
     // a fresh start, and a resume must never honor `forceRefresh` — that would
     // wipe the cache the interrupted pass had already filled.
     currentRun = { opts: options ?? { homeCountry: null }, resumed: info.resumed };
+    if (info.resumed) {
+      // Mirrors `quizBuildResumed`: the one number that says whether durability
+      // is actually saving scans.
+      Analytics.tripScanResumed({ hadCheckpoint: info.checkpoint !== undefined });
+    }
     // `progress` is cleared here, not by the runtime: a resumed pass restarts
     // its counters from zero, and leaving the previous run's numbers up would
     // show a bar that appears to jump backwards on the first emit.

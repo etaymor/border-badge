@@ -18,12 +18,14 @@ import { clearDurableJob, readDurableJob } from './jobDurableFlag';
 import {
   getCancelInFlight,
   getLastProgressAt,
+  getQueuedJob,
   isAnyLibraryJobRunning,
   isJobRunning,
   markJobFailed,
   startJob,
 } from './jobRuntime';
 import type { GateOutcome, LibraryJobKind } from './jobTypes';
+import { Analytics } from '@services/analytics';
 import { useLibraryJobStore } from '@stores/libraryJobStore';
 
 /**
@@ -70,7 +72,25 @@ export async function tryResumeJobs(): Promise<Record<string, ResumeOutcome>> {
   for (const descriptor of allDescriptors()) {
     results[descriptor.kind] = await tryResumeJob(descriptor.kind);
   }
+  await resumeWaitingJob();
   return results;
+}
+
+/**
+ * Start the job left `waiting` behind a peer that is no longer running.
+ *
+ * The runtime drains its queue when the running job settles — EXCEPT when it
+ * settled `suspended`, because a yield means the process is about to stop
+ * executing and a job started then could never have acquired a lease. So a
+ * waiting job whose peer suspended (or whose peer's breadcrumb was cleared by
+ * a gate while the app was away) is the foreground's to start, and it goes
+ * through the same serialized `resumed` path as everything else here.
+ */
+async function resumeWaitingJob(): Promise<void> {
+  if (isAnyLibraryJobRunning()) return;
+  const waiting = getQueuedJob();
+  if (!waiting) return;
+  await startJob(waiting.kind, waiting.options, { resumed: true });
 }
 
 export async function tryResumeJob(kind: LibraryJobKind): Promise<ResumeOutcome> {
@@ -90,13 +110,18 @@ export async function tryResumeJob(kind: LibraryJobKind): Promise<ResumeOutcome>
 
   // Staleness is checked before the other job's lock so a dead breadcrumb is
   // cleared promptly rather than lingering behind a long-running sibling.
-  if (Date.now() - record.startedAt > descriptor.stalenessMs) {
+  // Measured from the LAST CHECKPOINT, not the start: a job that has been
+  // checkpointing for 40 minutes is long, not dead. Legacy records without the
+  // field fall back to `startedAt`.
+  const freshestAt = Math.max(record.startedAt, record.lastCheckpointAt ?? 0);
+  if (Date.now() - freshestAt > descriptor.stalenessMs) {
     await clearDurableJob(kind);
     markJobFailed(kind, {
       reason: 'stale',
       title: 'Scan Stopped',
       message: 'The previous scan was interrupted. Tap to start over.',
     });
+    Analytics.jobResumeGateHit({ kind, gateId: 'staleness' });
     return { status: 'failed-gate', gateId: 'staleness' };
   }
 
@@ -116,6 +141,7 @@ export async function tryResumeJob(kind: LibraryJobKind): Promise<ResumeOutcome>
     if (outcome.status === 'fail') {
       await clearDurableJob(kind);
       markJobFailed(kind, outcome.failure);
+      Analytics.jobResumeGateHit({ kind, gateId: gate.id });
       return { status: 'failed-gate', gateId: gate.id };
     }
   }
@@ -132,6 +158,13 @@ export async function tryResumeJob(kind: LibraryJobKind): Promise<ResumeOutcome>
  * Surface a `failed` state when a job is supposedly running but hasn't made
  * progress for its descriptor's threshold. Safe to call on any tick.
  *
+ * Only a job the runtime is ACTUALLY running can be stuck. A `running` slice
+ * whose kind is not `isJobRunning` is a suspended job — the loop yielded
+ * between units (lease expiry, background task) and kept the breadcrumb — and
+ * it belongs to `tryResumeJobs`, not here. Callers stamp `markForegroundReturn`
+ * before this on foreground, so time the process spent frozen is not counted
+ * as silence either.
+ *
  * This is only correct if long-running steps call `ctx.heartbeat()`. A step
  * that can exceed the threshold between checkpoints without a heartbeat will
  * be killed while perfectly healthy.
@@ -142,6 +175,7 @@ export function detectStuckJobs(): LibraryJobKind[] {
   for (const descriptor of allDescriptors()) {
     const kind = descriptor.kind;
     if (state.jobs[kind].phase !== 'running') continue;
+    if (!isJobRunning(kind)) continue;
     const lastAt = getLastProgressAt(kind);
     if (lastAt === 0) continue; // Just started; no progress yet is fine.
     if (Date.now() - lastAt <= descriptor.stuckThresholdMs) continue;

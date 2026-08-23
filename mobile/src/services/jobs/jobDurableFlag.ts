@@ -33,6 +33,13 @@ export interface DurableJobRecord {
   startedAt: number;
   options?: unknown;
   checkpoint?: unknown;
+  /**
+   * When the checkpoint was last written. Staleness is measured from the most
+   * recent of this and `startedAt`: a job that has been running (and
+   * checkpointing) for 40 minutes is not dead, it is long. Absent on records
+   * written before this field existed; readers fall back to `startedAt`.
+   */
+  lastCheckpointAt?: number;
 }
 
 function keyFor(kind: LibraryJobKind): string {
@@ -94,7 +101,10 @@ export async function saveDurableCheckpoint(
 ): Promise<void> {
   const existing = await readDurableJob(kind);
   if (!existing) return;
-  await setMetadata(keyFor(kind), JSON.stringify({ ...existing, v: RECORD_VERSION, checkpoint }));
+  await setMetadata(
+    keyFor(kind),
+    JSON.stringify({ ...existing, v: RECORD_VERSION, checkpoint, lastCheckpointAt: Date.now() })
+  );
 }
 
 /**

@@ -99,3 +99,26 @@ describe('saveDurableCheckpoint', () => {
     expect(await readDurableJob('quiz-build')).toBeNull();
   });
 });
+
+describe('lastCheckpointAt', () => {
+  it('is stamped by saveDurableCheckpoint and read back', async () => {
+    const realNow = Date.now;
+    Date.now = () => 1_000_000;
+    try {
+      await writeDurableJob('quiz-build', { startedAt: 7 });
+      await saveDurableCheckpoint('quiz-build', { stage: 'hunt' });
+    } finally {
+      Date.now = realNow;
+    }
+    const record = await readDurableJob('quiz-build');
+    expect(record?.lastCheckpointAt).toBe(1_000_000);
+    expect(record?.startedAt).toBe(7);
+  });
+
+  it('legacy records without it still parse, with the field absent', async () => {
+    await writeDurableJob('trip-scan', { startedAt: 7, checkpoint: { done: false } });
+    const record = await readDurableJob('trip-scan');
+    expect(record).toMatchObject({ startedAt: 7, checkpoint: { done: false } });
+    expect(record?.lastCheckpointAt).toBeUndefined();
+  });
+});

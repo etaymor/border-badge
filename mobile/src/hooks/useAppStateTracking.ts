@@ -13,6 +13,7 @@ import { performBackgroundPhotoSync, resetForUserChange } from '@services/photoI
 import { suggestionDispatch } from '@services/photoImport/suggestionDispatch';
 import {
   detectStuckJobs,
+  markForegroundReturn,
   resetAllForUserChange as resetAllJobsForUserChange,
   tryResumeJobs,
 } from '@services/jobs';
@@ -135,6 +136,21 @@ export function useAppStateTracking(
         // expensive jobs belong in the stagger.
         suggestionDispatch.resume();
 
+        // Library jobs — the trip scan and the quiz build — resume
+        // SYNCHRONOUSLY here, for the same reason as the dispatch resume
+        // above: as a member of the staggered burst this ran six frames later
+        // and was cancelled wholesale by the effect cleanup or by the next
+        // foreground event, and a suspended job that misses its resume stays
+        // suspended until the user happens to foreground again. The heartbeat
+        // stamp comes first so a job frozen while the app was away is not
+        // read as "stopped making progress" by the stuck check in the burst.
+        if (userId) {
+          markForegroundReturn();
+          tryResumeJobs().catch((err) => {
+            if (__DEV__) console.warn('[AppStateTracking] tryResumeJobs failed:', err);
+          });
+        }
+
         // Build the foreground job list. WHAT runs is unchanged from before —
         // these jobs are only spread across successive frames (see
         // scheduleStaggered) so resume doesn't spike a single frame.
@@ -171,16 +187,9 @@ export function useAppStateTracking(
             () => {
               void checkAppGroupForSharedURL();
             },
-            // Every library job — the trip scan and the quiz build — in ONE
-            // entry. They used to be two, because the scan had its own resume
-            // path; now both run the same gate check, transition their slice to
-            // `failed` when a gate trips, and otherwise restart from the
-            // durable checkpoint. Also surface a stuck-detection check for
-            // anything that claims to be running.
+            // Stuck detection for anything that claims to be running. Resume
+            // itself runs synchronously above, outside the cancellable burst.
             () => {
-              tryResumeJobs().catch((err) => {
-                if (__DEV__) console.warn('[AppStateTracking] tryResumeJobs failed:', err);
-              });
               detectStuckJobs();
             },
             // Background photo sync - silently cache new photos for faster photo

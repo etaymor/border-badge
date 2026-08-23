@@ -55,6 +55,17 @@ jest.mock('@services/quiz/quizAssets', () => ({
   recordQuizAssets: jest.fn().mockResolvedValue(undefined),
 }));
 
+/**
+ * The hunt's soft deadline reads EXECUTING time from `quizHuntClock`, not the
+ * wall clock, so a test drives it directly. `var` because the mock factory is
+ * hoisted above any `let`.
+ */
+// eslint-disable-next-line no-var
+var mockExecutingMs = 0;
+jest.mock('@services/quiz/quizHuntClock', () => ({
+  createHuntClock: () => ({ executingMs: () => mockExecutingMs, stop: jest.fn() }),
+}));
+
 jest.mock(
   'expo-image-manipulator',
   () => ({
@@ -137,6 +148,7 @@ function eligibilityBatches(): string[][] {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockExecutingMs = 0;
 
   mockGetAllCountries.mockResolvedValue([
     { code: 'FR' },
@@ -435,22 +447,42 @@ describe('createQuizFromLibrary - resampling and declines', () => {
   });
 
   it('builds the game it has once the soft deadline passes', async () => {
+    mockGetAllCachedPhotos.mockResolvedValue(buildCachedLibrary(600));
+    let seen = 0;
+    verdictFor = () => {
+      seen += 1;
+      // Six photos found, then the hunt crosses 90 s of EXECUTING time looking
+      // for a seventh.
+      if (seen === 50) mockExecutingMs = 95_000;
+      return seen <= 6 ? { eligible: true } : { eligible: false, reason: 'indoor' };
+    };
+
+    const outcome = await createQuizFromLibrary();
+
+    // A playable game in hand beats a longer wait for a fuller one.
+    expect(outcome).toMatchObject({ status: 'created', photoCount: 6 });
+    expect(eligibilityBatches()).toHaveLength(1);
+  });
+
+  it('does not finalize at the minimum when only the WALL clock jumped (a frozen gap)', async () => {
+    // iOS froze the process for three minutes mid-hunt. Date.now() says 180 s
+    // passed; the clock credits one capped tick. Six photos in hand must not
+    // become the game the user gets just because they pressed home.
     const clock = jest.spyOn(Date, 'now').mockReturnValue(1_000_000);
     try {
       mockGetAllCachedPhotos.mockResolvedValue(buildCachedLibrary(600));
       let seen = 0;
       verdictFor = () => {
         seen += 1;
-        // Six photos found, then the hunt crosses 90s looking for a seventh.
-        if (seen === 50) clock.mockReturnValue(1_000_000 + 95_000);
-        return seen <= 6 ? { eligible: true } : { eligible: false, reason: 'indoor' };
+        if (seen === 50) clock.mockReturnValue(1_000_000 + 180_000);
+        return seen <= 6 || seen > 80 ? { eligible: true } : { eligible: false, reason: 'indoor' };
       };
 
       const outcome = await createQuizFromLibrary();
 
-      // A playable game in hand beats a longer wait for a fuller one.
-      expect(outcome).toMatchObject({ status: 'created', photoCount: 6 });
-      expect(eligibilityBatches()).toHaveLength(1);
+      // The hunt kept going past the gap and found the rest of the game.
+      expect(outcome).toMatchObject({ status: 'created', photoCount: 10 });
+      expect(eligibilityBatches().length).toBeGreaterThan(1);
     } finally {
       clock.mockRestore();
     }

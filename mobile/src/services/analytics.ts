@@ -802,6 +802,17 @@ export const Analytics = {
       found_count: props.foundCount,
     }),
 
+  /** The trip-scan mirror of `quizBuildResumed`: a suspended scan picked back up. */
+  tripScanResumed: (props: { hadCheckpoint: boolean }) =>
+    track('trip_scan_resumed', { had_checkpoint: props.hadCheckpoint }),
+
+  /**
+   * A resume gate tripped and the breadcrumb was cleared instead of resumed.
+   * `gateId` is `staleness` or a descriptor gate id.
+   */
+  jobResumeGateHit: (props: { kind: string; gateId: string }) =>
+    track('job_resume_gate_hit', { kind: props.kind, gate_id: props.gateId }),
+
   quizPhotoPermissionResult: (props: { status: string; entryPoint: QuizEntryPoint }) =>
     track('quiz_photo_permission_result', {
       status: props.status,

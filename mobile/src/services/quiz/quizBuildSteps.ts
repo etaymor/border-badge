@@ -45,6 +45,7 @@ let outcome: QuizCreationOutcome | null = null;
 
 /** Drop everything from a previous build. Called by both drivers before the first unit. */
 export function beginQuizRun(): void {
+  run?.huntClock.stop();
   run = null;
   pendingUpload = null;
   outcome = null;
@@ -115,6 +116,7 @@ async function restartAfterDraftGone(
   if (checkpoint.restarted) {
     return finish(checkpoint, { status: 'service-error', stage: 'classify' });
   }
+  run?.huntClock.stop();
   run = null;
   pendingUpload = null;
   return restartCheckpoint(CLASSIFICATION_BUDGET_PER_QUIZ);
@@ -131,6 +133,7 @@ export async function advanceQuizBuild(
   checkpoint: QuizBuildCheckpoint
 ): Promise<QuizBuildCheckpoint> {
   if (env.signal?.aborted) {
+    run?.huntClock.stop();
     // A cancel AFTER the challenge exists must not overwrite it with
     // 'cancelled' - the user would lose a finished game to a stopped
     // continuation. Only an abort with nothing built yet is a cancellation.

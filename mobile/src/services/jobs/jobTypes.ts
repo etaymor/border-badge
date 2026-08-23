@@ -155,6 +155,7 @@ export interface GateRecord {
   startedAt: number;
   options?: unknown;
   checkpoint?: unknown;
+  lastCheckpointAt?: number;
 }
 
 export type GateOutcome =

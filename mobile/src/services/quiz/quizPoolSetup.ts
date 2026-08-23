@@ -42,6 +42,8 @@ import { decoratePoolWithTags, formatTagFunnel } from './quizCandidateTags';
 import type { DecoratedPool } from './quizCandidateTags';
 import { discardDraft, getUsedAssetIds, loadDraftState, saveDraftState } from './quizDraftStore';
 import { rehydrateLedger } from './quizCheckpoint';
+import { createHuntClock } from './quizHuntClock';
+import type { HuntClock } from './quizHuntClock';
 import type { QuizBuildCheckpoint } from './quizCheckpoint';
 import { computeAgreement } from './tagAgreement';
 import { loadCurrentVerdicts, seedFromVerdicts } from './quizVerdictStore';
@@ -69,9 +71,16 @@ export interface QuizRunState {
   /**
    * When THIS process started hunting. Deliberately not in the checkpoint: the
    * soft deadline exists to cap how long a user waits, and time the app spent
-   * suspended is not time anyone waited.
+   * suspended is not time anyone waited. Used for the funnel log only; the
+   * deadline itself reads `huntClock`.
    */
   huntStartedAt: number;
+  /**
+   * Executing-time accumulator for the soft deadline. Wall-clock time counts
+   * frozen minutes (iOS < 26 backgrounding) as hunting; this does not. See
+   * `quizHuntClock`.
+   */
+  huntClock: HuntClock;
   /** Images sent / photos passed BEFORE this process took over, from the checkpoint. */
   priorSent: number;
   priorEligible: number;
@@ -329,6 +338,7 @@ export async function setUpQuizRun(
     seededEligible,
     draftCreatedAt: persisted?.createdAt ?? Date.now(),
     huntStartedAt: Date.now(),
+    huntClock: createHuntClock(),
     priorSent: checkpoint.sentCount,
     priorEligible: checkpoint.gateEligible,
     firstBatch: [],
