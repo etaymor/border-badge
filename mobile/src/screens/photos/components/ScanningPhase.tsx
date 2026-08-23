@@ -12,6 +12,7 @@ import { ActivityIndicator, Text, TouchableOpacity, View } from 'react-native';
 import type { ScanProgress } from '@services/photoImport';
 import { colors } from '@constants/colors';
 import { SCAN_COPY } from '@constants/scanCopy';
+import { useLeaseKeepsRunning } from '@hooks/useContinuationLeaseState';
 import { styles } from '../photoImportStyles';
 
 export interface ScanningPhaseProps {
@@ -31,6 +32,9 @@ export function ScanningPhase({
   scanFailure,
   onRetryScan,
 }: ScanningPhaseProps) {
+  // Tier-gated hint: only while a continued-processing lease is actually held.
+  const leaseKeepsRunning = useLeaseKeepsRunning();
+
   if (scanFailure) {
     return (
       <View style={styles.scanningContainer}>
@@ -61,7 +65,11 @@ export function ScanningPhase({
       <View style={styles.progressBar}>
         <View style={[styles.progressFill, { width: `${scanProgress?.percentage ?? 0}%` }]} />
       </View>
-      <Text style={styles.scanningHint}>{SCAN_COPY.shared.persistenceParagraph}</Text>
+      <Text style={styles.scanningHint}>
+        {leaseKeepsRunning
+          ? SCAN_COPY.shared.persistenceParagraphWhileLeased('trip-scan')
+          : SCAN_COPY.shared.persistenceParagraph}
+      </Text>
       {scanProgress?.discoveredCountries && scanProgress.discoveredCountries.length > 0 && (
         // Announced live: this is the longest wait in the app, and the finds
         // are the only evidence anything is happening. The country NAME, not

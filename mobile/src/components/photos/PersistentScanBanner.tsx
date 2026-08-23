@@ -31,6 +31,7 @@ import type { RootStackParamList } from '@navigation/types';
 
 import { colors, withAlpha } from '@constants/colors';
 import { SCAN_COPY } from '@constants/scanCopy';
+import { useLeaseKeepsRunning } from '@hooks/useContinuationLeaseState';
 import { HIDDEN_TAB_BAR_SCREENS } from '@navigation/hiddenTabBarScreens';
 import { consumeResult } from '@services/photoImport';
 import { patchJobSlice, selectActiveJob, useLibraryJobStore } from '@stores/libraryJobStore';
@@ -61,6 +62,9 @@ export function PersistentScanBanner({ focusedLeaf, navigation }: PersistentScan
   // snapshot on every render. `jobs` is a stable reference between writes.
   const jobs = useLibraryJobStore((s) => s.jobs);
   const active = useMemo(() => selectActiveJob({ jobs }), [jobs]);
+  // Tier-gated: true only while a continued-processing lease is actually
+  // running. `pending` / `expired` / grace render today's hint unchanged.
+  const leaseKeepsRunning = useLeaseKeepsRunning();
 
   const insets = useSafeAreaInsets();
 
@@ -89,12 +93,16 @@ export function PersistentScanBanner({ focusedLeaf, navigation }: PersistentScan
 
     if (active.phase === 'running' || active.phase === 'waiting') {
       const copyState = active.phase === 'waiting' ? 'waiting' : 'running';
+      const hint = SCAN_COPY.banner.hint(active.kind, copyState);
       return {
         kind: active.kind,
         state: 'running',
         percentage: active.percentage,
         label: SCAN_COPY.banner.label(active.kind, copyState, active.percentage),
-        hint: SCAN_COPY.banner.hint(active.kind, copyState),
+        hint:
+          leaseKeepsRunning && active.phase === 'running'
+            ? `${hint}. ${SCAN_COPY.shared.leaveHintWhileLeased(active.kind)}`
+            : hint,
       };
     }
 
@@ -119,7 +127,7 @@ export function PersistentScanBanner({ focusedLeaf, navigation }: PersistentScan
     }
 
     return null;
-  }, [active]);
+  }, [active, leaseKeepsRunning]);
 
   const handlePress = useCallback(() => {
     if (!view) return;

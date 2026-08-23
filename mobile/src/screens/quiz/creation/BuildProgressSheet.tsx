@@ -17,6 +17,7 @@ import Animated, { FadeIn } from 'react-native-reanimated';
 
 import { Button } from '@components/ui/Button';
 import { SCAN_COPY } from '@constants/scanCopy';
+import { useLeaseKeepsRunning } from '@hooks/useContinuationLeaseState';
 
 import { DURATION_BASE } from '../components/motionTokens';
 import { styles } from './quizCreationStyles';
@@ -40,6 +41,8 @@ export function BuildProgressSheet({
   onStop,
 }: BuildProgressSheetProps) {
   const { step, pickUris, uploading, uploadedCount, barFraction } = build;
+  // Tier-gated hint: only while a continued-processing lease is actually held.
+  const leaseKeepsRunning = useLeaseKeepsRunning();
 
   return (
     <View style={styles.sheetContent} testID="quiz-progress">
@@ -129,7 +132,9 @@ export function BuildProgressSheet({
         {SCAN_COPY.quiz.workingPrivacy[1]}
       </Text>
       <Text style={styles.privacyLine} testID="quiz-persistence-line">
-        {SCAN_COPY.shared.persistenceParagraph}
+        {leaseKeepsRunning
+          ? SCAN_COPY.shared.persistenceParagraphWhileLeased('quiz-build')
+          : SCAN_COPY.shared.persistenceParagraph}
       </Text>
 
       {/* Leaving is now the safe, ordinary action - the build outlives

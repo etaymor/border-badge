@@ -41,6 +41,13 @@ function allStrings(): Array<[string, string]> {
   push('shared.leaveHint', shared.leaveHint);
   push('shared.resumeHint', shared.resumeHint);
   push('shared.persistenceParagraph', shared.persistenceParagraph);
+  for (const kind of ['trip-scan', 'quiz-build'] as const) {
+    push(`shared.leaveHintWhileLeased(${kind})`, shared.leaveHintWhileLeased(kind));
+    push(
+      `shared.persistenceParagraphWhileLeased(${kind})`,
+      shared.persistenceParagraphWhileLeased(kind)
+    );
+  }
   for (const total of [0, 900, 4_999, 12_000, 53_282]) {
     for (const first of [true, false]) {
       push(`shared.scaleLine(${total}, ${first})`, shared.scaleLine(total, first));
@@ -143,6 +150,26 @@ describe('SCAN_COPY - banned phrases', () => {
         matched: false,
       });
     }
+  });
+});
+
+describe('SCAN_COPY - the tier-gated leave hint', () => {
+  it('keeps the resume story intact and separate from the leased hint', () => {
+    expect(SCAN_COPY.shared.resumeHint).toMatch(/pauses/);
+    expect(SCAN_COPY.shared.resumeHint).toMatch(/picks up where it left off/);
+    expect(SCAN_COPY.shared.resumeHint).not.toMatch(/keeps going for a while/);
+    // The leased paragraph REPLACES the resume sentence rather than stacking a
+    // third one; the leave sentence (top-of-screen line) stays.
+    for (const kind of ['trip-scan', 'quiz-build'] as const) {
+      expect(SCAN_COPY.shared.persistenceParagraphWhileLeased(kind)).toContain(
+        SCAN_COPY.shared.leaveHint
+      );
+      expect(SCAN_COPY.shared.persistenceParagraphWhileLeased(kind)).toContain(
+        SCAN_COPY.shared.leaveHintWhileLeased(kind)
+      );
+    }
+    expect(SCAN_COPY.shared.leaveHintWhileLeased('trip-scan')).toMatch(/the scan keeps going/);
+    expect(SCAN_COPY.shared.leaveHintWhileLeased('quiz-build')).toMatch(/the build keeps going/);
   });
 });
 

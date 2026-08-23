@@ -87,6 +87,26 @@ const resumeHint =
 const persistenceParagraph = `${leaveHint} ${resumeHint}`;
 
 /**
+ * THE ONE TIER-GATED EXCEPTION to the persistence story. Rendered ONLY while
+ * a continued-processing lease is actually running (`continuationLeaseStore`
+ * phase `running`, tier `continued`) — not merely because the capability
+ * exists, and never for the grace window, which cannot honor it. It keeps the
+ * "leave" vocabulary and still never says "background" or "while the app is
+ * closed": what it promises is what iOS 26's continued-processing task
+ * actually does — keeps going for a while after the user leaves, with progress
+ * in the system's own UI.
+ */
+function leaveHintWhileLeased(kind: ScanJobKind): string {
+  const noun = kind === 'quiz-build' ? 'build' : 'scan';
+  return `If you leave the app, the ${noun} keeps going for a while and shows its progress at the top of your screen.`;
+}
+
+/** The paragraph the scanning surfaces render while a lease is running. */
+function persistenceParagraphWhileLeased(kind: ScanJobKind): string {
+  return `${leaveHint} ${leaveHintWhileLeased(kind)}`;
+}
+
+/**
  * Magnitude, stated ONCE and up front — where it is context rather than a
  * wait. Returns '' for an unknown total: rendering nothing beats guessing.
  */
@@ -285,6 +305,8 @@ export const SCAN_COPY = {
     leaveHint,
     resumeHint,
     persistenceParagraph,
+    leaveHintWhileLeased,
+    persistenceParagraphWhileLeased,
     scaleLine,
     durationLine,
   },

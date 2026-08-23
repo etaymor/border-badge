@@ -16,6 +16,11 @@ import {
   resetLibraryJobStore,
   useLibraryJobStore,
 } from '../../../stores/libraryJobStore';
+import {
+  publishContinuationLease,
+  resetContinuationLeaseStore,
+} from '../../../stores/continuationLeaseStore';
+import { SCAN_COPY } from '../../../constants/scanCopy';
 
 let mockFocusedLeaf: string | undefined = 'Passport';
 const mockNavigate = jest.fn();
@@ -42,7 +47,48 @@ const renderBanner = () =>
 beforeEach(() => {
   jest.clearAllMocks();
   resetLibraryJobStore();
+  resetContinuationLeaseStore();
   mockFocusedLeaf = 'Passport';
+});
+
+describe('PersistentScanBanner tier-gated leave hint', () => {
+  const leased = SCAN_COPY.shared.leaveHintWhileLeased('trip-scan');
+
+  it('shows the hint only while the lease is running on the continued tier', () => {
+    patchJobSlice('trip-scan', {
+      phase: 'running',
+      progress: { phase: 'scanning', current: 1, total: 10, percentage: 10 },
+    });
+    publishContinuationLease({ phase: 'running', tier: 'continued', kind: 'trip-scan' });
+    const { getByLabelText } = renderBanner();
+    expect(getByLabelText('Photo scan in progress, 10%').props.accessibilityHint).toContain(leased);
+  });
+
+  it.each([
+    ['idle', 'none'],
+    ['pending', 'continued'],
+    ['expired', 'continued'],
+    ['running', 'grace'],
+  ] as const)("shows today's copy when the lease is %s/%s", (phase, tier) => {
+    patchJobSlice('trip-scan', {
+      phase: 'running',
+      progress: { phase: 'scanning', current: 1, total: 10, percentage: 10 },
+    });
+    publishContinuationLease({ phase, tier, kind: 'trip-scan' });
+    const { getByLabelText } = renderBanner();
+    const hint = getByLabelText('Photo scan in progress, 10%').props.accessibilityHint as string;
+    expect(hint).toBe(SCAN_COPY.banner.hint('trip-scan', 'running'));
+    expect(hint).not.toContain(leased);
+  });
+
+  it('never decorates a waiting job, even with a lease running for its peer', () => {
+    patchJobSlice('quiz-build', { phase: 'waiting' });
+    publishContinuationLease({ phase: 'running', tier: 'continued', kind: 'trip-scan' });
+    const { getByLabelText } = renderBanner();
+    const hint = getByLabelText('Guess Where challenge queued behind your photo scan').props
+      .accessibilityHint as string;
+    expect(hint).not.toContain('keeps going');
+  });
 });
 
 describe('PersistentScanBanner visibility', () => {
