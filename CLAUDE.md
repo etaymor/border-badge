@@ -227,7 +227,7 @@ System trips (e.g. "Saved Places") use the `is_system` flag and have nullable `c
 | `STYLEGUIDE.md`                           | Design system reference       |
 | `docs/travel-prd.md`                      | Product requirements          |
 | `docs/travel-technical-design.md`         | Technical design              |
-| `docs/photo-import.md`                    | Photo import + vision pipeline; "Library job runtime and continuation" (job runtime, drivers, iOS 26 continued-processing lease) |
+| `docs/photo-import.md`                    | Photo import + vision pipeline; "Photo Quality Signal Layer" (intent tags, ranking, signal consumers); "Library job runtime and continuation" (job runtime, drivers, iOS 26 continued-processing lease) |
 | `docs/authentication.md`                  | Auth screens, flow, hooks     |
 | `docs/environment-setup.md`               | Full env var reference        |
 | `docs/SUBSCRIPTION.md`                    | Subscription system setup     |
