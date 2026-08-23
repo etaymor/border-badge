@@ -91,14 +91,27 @@ export function verdictsForShare(
   return verdicts;
 }
 
-function gridForShare(details: ChallengeShareDetails): string | null {
-  const verdicts = details.verdicts;
-  if (!verdicts?.length || !details.score) return null;
-  const correctCount = verdicts.filter(Boolean).length;
-  if (verdicts.length !== details.score.total || correctCount !== details.score.correct) {
-    return null;
+/**
+ * First candidate whose length matches the official total. Server seeding
+ * verdicts win over local play-state: the share grid is the score-to-beat
+ * pattern, not whatever is left on disk after a replay or a failed persist.
+ */
+export function pickShareVerdicts(
+  score: ChallengeScore | null,
+  ...candidates: Array<readonly boolean[] | null | undefined>
+): boolean[] | null {
+  if (!score) return null;
+  for (const candidate of candidates) {
+    if (candidate && candidate.length === score.total) {
+      return [...candidate];
+    }
   }
-  return buildVerdictGrid(verdicts);
+  return null;
+}
+
+function gridForShare(details: ChallengeShareDetails): string | null {
+  const verdicts = pickShareVerdicts(details.score, details.verdicts);
+  return verdicts ? buildVerdictGrid(verdicts) : null;
 }
 
 export function buildChallengeMessage(details: ChallengeShareDetails): string {

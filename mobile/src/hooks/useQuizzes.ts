@@ -39,6 +39,8 @@ export interface QuizDetail {
   score_to_beat?: QuizScoreToBeat | null;
   slug?: string | null;
   share_url?: string | null;
+  /** Seeding-play correctness in question order; null until the owner finishes. */
+  owner_verdicts?: boolean[] | null;
 }
 
 export const QUIZZES_QUERY_KEY = ['quizzes'];
@@ -117,6 +119,7 @@ export interface QuizCompleteResult {
   total: number;
   score_to_beat: QuizScoreToBeat;
   state: string;
+  owner_verdicts?: boolean[] | null;
 }
 
 // Matches backend QuizShareResponse.

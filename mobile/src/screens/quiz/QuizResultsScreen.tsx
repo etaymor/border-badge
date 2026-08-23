@@ -81,7 +81,7 @@ import {
   DURATION_HERO,
   DURATION_SLOW,
 } from './components/motionTokens';
-import { presentChallengeShare, verdictsForShare } from './shareChallenge';
+import { pickShareVerdicts, presentChallengeShare, verdictsForShare } from './shareChallenge';
 import { sortQuestionsByPosition } from './questionOrder';
 
 type Props = RootStackScreenProps<'QuizResults'>;
@@ -276,20 +276,25 @@ export function QuizResultsScreen({ navigation, route }: Props) {
       // Read play state and questions at share time, not from the render
       // that opened the sheet: a tap can land before the recap's local
       // answers have committed, and that stale closure would drop the grid.
-      const latestPlay = await loadPlayState(quizId);
-      const latestQuestions =
-        questions.length > 0
-          ? questions
-          : sortQuestionsByPosition((await refetch()).data?.questions ?? []);
+      const latestPlay = playState ?? (await loadPlayState(quizId));
+      const latestQuiz = questions.length > 0 ? quiz : (await refetch()).data;
+      const latestQuestions = latestQuiz
+        ? sortQuestionsByPosition(latestQuiz.questions)
+        : questions;
       await presentChallengeShare(shared.share_url, {
         quizId,
         source: 'results',
         score: scoreToBeat,
         photoCount: latestQuestions.length || null,
-        verdicts: verdictsForShare(
-          latestQuestions.map((question) => question.id),
-          latestPlay?.answers,
-          scoreToBeat
+        verdicts: pickShareVerdicts(
+          scoreToBeat,
+          results?.owner_verdicts,
+          latestQuiz?.owner_verdicts,
+          verdictsForShare(
+            latestQuestions.map((question) => question.id),
+            latestPlay?.answers,
+            scoreToBeat
+          )
         ),
       });
     } catch (error) {

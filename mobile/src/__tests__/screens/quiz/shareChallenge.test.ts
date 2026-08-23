@@ -17,6 +17,7 @@ import { Platform } from 'react-native';
 import {
   buildChallengeMessage,
   buildVerdictGrid,
+  pickShareVerdicts,
   presentChallengeShare,
   verdictsForShare,
 } from '@screens/quiz/shareChallenge';
@@ -103,6 +104,23 @@ describe('verdictsForShare', () => {
 
   it('drops the grid when local answers disagree with the seeded score', () => {
     expect(verdictsForShare(ids, answers, { correct: 4, total: 5 })).toBeNull();
+  });
+});
+
+describe('pickShareVerdicts', () => {
+  const score = { correct: 3, total: 5 };
+  const server = [true, false, true, false, true];
+
+  it('prefers the first candidate whose length matches the official total', () => {
+    expect(pickShareVerdicts(score, server, [true, true, true, true, true])).toEqual(server);
+  });
+
+  it('skips a missing or short candidate and uses the next', () => {
+    expect(pickShareVerdicts(score, null, [true, false], server)).toEqual(server);
+  });
+
+  it('returns null when no candidate matches the total', () => {
+    expect(pickShareVerdicts(score, [true, false], null)).toBeNull();
   });
 });
 

@@ -539,7 +539,9 @@ async def _get_questions(db: SupabaseClient, quiz_id: UUID) -> list[dict[str, An
 
 
 def _detail_response(
-    quiz: dict[str, Any], questions: list[dict[str, Any]]
+    quiz: dict[str, Any],
+    questions: list[dict[str, Any]],
+    owner_verdicts: list[bool] | None = None,
 ) -> QuizDetailResponse:
     score_to_beat = None
     if quiz.get("score_to_beat_correct") is not None:
@@ -554,7 +556,41 @@ def _detail_response(
         score_to_beat=score_to_beat,
         slug=slug,
         share_url=_share_url(slug) if slug else None,
+        owner_verdicts=owner_verdicts,
     )
+
+
+async def _owner_verdicts(
+    db: SupabaseClient, quiz: dict[str, Any], questions: list[dict[str, Any]]
+) -> list[bool] | None:
+    """The seeding play's per-photo correctness, in question order.
+
+    None until a score-to-beat exists, or when a current question has no
+    seed-session answer (a just-swapped photo the owner has not re-answered).
+    """
+    if quiz.get("score_to_beat_correct") is None or not questions:
+        return None
+    seeding = await _seeding_session(db, quiz["id"], quiz.get("seed_session_id"))
+    if seeding is None:
+        return None
+    answers = await db.get(
+        "quiz_answer",
+        {"session_id": f"eq.{seeding['id']}", "select": "question_id,place_correct"},
+    )
+    by_id = {str(a["question_id"]): bool(a.get("place_correct")) for a in answers}
+    verdicts: list[bool] = []
+    for question in questions:
+        key = str(question["id"])
+        if key not in by_id:
+            return None
+        verdicts.append(by_id[key])
+    return verdicts
+
+
+async def _detail_with_verdicts(
+    db: SupabaseClient, quiz: dict[str, Any], questions: list[dict[str, Any]]
+) -> QuizDetailResponse:
+    return _detail_response(quiz, questions, await _owner_verdicts(db, quiz, questions))
 
 
 async def _get_owner_session(
@@ -909,7 +945,7 @@ async def get_quiz(quiz_id: UUID, user: CurrentUser) -> QuizDetailResponse:
         if await _sweep_revoked_quiz_objects(db, quiz):
             quiz = await _get_owned_quiz(db, quiz_id, user.id)
     questions = await _get_questions(db, quiz_id)
-    return _detail_response(quiz, questions)
+    return await _detail_with_verdicts(db, quiz, questions)
 
 
 @router.get("/{quiz_id}/leaderboard", response_model=QuizOwnerLeaderboardResponse)
@@ -1116,6 +1152,7 @@ async def complete_owner_play(
             total=refreshed["score_to_beat_total"],
         ),
         state=refreshed["state"],
+        owner_verdicts=await _owner_verdicts(db, refreshed, questions),
     )
 
 
@@ -1220,7 +1257,7 @@ async def swap_quiz_question(
     await _recompute_score_to_beat_if_seeded(db, quiz_id, user.id)
 
     quiz = await _get_owned_quiz(db, quiz_id, user.id)
-    return _detail_response(quiz, await _get_questions(db, quiz_id))
+    return await _detail_with_verdicts(db, quiz, await _get_questions(db, quiz_id))
 
 
 @router.delete("/{quiz_id}/questions/{question_id}", response_model=QuizDetailResponse)
@@ -1250,7 +1287,7 @@ async def remove_quiz_question(
     await _recompute_score_to_beat_if_seeded(db, quiz_id, user.id)
 
     quiz = await _get_owned_quiz(db, quiz_id, user.id)
-    return _detail_response(quiz, await _get_questions(db, quiz_id))
+    return await _detail_with_verdicts(db, quiz, await _get_questions(db, quiz_id))
 
 
 # ============================================================================

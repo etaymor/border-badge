@@ -1071,11 +1071,14 @@ class TestGradingAndSeeding:
         assert result["correct"] == 4
         assert result["total"] == 5
         assert result["score_to_beat"] == {"correct": 4, "total": 5}
+        # Position 0 was wrong; the Wordle grid is this pattern, in order.
+        assert result["owner_verdicts"] == [False, True, True, True, True]
         assert not any("memory" in k or "year" in k for k in result)
         assert not any("memory" in k or "year" in k for k in quiz)
         # And the owner detail payload exposes only the place pair.
         detail = call(client, db, "GET", f"/quiz/{quiz_id}").json()
         assert detail["score_to_beat"] == {"correct": 4, "total": 5}
+        assert detail["owner_verdicts"] == [False, True, True, True, True]
         assert "memory" not in str(sorted(detail.keys()))
 
     def test_replay_never_reseeds(self, client: TestClient) -> None:
@@ -1089,6 +1092,8 @@ class TestGradingAndSeeding:
         assert resp.json()["correct"] == 0
         # Score-to-beat is permanently the first completed play.
         assert resp.json()["score_to_beat"] == {"correct": 5, "total": 5}
+        # The share grid stays the seeding pattern, not the replay.
+        assert resp.json()["owner_verdicts"] == [True, True, True, True, True]
         quiz = db.quiz(quiz_id)
         assert quiz["score_to_beat_correct"] == 5
         assert quiz["score_to_beat_total"] == 5

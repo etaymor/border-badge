@@ -69,7 +69,7 @@ import { SerifScore } from './components/SerifScore';
 import { DURATION_BASE, DURATION_HERO, DURATION_SLOW } from './components/motionTokens';
 import { resultsAccent } from './sampleAssets';
 import { sortQuestionsByPosition } from './questionOrder';
-import { presentChallengeShare, verdictsForShare } from './shareChallenge';
+import { pickShareVerdicts, presentChallengeShare, verdictsForShare } from './shareChallenge';
 
 type Props = RootStackScreenProps<'QuizLeaderboard'>;
 
@@ -258,10 +258,14 @@ export function QuizLeaderboardScreen({ navigation, route }: Props) {
         source,
         score: scoreToBeat,
         photoCount: questions.length || null,
-        verdicts: verdictsForShare(
-          questions.map((question) => question.id),
-          playState?.answers,
-          scoreToBeat
+        verdicts: pickShareVerdicts(
+          scoreToBeat,
+          quiz?.owner_verdicts,
+          verdictsForShare(
+            questions.map((question) => question.id),
+            playState?.answers,
+            scoreToBeat
+          )
         ),
       });
     } catch (error) {

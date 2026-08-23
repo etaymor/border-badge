@@ -46,6 +46,7 @@ export type RootStackParamList = {
       total: number;
       score_to_beat: { correct: number; total: number };
       state: string;
+      owner_verdicts?: boolean[] | null;
     };
   };
   MyQuizzes: { entryPoint?: QuizEntryPoint } | undefined;

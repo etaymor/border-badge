@@ -223,7 +223,10 @@ function renderPlayScreen() {
   return { navigation, ...rendered };
 }
 
-function renderResultsScreen(results: typeof COMPLETE_RESULTS | 'none' = COMPLETE_RESULTS) {
+/** The base shape plus anything the results route now carries optionally. */
+type ResultsParam = typeof COMPLETE_RESULTS & { owner_verdicts?: boolean[] | null };
+
+function renderResultsScreen(results: ResultsParam | 'none' = COMPLETE_RESULTS) {
   const navigation =
     createMockNavigation() as unknown as RootStackScreenProps<'QuizResults'>['navigation'];
   const route = {
@@ -1192,6 +1195,52 @@ describe('QuizResultsScreen', () => {
         verdicts: [true, false, true, false, true],
       })
     );
+    shareSpy.mockRestore();
+  });
+
+  it('shares the Wordle grid from completion verdicts when local play state is missing', async () => {
+    // The recap's disk mirror is best-effort; a failed persist (or a share
+    // from My Quizzes on a fresh install) used to drop the grid entirely.
+    const shareSpy = jest
+      .spyOn(ShareModule.Share, 'share')
+      .mockResolvedValue({ action: 'sharedAction' } as never);
+    const ownerVerdicts = [true, false, true, false, true];
+    mockQuizDetail(
+      makeDetail({
+        state: 'playable',
+        score_to_beat: { correct: 3, total: 5 },
+        owner_verdicts: ownerVerdicts,
+      })
+    );
+    mockLoadPlayState.mockResolvedValue(null);
+    mockPostRoutes({
+      [`/quiz/${QUIZ_ID}/share`]: {
+        slug: 'abc123slug',
+        share_url: 'https://borderbadge.app/q/abc123slug',
+        state: 'shared',
+      },
+    });
+
+    renderResultsScreen({
+      ...COMPLETE_RESULTS,
+      owner_verdicts: ownerVerdicts,
+    });
+
+    await waitFor(() => expect(screen.getByTestId('quiz-share')).toBeTruthy());
+    fireEvent.press(screen.getByTestId('quiz-share'));
+
+    await waitFor(() => expect(shareSpy).toHaveBeenCalled());
+    const content = shareSpy.mock.calls[0][0] as { message?: string };
+    expect(content.message).toBe(
+      buildChallengeMessage({
+        quizId: QUIZ_ID,
+        source: 'results',
+        score: { correct: 3, total: 5 },
+        photoCount: 5,
+        verdicts: ownerVerdicts,
+      })
+    );
+    expect(content.message).toContain('🟩⬜🟩⬜🟩');
     shareSpy.mockRestore();
   });
 
