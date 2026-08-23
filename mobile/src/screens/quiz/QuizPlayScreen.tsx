@@ -188,6 +188,7 @@ export function QuizPlayScreen({ navigation, route }: Props) {
   // tracker and the answer sheet without hardcoding either.
   const [headerHeight, setHeaderHeight] = useState(0);
   const [sheetHeight, setSheetHeight] = useState(0);
+  const [answerAreaHeight, setAnswerAreaHeight] = useState(0);
   // Tap-to-inspect (Unit 1.2). The inspector is an opaque overlay ABOVE the
   // play interface - nothing underneath unmounts, so selection, the answer
   // lock, and the watchdog are untouched by an open/close round-trip.
@@ -502,6 +503,11 @@ export function QuizPlayScreen({ navigation, route }: Props) {
     setSheetHeight((prev) => (prev === next ? prev : next));
   });
 
+  const handleAnswerAreaLayout = useStableCallback((event: LayoutChangeEvent) => {
+    const next = event.nativeEvent.layout.height;
+    setAnswerAreaHeight((prev) => (prev === next ? prev : next));
+  });
+
   const showQuestion = phase === 'country' && activeQuestion;
   const entering = reduceMotion ? FadeIn.duration(0) : photoIn;
   // No lateral toss: the answered photo simply fades toward the navy stage.
@@ -511,6 +517,14 @@ export function QuizPlayScreen({ navigation, route }: Props) {
   const measuredHeader = headerHeight || insets.top + HEADER_FALLBACK_HEIGHT;
   const measuredSheet = sheetHeight || SHEET_FALLBACK_HEIGHT;
   const landscapePhotoHeight = Math.round(windowHeight * LANDSCAPE_PHOTO_RATIO);
+  // The landscape answer ground starts where the photo ends, but it may need
+  // MORE room than that leaves (a two-line prompt over a 2x2 grid): pinning
+  // both its top and its bottom cut the last row off, so it is bottom-anchored
+  // with that gap as a floor and grows upward over the photo when it must.
+  // The scrim strip rides on its measured top edge so the two grounds always
+  // meet in a fade rather than a hard band.
+  const landscapeAnswerFloor = Math.max(0, windowHeight - measuredHeader - landscapePhotoHeight);
+  const landscapeAnswerTop = windowHeight - Math.max(answerAreaHeight, landscapeAnswerFloor);
 
   // Portrait/square photos own the whole stage; landscape photos hold the top
   // ~62% edge to edge; unknown dimensions keep the contained treatment so the
@@ -648,7 +662,10 @@ export function QuizPlayScreen({ navigation, route }: Props) {
                     button, which is the offset the play screen was showing. */}
                 <ProgressSegments
                   total={questions.length}
-                  filled={answeredCount}
+                  // The segment for the question on screen reads as filled:
+                  // `2 OF 10` over a single gold tick looked like the tracker
+                  // was one behind, and question one showed an empty track.
+                  filled={activeNumber}
                   label={`${activeNumber} OF ${questions.length}`}
                   style={styles.tracker}
                   testID="quiz-play-progress"
@@ -687,9 +704,7 @@ export function QuizPlayScreen({ navigation, route }: Props) {
                   locations={BOTTOM_SCRIM_LOCATIONS}
                   style={[
                     styles.answerAreaFade,
-                    {
-                      top: measuredHeader + landscapePhotoHeight - LANDSCAPE_ANSWER_FADE_HEIGHT,
-                    },
+                    { top: landscapeAnswerTop - LANDSCAPE_ANSWER_FADE_HEIGHT },
                   ]}
                   pointerEvents="none"
                   testID="quiz-answer-fade"
@@ -698,10 +713,11 @@ export function QuizPlayScreen({ navigation, route }: Props) {
                   style={[
                     styles.answerAreaSolid,
                     {
-                      top: measuredHeader + landscapePhotoHeight,
+                      minHeight: landscapeAnswerFloor,
                       paddingBottom: insets.bottom + 16,
                     },
                   ]}
+                  onLayout={handleAnswerAreaLayout}
                   testID="quiz-answer-solid"
                 >
                   {answerContent}
