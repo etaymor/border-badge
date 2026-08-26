@@ -489,12 +489,18 @@ async def test_emerson_set_drop_ineligible_still_too_few(tmp_path: Path) -> None
 def _emerson_tiktok_pass_outcomes() -> list[QuizImageOutcome]:
     indoor_place = QuizImageOutcome(
         result=QuizVisionResult(
-            False, "indoor", "landmark", "urban",
+            False,
+            "indoor",
+            "landmark",
+            "urban",
         )
     )
     street = QuizImageOutcome(
         result=QuizVisionResult(
-            False, "outdoor", "building_exterior", "urban",
+            False,
+            "outdoor",
+            "building_exterior",
+            "urban",
         )
     )
     return [

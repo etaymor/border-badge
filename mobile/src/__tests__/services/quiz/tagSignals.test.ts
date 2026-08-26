@@ -215,9 +215,9 @@ describe('classifyPrefilter', () => {
     });
 
     it('marks an indoor mosque as likely even when indoor labels dominate', () => {
-      expect(
-        tierOf({ labels: labels(['mosque', 0.7], ['indoor', 0.85], ['ceiling', 0.6]) })
-      ).toBe('likely');
+      expect(tierOf({ labels: labels(['mosque', 0.7], ['indoor', 0.85], ['ceiling', 0.6]) })).toBe(
+        'likely'
+      );
     });
 
     it('marks an indoor chapel as likely', () => {
