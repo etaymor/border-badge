@@ -57,12 +57,27 @@ class QuizVisionResult:
 
     @property
     def eligible(self) -> bool:
-        """R2: no people AND outdoor AND an allowed category."""
+        """Place still, outdoor or indoor, with no close-up identifiable face."""
         return (
             not self.has_people
-            and self.setting == "outdoor"
+            and self.setting in {"outdoor", "indoor"}
             and self.category in QUIZ_ELIGIBLE_CATEGORIES
         )
+
+    @property
+    def ineligible_reason(self) -> str:
+        """Stable API/CLI reject reason. Only call when ``eligible`` is False.
+
+        Indoor allowed categories are eligible, so ``indoor`` here means
+        ``setting == "unclear"`` (fail-closed; kept for API compatibility).
+        Category is checked before setting so an indoor menu/screenshot is
+        ``category_not_allowed``, not ``indoor``.
+        """
+        if self.has_people:
+            return "people_present"
+        if self.category not in QUIZ_ELIGIBLE_CATEGORIES:
+            return "category_not_allowed"
+        return "indoor"
 
 
 @dataclass

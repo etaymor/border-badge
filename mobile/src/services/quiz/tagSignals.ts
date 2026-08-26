@@ -7,11 +7,12 @@
  *
  * What we are approximating is the SERVER's own eligibility gate
  * (`backend/app/services/photo_vision/quiz_constants.py`), which asks:
- *   1. Is a person a SUBJECT of this photo? (prominence, not presence)
- *   2. Outdoor or indoor? (covered-but-open counts as OUTDOOR)
- *   3. Category: scenery / landmark / building_exterior are eligible;
- *      "other" -- food, interiors, objects, vehicles, animals, documents,
- *      screenshots, art close-ups -- is not.
+ *   1. Is there a close-up identifiable face? Distant crowds and backs pass.
+ *   2. Outdoor or indoor? Both are allowed for place stills. Covered-but-open
+ *      counts as OUTDOOR. Unclear setting fails closed.
+ *   3. Category: scenery / landmark / building (exterior OR interior, including
+ *      mosque halls, chapels, cave hotels, street murals) are eligible;
+ *      "other" -- food, menus, documents, screenshots, objects -- is not.
  *
  * That gate remains the FINAL verdict. Everything here is a pre-ranker, and the
  * asymmetry between the two kinds of mistake drives every threshold below:
@@ -147,7 +148,8 @@ const OUTDOOR_LABELS = new Set([
   'windmill',
 ]);
 
-/** Fully-enclosed interiors and close-up subjects the gate calls "other". */
+/** Enclosed rooms that are not place stills (kitchens, offices). Landmark
+ * interiors are ranked by category, not by this list. */
 const INDOOR_LABELS = new Set([
   'bathroom',
   'bedroom',
@@ -260,8 +262,10 @@ const BUILDING_LABELS = new Set([
   'bridge',
   'city',
   'fountain',
+  'graffiti',
   'harbor',
   'house',
+  'mural',
   'plaza',
   'road',
   'skyline',
@@ -346,9 +350,10 @@ export function deriveSignals(tag: PhotoMlTag): TagSignals {
  * Bucket a photo for pre-filtering.
  *
  * Only `drop` skips the paid gate, and only three things earn it: a screenshot,
- * an Apple-flagged utility image, or a person filling ≥30% of the frame. Indoor
- * and food evidence rank `marginal` -- classified LAST, never dropped -- until
- * agreement telemetry shows the drop would be safe.
+ * an Apple-flagged utility image, or a person filling ≥30% of the frame. Food
+ * and unknown interiors rank `marginal` -- classified LAST, never dropped.
+ * Landmark and building interiors (mosque, chapel, cave hotel) rank `likely`
+ * so the paid gate sees them first, matching the server rule.
  */
 export function classifyPrefilter(signals: TagSignals): PrefilterTier {
   if (signals.utilityLikely) return 'drop';
@@ -356,15 +361,15 @@ export function classifyPrefilter(signals: TagSignals): PrefilterTier {
 
   if (signals.peopleProminence > PEOPLE_PROMINENCE_MARGINAL) return 'marginal';
   if (signals.categoryGuess === 'other') return 'marginal';
-  if (signals.outdoorScore < 0) return 'marginal';
   if (signals.savedFromSocialLikely || signals.movingCapture) return 'marginal';
 
-  if (
-    signals.outdoorScore > 0 &&
-    (signals.categoryGuess === 'scenery' ||
-      signals.categoryGuess === 'landmark' ||
-      signals.categoryGuess === 'building')
-  ) {
+  if (signals.categoryGuess === 'landmark' || signals.categoryGuess === 'building') {
+    return 'likely';
+  }
+
+  if (signals.outdoorScore < 0) return 'marginal';
+
+  if (signals.outdoorScore > 0 && signals.categoryGuess === 'scenery') {
     return 'likely';
   }
 
