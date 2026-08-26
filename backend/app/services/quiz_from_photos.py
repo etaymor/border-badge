@@ -2,8 +2,8 @@
 
 Drives the same lifecycle the in-app create path already owns:
 
-    draft (building) → eligibility classify → quiz-owned storage copies
-    → finalize questions + decoys → awaiting_owner_play
+    draft (building) → eligibility classify (unless --force) → quiz-owned
+    storage copies → finalize questions + decoys → awaiting_owner_play
 
 It does **not** play or share. Score-to-beat is the owner's first real
 play; the public ``/q/{slug}`` is minted only by POST /quiz/{id}/share
@@ -96,12 +96,13 @@ async def create_quiz_from_photo_folder(
     manifest: Path | None = None,
     limit: int = MAX_QUIZ_PHOTOS,
     drop_ineligible: bool = False,
+    skip_eligibility: bool = False,
     db: SupabaseClient | None = None,
     classify: ClassifyFn | None = None,
     upload: UploadFn | None = None,
     geocode: GeocodeFn | None = None,
 ) -> QuizFromPhotosResult:
-    """Photos in → stored, classified, quiz rows out; owner still plays."""
+    """Photos in → stored, quiz rows out; owner still plays."""
     client = db or SupabaseClient()
     loaded = _load_folder(folder, limit=limit)
     resolved = await resolve_photo_countries(
@@ -115,10 +116,26 @@ async def create_quiz_from_photo_folder(
     )
     await _require_owner(client, owner_id)
 
-    classify_fn = classify or classify_quiz_images
-    classified = await _classify_photos(
-        resolved, classify_fn, drop_ineligible=drop_ineligible
-    )
+    if skip_eligibility:
+        logger.warning(
+            "Skipping eligibility classify (--force). Keeping all %d "
+            "owner-picked photos (indoor/people/category not dropped).",
+            len(resolved),
+        )
+        classified = [
+            ResolvedQuizPhoto(
+                loaded=photo.loaded,
+                country_code=photo.country_code,
+                country_source=photo.country_source,
+                landscape=None,
+            )
+            for photo in resolved
+        ]
+    else:
+        classify_fn = classify or classify_quiz_images
+        classified = await _classify_photos(
+            resolved, classify_fn, drop_ineligible=drop_ineligible
+        )
 
     rows = await client.post("quiz", {"owner_id": owner_id})
     if not rows:

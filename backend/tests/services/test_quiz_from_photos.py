@@ -47,6 +47,33 @@ COUNTRIES = [
         "region": "Europe",
         "subregion": "Southern Europe",
     },
+    {"code": "EG", "name": "Egypt", "region": "Africa", "subregion": "North Africa"},
+    {"code": "TR", "name": "Turkey", "region": "Asia", "subregion": "West Asia"},
+    {
+        "code": "ME",
+        "name": "Montenegro",
+        "region": "Europe",
+        "subregion": "Southern Europe",
+    },
+    {
+        "code": "MY",
+        "name": "Malaysia",
+        "region": "Asia",
+        "subregion": "East & Southeast Asia",
+    },
+    {
+        "code": "PA",
+        "name": "Panama",
+        "region": "Americas",
+        "subregion": "Central America",
+    },
+    {
+        "code": "GB",
+        "name": "United Kingdom",
+        "region": "Europe",
+        "subregion": "Northern Europe",
+    },
+    {"code": "AT", "name": "Austria", "region": "Europe", "subregion": "Core Europe"},
 ]
 
 
@@ -397,6 +424,135 @@ async def test_ineligible_photo_fails_closed_by_default(tmp_path: Path) -> None:
 
 async def _never_upload() -> None:
     raise AssertionError("upload must not run when classification fails")
+
+
+def _emerson_tiktok_names() -> list[str]:
+    return [
+        "cairo-mosque.jpg",
+        "sainte-chapelle.jpg",
+        "goreme-cave.jpg",
+        "kotor.jpg",
+        "penang-mural.jpg",
+        "casco-viejo.jpg",
+        "london.jpg",
+        "vienna.jpg",
+        "rome.jpg",
+        "akihabara.jpg",
+    ]
+
+
+def _emerson_tiktok_countries() -> str:
+    return "EG,FR,TR,ME,MY,PA,GB,AT,IT,JP"
+
+
+def _emerson_tiktok_outcomes() -> list[QuizImageOutcome]:
+    # 6/10 reject: indoor x3, category, people x2. Only 4 eligible.
+    return [
+        _ineligible("indoor"),
+        _ineligible("indoor"),
+        _ineligible("indoor"),
+        _eligible(),
+        _ineligible("category"),
+        _ineligible("people"),
+        _eligible(),
+        _eligible(),
+        _eligible(),
+        _ineligible("people"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_emerson_set_drop_ineligible_still_too_few(tmp_path: Path) -> None:
+    _write_photos(tmp_path, _emerson_tiktok_names())
+    db = FakeDB()
+
+    async def classify(images: list[str]) -> list[QuizImageOutcome]:
+        assert len(images) == 10
+        return _emerson_tiktok_outcomes()
+
+    with pytest.raises(QuizFromPhotosError, match="4 remain after classification"):
+        await create_quiz_from_photo_folder(
+            owner_id=OWNER_ID,
+            folder=tmp_path,
+            countries=_emerson_tiktok_countries(),
+            drop_ineligible=True,
+            db=db,
+            classify=classify,
+            upload=lambda *_: _never_upload(),
+        )
+    assert db.quizzes == []
+
+
+@pytest.mark.asyncio
+async def test_force_keeps_owner_picked_ineligible_stills(tmp_path: Path) -> None:
+    _write_photos(tmp_path, _emerson_tiktok_names())
+    db = FakeDB()
+    uploaded: list[str] = []
+    classify_calls = 0
+
+    async def classify(images: list[str]) -> list[QuizImageOutcome]:
+        nonlocal classify_calls
+        classify_calls += 1
+        return _emerson_tiktok_outcomes()
+
+    async def upload(path: str, jpeg: bytes) -> None:
+        uploaded.append(path)
+
+    async def options(db_arg, corrects, **_kwargs):
+        four = ["Italy", "France", "Spain", "Greece"]
+        return [(four, 0) for _ in corrects]
+
+    with patch("app.services.quiz_from_photos.build_place_options", options):
+        result = await create_quiz_from_photo_folder(
+            owner_id=OWNER_ID,
+            folder=tmp_path,
+            countries=_emerson_tiktok_countries(),
+            skip_eligibility=True,
+            db=db,
+            classify=classify,
+            upload=upload,
+        )
+
+    assert classify_calls == 0
+    assert result.state == "awaiting_owner_play"
+    assert result.question_count == 10
+    assert db.quizzes[0].get("score_to_beat_correct") is None
+    assert db.quizzes[0].get("slug") is None
+    assert db.quizzes[0]["state"] == "awaiting_owner_play"
+    assert len(db.questions) == 10
+    assert len(uploaded) == 10
+    assert [photo.country_code for photo in result.photos] == [
+        "EG",
+        "FR",
+        "TR",
+        "ME",
+        "MY",
+        "PA",
+        "GB",
+        "AT",
+        "IT",
+        "JP",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_force_still_requires_country_ground_truth(tmp_path: Path) -> None:
+    _write_photos(tmp_path, _five_names())
+    db = FakeDB()
+    # Strip filename tokens so force cannot invent a country.
+    for path in list_photo_paths(tmp_path):
+        path.rename(path.with_name(path.name.replace("-", "")))
+
+    with pytest.raises(QuizFromPhotosError, match="No country for"):
+        await create_quiz_from_photo_folder(
+            owner_id=OWNER_ID,
+            folder=tmp_path,
+            skip_eligibility=True,
+            db=db,
+            classify=lambda images: _all_eligible(images),
+            upload=lambda *_: _never_upload(),
+        )
+    assert db.quizzes == []
 
 
 @pytest.mark.asyncio

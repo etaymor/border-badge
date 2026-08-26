@@ -16,7 +16,8 @@ Usage (from backend/, with backend/.env loaded automatically):
     poetry run python scripts/create_quiz_from_photos.py \\
       --owner-id 578c63c4-c324-47f1-b3fa-2672e8cb5821 \\
       --photos /path/to/tiktok-slideshow \\
-      --countries IT,JP,FR,ES,GR,TH,US,PT,MA,PE
+      --countries EG,FR,TR,ME,MY,PA,GB,AT,IT,JP \\
+      --force
 
 Country ground truth (required; same role as GPS in the in-app flow):
 
@@ -109,6 +110,17 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--force",
+        "--skip-eligibility",
+        dest="skip_eligibility",
+        action="store_true",
+        help=(
+            "Keep every owner-picked still. Skip indoor/people/category "
+            "rejects. Country ground truth is still required. Default is "
+            "fail-closed."
+        ),
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Load photos and resolve countries; do not classify or write.",
@@ -123,7 +135,7 @@ def _validate_owner_id(raw: str) -> str:
         raise SystemExit(f"--owner-id is not a UUID: {raw}") from exc
 
 
-async def _run(args: argparse.Namespace) -> int:
+async def _run_create(args: argparse.Namespace) -> int:
     owner_id = _validate_owner_id(args.owner_id)
     folder: Path = args.photos.expanduser().resolve()
     manifest = args.manifest.expanduser().resolve() if args.manifest else None
@@ -164,6 +176,7 @@ async def _run(args: argparse.Namespace) -> int:
             manifest=manifest,
             limit=args.limit,
             drop_ineligible=args.drop_ineligible,
+            skip_eligibility=args.skip_eligibility,
         )
     except (QuizFromPhotosError, QuizPhotoFileError) as exc:
         logger.error("%s", exc)
@@ -180,12 +193,16 @@ async def _run(args: argparse.Namespace) -> int:
     return 0
 
 
+async def _run(args: argparse.Namespace) -> int:
+    try:
+        return await _run_create(args)
+    finally:
+        await close_http_client()
+
+
 def main() -> int:
     args = build_parser().parse_args()
-    try:
-        return asyncio.run(_run(args))
-    finally:
-        asyncio.run(close_http_client())
+    return asyncio.run(_run(args))
 
 
 if __name__ == "__main__":
