@@ -2,8 +2,9 @@
 
 Covers:
 - Draft-creation anchor: POST /quiz creates a 'building' quiz owned by the caller.
-- Eligibility gate: only outdoor scenery/landmark/building-exterior photos with
-  no people are eligible (R2); everything else fails closed.
+- Eligibility gate: scenery/landmark/building-exterior photos, outdoor or
+  indoor, with no close-up identifiable face. Distant people and travel
+  interiors pass; screenshots/maps/menus/unclear fail closed.
 - Fail-closed parsing: malformed model JSON or a missing per-image result marks
   that image ineligible without failing the batch.
 - Transport failures (timeout/network) surface as a retryable "error" status,
@@ -207,7 +208,7 @@ class TestCreateQuizDraft:
 
 
 # ============================================================================
-# Eligibility rules (R2): no people AND outdoor AND allowed category
+# Eligibility rules (R2): no close-up face AND outdoor/indoor AND allowed category
 # ============================================================================
 
 
@@ -237,7 +238,8 @@ class TestEligibilityRules:
         assert result["status"] == "ineligible"
         assert result["reason"] == "people_present"
 
-    def test_indoor_is_ineligible(self, client: TestClient) -> None:
+    def test_indoor_building_is_eligible(self, client: TestClient) -> None:
+        """Mosque interiors, chapels, cave hotels are good quiz stills."""
         response, _ = _post_eligibility(
             client,
             _db(_quiz_row()),
@@ -247,18 +249,40 @@ class TestEligibilityRules:
         )
         assert response.status_code == 200
         result = response.json()["results"][0]
+        assert result["eligible"] is True
+        assert result["status"] == "eligible"
+
+    def test_indoor_landmark_is_eligible(self, client: TestClient) -> None:
+        response, _ = _post_eligibility(
+            client,
+            _db(_quiz_row()),
+            _openrouter_response(_model_result(setting="indoor", category="landmark")),
+        )
+        assert response.status_code == 200
+        assert response.json()["results"][0]["eligible"] is True
+
+    def test_indoor_other_is_still_ineligible(self, client: TestClient) -> None:
+        response, _ = _post_eligibility(
+            client,
+            _db(_quiz_row()),
+            _openrouter_response(_model_result(setting="indoor", category="other")),
+        )
+        assert response.status_code == 200
+        result = response.json()["results"][0]
         assert result["eligible"] is False
-        assert result["reason"] == "indoor"
+        assert result["reason"] == "category_not_allowed"
 
     def test_unclear_setting_fails_closed(self, client: TestClient) -> None:
-        """Fail-closed: only a confident 'outdoor' passes the setting gate."""
+        """Fail-closed: only a confident outdoor or indoor setting passes."""
         response, _ = _post_eligibility(
             client,
             _db(_quiz_row()),
             _openrouter_response(_model_result(setting="unclear", category="scenery")),
         )
         assert response.status_code == 200
-        assert response.json()["results"][0]["eligible"] is False
+        result = response.json()["results"][0]
+        assert result["eligible"] is False
+        assert result["reason"] == "indoor"
 
     @pytest.mark.parametrize("category", ["scenery", "landmark", "building_exterior"])
     def test_outdoor_allowed_categories_are_eligible(
@@ -331,6 +355,9 @@ class TestEligibilityRules:
         assert payload["messages"][0]["content"] == QUIZ_ELIGIBILITY_SYSTEM_PROMPT
         assert payload["response_format"] == QUIZ_ELIGIBILITY_RESPONSE_FORMAT
         assert QUIZ_ELIGIBILITY_SYSTEM_PROMPT != CLASSIFICATION_SYSTEM_PROMPT
+        assert "identifiable face" in QUIZ_ELIGIBILITY_SYSTEM_PROMPT
+        assert "mosque" in QUIZ_ELIGIBILITY_SYSTEM_PROMPT.lower()
+        assert "mural" in QUIZ_ELIGIBILITY_SYSTEM_PROMPT.lower()
 
 
 # ============================================================================
@@ -698,6 +725,51 @@ class TestDailyCircuitBreaker:
 # ============================================================================
 
 
+class TestQuizEligibilityRule:
+    """Product rule: interiors and distant people pass; junk and faces fail."""
+
+    def _result(self, **kwargs):
+        from app.services.photo_vision.quiz_classifier import QuizVisionResult
+
+        defaults = {
+            "has_people": False,
+            "setting": "outdoor",
+            "category": "landmark",
+            "landscape": "urban",
+        }
+        defaults.update(kwargs)
+        return QuizVisionResult(**defaults)
+
+    def test_emerson_tiktok_stills_are_eligible(self) -> None:
+        stills = [
+            self._result(setting="indoor", category="landmark"),  # Cairo mosque
+            self._result(setting="indoor", category="landmark"),  # Sainte-Chapelle
+            self._result(setting="indoor", category="landmark"),  # Göreme cave
+            self._result(setting="outdoor", category="building_exterior"),  # mural
+            self._result(setting="outdoor", category="building_exterior"),  # Casco
+            self._result(setting="outdoor", category="building_exterior"),  # Akihabara
+        ]
+        assert all(still.eligible for still in stills)
+
+    def test_close_up_face_is_ineligible(self) -> None:
+        assert self._result(has_people=True).eligible is False
+
+    def test_screenshot_other_is_ineligible(self) -> None:
+        other = self._result(category="other")
+        assert other.eligible is False
+        assert other.ineligible_reason == "category_not_allowed"
+
+    def test_indoor_junk_is_category_not_indoor(self) -> None:
+        menu = self._result(setting="indoor", category="other")
+        assert menu.eligible is False
+        assert menu.ineligible_reason == "category_not_allowed"
+
+    def test_unclear_setting_reason_stays_indoor(self) -> None:
+        unclear = self._result(setting="unclear", category="scenery")
+        assert unclear.eligible is False
+        assert unclear.ineligible_reason == "indoor"
+
+
 class TestQuizParseResponse:
     def test_valid_response_parses(self) -> None:
         from app.services.photo_vision.quiz_classifier import QuizEligibilityClassifier
@@ -848,7 +920,9 @@ class TestVerdictHistogram:
                     _openrouter_response(
                         _model_result(has_people=True, setting="outdoor")
                     ),
-                    _openrouter_response(_model_result(setting="indoor")),
+                    _openrouter_response(
+                        _model_result(setting="unclear", category="scenery")
+                    ),
                 ],
                 images=images,
             )

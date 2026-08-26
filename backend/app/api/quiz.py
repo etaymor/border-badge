@@ -193,9 +193,11 @@ async def check_photo_eligibility(
 ) -> QuizEligibilityResponse:
     """Classify candidate photos for quiz eligibility (R2).
 
-    Eligible = no people/faces AND outdoor AND category in
-    scenery/landmark/building-exterior. Unparseable model output fails closed
-    to "ineligible"; transport failures surface as retryable "error" outcomes.
+    Eligible = no close-up identifiable face AND outdoor-or-indoor AND
+    category in scenery/landmark/building-exterior. Unclear setting and
+    junk (screenshots, maps, menus) fail closed. Unparseable model output
+    fails closed to "ineligible"; transport failures surface as retryable
+    "error" outcomes.
 
     Every image in an accepted batch counts against the draft's budget
     (reserved up front, before classification), including images whose
@@ -342,12 +344,7 @@ async def check_photo_eligibility(
                 )
             )
         else:
-            if outcome.result.has_people:
-                reason = "people_present"
-            elif outcome.result.setting != "outdoor":
-                reason = "indoor"
-            else:
-                reason = "category_not_allowed"
+            reason = outcome.result.ineligible_reason
             results.append(
                 QuizEligibilityResult(
                     id=image.id,

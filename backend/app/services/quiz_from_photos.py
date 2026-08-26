@@ -400,11 +400,7 @@ def _ineligible_reason(outcome: QuizImageOutcome) -> str:
     result = outcome.result
     if result is None:
         return "unclassifiable"
-    if result.has_people:
-        return "people_present"
-    if result.setting != "outdoor":
-        return "indoor"
-    return "category_not_allowed"
+    return result.ineligible_reason
 
 
 async def _upload_photos(

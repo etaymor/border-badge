@@ -110,6 +110,7 @@ describe('deriveSignals', () => {
       ['beach', 'scenery'],
       ['skyline', 'building'],
       ['receipt', 'other'],
+      ['mural', 'building'],
     ])('reads %s as %s', (label, expected) => {
       expect(deriveSignals(makeTag({ labels: labels([label, 0.8]) })).categoryGuess).toBe(expected);
     });
@@ -183,9 +184,7 @@ describe('classifyPrefilter', () => {
       expect(tierOf({ maxHumanArea: PEOPLE_PROMINENCE_DROP })).not.toBe('drop');
     });
 
-    it('ranks indoor photos last rather than dropping them', () => {
-      // v1 policy: indoor and food are `marginal` -- classified last, never
-      // never. Tighten only once agreement telemetry says it is safe.
+    it('ranks indoor kitchen photos last rather than dropping them', () => {
       expect(tierOf({ labels: labels(['kitchen', 0.8]) })).toBe('marginal');
     });
 
@@ -213,6 +212,20 @@ describe('classifyPrefilter', () => {
 
     it('marks street architecture as likely', () => {
       expect(tierOf({ labels: labels(['street', 0.8], ['skyline', 0.4]) })).toBe('likely');
+    });
+
+    it('marks an indoor mosque as likely even when indoor labels dominate', () => {
+      expect(
+        tierOf({ labels: labels(['mosque', 0.7], ['indoor', 0.85], ['ceiling', 0.6]) })
+      ).toBe('likely');
+    });
+
+    it('marks an indoor chapel as likely', () => {
+      expect(tierOf({ labels: labels(['church', 0.8], ['indoor', 0.7]) })).toBe('likely');
+    });
+
+    it('marks a street mural on a building as likely', () => {
+      expect(tierOf({ labels: labels(['mural', 0.8], ['street', 0.4]) })).toBe('likely');
     });
 
     it('demotes a scenic photo once a person becomes noticeable', () => {

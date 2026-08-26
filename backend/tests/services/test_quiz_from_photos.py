@@ -107,7 +107,9 @@ def _ineligible(reason: str = "people") -> QuizImageOutcome:
     if reason == "people":
         result = QuizVisionResult(True, "outdoor", "scenery", "other")
     elif reason == "indoor":
-        result = QuizVisionResult(False, "indoor", "scenery", "other")
+        # Indoor place stills are eligible; only an unclear setting fails
+        # closed under the leftover "indoor" API reason.
+        result = QuizVisionResult(False, "unclear", "scenery", "other")
     else:
         result = QuizVisionResult(False, "outdoor", "other", "other")
     return QuizImageOutcome(result=result)
@@ -446,11 +448,12 @@ def _emerson_tiktok_countries() -> str:
 
 
 def _emerson_tiktok_outcomes() -> list[QuizImageOutcome]:
-    # 6/10 reject: indoor x3, category, people x2. Only 4 eligible.
+    # Junk the owner might still --force keep: menus/screenshots and faces.
+    # Indoor place stills now pass, so this fixture is category + people only.
     return [
-        _ineligible("indoor"),
-        _ineligible("indoor"),
-        _ineligible("indoor"),
+        _ineligible("category"),
+        _ineligible("category"),
+        _ineligible("people"),
         _eligible(),
         _ineligible("category"),
         _ineligible("people"),
@@ -481,6 +484,65 @@ async def test_emerson_set_drop_ineligible_still_too_few(tmp_path: Path) -> None
             upload=lambda *_: _never_upload(),
         )
     assert db.quizzes == []
+
+
+def _emerson_tiktok_pass_outcomes() -> list[QuizImageOutcome]:
+    indoor_place = QuizImageOutcome(
+        result=QuizVisionResult(
+            False, "indoor", "landmark", "urban",
+        )
+    )
+    street = QuizImageOutcome(
+        result=QuizVisionResult(
+            False, "outdoor", "building_exterior", "urban",
+        )
+    )
+    return [
+        indoor_place,
+        indoor_place,
+        indoor_place,
+        _eligible(),
+        street,
+        street,
+        _eligible(),
+        _eligible(),
+        _eligible(),
+        street,
+    ]
+
+
+@pytest.mark.asyncio
+async def test_emerson_set_passes_without_force(tmp_path: Path) -> None:
+    _write_photos(tmp_path, _emerson_tiktok_names())
+    db = FakeDB()
+    uploaded: list[str] = []
+
+    async def classify(images: list[str]) -> list[QuizImageOutcome]:
+        assert len(images) == 10
+        return _emerson_tiktok_pass_outcomes()
+
+    async def upload(path: str, jpeg: bytes) -> None:
+        uploaded.append(path)
+
+    async def options(db_arg, corrects, **_kwargs):
+        four = ["Italy", "France", "Spain", "Greece"]
+        return [(four, 0) for _ in corrects]
+
+    with patch("app.services.quiz_from_photos.build_place_options", options):
+        result = await create_quiz_from_photo_folder(
+            owner_id=OWNER_ID,
+            folder=tmp_path,
+            countries=_emerson_tiktok_countries(),
+            db=db,
+            classify=classify,
+            upload=upload,
+        )
+
+    assert result.state == "awaiting_owner_play"
+    assert result.question_count == 10
+    assert db.quizzes[0].get("slug") is None
+    assert db.quizzes[0].get("score_to_beat_correct") is None
+    assert len(uploaded) == 10
 
 
 @pytest.mark.asyncio
@@ -563,7 +625,7 @@ async def test_drop_ineligible_keeps_enough_photos(tmp_path: Path) -> None:
 
     async def classify(images: list[str]) -> list[QuizImageOutcome]:
         outcomes = [_eligible() for _ in images]
-        outcomes[0] = _ineligible("indoor")
+        outcomes[0] = _ineligible("category")
         return outcomes
 
     async def upload(path: str, jpeg: bytes) -> None:

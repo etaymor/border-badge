@@ -16,8 +16,7 @@ Usage (from backend/, with backend/.env loaded automatically):
     poetry run python scripts/create_quiz_from_photos.py \\
       --owner-id 578c63c4-c324-47f1-b3fa-2672e8cb5821 \\
       --photos /path/to/tiktok-slideshow \\
-      --countries EG,FR,TR,ME,MY,PA,GB,AT,IT,JP \\
-      --force
+      --countries EG,FR,TR,ME,MY,PA,GB,AT,IT,JP
 
 Country ground truth (required; same role as GPS in the in-app flow):
 
@@ -115,9 +114,10 @@ def build_parser() -> argparse.ArgumentParser:
         dest="skip_eligibility",
         action="store_true",
         help=(
-            "Keep every owner-picked still. Skip indoor/people/category "
-            "rejects. Country ground truth is still required. Default is "
-            "fail-closed."
+            "Keep every owner-picked still even if the classifier rejects "
+            "junk. Country ground truth is still required. Default is "
+            "fail-closed. Interiors and distant people already pass without "
+            "this flag."
         ),
     )
     parser.add_argument(
