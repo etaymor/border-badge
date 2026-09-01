@@ -157,8 +157,8 @@ export function PhotoLibraryEnableModal({ visible, onClose }: PhotoLibraryEnable
           <View style={styles.privacyContainer}>
             <Text style={styles.privacyText}>
               We only read photo locations and dates to help{'\n'}
-              organize your trips. Photos stay on your device{'\n'}
-              until you choose to upload them.
+              organize your trips. The scan runs on your device.{'\n'}
+              Nothing is uploaded until you save a place or share a challenge.
             </Text>
           </View>
 
