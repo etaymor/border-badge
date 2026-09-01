@@ -3,12 +3,14 @@
  *
  * Shows progress bar, country discovery feed, and cancel button. When the
  * service has surfaced a failure, renders the failed-state branch with a
- * Retry button that delegates back to startScan.
+ * Retry button that delegates back to startScan. Permission denials use the
+ * shared recovery sheet instead of a generic Scan Failed alert.
  */
 
 import React from 'react';
-import { ActivityIndicator, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Linking, Text, TouchableOpacity, View } from 'react-native';
 
+import { PhotoPermissionRecoverySheet } from '@components/photos/PhotoPermissionRecoverySheet';
 import type { ScanProgress } from '@services/photoImport';
 import { colors } from '@constants/colors';
 import { SCAN_COPY } from '@constants/scanCopy';
@@ -20,7 +22,7 @@ export interface ScanningPhaseProps {
   isIncremental: boolean;
   onCancelScan: () => void;
   /** Set when the service surfaces a recoverable failure mid-scan. */
-  scanFailure?: { title: string; message: string } | null;
+  scanFailure?: { title: string; message: string; reason?: string } | null;
   /** Called when the user taps Retry from the failed-state branch. */
   onRetryScan?: () => void;
 }
@@ -36,6 +38,20 @@ export function ScanningPhase({
   const leaseKeepsRunning = useLeaseKeepsRunning();
 
   if (scanFailure) {
+    if (scanFailure.reason === 'no-permission') {
+      return (
+        <View style={styles.scanningContainer} testID="photo-import-permission-recovery">
+          <PhotoPermissionRecoverySheet
+            variant="denied"
+            onOpenSettings={() => {
+              Linking.openURL('app-settings:').catch(() => undefined);
+            }}
+            onRetry={onRetryScan}
+          />
+        </View>
+      );
+    }
+
     return (
       <View style={styles.scanningContainer}>
         <Text style={styles.scanFailedTitle}>{scanFailure.title}</Text>

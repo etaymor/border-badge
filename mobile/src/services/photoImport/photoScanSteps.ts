@@ -19,6 +19,7 @@
  * library.
  */
 
+import { SCAN_COPY } from '@constants/scanCopy';
 import { Analytics } from '@services/analytics';
 import { getCountryName } from '@utils/countries';
 
@@ -26,7 +27,7 @@ import type { JobFailure, JobRunContext } from '@services/jobs/jobTypes';
 import type { TripScanDetail } from '@stores/libraryJobStore';
 
 import { iso1A2Code } from './countryCoder';
-import { HomeCountryNotSetError } from './errors';
+import { HomeCountryNotSetError, PermissionDeniedError } from './errors';
 import {
   cachePhotos,
   clearPhotoCache,
@@ -305,6 +306,17 @@ export async function runScanPass(
           reason: 'home-country',
           title: 'Set Home Country',
           message: 'Please set your home country in settings first.',
+        },
+      };
+    }
+    if (error instanceof PermissionDeniedError) {
+      Analytics.photoImportScanFailed({ error: 'no_permission' });
+      return {
+        status: 'failed',
+        failure: {
+          reason: 'no-permission',
+          title: SCAN_COPY.permission.recoveryTitleDenied,
+          message: SCAN_COPY.permission.recoveryBodyDenied,
         },
       };
     }

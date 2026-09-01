@@ -5,6 +5,10 @@ module.exports = {
     'node_modules/(?!((jest-)?react-native|@react-native(-community)?)|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|react-navigation|@react-navigation/.*|@sentry/react-native|native-base|react-native-svg)',
   ],
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx'],
+  moduleNameMapper: {
+    '^@permissions/(.*)$': '<rootDir>/src/permissions/$1',
+    '^@permissions$': '<rootDir>/src/permissions',
+  },
   testMatch: ['**/__tests__/**/*.(test|spec).(ts|tsx|js|jsx)', '**/*.(test|spec).(ts|tsx|js|jsx)'],
   collectCoverageFrom: [
     '**/*.{ts,tsx}',
