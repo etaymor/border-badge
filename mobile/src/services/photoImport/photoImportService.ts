@@ -7,6 +7,8 @@
 
 import * as MediaLibrary from 'expo-media-library';
 
+import { Analytics, type PhotoPermissionOsStatus } from '@services/analytics';
+
 import { PermissionDeniedError, ScanCancelledError } from './errors';
 import type { PhotoWithLocation, ScanProgress } from './types';
 
@@ -23,6 +25,19 @@ function yieldToUI(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, SCAN_CONFIG.YIELD_INTERVAL_MS));
 }
 
+function osStatusFromMediaLibrary(
+  status: string,
+  accessPrivileges: string | undefined
+): PhotoPermissionOsStatus {
+  if (status === 'granted') {
+    return accessPrivileges === 'limited' ? 'limited' : 'granted';
+  }
+  if (status === 'denied') {
+    return 'denied';
+  }
+  return 'undetermined';
+}
+
 /**
  * Request photo library permissions with location access.
  *
@@ -32,7 +47,15 @@ export async function requestPhotoPermissions(): Promise<{
   granted: boolean;
   limited: boolean;
 }> {
+  // Soft-ask UI comes in photo-perm-03. Count unprompted OS asks until then.
+  Analytics.photoPermissionSoftAskShown({ door: 'trips' });
+
   const { status, accessPrivileges } = await MediaLibrary.requestPermissionsAsync();
+
+  Analytics.photoPermissionOsResult({
+    door: 'trips',
+    status: osStatusFromMediaLibrary(status, accessPrivileges),
+  });
 
   return {
     granted: status === 'granted',

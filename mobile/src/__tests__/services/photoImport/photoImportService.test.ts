@@ -1,11 +1,20 @@
 import * as MediaLibrary from 'expo-media-library';
 
+import { Analytics } from '@services/analytics';
+
 import {
   extractPhotosWithLocation,
   requestPhotoPermissions,
   SCAN_CONFIG,
 } from '../../../services/photoImport/photoImportService';
 import { PermissionDeniedError, ScanCancelledError } from '../../../services/photoImport/errors';
+
+jest.mock('@services/analytics', () => ({
+  Analytics: {
+    photoPermissionSoftAskShown: jest.fn(),
+    photoPermissionOsResult: jest.fn(),
+  },
+}));
 
 // Mock expo-media-library
 jest.mock('expo-media-library', () => ({
@@ -54,6 +63,11 @@ describe('photoImportService', () => {
       expect(result.granted).toBe(true);
       expect(result.limited).toBe(false);
       expect(mockedMediaLibrary.requestPermissionsAsync).toHaveBeenCalledTimes(1);
+      expect(Analytics.photoPermissionSoftAskShown).toHaveBeenCalledWith({ door: 'trips' });
+      expect(Analytics.photoPermissionOsResult).toHaveBeenCalledWith({
+        door: 'trips',
+        status: 'granted',
+      });
     });
 
     it('returns granted false when permission is denied', async () => {
@@ -68,6 +82,10 @@ describe('photoImportService', () => {
       const result = await requestPhotoPermissions();
 
       expect(result.granted).toBe(false);
+      expect(Analytics.photoPermissionOsResult).toHaveBeenCalledWith({
+        door: 'trips',
+        status: 'denied',
+      });
     });
 
     it('returns limited true for limited permission', async () => {
@@ -83,6 +101,10 @@ describe('photoImportService', () => {
 
       expect(result.granted).toBe(true);
       expect(result.limited).toBe(true);
+      expect(Analytics.photoPermissionOsResult).toHaveBeenCalledWith({
+        door: 'trips',
+        status: 'limited',
+      });
     });
   });
 
