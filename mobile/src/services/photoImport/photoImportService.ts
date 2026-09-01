@@ -6,6 +6,7 @@
  */
 
 import * as MediaLibrary from 'expo-media-library';
+import { Linking } from 'react-native';
 
 import { Analytics, type PhotoPermissionOsStatus } from '@services/analytics';
 
@@ -66,6 +67,22 @@ export async function requestPhotoPermissions(): Promise<{
  */
 export async function presentLimitedPhotoPicker(): Promise<void> {
   await MediaLibrary.presentPermissionsPickerAsync();
+}
+
+/**
+ * Prefer the in-app limited picker; open Settings if the picker API throws
+ * (unsupported platform, not limited, or native failure).
+ */
+export async function presentLimitedPhotoPickerOrOpenSettings(
+  openSettings: () => void | Promise<void> = () => Linking.openSettings()
+): Promise<'picker' | 'settings'> {
+  try {
+    await presentLimitedPhotoPicker();
+    return 'picker';
+  } catch {
+    await openSettings();
+    return 'settings';
+  }
 }
 
 /**

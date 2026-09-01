@@ -27,6 +27,7 @@ import {
   getLibraryFreshness,
   type LibraryFreshness,
 } from '@services/photoImport/photoLibrarySyncStatus';
+import { presentLimitedPhotoPickerOrOpenSettings } from '@services/photoImport/photoImportService';
 import { QUIZ_MAX_PHOTOS } from '@services/quiz/candidateSelection';
 import { loadDraftState } from '@services/quiz/quizCreation';
 import type {
@@ -93,6 +94,8 @@ export interface QuizCreationFlow {
   handleBack: () => void;
   handleClose: () => void;
   handleOpenSettings: () => void;
+  /** Limited access: expand selection via system picker (Settings on failure). */
+  handleAllowMorePhotos: () => void;
 }
 
 interface Options {
@@ -105,6 +108,7 @@ export function useQuizCreationFlow({ entryPoint, navigation }: Options): QuizCr
     status: permissionStatus,
     isLoading: permissionLoading,
     requestPermission,
+    refresh: refreshPermission,
   } = usePhotoPermissionStatus();
   const buildJob = useQuizBuildJob({ onOutcome: (result) => handleOutcome(result) });
 
@@ -339,6 +343,14 @@ export function useQuizCreationFlow({ entryPoint, navigation }: Options): QuizCr
     Linking.openSettings();
   });
 
+  const handleAllowMorePhotos = useStableCallback(async () => {
+    const path = await presentLimitedPhotoPickerOrOpenSettings(handleOpenSettings);
+    if (path === 'picker') {
+      await refreshPermission();
+      startCreation();
+    }
+  });
+
   const syncedAgo = formatSyncedAgo(freshness?.lastSuccessAt ?? null);
   /**
    * A first scan is the run this screen has to explain hardest, so it gets
@@ -410,5 +422,6 @@ export function useQuizCreationFlow({ entryPoint, navigation }: Options): QuizCr
     handleBack,
     handleClose,
     handleOpenSettings,
+    handleAllowMorePhotos,
   };
 }

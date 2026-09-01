@@ -81,6 +81,7 @@ export function QuizCreationScreen({ navigation, route }: Props) {
     handleBack,
     handleClose,
     handleOpenSettings,
+    handleAllowMorePhotos,
   } = useQuizCreationFlow({ entryPoint, navigation });
 
   // Hero region per phase: real photos as soon as any are known, the bundled
@@ -228,6 +229,7 @@ export function QuizCreationScreen({ navigation, route }: Props) {
               <PhotoPermissionRecoverySheet
                 variant="limited"
                 onOpenSettings={handleOpenSettings}
+                onAllowMorePhotos={handleAllowMorePhotos}
                 onContinueLimited={startCreation}
               />
             </View>
