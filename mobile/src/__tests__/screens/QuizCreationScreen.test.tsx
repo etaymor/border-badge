@@ -208,10 +208,10 @@ describe('QuizCreationScreen', () => {
     await renderScreen();
 
     await waitFor(() => expect(screen.getByTestId('quiz-permission-request')).toBeTruthy());
-    expect(screen.getByText('Allow Photo Access')).toBeTruthy();
+    expect(screen.getByText('Allow Full Access')).toBeTruthy();
     // One scan feeds trips as well, and this is the moment the user decides
     // whether to grant at all - so the second payoff is named here.
-    expect(screen.getByText(/builds your trips/i)).toBeTruthy();
+    expect(screen.getByText(/Guess Where challenges/i)).toBeTruthy();
     expect(mockStart).not.toHaveBeenCalled();
   });
 

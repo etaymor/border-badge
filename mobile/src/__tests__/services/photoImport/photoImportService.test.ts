@@ -63,7 +63,7 @@ describe('photoImportService', () => {
       expect(result.granted).toBe(true);
       expect(result.limited).toBe(false);
       expect(mockedMediaLibrary.requestPermissionsAsync).toHaveBeenCalledTimes(1);
-      expect(Analytics.photoPermissionSoftAskShown).toHaveBeenCalledWith({ door: 'trips' });
+      expect(Analytics.photoPermissionSoftAskShown).not.toHaveBeenCalled();
       expect(Analytics.photoPermissionOsResult).toHaveBeenCalledWith({
         door: 'trips',
         status: 'granted',

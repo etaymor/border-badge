@@ -41,8 +41,8 @@
 import { ActivityIndicator, StatusBar, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { PhotoPermissionPreheat } from '@components/photos/PhotoPermissionPreheat';
 import { PhotoPermissionRecoverySheet } from '@components/photos/PhotoPermissionRecoverySheet';
-import { PrivacyNotice } from '@components/photos/PrivacyNotice';
 import { Button } from '@components/ui/Button';
 import { colors } from '@constants/colors';
 import { SCAN_COPY } from '@constants/scanCopy';
@@ -76,7 +76,7 @@ export function QuizCreationScreen({ navigation, route }: Props) {
     draftUploadCounts,
     build,
     startCreation,
-    handleRequestPermission,
+    handlePreheatChoice,
     handleCancel,
     handleBack,
     handleClose,
@@ -201,22 +201,13 @@ export function QuizCreationScreen({ navigation, route }: Props) {
             style={[styles.sheetContent, styles.permissionSheetContent]}
             testID="quiz-permission-request"
           >
-            <Text style={styles.title}>{SCAN_COPY.quiz.permissionTitle}</Text>
-            <Text style={styles.body}>{SCAN_COPY.quiz.permissionBody}</Text>
-            {/* The literal same component the trips door renders. The hint
-                that used to sit here was a weaker paraphrase of two of these
-                bullets; deleting it is the point - one source, one phrasing. */}
-            <PrivacyNotice variant="sheet" testID="quiz-privacy-notice" />
-            <Button title={SCAN_COPY.quiz.permissionCta} onPress={handleRequestPermission} />
+            <PhotoPermissionPreheat onChoose={handlePreheatChoice} />
           </View>
         )}
 
         {phase === 'permission-denied' && (
           <View style={styles.sheetContent} testID="quiz-permission-denied">
-            <PhotoPermissionRecoverySheet
-              variant="denied"
-              onOpenSettings={handleOpenSettings}
-            />
+            <PhotoPermissionRecoverySheet variant="denied" onOpenSettings={handleOpenSettings} />
           </View>
         )}
 

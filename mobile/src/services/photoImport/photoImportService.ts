@@ -47,9 +47,6 @@ export async function requestPhotoPermissions(): Promise<{
   granted: boolean;
   limited: boolean;
 }> {
-  // Soft-ask UI comes in photo-perm-03. Count unprompted OS asks until then.
-  Analytics.photoPermissionSoftAskShown({ door: 'trips' });
-
   const { status, accessPrivileges } = await MediaLibrary.requestPermissionsAsync();
 
   Analytics.photoPermissionOsResult({

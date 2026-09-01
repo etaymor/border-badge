@@ -116,6 +116,12 @@ function allStrings(): Array<[string, string]> {
   push('permission.recoveryOpenSettingsCta', permission.recoveryOpenSettingsCta);
   push('permission.recoveryContinueLimitedCta', permission.recoveryContinueLimitedCta);
   push('permission.recoveryRetryCta', permission.recoveryRetryCta);
+  push('permission.preheatTitle', permission.preheatTitle);
+  push('permission.preheatBody', permission.preheatBody);
+  push('permission.preheatSelectPhotos', permission.preheatSelectPhotos);
+  push('permission.preheatAllowFullAccess', permission.preheatAllowFullAccess);
+  push('permission.preheatDontAllow', permission.preheatDontAllow);
+  push('permission.preheatFooter', permission.preheatFooter);
 
   return entries;
 }

@@ -87,6 +87,7 @@ export interface QuizCreationFlow {
   build: BuildView;
   startCreation: () => void;
   handleRequestPermission: () => void;
+  handlePreheatChoice: (choice: 'full-access' | 'select-photos' | 'dont-allow') => void;
   /** Stop the build, behind a confirm. */
   handleCancel: () => void;
   handleBack: () => void;
@@ -290,6 +291,16 @@ export function useQuizCreationFlow({ entryPoint, navigation }: Options): QuizCr
     }
   });
 
+  const handlePreheatChoice = useStableCallback(
+    async (choice: 'full-access' | 'select-photos' | 'dont-allow') => {
+      if (choice === 'full-access') {
+        await handleRequestPermission();
+        return;
+      }
+      setPhase('permission-denied');
+    }
+  );
+
   // Stop the build outright. The persisted draft stays resumable (KTD7), so
   // the classification already paid for is not thrown away.
   const handleStopBuilding = useStableCallback(() => {
@@ -394,6 +405,7 @@ export function useQuizCreationFlow({ entryPoint, navigation }: Options): QuizCr
     build,
     startCreation,
     handleRequestPermission,
+    handlePreheatChoice,
     handleCancel,
     handleBack,
     handleClose,
