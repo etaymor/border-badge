@@ -7,6 +7,7 @@
  * now, so these assertions are also the trip scan's contract WITH the runtime.
  */
 
+import { SCAN_COPY } from '@constants/scanCopy';
 import {
   __resetForTesting,
   cancelScan,
@@ -58,7 +59,13 @@ jest.mock('@services/photoImport/errors', () => {
       this.name = 'ScanCancelledError';
     }
   }
-  return { HomeCountryNotSetError, ScanCancelledError };
+  class PermissionDeniedError extends Error {
+    constructor(permissionType = 'mediaLibrary') {
+      super(`${permissionType} permission denied`);
+      this.name = 'PermissionDeniedError';
+    }
+  }
+  return { HomeCountryNotSetError, ScanCancelledError, PermissionDeniedError };
 });
 
 jest.mock('@services/photoImport/photoCacheDb', () => ({
@@ -286,6 +293,23 @@ describe('photoScanService failure paths', () => {
     const state = tripScan();
     expect(state.phase).toBe('failed');
     expect(state.failure?.reason).toBe('scan-error');
+    expect(isScanRunning()).toBe(false);
+  });
+
+  it('surfaces no-permission failure when extraction throws PermissionDeniedError', async () => {
+    const { PermissionDeniedError } = jest.requireMock('@services/photoImport/errors');
+    importService.extractPhotosWithLocation.mockRejectedValue(
+      new PermissionDeniedError('mediaLibrary')
+    );
+
+    await startScan({ homeCountry: 'US' });
+    await new Promise((r) => setImmediate(r));
+
+    const state = tripScan();
+    expect(state.phase).toBe('failed');
+    expect(state.failure?.reason).toBe('no-permission');
+    expect(state.failure?.title).toBe(SCAN_COPY.permission.recoveryTitleDenied);
+    expect(state.failure?.message).toBe(SCAN_COPY.permission.recoveryBodyDenied);
     expect(isScanRunning()).toBe(false);
   });
 });

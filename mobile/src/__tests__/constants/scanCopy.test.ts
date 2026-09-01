@@ -31,7 +31,7 @@ function allStrings(): Array<[string, string]> {
     else value.forEach((item, index) => entries.push([`${label}[${index}]`, item]));
   };
 
-  const { shared, trips, quiz, banner } = SCAN_COPY;
+  const { shared, trips, quiz, banner, permission } = SCAN_COPY;
 
   push('shared.privacyTitle', shared.privacyTitle);
   push('shared.privacyBullets', shared.privacyBullets('France'));
@@ -108,6 +108,15 @@ function allStrings(): Array<[string, string]> {
     banner.label('trip-scan', 'failed', 100, 'no-trips')
   );
 
+  push('permission.recoveryTitleDenied', permission.recoveryTitleDenied);
+  push('permission.recoveryTitleLimited', permission.recoveryTitleLimited);
+  push('permission.recoveryBodyDenied', permission.recoveryBodyDenied);
+  push('permission.recoveryBodyLimited', permission.recoveryBodyLimited);
+  push('permission.recoveryPrivacyReportTip', permission.recoveryPrivacyReportTip);
+  push('permission.recoveryOpenSettingsCta', permission.recoveryOpenSettingsCta);
+  push('permission.recoveryContinueLimitedCta', permission.recoveryContinueLimitedCta);
+  push('permission.recoveryRetryCta', permission.recoveryRetryCta);
+
   return entries;
 }
 
@@ -134,6 +143,7 @@ describe('SCAN_COPY - banned phrases', () => {
     [/\bimport(ed|ing|s)?\b/i, 'say "scan" (first) or "check" (incremental)'],
     [/\bexamin(e|ed|ing)\b/i, 'say "checked"'],
     [/\boffline\b/i, 'say "on your device"'],
+    [/never upload/i, 'Atlasi uploads when the user saves a place or shares a challenge'],
   ];
 
   it.each(allStrings())('%s is clean', (label, value) => {
@@ -266,6 +276,28 @@ describe('SCAN_COPY - the banner splits state from action', () => {
   });
 });
 
+describe('SCAN_COPY - permission recovery', () => {
+  it('exports the recovery strings both doors render', () => {
+    const { permission } = SCAN_COPY;
+    expect(permission.recoveryTitleDenied).toBe('Photo Access Needed');
+    expect(permission.recoveryTitleLimited).toBe('Full Access Works Best');
+    expect(permission.recoveryBodyDenied.length).toBeGreaterThan(0);
+    expect(permission.recoveryBodyLimited.length).toBeGreaterThan(0);
+    expect(permission.recoveryPrivacyReportTip).toMatch(/App Privacy Report/);
+    expect(permission.recoveryOpenSettingsCta).toBe('Open Settings');
+    expect(permission.recoveryContinueLimitedCta).toBe('Continue With Selected Photos');
+    expect(permission.recoveryRetryCta).toBe('Try Again');
+  });
+
+  it('never claims photos are never uploaded', () => {
+    const { permission, shared } = SCAN_COPY;
+    const recovery = Object.values(permission).join(' ');
+    const privacy = [shared.privacyTitle, ...shared.privacyBullets('France')].join(' ');
+    expect(recovery).not.toMatch(/never upload/i);
+    expect(privacy).not.toMatch(/never upload/i);
+  });
+});
+
 describe('SCAN_COPY - provenance', () => {
   /**
    * Crude, and the only mechanism here that catches someone re-hardcoding a
@@ -282,6 +314,7 @@ describe('SCAN_COPY - provenance', () => {
     ['src/screens/photos/components/ScanningPhase.tsx', 'with GPS'],
     ['src/screens/photos/components/IdlePhase.tsx', 'Only GPS data from photos outside'],
     ['src/screens/photos/components/IdlePhase.tsx', 'Import Travel Photos'],
+    ['src/screens/quiz/QuizCreationScreen.tsx', 'Turn on photo access in Settings, then come back.'],
   ];
 
   it.each(RETIRED)('%s no longer hardcodes "%s"', (file, literal) => {

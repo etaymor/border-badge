@@ -41,8 +41,9 @@
 import { ActivityIndicator, StatusBar, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Button } from '@components/ui/Button';
+import { PhotoPermissionRecoverySheet } from '@components/photos/PhotoPermissionRecoverySheet';
 import { PrivacyNotice } from '@components/photos/PrivacyNotice';
+import { Button } from '@components/ui/Button';
 import { colors } from '@constants/colors';
 import { SCAN_COPY } from '@constants/scanCopy';
 import { useReducedMotion } from '@hooks/useReducedMotion';
@@ -212,9 +213,10 @@ export function QuizCreationScreen({ navigation, route }: Props) {
 
         {phase === 'permission-denied' && (
           <View style={styles.sheetContent} testID="quiz-permission-denied">
-            <Text style={styles.title}>Photo Access Needed</Text>
-            <Text style={styles.body}>Turn on photo access in Settings, then come back.</Text>
-            <Button title="Open Settings" onPress={handleOpenSettings} />
+            <PhotoPermissionRecoverySheet
+              variant="denied"
+              onOpenSettings={handleOpenSettings}
+            />
           </View>
         )}
 
@@ -232,15 +234,11 @@ export function QuizCreationScreen({ navigation, route }: Props) {
         {phase === 'thin-library' &&
           (limitedAccess ? (
             <View style={styles.sheetContent} testID="quiz-thin-limited">
-              <Text style={styles.title}>Limited Photo Access</Text>
-              <Text style={styles.body}>
-                We can only see the photos you selected, and that was not enough.
-              </Text>
-              <Text style={styles.hint}>
-                Allow more of your library - especially outdoor shots from your trips.
-              </Text>
-              <Button title="Allow More Photos" onPress={handleOpenSettings} />
-              <Button title="Try Again" variant="outline" onPress={startCreation} />
+              <PhotoPermissionRecoverySheet
+                variant="limited"
+                onOpenSettings={handleOpenSettings}
+                onContinueLimited={startCreation}
+              />
             </View>
           ) : (
             <View style={styles.sheetContent} testID="quiz-thin-library">
