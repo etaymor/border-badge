@@ -10,6 +10,9 @@ import { isProduction } from '@config/env';
 import type { QuizEntryPoint, QuizShareSource } from '@navigation/types';
 import { stableHashOrNull } from '@utils/stableHash';
 
+export type PhotoPermissionDoor = 'quiz' | 'trips' | 'profile' | 'other';
+export type PhotoPermissionOsStatus = 'granted' | 'limited' | 'denied' | 'undetermined';
+
 let posthog: PostHog | null = null;
 let isInitialized = false;
 
@@ -925,6 +928,18 @@ export const Analytics = {
     track('quiz_photo_permission_result', {
       status: props.status,
       entry_point: props.entryPoint,
+    }),
+
+  photoPermissionSoftAskShown: (props: { door: PhotoPermissionDoor }) =>
+    track('photo_permission_soft_ask_shown', { door: props.door }),
+
+  photoPermissionOsResult: (props: {
+    door: PhotoPermissionDoor;
+    status: PhotoPermissionOsStatus;
+  }) =>
+    track('photo_permission_os_result', {
+      door: props.door,
+      status: props.status,
     }),
 
   /**

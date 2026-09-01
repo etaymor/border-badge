@@ -15,6 +15,7 @@ jest.mock('@services/analytics', () => ({
     viewQuizCreation: jest.fn(),
     quizCreationStarted: jest.fn(),
     quizPhotoPermissionResult: jest.fn(),
+    photoPermissionOsResult: jest.fn(),
     quizCreationFailed: jest.fn(),
     quizCreationAbandoned: jest.fn(),
   },
@@ -178,6 +179,21 @@ describe('useQuizCreationAnalytics', () => {
     expect(Analytics.quizCreationAbandoned).toHaveBeenCalledWith(
       expect.objectContaining({ attemptIndex: 2 })
     );
+  });
+
+  it('fires the quiz permission result and the shared os-result together', () => {
+    const { result } = setup();
+
+    result.current.trackPermissionResult('limited');
+
+    expect(Analytics.quizPhotoPermissionResult).toHaveBeenCalledWith({
+      status: 'limited',
+      entryPoint: 'passport_card',
+    });
+    expect(Analytics.photoPermissionOsResult).toHaveBeenCalledWith({
+      door: 'quiz',
+      status: 'limited',
+    });
   });
 
   it('reports the view once, with the freshness the pre-flight resolved', () => {

@@ -22,6 +22,7 @@ import { SCAN_COPY } from '@constants/scanCopy';
 import { usePhotoPermissionStatus } from '@hooks/usePhotoPermissions';
 import { useQuizBuildJob } from '@hooks/useQuizBuildJob';
 import { useStableCallback } from '@hooks/useStableCallback';
+import { Analytics } from '@services/analytics';
 import {
   getLibraryFreshness,
   type LibraryFreshness,
@@ -259,6 +260,7 @@ export function useQuizCreationFlow({ entryPoint, navigation }: Options): QuizCr
         });
       } else {
         setPhase('permission-request');
+        Analytics.photoPermissionSoftAskShown({ door: 'quiz' });
         analytics.trackView({
           initialPhase: 'permission-request',
           hasDraft: false,

@@ -34,6 +34,7 @@ import { usePhotoPermissionStatus } from '@hooks/usePhotoPermissions';
 import { useProfile } from '@hooks/useProfile';
 import { useUserCountries } from '@hooks/useUserCountries';
 import { useUpdateDisplayName } from '@hooks/useUpdateDisplayName';
+import { Analytics } from '@services/analytics';
 import { useAuthStore, selectSession } from '@stores/authStore';
 import { useSettingsStore, selectClipboardDetectionEnabled } from '@stores/settingsStore';
 import { useSubscriptionStore } from '@stores/subscriptionStore';
@@ -325,7 +326,9 @@ export function ProfileSettingsScreen({ navigation }: Props) {
   // Photo library permission handlers
   const handleRequestPhotoPermission = useCallback(async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    Analytics.photoPermissionSoftAskShown({ door: 'profile' });
     const newStatus = await requestPhotoPermission();
+    Analytics.photoPermissionOsResult({ door: 'profile', status: newStatus });
 
     if (newStatus === 'denied') {
       // Permission was denied - show the enable modal with Settings instructions
