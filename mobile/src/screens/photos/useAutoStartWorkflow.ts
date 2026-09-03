@@ -28,6 +28,11 @@ import type { ImportPhase } from './photoImportTypes';
 export interface UseAutoStartWorkflowOptions {
   /** Whether to auto-start the workflow */
   autoStart?: boolean;
+  /**
+   * When false, auto-start waits (photo permission soft-ask / preheat still open).
+   * Defaults to true for callers that do not gate on permission.
+   */
+  permissionReady?: boolean;
   /** Country code filter */
   filterCountryCode?: string;
   /** Pre-associated trip ID */
@@ -103,6 +108,7 @@ export interface UseAutoStartWorkflowOptions {
 
 export function useAutoStartWorkflow({
   autoStart,
+  permissionReady = true,
   filterCountryCode,
   tripId,
   skipToSuggestions,
@@ -148,7 +154,10 @@ export function useAutoStartWorkflow({
       });
     }
     const canAutoStart =
-      autoStart && !autoStartAttemptedRef.current && (homeCountry || skipToSuggestions);
+      autoStart &&
+      permissionReady &&
+      !autoStartAttemptedRef.current &&
+      (homeCountry || skipToSuggestions);
 
     if (canAutoStart) {
       autoStartAttemptedRef.current = true;
@@ -360,6 +369,7 @@ export function useAutoStartWorkflow({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     autoStart,
+    permissionReady,
     filterCountryCode,
     homeCountry,
     skipToSuggestions,

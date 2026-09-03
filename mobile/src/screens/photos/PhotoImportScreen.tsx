@@ -7,10 +7,12 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Text, View } from 'react-native';
+import { ActivityIndicator, Linking, Text, View } from 'react-native';
 import { FlashList, ListRenderItem } from '@shopify/flash-list';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { PhotoPermissionPreheat } from '@components/photos/PhotoPermissionPreheat';
+import { PhotoPermissionRecoverySheet } from '@components/photos/PhotoPermissionRecoverySheet';
 import { SatisfactionModal } from '@components/review';
 import { GlassBackButton, GlassIconButton } from '@components/ui';
 import type { TripCandidateDisplay, LocationClusterDisplay } from '@services/photoImport';
@@ -304,6 +306,8 @@ export function PhotoImportScreen({ navigation, route }: Props) {
     dismissedClusterIdsInternal,
     scanFailure,
     clearScanFailure,
+    permissionUi,
+    handlePermissionPreheatChoice,
     getUploadState,
     uploadingClusterIds,
     isPremium,
@@ -670,8 +674,26 @@ export function PhotoImportScreen({ navigation, route }: Props) {
         </View>
       )}
 
-      {/* Idle State */}
-      {phase === 'idle' && (
+      {/* Idle State — preheat / recovery gate OS ask before autoStart or scan */}
+      {phase === 'idle' && permissionUi === 'preheat' && (
+        <View style={styles.idleContainer} testID="photo-import-permission-preheat">
+          <PhotoPermissionPreheat onChoose={handlePermissionPreheatChoice} />
+        </View>
+      )}
+      {phase === 'idle' && permissionUi === 'recovery' && (
+        <View style={styles.idleContainer} testID="photo-import-permission-recovery-idle">
+          <PhotoPermissionRecoverySheet
+            variant="denied"
+            onOpenSettings={() => {
+              Linking.openURL('app-settings:').catch(() => undefined);
+            }}
+            onRetry={() => {
+              void handlePermissionPreheatChoice('full-access');
+            }}
+          />
+        </View>
+      )}
+      {phase === 'idle' && permissionUi === 'none' && (
         <IdlePhase
           autoStart={autoStart}
           lastImportTime={lastImportTime}

@@ -56,6 +56,12 @@ jest.mock('@hooks/usePhotoPermissions', () => ({
   usePhotoPermissionStatus: () => mockPermission,
 }));
 
+const mockPresentLimitedOrSettings = jest.fn(async () => 'picker' as const);
+jest.mock('@services/photoImport/photoImportService', () => ({
+  presentLimitedPhotoPickerOrOpenSettings: (...args: unknown[]) =>
+    mockPresentLimitedOrSettings(...args),
+}));
+
 let mockOutcome: QuizCreationOutcome = { status: 'created', quizId: 'quiz-1', photoCount: 6 };
 // When true the mutation never resolves, holding the screen in the working
 // phase so the live-progress UI can be driven via `emitProgress`.
@@ -208,10 +214,10 @@ describe('QuizCreationScreen', () => {
     await renderScreen();
 
     await waitFor(() => expect(screen.getByTestId('quiz-permission-request')).toBeTruthy());
-    expect(screen.getByText('Allow Photo Access')).toBeTruthy();
+    expect(screen.getByText('Allow Full Access')).toBeTruthy();
     // One scan feeds trips as well, and this is the moment the user decides
     // whether to grant at all - so the second payoff is named here.
-    expect(screen.getByText(/builds your trips/i)).toBeTruthy();
+    expect(screen.getByText(/Guess Where challenges/i)).toBeTruthy();
     expect(mockStart).not.toHaveBeenCalled();
   });
 
@@ -312,9 +318,27 @@ describe('QuizCreationScreen', () => {
     await startFromIntro();
 
     await waitFor(() => expect(screen.getByTestId('quiz-thin-limited')).toBeTruthy());
+    expect(screen.getByText(SCAN_COPY.permission.recoveryAllowMorePhotosCta)).toBeTruthy();
     expect(screen.getByText('Open Settings')).toBeTruthy();
     expect(screen.getByText('Continue With Selected Photos')).toBeTruthy();
     expect(screen.queryByTestId('quiz-thin-library')).toBeNull();
+  });
+
+  it('opens the limited picker from Allow More Photos on thin-library', async () => {
+    mockPermission.status = 'limited';
+    mockOutcome = { status: 'thin-library', eligibleCount: 2, hasGeoCandidates: true };
+    mockPresentLimitedOrSettings.mockResolvedValueOnce('picker');
+
+    await renderScreen();
+    await startFromIntro();
+    await waitFor(() => expect(screen.getByTestId('quiz-thin-limited')).toBeTruthy());
+
+    await act(async () => {
+      fireEvent.press(screen.getByText(SCAN_COPY.permission.recoveryAllowMorePhotosCta));
+    });
+
+    expect(mockPresentLimitedOrSettings).toHaveBeenCalled();
+    expect(mockPermission.refresh).toHaveBeenCalled();
   });
 
   it('renders a retry branch on service failure, distinct from the thin-library decline', async () => {
