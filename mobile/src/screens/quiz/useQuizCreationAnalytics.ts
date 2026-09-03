@@ -24,7 +24,7 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 
 import type { QuizEntryPoint } from '@navigation/types';
-import { Analytics } from '@services/analytics';
+import { Analytics, type PhotoPermissionOsStatus } from '@services/analytics';
 import type { LibraryFreshness } from '@services/photoImport/photoLibrarySyncStatus';
 import type { QuizCreationOutcome, QuizCreationProgress } from '@services/quiz/quizCreationTypes';
 
@@ -48,7 +48,7 @@ export interface QuizCreationAnalytics {
   /** A build kicked off. `retryFrom` is the phase it was launched from. */
   trackStarted: (args: { isResume: boolean; scanExpected: boolean; retryFrom: string }) => void;
   /** The photo permission prompt returned. */
-  trackPermissionResult: (status: string) => void;
+  trackPermissionResult: (status: PhotoPermissionOsStatus) => void;
   /** A terminal non-success outcome. Also disarms the abandon path. */
   trackOutcome: (outcome: QuizCreationOutcome) => void;
   /**
@@ -126,6 +126,7 @@ export function useQuizCreationAnalytics({
   const trackPermissionResult = useCallback<QuizCreationAnalytics['trackPermissionResult']>(
     (status) => {
       Analytics.quizPhotoPermissionResult({ status, entryPoint: entryPointRef.current });
+      Analytics.photoPermissionOsResult({ door: 'quiz', status });
     },
     []
   );
