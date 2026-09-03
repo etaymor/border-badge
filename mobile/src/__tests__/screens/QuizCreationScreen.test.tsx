@@ -304,7 +304,7 @@ describe('QuizCreationScreen', () => {
     expect(screen.getByText('Try Again')).toBeTruthy();
   });
 
-  it('renders the distinct "allow more photos" branch for limited access', async () => {
+  it('renders the distinct limited-access recovery branch', async () => {
     mockPermission.status = 'limited';
     mockOutcome = { status: 'thin-library', eligibleCount: 2, hasGeoCandidates: true };
 
@@ -312,7 +312,8 @@ describe('QuizCreationScreen', () => {
     await startFromIntro();
 
     await waitFor(() => expect(screen.getByTestId('quiz-thin-limited')).toBeTruthy());
-    expect(screen.getByText('Allow More Photos')).toBeTruthy();
+    expect(screen.getByText('Open Settings')).toBeTruthy();
+    expect(screen.getByText('Continue With Selected Photos')).toBeTruthy();
     expect(screen.queryByTestId('quiz-thin-library')).toBeNull();
   });
 
