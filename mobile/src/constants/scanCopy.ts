@@ -247,6 +247,7 @@ const permission = {
   recoveryPrivacyReportTip:
     "You can inspect network activity in Apple's App Privacy Report (Settings → Privacy & Security → App Privacy Report).",
   recoveryOpenSettingsCta: 'Open Settings',
+  recoveryAllowMorePhotosCta: 'Allow More Photos',
   recoveryContinueLimitedCta: 'Continue With Selected Photos',
   recoveryRetryCta: 'Try Again',
   preheatTitle: 'Connect Photos',

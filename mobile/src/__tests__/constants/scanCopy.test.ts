@@ -114,6 +114,7 @@ function allStrings(): Array<[string, string]> {
   push('permission.recoveryBodyLimited', permission.recoveryBodyLimited);
   push('permission.recoveryPrivacyReportTip', permission.recoveryPrivacyReportTip);
   push('permission.recoveryOpenSettingsCta', permission.recoveryOpenSettingsCta);
+  push('permission.recoveryAllowMorePhotosCta', permission.recoveryAllowMorePhotosCta);
   push('permission.recoveryContinueLimitedCta', permission.recoveryContinueLimitedCta);
   push('permission.recoveryRetryCta', permission.recoveryRetryCta);
   push('permission.preheatTitle', permission.preheatTitle);
@@ -291,6 +292,7 @@ describe('SCAN_COPY - permission recovery', () => {
     expect(permission.recoveryBodyLimited.length).toBeGreaterThan(0);
     expect(permission.recoveryPrivacyReportTip).toMatch(/App Privacy Report/);
     expect(permission.recoveryOpenSettingsCta).toBe('Open Settings');
+    expect(permission.recoveryAllowMorePhotosCta).toBe('Allow More Photos');
     expect(permission.recoveryContinueLimitedCta).toBe('Continue With Selected Photos');
     expect(permission.recoveryRetryCta).toBe('Try Again');
   });
@@ -320,7 +322,10 @@ describe('SCAN_COPY - provenance', () => {
     ['src/screens/photos/components/ScanningPhase.tsx', 'with GPS'],
     ['src/screens/photos/components/IdlePhase.tsx', 'Only GPS data from photos outside'],
     ['src/screens/photos/components/IdlePhase.tsx', 'Import Travel Photos'],
-    ['src/screens/quiz/QuizCreationScreen.tsx', 'Turn on photo access in Settings, then come back.'],
+    [
+      'src/screens/quiz/QuizCreationScreen.tsx',
+      'Turn on photo access in Settings, then come back.',
+    ],
   ];
 
   it.each(RETIRED)('%s no longer hardcodes "%s"', (file, literal) => {

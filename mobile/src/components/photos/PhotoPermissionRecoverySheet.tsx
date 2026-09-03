@@ -8,6 +8,8 @@ import { fonts } from '@constants/typography';
 export interface PhotoPermissionRecoverySheetProps {
   variant: 'denied' | 'limited';
   onOpenSettings: () => void;
+  /** Limited: open the iOS limited-photo picker (preferred over Settings). */
+  onAllowMorePhotos?: () => void;
   onContinueLimited?: () => void;
   onRetry?: () => void;
   testID?: string;
@@ -16,6 +18,7 @@ export interface PhotoPermissionRecoverySheetProps {
 export function PhotoPermissionRecoverySheet({
   variant,
   onOpenSettings,
+  onAllowMorePhotos,
   onContinueLimited,
   onRetry,
   testID,
@@ -23,13 +26,21 @@ export function PhotoPermissionRecoverySheet({
   const copy = SCAN_COPY.permission;
   const title = variant === 'denied' ? copy.recoveryTitleDenied : copy.recoveryTitleLimited;
   const body = variant === 'denied' ? copy.recoveryBodyDenied : copy.recoveryBodyLimited;
+  const limitedPrimaryIsPicker = variant === 'limited' && Boolean(onAllowMorePhotos);
 
   return (
     <View style={styles.container} testID={testID}>
       <Text style={styles.title}>{title}</Text>
       <Text style={styles.body}>{body}</Text>
       <Text style={styles.tip}>{copy.recoveryPrivacyReportTip}</Text>
-      <Button title={copy.recoveryOpenSettingsCta} onPress={onOpenSettings} />
+      {limitedPrimaryIsPicker ? (
+        <Button title={copy.recoveryAllowMorePhotosCta} onPress={onAllowMorePhotos} />
+      ) : null}
+      <Button
+        title={copy.recoveryOpenSettingsCta}
+        onPress={onOpenSettings}
+        variant={limitedPrimaryIsPicker ? 'outline' : 'primary'}
+      />
       {variant === 'limited' && onContinueLimited ? (
         <Button
           title={copy.recoveryContinueLimitedCta}
