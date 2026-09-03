@@ -4,6 +4,8 @@ import { Analytics } from '@services/analytics';
 
 import {
   extractPhotosWithLocation,
+  presentLimitedPhotoPicker,
+  presentLimitedPhotoPickerOrOpenSettings,
   requestPhotoPermissions,
   SCAN_CONFIG,
 } from '../../../services/photoImport/photoImportService';
@@ -19,6 +21,7 @@ jest.mock('@services/analytics', () => ({
 // Mock expo-media-library
 jest.mock('expo-media-library', () => ({
   requestPermissionsAsync: jest.fn(),
+  presentPermissionsPickerAsync: jest.fn(),
   getAssetsAsync: jest.fn(),
   getAssetInfoAsync: jest.fn(),
   MediaType: { photo: 'photo' },
@@ -63,7 +66,7 @@ describe('photoImportService', () => {
       expect(result.granted).toBe(true);
       expect(result.limited).toBe(false);
       expect(mockedMediaLibrary.requestPermissionsAsync).toHaveBeenCalledTimes(1);
-      expect(Analytics.photoPermissionSoftAskShown).toHaveBeenCalledWith({ door: 'trips' });
+      expect(Analytics.photoPermissionSoftAskShown).not.toHaveBeenCalled();
       expect(Analytics.photoPermissionOsResult).toHaveBeenCalledWith({
         door: 'trips',
         status: 'granted',
@@ -105,6 +108,34 @@ describe('photoImportService', () => {
         door: 'trips',
         status: 'limited',
       });
+    });
+  });
+
+  describe('presentLimitedPhotoPicker', () => {
+    it('calls presentPermissionsPickerAsync', async () => {
+      mockedMediaLibrary.presentPermissionsPickerAsync.mockResolvedValue(undefined);
+
+      await presentLimitedPhotoPicker();
+
+      expect(mockedMediaLibrary.presentPermissionsPickerAsync).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('presentLimitedPhotoPickerOrOpenSettings', () => {
+    it('returns picker when the limited picker succeeds', async () => {
+      mockedMediaLibrary.presentPermissionsPickerAsync.mockResolvedValue(undefined);
+      const openSettings = jest.fn();
+
+      await expect(presentLimitedPhotoPickerOrOpenSettings(openSettings)).resolves.toBe('picker');
+      expect(openSettings).not.toHaveBeenCalled();
+    });
+
+    it('opens Settings when the limited picker throws', async () => {
+      mockedMediaLibrary.presentPermissionsPickerAsync.mockRejectedValue(new Error('unavailable'));
+      const openSettings = jest.fn();
+
+      await expect(presentLimitedPhotoPickerOrOpenSettings(openSettings)).resolves.toBe('settings');
+      expect(openSettings).toHaveBeenCalledTimes(1);
     });
   });
 

@@ -13,6 +13,7 @@ describe('PhotoPermissionRecoverySheet', () => {
     expect(screen.getByText(SCAN_COPY.permission.recoveryPrivacyReportTip)).toBeTruthy();
     fireEvent.press(screen.getByText(SCAN_COPY.permission.recoveryOpenSettingsCta));
     expect(onOpenSettings).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText(SCAN_COPY.permission.recoveryAllowMorePhotosCta)).toBeNull();
   });
 
   it('renders limited continue when provided', () => {
@@ -28,5 +29,20 @@ describe('PhotoPermissionRecoverySheet', () => {
     expect(screen.getByText(SCAN_COPY.permission.recoveryTitleLimited)).toBeTruthy();
     fireEvent.press(screen.getByText(SCAN_COPY.permission.recoveryContinueLimitedCta));
     expect(onContinueLimited).toHaveBeenCalledTimes(1);
+  });
+
+  it('prefers Allow More Photos as the limited upgrade CTA', () => {
+    const onAllowMorePhotos = jest.fn();
+    render(
+      <PhotoPermissionRecoverySheet
+        variant="limited"
+        onOpenSettings={jest.fn()}
+        onAllowMorePhotos={onAllowMorePhotos}
+        onContinueLimited={jest.fn()}
+      />
+    );
+
+    fireEvent.press(screen.getByText(SCAN_COPY.permission.recoveryAllowMorePhotosCta));
+    expect(onAllowMorePhotos).toHaveBeenCalledTimes(1);
   });
 });

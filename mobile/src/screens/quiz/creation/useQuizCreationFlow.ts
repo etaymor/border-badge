@@ -27,6 +27,7 @@ import {
   getLibraryFreshness,
   type LibraryFreshness,
 } from '@services/photoImport/photoLibrarySyncStatus';
+import { presentLimitedPhotoPickerOrOpenSettings } from '@services/photoImport/photoImportService';
 import { QUIZ_MAX_PHOTOS } from '@services/quiz/candidateSelection';
 import { loadDraftState } from '@services/quiz/quizCreation';
 import type {
@@ -87,11 +88,14 @@ export interface QuizCreationFlow {
   build: BuildView;
   startCreation: () => void;
   handleRequestPermission: () => void;
+  handlePreheatChoice: (choice: 'full-access' | 'select-photos' | 'dont-allow') => void;
   /** Stop the build, behind a confirm. */
   handleCancel: () => void;
   handleBack: () => void;
   handleClose: () => void;
   handleOpenSettings: () => void;
+  /** Limited access: expand selection via system picker (Settings on failure). */
+  handleAllowMorePhotos: () => void;
 }
 
 interface Options {
@@ -104,6 +108,7 @@ export function useQuizCreationFlow({ entryPoint, navigation }: Options): QuizCr
     status: permissionStatus,
     isLoading: permissionLoading,
     requestPermission,
+    refresh: refreshPermission,
   } = usePhotoPermissionStatus();
   const buildJob = useQuizBuildJob({ onOutcome: (result) => handleOutcome(result) });
 
@@ -290,6 +295,16 @@ export function useQuizCreationFlow({ entryPoint, navigation }: Options): QuizCr
     }
   });
 
+  const handlePreheatChoice = useStableCallback(
+    async (choice: 'full-access' | 'select-photos' | 'dont-allow') => {
+      if (choice === 'full-access') {
+        await handleRequestPermission();
+        return;
+      }
+      setPhase('permission-denied');
+    }
+  );
+
   // Stop the build outright. The persisted draft stays resumable (KTD7), so
   // the classification already paid for is not thrown away.
   const handleStopBuilding = useStableCallback(() => {
@@ -326,6 +341,14 @@ export function useQuizCreationFlow({ entryPoint, navigation }: Options): QuizCr
 
   const handleOpenSettings = useStableCallback(() => {
     Linking.openSettings();
+  });
+
+  const handleAllowMorePhotos = useStableCallback(async () => {
+    const path = await presentLimitedPhotoPickerOrOpenSettings(handleOpenSettings);
+    if (path === 'picker') {
+      await refreshPermission();
+      startCreation();
+    }
   });
 
   const syncedAgo = formatSyncedAgo(freshness?.lastSuccessAt ?? null);
@@ -394,9 +417,11 @@ export function useQuizCreationFlow({ entryPoint, navigation }: Options): QuizCr
     build,
     startCreation,
     handleRequestPermission,
+    handlePreheatChoice,
     handleCancel,
     handleBack,
     handleClose,
     handleOpenSettings,
+    handleAllowMorePhotos,
   };
 }

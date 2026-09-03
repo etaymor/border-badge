@@ -6,6 +6,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import { Analytics } from '@services/analytics';
+import { usePhotoPermissionStatus } from '@hooks/usePhotoPermissions';
 import { useOnboardingStore, selectHomeCountry } from '@stores/onboardingStore';
 import { isAlertScanFailure } from '@services/photoImport/photoScanTypes';
 import { useLibraryJobStore } from '@stores/libraryJobStore';
@@ -28,6 +30,7 @@ import type {
   PhotoImportWorkflowResult,
   UsePhotoImportWorkflowOptions,
 } from './photoImportTypes';
+import type { PhotoPermissionPreheatChoice } from '@components/photos/PhotoPermissionPreheat';
 import { usePhotoScan, type ScanResult, type ScanFailureReason } from './usePhotoScan';
 import { usePlaceSuggestions } from './usePlaceSuggestions';
 import { useEntryCreation } from './useEntryCreation';
@@ -50,6 +53,37 @@ export function usePhotoImportWorkflow({
 }: UsePhotoImportWorkflowOptions): PhotoImportWorkflowResult {
   const homeCountry = useOnboardingStore(selectHomeCountry);
   const subscriptionStatus = useSubscriptionStore((s) => s.status);
+  const {
+    status: photoPermissionStatus,
+    isLoading: photoPermissionLoading,
+    requestPermission,
+  } = usePhotoPermissionStatus();
+  const [permissionUi, setPermissionUi] = useState<'none' | 'preheat' | 'recovery'>('none');
+  const pendingScanAfterGrantRef = useRef(false);
+  const permissionReady =
+    !photoPermissionLoading &&
+    (photoPermissionStatus === 'granted' || photoPermissionStatus === 'limited') &&
+    permissionUi === 'none';
+
+  useEffect(() => {
+    if (photoPermissionLoading) return;
+    if (
+      (photoPermissionStatus === 'granted' || photoPermissionStatus === 'limited') &&
+      permissionUi === 'recovery'
+    ) {
+      setPermissionUi('none');
+      return;
+    }
+    if (!autoStart || permissionUi !== 'none') return;
+    if (photoPermissionStatus === 'undetermined') {
+      setPermissionUi('preheat');
+      Analytics.photoPermissionSoftAskShown({ door: 'trips' });
+      return;
+    }
+    if (photoPermissionStatus === 'denied') {
+      setPermissionUi('recovery');
+    }
+  }, [autoStart, photoPermissionLoading, photoPermissionStatus, permissionUi]);
 
   // ==========================================================================
   // Core State
@@ -242,6 +276,17 @@ export function usePhotoImportWorkflow({
 
   const startScan = useCallback(
     async (forceRefresh = false) => {
+      if (photoPermissionStatus === 'undetermined') {
+        pendingScanAfterGrantRef.current = true;
+        setPermissionUi('preheat');
+        Analytics.photoPermissionSoftAskShown({ door: 'trips' });
+        return;
+      }
+      if (photoPermissionStatus === 'denied') {
+        setPermissionUi('recovery');
+        return;
+      }
+
       setScanFailure(null);
       setPhase('scanning');
       const outcome = await startScanInternal(forceRefresh);
@@ -258,8 +303,49 @@ export function usePhotoImportWorkflow({
         }
       }
     },
-    [startScanInternal]
+    [startScanInternal, photoPermissionStatus]
   );
+
+  const handlePermissionPreheatChoice = useCallback(
+    async (choice: PhotoPermissionPreheatChoice) => {
+      if (choice !== 'full-access') {
+        setPermissionUi('recovery');
+        return;
+      }
+
+      const result = await requestPermission();
+      if (result === 'granted' || result === 'limited') {
+        setPermissionUi('none');
+        // autoStart: clearing preheat flips permissionReady so useAutoStartWorkflow
+        // starts the scan. Manual path uses the pending flag from startScan.
+        if (pendingScanAfterGrantRef.current) {
+          pendingScanAfterGrantRef.current = false;
+          setScanFailure(null);
+          setPhase('scanning');
+          const outcome = await startScanInternal(false);
+          if (!outcome.success) {
+            setPhase('idle');
+            if (outcome.reason) {
+              setScanFailure({
+                reason: outcome.reason,
+                title: outcome.title,
+                message: outcome.message,
+              });
+            }
+          }
+        }
+        return;
+      }
+      // extractPhotosWithLocation never runs on deny, so fire os-result here.
+      Analytics.photoPermissionOsResult({ door: 'trips', status: result });
+      setPermissionUi('recovery');
+    },
+    [requestPermission, startScanInternal]
+  );
+
+  const dismissPermissionRecovery = useCallback(() => {
+    setPermissionUi('none');
+  }, []);
 
   // Mirror service-side scan failures into the screen's local scanFailure state.
   // Legacy reasons (no-photos, no-trips, home-country, scan-error) drop the
@@ -546,6 +632,7 @@ export function usePhotoImportWorkflow({
   // ==========================================================================
   useAutoStartWorkflow({
     autoStart,
+    permissionReady,
     filterCountryCode,
     tripId,
     skipToSuggestions,
@@ -613,6 +700,9 @@ export function usePhotoImportWorkflow({
     dismissedClusterIdsInternal,
     scanFailure,
     clearScanFailure,
+    permissionUi,
+    handlePermissionPreheatChoice,
+    dismissPermissionRecovery,
     uploadStates,
     getUploadState,
     uploadingClusterIds,
