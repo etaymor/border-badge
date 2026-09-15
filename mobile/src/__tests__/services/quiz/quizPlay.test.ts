@@ -60,6 +60,7 @@ import { getQuizAssetIds, recordQuizAssets } from '@services/quiz/quizAssets';
 import { getAllCachedPhotos } from '@services/photoImport/photoCacheDb';
 import { getAllCountries } from '@services/countriesDb';
 import { getAllVerdicts, getTagsForIds } from '@services/photoImport/photoTagDb';
+import { QUIZ_CLASSIFIER_VERSION } from '@services/quiz/quizVerdictStore';
 import type { CachedPhoto } from '@services/photoImport/types';
 
 const mockApiPost = api.post as jest.Mock;
@@ -261,7 +262,7 @@ describe('loadSwapCandidates - free local knowledge', () => {
     eligible,
     reason: eligible ? null : 'people_present',
     landscape,
-    classifierVersion: 'gemini-2.5-flash-lite/v1',
+    classifierVersion: QUIZ_CLASSIFIER_VERSION,
     classifiedAt: 1_700_000_000_000,
   });
 

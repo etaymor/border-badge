@@ -29,7 +29,7 @@ import type { GeoEligibleCandidate } from './candidateSelection';
  *
  * Must be kept in step with the backend's quiz eligibility classifier.
  */
-export const QUIZ_CLASSIFIER_VERSION = 'gemini-2.5-flash-lite/v1';
+export const QUIZ_CLASSIFIER_VERSION = 'gemini-2.5-flash-lite/v2';
 
 export interface SeededVerdicts {
   /** Candidates whose stored verdict says eligible, in pool order. */

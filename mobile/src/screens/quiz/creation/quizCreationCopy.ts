@@ -24,7 +24,7 @@ export function thinLibraryReason(outcome: QuizCreationOutcome | null): string {
     case 'people_present':
       return 'Most of the ones we checked had people in them.';
     case 'indoor':
-      return 'Most of the ones we checked were taken indoors.';
+      return 'Most of the ones we checked were not a clear place still.';
     case 'category_not_allowed':
       return 'Most of the ones we checked were not scenery or landmarks.';
     case 'prepare_failed':

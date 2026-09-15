@@ -85,6 +85,7 @@ import { prepareVisionImage } from '@services/photoImport/visionPhoto';
 import { CLASSIFICATION_BUDGET_PER_QUIZ, QUIZ_MAX_PHOTOS } from '@services/quiz/candidateSelection';
 import { recordQuizAssets } from '@services/quiz/quizAssets';
 import { createQuizFromLibrary } from '@services/quiz/quizCreation';
+import { QUIZ_CLASSIFIER_VERSION } from '@services/quiz/quizVerdictStore';
 
 import type { CachedPhoto } from '@services/photoImport/types';
 import type { QuizCreationProgress } from '@services/quiz/quizCreation';
@@ -613,10 +614,9 @@ describe('createQuizFromLibrary - on-device pre-filter', () => {
     for (const id of portraitIds) expect(sent).not.toContain(id);
   });
 
-  it('still sends indoor photos, just last', async () => {
-    // The v1 policy in one test: indoor evidence ranks marginal, never drops.
-    // If this ever flips to a drop, it must be a deliberate, telemetry-backed
-    // decision - not a silent threshold slip.
+  it('still sends indoor kitchen photos, just last', async () => {
+    // Unknown interiors stay marginal and are never dropped. Landmark
+    // interiors rank likely -- see tagSignals.test.ts.
     const library = buildCachedLibrary(12);
     mockGetAllCachedPhotos.mockResolvedValue(library);
     mockGetTagsForIds.mockImplementation(async (ids: string[]) => {
@@ -703,7 +703,7 @@ describe('createQuizFromLibrary - verdict cache', () => {
       eligible,
       reason: eligible ? null : 'indoor',
       landscape,
-      classifierVersion: 'gemini-2.5-flash-lite/v1',
+      classifierVersion: QUIZ_CLASSIFIER_VERSION,
       classifiedAt: 1_700_000_000_000,
     },
   ];
@@ -1029,7 +1029,7 @@ describe('createQuizFromLibrary - repeat creations never reuse photos', () => {
       eligible,
       reason: eligible ? null : 'indoor',
       landscape: 'alpine',
-      classifierVersion: 'gemini-2.5-flash-lite/v1',
+      classifierVersion: QUIZ_CLASSIFIER_VERSION,
       classifiedAt: 1_700_000_000_000,
     },
   ];
