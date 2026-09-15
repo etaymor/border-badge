@@ -234,6 +234,32 @@ const quiz = {
 } as const;
 
 // ---------------------------------------------------------------------------
+// Permission recovery (denied / limited)
+// ---------------------------------------------------------------------------
+
+const permission = {
+  recoveryTitleDenied: 'Photo Access Needed',
+  recoveryTitleLimited: 'Full Access Works Best',
+  recoveryBodyDenied:
+    'Full Access is needed to find trips across your library. The scan runs on your device. Nothing is uploaded until you save a place or share a challenge.',
+  recoveryBodyLimited:
+    'Limited selection may miss trips in the rest of your library. Full Access lets the scan find them. The scan runs on your device. Nothing is uploaded until you save a place or share a challenge.',
+  recoveryPrivacyReportTip:
+    "You can inspect network activity in Apple's App Privacy Report (Settings → Privacy & Security → App Privacy Report).",
+  recoveryOpenSettingsCta: 'Open Settings',
+  recoveryAllowMorePhotosCta: 'Allow More Photos',
+  recoveryContinueLimitedCta: 'Continue With Selected Photos',
+  recoveryRetryCta: 'Try Again',
+  preheatTitle: 'Connect Photos',
+  preheatBody:
+    'One scan of your library builds trips and Guess Where challenges. The scan runs on your device. Nothing is uploaded until you save a place or share a challenge.',
+  preheatSelectPhotos: 'Select Photos',
+  preheatAllowFullAccess: 'Allow Full Access',
+  preheatDontAllow: "Don't Allow",
+  preheatFooter: 'On your device until you choose to upload · Full Access finds more trips',
+} as const;
+
+// ---------------------------------------------------------------------------
 // Banner
 // ---------------------------------------------------------------------------
 
@@ -297,4 +323,5 @@ export const SCAN_COPY = {
   trips,
   quiz,
   banner,
+  permission,
 } as const;

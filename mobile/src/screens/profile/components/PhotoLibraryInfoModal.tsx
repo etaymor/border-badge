@@ -21,6 +21,8 @@ import { Ionicons } from '@expo/vector-icons';
 
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
+import { SCAN_COPY } from '@constants/scanCopy';
+import { presentLimitedPhotoPickerOrOpenSettings } from '@services/photoImport/photoImportService';
 
 interface PhotoLibraryInfoModalProps {
   visible: boolean;
@@ -32,6 +34,8 @@ interface PhotoLibraryInfoModalProps {
 function openAppSettings() {
   if (Platform.OS === 'ios') {
     Linking.openURL('app-settings:');
+  } else {
+    Linking.openSettings();
   }
 }
 
@@ -40,6 +44,10 @@ export function PhotoLibraryInfoModal({
   onClose,
   isLimitedAccess,
 }: PhotoLibraryInfoModalProps) {
+  const handleManageLimitedPhotos = async () => {
+    await presentLimitedPhotoPickerOrOpenSettings(openAppSettings);
+  };
+
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <View style={styles.modalBackdrop}>
@@ -138,19 +146,24 @@ export function PhotoLibraryInfoModal({
               <View style={styles.noteSection}>
                 <Text style={styles.noteText}>
                   <Text style={styles.noteLabel}>Limited Access: </Text>
-                  You&apos;ve chosen to share only selected photos with Atlasi. You can change which
-                  photos are shared or grant full access in Settings.
+                  You&apos;ve chosen to share only selected photos with Atlasi. You can add more
+                  photos here, or grant full access in Settings.
                 </Text>
                 {Platform.OS === 'ios' && (
                   <TouchableOpacity
                     style={styles.managePhotosButton}
-                    onPress={openAppSettings}
+                    onPress={() => {
+                      void handleManageLimitedPhotos();
+                    }}
                     activeOpacity={0.8}
                     accessibilityRole="button"
-                    accessibilityLabel="Manage photo selection"
+                    accessibilityLabel={SCAN_COPY.permission.recoveryAllowMorePhotosCta}
+                    testID="photo-library-allow-more"
                   >
-                    <Ionicons name="settings-outline" size={16} color={colors.midnightNavy} />
-                    <Text style={styles.managePhotosButtonText}>Manage in Settings</Text>
+                    <Ionicons name="images-outline" size={16} color={colors.midnightNavy} />
+                    <Text style={styles.managePhotosButtonText}>
+                      {SCAN_COPY.permission.recoveryAllowMorePhotosCta}
+                    </Text>
                   </TouchableOpacity>
                 )}
               </View>

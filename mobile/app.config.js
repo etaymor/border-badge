@@ -1,5 +1,13 @@
 import 'dotenv/config';
 
+/**
+ * Single Photos usage description for Info.plist and the expo-media-library
+ * plugin. Must stay identical — iOS shows one of these depending on which
+ * write path wins at prebuild time.
+ */
+export const PHOTO_LIBRARY_USAGE_DESCRIPTION =
+  'Atlasi scans your photo library on your device to find travel trips and build Guess Where challenges. Nothing is uploaded until you save a place or share a challenge.';
+
 export default {
   expo: {
     name: 'Atlasi',
@@ -39,8 +47,7 @@ export default {
         // (iOS 26 BGContinuedProcessingTask). The expo-background-task plugin
         // APPENDS its own identifier to this array rather than overwriting it.
         BGTaskSchedulerPermittedIdentifiers: ['com.atlasi.app.continued-processing'],
-        NSPhotoLibraryUsageDescription:
-          'We need access to your photos to help create trip entries from your travel photos.',
+        NSPhotoLibraryUsageDescription: PHOTO_LIBRARY_USAGE_DESCRIPTION,
         NSLocationWhenInUseUsageDescription:
           'We need your location to identify where your photos were taken.',
         SKAdNetworkItems: [
@@ -122,8 +129,7 @@ export default {
       [
         'expo-media-library',
         {
-          photosPermission:
-            'Allow Atlasi to access your photos to suggest trip entries based on where they were taken.',
+          photosPermission: PHOTO_LIBRARY_USAGE_DESCRIPTION,
           savePhotosPermission: 'Allow Atlasi to save photos.',
           isAccessMediaLocationEnabled: true,
         },

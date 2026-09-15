@@ -41,8 +41,9 @@
 import { ActivityIndicator, StatusBar, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { PhotoPermissionPreheat } from '@components/photos/PhotoPermissionPreheat';
+import { PhotoPermissionRecoverySheet } from '@components/photos/PhotoPermissionRecoverySheet';
 import { Button } from '@components/ui/Button';
-import { PrivacyNotice } from '@components/photos/PrivacyNotice';
 import { colors } from '@constants/colors';
 import { SCAN_COPY } from '@constants/scanCopy';
 import { useReducedMotion } from '@hooks/useReducedMotion';
@@ -75,11 +76,12 @@ export function QuizCreationScreen({ navigation, route }: Props) {
     draftUploadCounts,
     build,
     startCreation,
-    handleRequestPermission,
+    handlePreheatChoice,
     handleCancel,
     handleBack,
     handleClose,
     handleOpenSettings,
+    handleAllowMorePhotos,
   } = useQuizCreationFlow({ entryPoint, navigation });
 
   // Hero region per phase: real photos as soon as any are known, the bundled
@@ -200,21 +202,13 @@ export function QuizCreationScreen({ navigation, route }: Props) {
             style={[styles.sheetContent, styles.permissionSheetContent]}
             testID="quiz-permission-request"
           >
-            <Text style={styles.title}>{SCAN_COPY.quiz.permissionTitle}</Text>
-            <Text style={styles.body}>{SCAN_COPY.quiz.permissionBody}</Text>
-            {/* The literal same component the trips door renders. The hint
-                that used to sit here was a weaker paraphrase of two of these
-                bullets; deleting it is the point - one source, one phrasing. */}
-            <PrivacyNotice variant="sheet" testID="quiz-privacy-notice" />
-            <Button title={SCAN_COPY.quiz.permissionCta} onPress={handleRequestPermission} />
+            <PhotoPermissionPreheat onChoose={handlePreheatChoice} />
           </View>
         )}
 
         {phase === 'permission-denied' && (
           <View style={styles.sheetContent} testID="quiz-permission-denied">
-            <Text style={styles.title}>Photo Access Needed</Text>
-            <Text style={styles.body}>Turn on photo access in Settings, then come back.</Text>
-            <Button title="Open Settings" onPress={handleOpenSettings} />
+            <PhotoPermissionRecoverySheet variant="denied" onOpenSettings={handleOpenSettings} />
           </View>
         )}
 
@@ -232,15 +226,12 @@ export function QuizCreationScreen({ navigation, route }: Props) {
         {phase === 'thin-library' &&
           (limitedAccess ? (
             <View style={styles.sheetContent} testID="quiz-thin-limited">
-              <Text style={styles.title}>Limited Photo Access</Text>
-              <Text style={styles.body}>
-                We can only see the photos you selected, and that was not enough.
-              </Text>
-              <Text style={styles.hint}>
-                Allow more of your library - especially outdoor shots from your trips.
-              </Text>
-              <Button title="Allow More Photos" onPress={handleOpenSettings} />
-              <Button title="Try Again" variant="outline" onPress={startCreation} />
+              <PhotoPermissionRecoverySheet
+                variant="limited"
+                onOpenSettings={handleOpenSettings}
+                onAllowMorePhotos={handleAllowMorePhotos}
+                onContinueLimited={startCreation}
+              />
             </View>
           ) : (
             <View style={styles.sheetContent} testID="quiz-thin-library">
