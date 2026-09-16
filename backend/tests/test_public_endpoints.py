@@ -14,7 +14,7 @@ from app.core.blog import get_registry as blog_registry
 from app.core.config import Settings, get_settings
 from app.core.media import AVATAR_WIDTH
 from app.core.security import AuthUser, get_current_user
-from app.core.seo import LANDING_FAQS
+from app.core.seo import LANDING_FAQS, LANDING_GUIDE_SLUGS
 from app.core.share_view import CATEGORY_STYLES
 from app.main import app
 from app.schemas.share import MAP_NOTE_LIMIT
@@ -100,6 +100,39 @@ def test_landing_page_inline_scripts_carry_csp_nonce(client: TestClient) -> None
     assert all("nonce=" in tag for tag in inline_scripts)
 
 
+def test_head_landing_is_empty_html(client: TestClient) -> None:
+    get_response = client.get("/")
+    response = client.head("/")
+    assert response.status_code == 200
+    assert "text/html" in response.headers["content-type"]
+    assert response.content == b""
+    if "content-length" in get_response.headers:
+        assert (
+            response.headers["content-length"] == get_response.headers["content-length"]
+        )
+
+
+def test_landing_h1_and_guide_links(client: TestClient) -> None:
+    text = client.get("/").text
+    assert "<h1>Track countries, import travel photos, and log every trip.</h1>" in text
+    for slug in LANDING_GUIDE_SLUGS:
+        assert f'href="/blog/{slug}"' in text
+
+
+def test_landing_json_ld_includes_screenshot(client: TestClient) -> None:
+    match = re.search(
+        r'<script type="application/ld\+json"[^>]*>(.*?)</script>',
+        client.get("/").text,
+        re.DOTALL,
+    )
+    assert match, "landing page is missing its JSON-LD block"
+    data = json.loads(match.group(1))
+    app_node = next(n for n in data["@graph"] if n["@type"] == "MobileApplication")
+    assert app_node["screenshot"] == (
+        "http://localhost:8000/static/images/screens/passport-home.webp"
+    )
+
+
 # ============================================================================
 # Public List Page Tests
 # ============================================================================
@@ -123,6 +156,24 @@ def test_public_list_returns_html(
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
     assert "Best Places to Visit" in response.text
+
+
+def test_public_list_og_type_is_article(
+    client: TestClient,
+    mock_supabase_client: AsyncMock,
+    sample_list: dict[str, Any],
+) -> None:
+    list_with_trip = {
+        **sample_list,
+        "trip": {"name": "Summer Vacation", "country": {"name": "United States"}},
+    }
+    mock_supabase_client.get.side_effect = supabase_tables(list=[list_with_trip])
+
+    with patch("app.api.public.get_supabase_client", return_value=mock_supabase_client):
+        response = client.get("/l/best-places-to-visit-abc123")
+
+    assert response.status_code == 200
+    assert 'og:type" content="article"' in response.text
 
 
 def test_public_list_not_found(
