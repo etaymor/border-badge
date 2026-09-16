@@ -16,6 +16,11 @@ def test_build_landing_seo() -> None:
     assert seo.canonical_url == "https://example.com"
     assert seo.og_type == "website"
     assert "Atlasi" in seo.og_title
+    assert seo.description == (
+        "Track 227 countries, import photos from your camera roll to create trips"
+        " automatically, and log every place, meal, stay, and experience. Free to"
+        " start on iOS."
+    )
 
 
 def test_build_landing_seo_has_og_image() -> None:
@@ -37,6 +42,9 @@ def test_landing_structured_data_covers_app_and_faqs() -> None:
     assert app["operatingSystem"] == "iOS"
     assert app["offers"]["price"] == "0"
     assert app["installUrl"] == "https://apps.apple.com/app/id123"
+    assert app["screenshot"] == (
+        "https://example.com/static/images/screens/passport-home.webp"
+    )
 
     questions = by_type["FAQPage"]["mainEntity"]
     assert len(questions) == len(LANDING_FAQS)

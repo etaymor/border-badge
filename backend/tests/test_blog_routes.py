@@ -138,7 +138,26 @@ def test_unknown_post_returns_html_404_and_is_not_cached(
 
 def test_trailing_slash_redirects(client: TestClient, registry) -> None:
     response = client.get(f"/blog/{registry.posts[0].slug}/", follow_redirects=False)
-    assert response.status_code in (301, 307, 308)
+    assert response.status_code == 301
+    path = response.headers["location"].split("?", 1)[0]
+    assert not path.endswith("/")
+
+
+def test_blog_index_trailing_slash_is_301(client: TestClient) -> None:
+    response = client.get("/blog/", follow_redirects=False)
+    assert response.status_code == 301
+    location = response.headers["location"]
+    path = location.split("?", 1)[0]
+    assert path.endswith("/blog")
+    assert not path.endswith("/blog/")
+
+
+def test_share_like_trailing_slash_is_301(client: TestClient) -> None:
+    response = client.get("/l/best-places-to-visit-abc123/", follow_redirects=False)
+    assert response.status_code == 301
+    path = response.headers["location"].split("?", 1)[0]
+    assert path.endswith("/l/best-places-to-visit-abc123")
+    assert not path.endswith("/")
 
 
 # ---------------------------------------------------------------------------

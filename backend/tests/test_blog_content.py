@@ -14,6 +14,7 @@ import pytest
 
 import app as app_package
 from app.core.blog import CONTENT_DIR, build_registry, load_post
+from app.core.seo import LANDING_GUIDE_SLUGS
 from app.schemas.blog import BLOG_CATEGORIES, MAX_META_DESCRIPTION
 
 POST_FILES = sorted(p for p in CONTENT_DIR.glob("*.md") if p.stem != "README")
@@ -86,6 +87,12 @@ def test_category_is_known(path: Path) -> None:
 def test_slugs_are_unique() -> None:
     slugs = [p.stem for p in POST_FILES]
     assert len(slugs) == len(set(slugs))
+
+
+def test_landing_guide_slugs_exist_in_registry() -> None:
+    registry = build_registry(strict=True, include_drafts=True)
+    missing = [slug for slug in LANDING_GUIDE_SLUGS if slug not in registry.by_slug]
+    assert not missing, f"LANDING_GUIDE_SLUGS missing from registry: {missing}"
 
 
 def test_every_internal_blog_link_resolves() -> None:

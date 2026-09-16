@@ -1,6 +1,6 @@
 /* ==============================================
    Atlasi Public Pages - Compiled CSS
-   Generated: 2026-08-21T01:13:40.601Z
+   Generated: 2026-09-16T02:03:56.921Z
    DO NOT EDIT - This file is auto-generated from src/
    ============================================== */
 
@@ -1956,8 +1956,8 @@ body.has-hero .nav-links a {
 .landing-hero h1 {
   font-family: var(--font-family-title);
   font-weight: 800;
-  font-size: 3.875rem;
-  line-height: 1;
+  font-size: clamp(2.5rem, 4.2vw, 3.5rem);
+  line-height: 1.08;
   letter-spacing: -0.02em;
   margin: 0 0 14px;
   text-wrap: balance;
