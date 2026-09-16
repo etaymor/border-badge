@@ -6,6 +6,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
 
 import jwt
 from fastapi import FastAPI
@@ -361,6 +362,31 @@ class TrailingSlashCanonicalizeMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
+def _www_to_apex_location(request: Request) -> str | None:
+    host = request.headers.get("host", "").split(":", 1)[0].lower()
+    public = urlsplit(settings.base_url)
+    apex = (public.hostname or "").lower()
+    if not apex or host != f"www.{apex}":
+        return None
+    return urlunsplit(
+        (
+            public.scheme or "https",
+            public.netloc,
+            request.url.path,
+            request.url.query,
+            "",
+        )
+    )
+
+
+class WwwToApexMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next) -> Response:  # type: ignore[no-untyped-def]
+        location = _www_to_apex_location(request)
+        if location is None:
+            return await call_next(request)
+        return RedirectResponse(url=location, status_code=301)
+
+
 def _head_response_keeping_get_headers(response: Response) -> Response:
     return Response(
         content=b"",
@@ -462,6 +488,7 @@ app.add_exception_handler(
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(TrailingSlashCanonicalizeMiddleware)
 app.add_middleware(HeadAsGetMiddleware)
+app.add_middleware(WwwToApexMiddleware)
 
 # Configure CORS
 app.add_middleware(
