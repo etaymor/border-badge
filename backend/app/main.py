@@ -19,7 +19,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
-from starlette.responses import FileResponse, Response
+from starlette.responses import FileResponse, RedirectResponse, Response
 
 from app.core.config import get_settings
 from app.core.http_client import (
@@ -350,6 +350,35 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         return response
 
 
+class TrailingSlashCanonicalizeMiddleware(BaseHTTPMiddleware):
+    """301 any non-root path that ends with a slash, before Starlette's 307."""
+
+    async def dispatch(self, request: Request, call_next) -> Response:  # type: ignore[no-untyped-def]
+        path = request.url.path
+        if path != "/" and path.endswith("/"):
+            target = str(request.url.replace(path=path.rstrip("/")))
+            return RedirectResponse(url=target, status_code=301)
+        return await call_next(request)
+
+
+def _head_response_keeping_get_headers(response: Response) -> Response:
+    return Response(
+        content=b"",
+        status_code=response.status_code,
+        headers=dict(response.headers),
+        background=getattr(response, "background", None),
+    )
+
+
+class HeadAsGetMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next) -> Response:  # type: ignore[no-untyped-def]
+        if request.method != "HEAD":
+            return await call_next(request)
+        request.scope["method"] = "GET"
+        response = await call_next(request)
+        return _head_response_keeping_get_headers(response)
+
+
 app = FastAPI(
     title="Atlasi API",
     description="Backend API for the Atlasi travel tracking app",
@@ -431,6 +460,8 @@ app.add_exception_handler(
 
 # Add security headers middleware
 app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(TrailingSlashCanonicalizeMiddleware)
+app.add_middleware(HeadAsGetMiddleware)
 
 # Configure CORS
 app.add_middleware(

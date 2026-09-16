@@ -1,7 +1,5 @@
 {% extends "base.html" %}
-
-{% block title %}Atlasi - Track Countries, Import Travel Photos & Log Trips{% endblock %}
-{% block description %}Track 227 countries, import photos from your camera roll to create trips automatically, and log every place, meal, stay, and experience. Free to start on iOS.{% endblock %}
+{% import "_blog_card.html" as cards %}
 
 {% set store_url = app_store_url | safe_external_url or '#download' %}
 
@@ -18,8 +16,8 @@
     <div class="landing-hero-content">
         <div>
             <span class="hero-eyebrow">227 Countries &amp; Territories</span>
-            <h1>Stamp your passport for everywhere you&rsquo;ve been.</h1>
-            <p class="hero-script">a field guide for the modern wanderer</p>
+            <h1>Track countries, import travel photos, and log every trip.</h1>
+            <p class="hero-script">Stamp your passport for everywhere you&rsquo;ve been.</p>
             <p class="hero-description">Track every country you visit, turn your camera roll into trips automatically, and keep every place, meal, and stay in one beautiful journal.</p>
             <div class="hero-cta-row">
                 <a href="{{ store_url }}" class="cta-button" data-track-location="hero">
@@ -214,6 +212,18 @@
                 <p>Add places, food, stays, and experiences. Share curated lists with friends.</p>
             </li>
         </ol>
+    </div>
+</section>
+
+<section class="band band--cream" id="guides">
+    <div class="band-inner">
+        <span class="eyebrow">Guides</span>
+        <h2>How travelers track countries and trips</h2>
+        <div class="blog-grid">
+            {% for post in guide_posts %}
+            {{ cards.blog_card(post, heading_level='h3') }}
+            {% endfor %}
+        </div>
     </div>
 </section>
 

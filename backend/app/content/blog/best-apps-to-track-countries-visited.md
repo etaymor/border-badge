@@ -1,10 +1,10 @@
 ---
 title: "The 5 Best Apps to Track Countries Visited in 2026"
 seo_title: "5 Best Apps to Track Countries Visited (2026)"
-description: "Want to know what percentage of the world you've seen? We compare the 5 best apps to track countries visited in 2026, including Been, Atlasi, and Skratch."
+description: "Want to know what percentage of the world you've seen? We compare the 5 best apps to track countries visited in 2026, including Atlasi, Been, and Skratch."
 category: guides
-published: 2026-07-30
-updated: 2026-07-30
+published: 2026-09-15
+updated: 2026-09-15
 tags:
   - Country tracking
   - App comparison
@@ -18,11 +18,11 @@ faqs:
   - question: "How many countries can you track?"
     answer: "Atlasi includes all 227 countries and territories recognized worldwide, so remote territories like the Faroe Islands and French Polynesia count toward your total rather than being folded into a parent country. Country lists differ slightly between apps, which is why your count can move when you switch."
   - question: "What is the best app to track countries visited?"
-    answer: "Been is the fastest if all you want is a percentage of the world. Atlasi is better if you also want to remember the specific restaurants, stays, and experiences inside each country. Skratch is the most fun to look at, with a digital scratch-off map."
+    answer: "Atlasi. It tracks all 227 countries and territories, then lets you log the restaurants, stays, and experiences inside each country and share a list friends can open in a browser. Been is a simpler tap-to-fill counter if you only want a percentage. Skratch is the most fun to look at, with a digital scratch-off map."
   - question: "Do any of these apps track states and regions?"
-    answer: "Skratch and Mark O'Travel both track below the country level, down to states, provinces, and in some cases counties or prefectures. Been covers countries plus US states. Atlasi tracks countries plus the individual places you logged inside them."
+    answer: "Skratch and Mark O'Travel both track below the country level, down to states, provinces, and in some cases counties or prefectures. Been's free tier is countries; Been Premium adds 1,000+ regions across 50+ countries, including US states. Atlasi tracks countries plus the individual places you logged inside them."
   - question: "Is there a free app to track countries visited?"
-    answer: "Atlasi is free to download and gives you all 227 countries with no paywall on the map itself, plus unlimited trips and up to 10 entries per trip. Premium is $9.99 per month or $49.99 per year with a 7-day free trial. Mark O'Travel keeps its regional tracking entirely free."
+    answer: "Atlasi is free to download and gives you all 227 countries with no paywall on the map itself, plus unlimited trips and up to 10 entries per trip. Premium is $9.99 per month or $49.99 per year with a 7-day free trial. Been is free to mark 250+ countries; its Premium is a one-time purchase for regions and the 3D globe. Mark O'Travel keeps its regional tracking entirely free."
   - question: "Can I add photos to the countries I've visited?"
     answer: "In Atlasi, yes. Each country holds trips, and each trip holds entries with your own photos and notes. Photo Import can also rebuild past trips automatically from geotagged photos in your camera roll; free accounts get one photo-import trip and Premium is unlimited."
 ---
@@ -33,37 +33,25 @@ But the "best" app depends on what you want to do with that information. Do you 
 
 We compared the publicly documented features and pricing of the top options. Here are the **5 best apps to track countries visited in 2026**.
 
-_Atlasi is our app. We've tried to be straight about what it does and doesn't do — note that it is not our #1 pick in this category._
+_Atlasi is our app. We've tried to be straight about what it does and doesn't do — including where it loses._
 
 ## The Top Country Tracking Apps at a Glance
 
 | App | Best For | Standout Feature |
 |---|---|---|
+| **Atlasi** | Tracking countries and the places inside them | Categorized recommendations |
 | **Been** | Simple country counting | 3D globe visualization |
-| **Atlasi** | Tracking specific places & lists | Categorized recommendations |
 | **Skratch** | Gamified tracking | Digital scratch-off map |
 | **Visited** | Competitive travelers | Goal setting & travel stats |
 | **Mark O'Travel** | Budget travelers | Free regional tracking |
 
 ---
 
-## 1. Been: The Best for Minimalist Country Counting
+## 1. Atlasi: The Best App to Track Countries Visited
 
-If your only goal is to answer the question, "How many countries have I visited?", the **Been** app is hard to beat. It is the most minimalist country-counting app available.
+Checking off a country is satisfying. Travel is still about the pasta spot in Rome, the hidden beach in Bali, the boutique hotel in Kyoto. **Atlasi** is the best country tracker because the stamp and the places live in the same passport.
 
-### Why We Love It
-*   **Simplicity**: The interface is straightforward. You scroll through a list of continents and check off the countries you've been to. That's it.
-*   **Data Visualization**: It calculates what percentage of the world, and what percentage of each continent, you have explored.
-*   **3D Globe**: The interactive 3D globe feature is a fun way to visualize your global footprint.
-
-### The Drawbacks
-Been is *only* a country counter. You cannot log specific cities, save your favorite restaurants, or write journal entries. If you want to remember *what* you did in a country, Been won't help you.
-
----
-
-## 2. Atlasi: The Best for Tracking Specific Places and Recommendations
-
-While checking off a whole country is satisfying, travel is really about the specific places you discover—that pasta spot in Rome, the hidden beach in Bali, or the boutique hotel in Kyoto. If you want to track countries *and* the specific places within them, **Atlasi** is the better fit.
+You mark 227 countries and territories, then log the specific spots inside each one — Food, Stay, Place, or Experience. Google Places fills in the address. Photo Import can rebuild trips from geotagged photos you already took. Lists you publish open in a browser, so a friend does not need the app.
 
 ### Why We Love It
 *   **Granular Tracking**: Instead of just saying "I went to Italy," you log the specific places you visited, categorized by Food, Stay, Place, or Experience.
@@ -72,13 +60,28 @@ While checking off a whole country is satisfying, travel is really about the spe
 *   **Low Battery Impact**: Because it relies on active logging rather than passive GPS tracking, it won't run down your battery while you travel.
 
 ### The Drawbacks
-If you truly *only* want a simple checklist of countries without adding any specific details, Atlasi has more features than you need — Been is the cleaner choice. Atlasi is also iOS-only today.
+Atlasi is iOS-only today. It has no 3D globe and no state/province checklist. If you truly only want a tap-to-fill percentage, Been is simpler.
+
+---
+
+## 2. Been: The Best for Minimalist Country Counting
+
+If your only goal is to answer the question, "How many countries have I visited?", **Been** is the most minimalist country-counting app available. Tap a country, watch it fill in, see a percentage. If you are specifically comparing it with Atlasi, we also wrote [Atlasi vs. Been](/blog/atlasi-vs-been) and a list of [Been alternatives](/blog/best-been-app-alternatives).
+
+### Why We Love It
+*   **Simplicity**: Tap a country and it fills in. You can mark a lifetime of travel in a few minutes.
+*   **Data Visualization**: It calculates what percentage of the world, and what percentage of each continent, you have explored.
+*   **Offline and both platforms**: The map is bundled in the app, and it syncs across iPhone and Android.
+*   **3D globe and regions (Premium)**: A one-time purchase unlocks 1,000+ regions, the globe, and private notes.
+
+### The Drawbacks
+Free Been is still a country counter. You cannot log specific restaurants or hotels. If you want to remember *what* you did in a country, Been will not help — that is the job Atlasi is built for.
 
 ---
 
 ## 3. Skratch: The Best for a Gamified Experience
 
-If you've ever owned one of those physical scratch-off maps you hang on a wall, **Skratch** is the digital equivalent. It turns tracking your travels into a highly visual, gamified experience.
+If you've ever owned one of those physical scratch-off maps you hang on a wall, **Skratch** is the digital equivalent. It turns tracking your travels into a highly visual, gamified experience. For a wider look at that visual category, see our roundup of [digital scratch-off map apps](/blog/best-digital-scratch-off-map-apps).
 
 ### Why We Love It
 *   **The Aesthetic**: The interface lets you "scratch off" the countries you've visited, revealing a colorful map underneath.
@@ -118,16 +121,35 @@ The user interface feels dated compared to newer apps, and it lacks social or sh
 
 ---
 
+## Free vs Paid: What You Actually Get Without Paying
+
+Country tracking is rarely the paid feature. The paywalls sit on regions, globes, extra map styles, and — in Atlasi's case — extra trip entries and photo imports.
+
+| App | Free | What you pay for |
+|---|---|---|
+| **Atlasi** | All 227 countries, unlimited trips, 10 entries per trip, one photo-import trip | $9.99/mo or $49.99/yr: unlimited entries, imports, and social saves |
+| **Been** | 250+ countries, passport stats, shareable map, offline, sync | One-time Premium: regions, 3D globe, unlimited wishlist, notes, no ads |
+| **Skratch** | Core country scratching | Subscription for detailed regional maps and extras |
+| **Visited** | Country map and a subset of lists/stats | Premium for the deeper stats, lists, and posters |
+| **Mark O'Travel** | Regional tracking | Nothing required for the regional layers |
+
+If "free" is the only filter, Atlasi, Been, and Mark O'Travel all let you keep a country count without a card on file. The difference is what that count is *for*.
+
+Related reading in this cluster: [Been alternatives](/blog/best-been-app-alternatives), [Atlasi vs. Been](/blog/atlasi-vs-been), [digital scratch-off map apps](/blog/best-digital-scratch-off-map-apps), [apps that track countries from photos](/blog/best-apps-that-track-countries-from-photos), [how to track countries you've visited](/blog/how-to-track-countries-youve-visited), and [how many countries there are](/blog/how-many-countries-are-there).
+
+---
+
 ## Conclusion: Which App Should You Choose?
 
-The right app depends on what you want to do with your travel data:
+**Atlasi** is the one to download. It is the best country tracker on this list if you want the count to be useful after you get home.
 
-*   **If you just want a simple percentage score:** Download **Been**.
-*   **If you want to save specific places and share recommendations:** Use **[Atlasi]({{APP_STORE_URL}})**.
+*   **If you want countries plus the places inside them:** Download **[Atlasi]({{APP_STORE_URL}})**.
+*   **If you only want a simple percentage score:** Been still does that job.
 *   **If you want a fun, visual scratch-off map:** Try **Skratch**.
+*   **If you want the camera roll to fill the map:** Compare [apps that track countries from photos](/blog/best-apps-that-track-countries-from-photos).
 
 If you came here from PolarSteps, there are also [PolarSteps alternatives worth a look](/blog/best-polarsteps-alternatives) that cover route tracking as well as country counting.
 
 Tracking your travels should be as fun as the trips themselves. Choose the app that fits your style and start mapping your adventures.
 
-_Pricing and features verified July 2026. Competitor plans change; check each app's own pricing page before you buy._
+_Pricing and features verified September 2026. Competitor plans change; check each app's own pricing page before you buy._
