@@ -8,6 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.core.blog import get_registry
+from app.core.config import get_settings
 from app.core.seo import (
     build_blog_category_seo,
     build_blog_post_seo,
@@ -93,6 +94,33 @@ def test_post_renders(client: TestClient, registry) -> None:
     response = client.get(f"/blog/{post.slug}")
     assert response.status_code == 200
     assert html_lib.escape(post.title) in response.text
+
+
+def test_every_post_funnels_to_the_app_store(client: TestClient, registry) -> None:
+    """The conversion job of the blog is a store download. Header, footer, and
+    both in-page CTAs (under the title and after the FAQs) must point at the
+    configured App Store URL, and the in-article {{APP_STORE_URL}} token must
+    already have been substituted."""
+    store = get_settings().app_store_url
+    assert "/id6757568311" in store
+    for post in registry.posts:
+        text = client.get(f"/blog/{post.slug}").text
+        assert store in text, post.slug
+        assert 'data-track-location="blog_post_cta_mid"' in text
+        assert 'data-track-location="blog_post_cta"' in text
+        assert text.count("passport-home.webp") == 2
+        assert text.count("Download Free on iOS") == 2
+        assert "{{APP_STORE_URL}}" not in text
+
+
+def test_mid_cta_renders_before_the_article_body(client: TestClient, registry) -> None:
+    """The passport screenshot has to appear before the long article, not only
+    after the FAQs. Most readers never reach the bottom."""
+    text = client.get(f"/blog/{registry.posts[0].slug}").text
+    mid = text.index('data-track-location="blog_post_cta_mid"')
+    body = text.index('class="article-body"')
+    end = text.index('data-track-location="blog_post_cta"')
+    assert mid < body < end
 
 
 def test_post_has_canonical_and_article_og_type(client: TestClient, registry) -> None:
