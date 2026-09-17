@@ -38,6 +38,12 @@ interface PendingCountry {
   candidateIds: Set<string>;
 }
 
+interface ExistingCountry {
+  row: CountryPreviewRow;
+  index: number;
+  previewIds: Set<string>;
+}
+
 function finitePositive(value: number | undefined): number {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : 0;
 }
@@ -103,7 +109,16 @@ export function pickScanPreviews(
   options: ScanPreviewPickerOptions
 ): ScanPreviewPickerResult {
   const homeCountry = options.homeCountry.trim().toUpperCase();
-  const existingByCode = new Map(current.map((row, index) => [row.code, { row, index }]));
+  const existingByCode = new Map<string, ExistingCountry>(
+    current.map((row, index) => [
+      row.code,
+      {
+        row,
+        index,
+        previewIds: new Set(row.previews.map((preview) => preview.assetId)),
+      },
+    ])
+  );
   const pendingByCode = new Map<string, PendingCountry>();
   let newPendingCountryCount = 0;
 
@@ -127,10 +142,7 @@ export function pickScanPreviews(
       if (!existing) newPendingCountryCount += 1;
     }
 
-    const establishedIds = existing
-      ? new Set(existing.row.previews.map((preview) => preview.assetId))
-      : undefined;
-    if (!establishedIds?.has(item.photo.id)) {
+    if (!existing?.previewIds.has(item.photo.id)) {
       const slotsAvailable = MAX_SCAN_PREVIEWS_PER_COUNTRY - (existing?.row.previews.length ?? 0);
       addCandidate(pending, item.photo, slotsAvailable);
     }

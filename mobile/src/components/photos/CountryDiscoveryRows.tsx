@@ -66,7 +66,6 @@ function CountryDiscoveryRowsComponent({
   const knownKeysRef = useRef(new Set(initialKeys));
   const queueRef = useRef<CountryPreviewRow[]>([]);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const mountedRef = useRef(true);
 
   const announce = useCallback((row: CountryPreviewRow) => {
     if (Platform.OS === 'ios') {
@@ -89,7 +88,6 @@ function CountryDiscoveryRowsComponent({
   );
 
   const dequeueNext = useCallback(() => {
-    if (!mountedRef.current) return;
     timerRef.current = null;
     const next = queueRef.current.shift();
     if (!next) return;
@@ -121,7 +119,6 @@ function CountryDiscoveryRowsComponent({
 
   useEffect(
     () => () => {
-      mountedRef.current = false;
       if (timerRef.current) clearTimeout(timerRef.current);
       timerRef.current = null;
       queueRef.current = [];
