@@ -26,6 +26,7 @@ import { Image as ExpoImage } from 'expo-image';
 import { SCAN_COPY } from '@constants/scanCopy';
 import { QuizCreationScreen } from '@screens/quiz/QuizCreationScreen';
 import { Analytics } from '@services/analytics';
+import type { CountryPreviewRow } from '@services/photoImport/scanPreviewPicker';
 import type { QuizCreationOutcome, QuizCreationProgress } from '@services/quiz/quizCreation';
 import { patchJobSlice, resetLibraryJobStore } from '@stores/libraryJobStore';
 import type { RootStackScreenProps } from '@navigation/types';
@@ -80,7 +81,10 @@ let capturedOnOutcome: ((outcome: QuizCreationOutcome) => void) | undefined;
  * exercises the same path production uses rather than a callback the screen
  * happens to hold.
  */
-function writeProgress(update: QuizCreationProgress) {
+function writeProgress(
+  update: QuizCreationProgress,
+  countryPreviews: readonly CountryPreviewRow[] = []
+) {
   patchJobSlice('quiz-build', {
     progress: {
       current: update.current ?? 0,
@@ -92,6 +96,7 @@ function writeProgress(update: QuizCreationProgress) {
       step: update.step,
       pickUris: update.pickUris ?? [],
       examined: update.examined ?? 0,
+      countryPreviews,
     },
   });
 }
@@ -105,9 +110,12 @@ const mockStart = jest.fn(() => {
 });
 const mockCancel = jest.fn();
 
-function emitProgress(update: QuizCreationProgress) {
+function emitProgress(
+  update: QuizCreationProgress,
+  countryPreviews: readonly CountryPreviewRow[] = []
+) {
   act(() => {
-    writeProgress(update);
+    writeProgress(update, countryPreviews);
   });
 }
 
@@ -117,7 +125,7 @@ jest.mock('@hooks/useQuizBuildJob', () => ({
     return {
       phase: 'idle',
       percentage: null,
-      detail: { step: 'scanning', pickUris: [], examined: 0 },
+      detail: { step: 'scanning', pickUris: [], examined: 0, countryPreviews: [] },
       isActive: false,
       isWaiting: false,
       start: mockStart,
@@ -436,6 +444,57 @@ describe('QuizCreationScreen', () => {
       await startFromIntro();
       await waitFor(() => expect(screen.getByTestId('quiz-progress')).toBeTruthy());
     }
+
+    it('shows an empty discovery viewport before the first scanning row arrives', async () => {
+      mockGetLibraryFreshness.mockResolvedValue(staleFreshness());
+      await startHeld();
+
+      emitProgress({ step: 'scanning', current: 0, total: 100 }, []);
+
+      expect(screen.getByTestId('country-discovery-viewport')).toBeTruthy();
+      expect(screen.queryByTestId('quiz-slot-empty-0')).toBeNull();
+    });
+
+    it('shows country previews only during scanning in the fixed grid region', async () => {
+      mockGetLibraryFreshness.mockResolvedValue(staleFreshness());
+      await startHeld();
+      const previews: CountryPreviewRow[] = [
+        {
+          code: 'PT',
+          name: 'Portugal',
+          previews: [{ assetId: 'pt-1', uri: 'file:///pt-1.jpg' }],
+        },
+        {
+          code: 'JP',
+          name: 'Japan',
+          previews: [{ assetId: 'jp-1', uri: 'file:///jp-1.jpg' }],
+        },
+      ];
+
+      emitProgress({ step: 'scanning', current: 50, total: 100 }, previews);
+
+      expect(screen.getByText('Portugal')).toBeTruthy();
+      expect(screen.getByText('Japan')).toBeTruthy();
+      expect(screen.queryByTestId('quiz-slot-empty-0')).toBeNull();
+      const scanningRegionStyle = screen.getByTestId('quiz-build-content-region').props.style;
+
+      emitProgress({ step: 'checking', current: 0, total: 10, pickUris: [] }, previews);
+
+      expect(screen.queryByText('Portugal')).toBeNull();
+      expect(screen.queryByText('Japan')).toBeNull();
+      expect(screen.getByTestId('quiz-slot-empty-0')).toBeTruthy();
+      expect(screen.getByTestId('quiz-build-content-region').props.style).toEqual(
+        scanningRegionStyle
+      );
+    });
+
+    it('keeps the fresh-cache checking view on the existing slot grid', async () => {
+      await startHeld();
+      emitProgress({ step: 'checking', current: 0, total: 10, pickUris: [] });
+
+      expect(screen.getByTestId('quiz-slot-empty-0')).toBeTruthy();
+      expect(screen.queryByTestId('country-discovery-viewport')).toBeNull();
+    });
 
     it('renders the counter, found thumbnails, placeholders, and privacy line while hunting', async () => {
       await startHeld();

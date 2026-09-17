@@ -33,6 +33,7 @@ import {
   type LibraryFreshness,
 } from '@services/photoImport/photoLibrarySyncStatus';
 import { presentLimitedPhotoPickerOrOpenSettings } from '@services/photoImport/photoImportService';
+import type { CountryPreviewRow } from '@services/photoImport/scanPreviewPicker';
 import { QUIZ_MAX_PHOTOS } from '@services/quiz/candidateSelection';
 import { loadDraftState } from '@services/quiz/quizCreation';
 import type {
@@ -68,6 +69,7 @@ const HUNT_BAR_SHARE = 0.7;
 export interface BuildView {
   step: QuizCreationStep;
   pickUris: string[];
+  countryPreviews: readonly CountryPreviewRow[];
   lastPickUri: string | null;
   uploading: boolean;
   uploadedCount: number;
@@ -142,6 +144,7 @@ export function useQuizCreationFlow({ entryPoint, navigation }: Options): QuizCr
       total: jobProgress.total,
       pickUris: jobDetail.pickUris,
       examined: jobDetail.examined,
+      countryPreviews: jobDetail.countryPreviews,
     };
   }, [jobProgress, jobDetail]);
   const [outcome, setOutcome] = useState<QuizCreationOutcome | null>(null);
@@ -437,6 +440,7 @@ export function useQuizCreationFlow({ entryPoint, navigation }: Options): QuizCr
     return {
       step,
       pickUris,
+      countryPreviews: progress?.countryPreviews ?? [],
       lastPickUri: pickUris.length > 0 ? pickUris[pickUris.length - 1] : null,
       uploading,
       uploadedCount: uploading ? (progress?.current ?? 0) : 0,

@@ -46,6 +46,8 @@ export interface QuizBuildDetail {
   pickUris: string[];
   /** Photos put through the eligibility gate so far. Open-ended by design. */
   examined: number;
+  /** Sticky scan discoveries for this build, bounded by the shared picker. */
+  countryPreviews: readonly CountryPreviewRow[];
 }
 
 export interface LibraryJobSlice<P, D> {
@@ -83,7 +85,7 @@ const initialState: LibraryJobState = {
     },
     'quiz-build': {
       ...emptySlice,
-      detail: { step: 'scanning', pickUris: [], examined: 0 },
+      detail: { step: 'scanning', pickUris: [], examined: 0, countryPreviews: [] },
     },
   },
 };
@@ -124,7 +126,7 @@ function structuredCloneInitial(): LibraryJobState {
       },
       'quiz-build': {
         ...emptySlice,
-        detail: { step: 'scanning', pickUris: [], examined: 0 },
+        detail: { step: 'scanning', pickUris: [], examined: 0, countryPreviews: [] },
       },
     },
   };

@@ -79,6 +79,7 @@ import { api } from '@services/api';
 import { getAllCountries, getHomeCountry } from '@services/countriesDb';
 import { ensureFreshLibrary } from '@services/photoImport/photoBackgroundSync';
 import { getAllCachedPhotos, getMetadata, setMetadata } from '@services/photoImport/photoCacheDb';
+import { iso1A2Code } from '@services/photoImport/countryCoder';
 import { getAllVerdicts, getTagsForIds, upsertVerdicts } from '@services/photoImport/photoTagDb';
 import { resolveLoadableUri } from '@services/photoImport/resolveLoadableUri';
 import { prepareVisionImage } from '@services/photoImport/visionPhoto';
@@ -86,13 +87,14 @@ import { CLASSIFICATION_BUDGET_PER_QUIZ, QUIZ_MAX_PHOTOS } from '@services/quiz/
 import { recordQuizAssets } from '@services/quiz/quizAssets';
 import { createQuizFromLibrary } from '@services/quiz/quizCreation';
 
-import type { CachedPhoto } from '@services/photoImport/types';
+import type { CachedPhoto, PhotoWithLocation } from '@services/photoImport/types';
 import type { QuizCreationProgress } from '@services/quiz/quizCreation';
 
 const mockApi = api as unknown as { post: jest.Mock; delete: jest.Mock };
 const mockGetAllCountries = getAllCountries as jest.Mock;
 const mockGetHomeCountry = getHomeCountry as jest.Mock;
 const mockEnsureFreshLibrary = ensureFreshLibrary as jest.Mock;
+const mockIso1A2Code = iso1A2Code as jest.Mock;
 const mockGetAllCachedPhotos = getAllCachedPhotos as jest.Mock;
 const mockGetMetadata = getMetadata as jest.Mock;
 const mockSetMetadata = setMetadata as jest.Mock;
@@ -159,6 +161,7 @@ beforeEach(() => {
   ]);
   mockEnsureFreshLibrary.mockResolvedValue({ status: 'refreshed', newPhotos: 6 });
   mockGetHomeCountry.mockResolvedValue(null);
+  mockIso1A2Code.mockImplementation(() => null);
   mockResolveLoadableUri.mockImplementation(async (assetId: string) =>
     assetId ? `file:///fresh/${assetId}.jpg` : null
   );
@@ -211,6 +214,50 @@ beforeEach(() => {
     return { data: {} };
   });
   mockApi.delete.mockResolvedValue({ data: {} });
+});
+
+describe('createQuizFromLibrary - scan country previews', () => {
+  it('loads home metadata before the first batch and excludes home-country rows', async () => {
+    mockGetAllCountries.mockResolvedValue([
+      { code: 'US', name: 'United States' },
+      { code: 'PT', name: 'Portugal' },
+      { code: 'FR', name: 'France' },
+    ]);
+    mockGetHomeCountry.mockResolvedValue('US');
+    mockIso1A2Code.mockImplementation(([longitude]: [number, number]) =>
+      longitude < -50 ? 'US' : 'PT'
+    );
+    mockGetAllCachedPhotos.mockResolvedValue(buildCachedLibrary(40));
+    mockPrepareVisionImage.mockResolvedValue('base64-image');
+    const progress: QuizCreationProgress[] = [];
+    const batch = [
+      {
+        id: 'home-1',
+        uri: 'file:///home-1.jpg',
+        location: { latitude: 39.5, longitude: -98.4 },
+        creationTime: new Date(),
+      },
+      {
+        id: 'pt-1',
+        uri: 'file:///pt-1.jpg',
+        location: { latitude: 39.4, longitude: -8.2 },
+        creationTime: new Date(),
+      },
+    ] as PhotoWithLocation[];
+    mockEnsureFreshLibrary.mockImplementationOnce(async (options) => {
+      const countryPreviews = options.onBatch(batch);
+      options.onProgress({ current: 2, total: 2, countryPreviews });
+      return { status: 'refreshed', newPhotos: 2 };
+    });
+
+    await createQuizFromLibrary({ onProgress: (update) => progress.push(update) });
+
+    const scanning = progress.find((update) => update.step === 'scanning');
+    expect(scanning?.countryPreviews?.map((row) => row.code)).toEqual(['PT']);
+    expect(mockGetHomeCountry.mock.invocationCallOrder[0]).toBeLessThan(
+      mockEnsureFreshLibrary.mock.invocationCallOrder[0]
+    );
+  });
 });
 
 describe('createQuizFromLibrary - stale cached URIs', () => {

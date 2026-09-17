@@ -151,6 +151,15 @@ export const styles = StyleSheet.create({
     borderRadius: 3,
     backgroundColor: colors.sunsetGold,
   },
+  buildContentRegion: {
+    width: '100%',
+    aspectRatio: 5 / 2,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  buildContentLayer: {
+    ...StyleSheet.absoluteFillObject,
+  },
   slotGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
