@@ -23,6 +23,12 @@ export interface PhotoWithLocation {
    */
   width?: number;
   height?: number;
+  /** Favorite state surfaced from PhotoKit for metadata-only preview ranking. */
+  isFavorite?: boolean;
+  /** Derived from the PhotoKit screenshot media subtype. */
+  isScreenshot?: boolean;
+  /** True when the asset is iCloud-offloaded and unavailable without download. */
+  isNetworkAsset?: boolean;
 }
 
 // Country discovered during photo scanning

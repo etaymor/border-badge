@@ -11,6 +11,7 @@ export {
   selectScanPhase,
   selectScanProgress,
   selectScanDiscoveredCountries,
+  selectScanCountryPreviews,
   selectScanIsIncremental,
   selectScanFailure,
   selectScanHasResult,

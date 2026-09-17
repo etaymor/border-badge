@@ -155,6 +155,9 @@ export async function extractPhotosWithLocation(
             // second decode of every representative photo later.
             width: asset.width > 0 ? asset.width : undefined,
             height: asset.height > 0 ? asset.height : undefined,
+            isFavorite: info.isFavorite === true,
+            isScreenshot: asset.mediaSubtypes?.includes('screenshot') === true,
+            isNetworkAsset: info.isNetworkAsset === true,
           };
         }
         return null;

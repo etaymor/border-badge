@@ -185,6 +185,7 @@ describe('photoImportService', () => {
             width: 1920,
             height: 1080,
             duration: 0,
+            mediaSubtypes: ['screenshot'],
           },
           {
             id: 'photo-2',
@@ -218,6 +219,8 @@ describe('photoImportService', () => {
           latitude: 35.6762,
           longitude: 139.6503,
         },
+        isFavorite: true,
+        isNetworkAsset: true,
       });
 
       // Return asset info without location for second photo
@@ -241,6 +244,16 @@ describe('photoImportService', () => {
       expect(photos[0].id).toBe('photo-1');
       expect(photos[0].location.latitude).toBe(35.6762);
       expect(photos[0].location.longitude).toBe(139.6503);
+      expect(photos[0]).toEqual(
+        expect.objectContaining({
+          isFavorite: true,
+          isScreenshot: true,
+          isNetworkAsset: true,
+        })
+      );
+      expect(mockedMediaLibrary.getAssetInfoAsync).toHaveBeenCalledWith('photo-1', {
+        shouldDownloadFromNetwork: false,
+      });
     });
 
     it('calls progress callback during scan', async () => {
