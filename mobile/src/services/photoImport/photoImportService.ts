@@ -8,8 +8,6 @@
 import * as MediaLibrary from 'expo-media-library';
 import { Linking } from 'react-native';
 
-import { Analytics, type PhotoPermissionOsStatus } from '@services/analytics';
-
 import { PermissionDeniedError, ScanCancelledError } from './errors';
 import type { PhotoWithLocation, ScanProgress } from './types';
 
@@ -26,19 +24,6 @@ function yieldToUI(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, SCAN_CONFIG.YIELD_INTERVAL_MS));
 }
 
-function osStatusFromMediaLibrary(
-  status: string,
-  accessPrivileges: string | undefined
-): PhotoPermissionOsStatus {
-  if (status === 'granted') {
-    return accessPrivileges === 'limited' ? 'limited' : 'granted';
-  }
-  if (status === 'denied') {
-    return 'denied';
-  }
-  return 'undetermined';
-}
-
 /**
  * Request photo library permissions with location access.
  *
@@ -49,11 +34,6 @@ export async function requestPhotoPermissions(): Promise<{
   limited: boolean;
 }> {
   const { status, accessPrivileges } = await MediaLibrary.requestPermissionsAsync();
-
-  Analytics.photoPermissionOsResult({
-    door: 'trips',
-    status: osStatusFromMediaLibrary(status, accessPrivileges),
-  });
 
   return {
     granted: status === 'granted',

@@ -67,10 +67,7 @@ describe('photoImportService', () => {
       expect(result.limited).toBe(false);
       expect(mockedMediaLibrary.requestPermissionsAsync).toHaveBeenCalledTimes(1);
       expect(Analytics.photoPermissionSoftAskShown).not.toHaveBeenCalled();
-      expect(Analytics.photoPermissionOsResult).toHaveBeenCalledWith({
-        door: 'trips',
-        status: 'granted',
-      });
+      expect(Analytics.photoPermissionOsResult).not.toHaveBeenCalled();
     });
 
     it('returns granted false when permission is denied', async () => {
@@ -85,10 +82,9 @@ describe('photoImportService', () => {
       const result = await requestPhotoPermissions();
 
       expect(result.granted).toBe(false);
-      expect(Analytics.photoPermissionOsResult).toHaveBeenCalledWith({
-        door: 'trips',
-        status: 'denied',
-      });
+      expect(result.limited).toBe(false);
+      expect(mockedMediaLibrary.requestPermissionsAsync).toHaveBeenCalledTimes(1);
+      expect(Analytics.photoPermissionOsResult).not.toHaveBeenCalled();
     });
 
     it('returns limited true for limited permission', async () => {
@@ -104,10 +100,8 @@ describe('photoImportService', () => {
 
       expect(result.granted).toBe(true);
       expect(result.limited).toBe(true);
-      expect(Analytics.photoPermissionOsResult).toHaveBeenCalledWith({
-        door: 'trips',
-        status: 'limited',
-      });
+      expect(mockedMediaLibrary.requestPermissionsAsync).toHaveBeenCalledTimes(1);
+      expect(Analytics.photoPermissionOsResult).not.toHaveBeenCalled();
     });
   });
 

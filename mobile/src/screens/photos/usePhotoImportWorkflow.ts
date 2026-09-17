@@ -314,6 +314,7 @@ export function usePhotoImportWorkflow({
       }
 
       const result = await requestPermission();
+      Analytics.photoPermissionOsResult({ door: 'trips', status: result });
       if (result === 'granted' || result === 'limited') {
         setPermissionUi('none');
         // autoStart: clearing preheat flips permissionReady so useAutoStartWorkflow
@@ -336,8 +337,6 @@ export function usePhotoImportWorkflow({
         }
         return;
       }
-      // extractPhotosWithLocation never runs on deny, so fire os-result here.
-      Analytics.photoPermissionOsResult({ door: 'trips', status: result });
       setPermissionUi('recovery');
     },
     [requestPermission, startScanInternal]

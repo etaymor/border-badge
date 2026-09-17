@@ -11,6 +11,18 @@ import * as photoImportService from '../../../services/photoImport';
 import * as photoImportHooks from '../../../hooks/usePhotoImport';
 import { Analytics } from '../../../services/analytics';
 
+const mockRequestPermission = jest.fn();
+const mockPhotoPermission = {
+  status: 'granted' as 'undetermined' | 'granted' | 'limited' | 'denied',
+  isLoading: false,
+  refresh: jest.fn(),
+  requestPermission: mockRequestPermission,
+};
+
+jest.mock('../../../hooks/usePhotoPermissions', () => ({
+  usePhotoPermissionStatus: () => mockPhotoPermission,
+}));
+
 const mockCreateEntryMutateAsync = jest.fn();
 const mockUploadPhotos = jest.fn();
 const mockGetUploadState = jest.fn();
@@ -267,6 +279,8 @@ jest.mock('../../../services/analytics', () => ({
     photoImportClusterHidden: jest.fn(),
     photoImportWorkflowCompleted: jest.fn(),
     photoImportWorkflowExited: jest.fn(),
+    photoPermissionSoftAskShown: jest.fn(),
+    photoPermissionOsResult: jest.fn(),
   },
   calculateApiPercentiles: jest.fn(() => ({ p50: 100, p95: 200, p99: 300 })),
 }));
@@ -388,6 +402,8 @@ describe('usePhotoImportWorkflow', () => {
     mockedPhotoImport.getAllCachedPhotos.mockResolvedValue([]);
     mockedPhotoImport.cachePhotos.mockResolvedValue(undefined);
     mockedPhotoImport.clearPhotoCache.mockResolvedValue(undefined);
+    mockPhotoPermission.status = 'granted';
+    mockRequestPermission.mockResolvedValue('granted');
   });
 
   afterEach(async () => {
@@ -422,6 +438,45 @@ describe('usePhotoImportWorkflow', () => {
         expect(result.current.lastImportTime).toBe(lastImportTime);
       });
     });
+  });
+
+  describe('handlePermissionPreheatChoice', () => {
+    it.each(['granted', 'limited', 'denied', 'undetermined'] as const)(
+      'emits the trips OS result exactly once when the request resolves %s',
+      async (status) => {
+        mockRequestPermission.mockResolvedValue(status);
+        const { result } = renderHook(() => usePhotoImportWorkflow({}), {
+          wrapper: createWrapper(queryClient),
+        });
+
+        await act(async () => {
+          await result.current.handlePermissionPreheatChoice('full-access');
+        });
+
+        expect(mockRequestPermission).toHaveBeenCalledTimes(1);
+        expect(Analytics.photoPermissionOsResult).toHaveBeenCalledTimes(1);
+        expect(Analytics.photoPermissionOsResult).toHaveBeenCalledWith({
+          door: 'trips',
+          status,
+        });
+      }
+    );
+
+    it.each(['select-photos', 'dont-allow'] as const)(
+      'does not emit an OS result for %s because no request occurs',
+      async (choice) => {
+        const { result } = renderHook(() => usePhotoImportWorkflow({}), {
+          wrapper: createWrapper(queryClient),
+        });
+
+        await act(async () => {
+          await result.current.handlePermissionPreheatChoice(choice);
+        });
+
+        expect(mockRequestPermission).not.toHaveBeenCalled();
+        expect(Analytics.photoPermissionOsResult).not.toHaveBeenCalled();
+      }
+    );
   });
 
   describe('startScan', () => {
