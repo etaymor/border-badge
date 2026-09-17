@@ -52,6 +52,7 @@
  */
 
 export type ScanJobKind = 'trip-scan' | 'quiz-build';
+export type PhotoPermissionCarouselDoor = 'trips' | 'quiz';
 
 /** Sub-step of a quiz build, mirroring `QuizCreationProgress['step']`. */
 export type QuizWorkingStep = 'scanning' | 'checking' | 'building';
@@ -237,6 +238,31 @@ const quiz = {
 // Permission recovery (denied / limited)
 // ---------------------------------------------------------------------------
 
+const permissionCarousel = {
+  beat1Title: 'We Find Your Trips in Your Photos',
+  beat1Subtitle:
+    'The scan reads only where each photo was taken. Photos without a location are skipped.',
+  beat2Title: 'Your Phone Reads Where Each Photo Was Taken',
+  beat2Subtitle: 'It happens on your device. The scan uses location data only.',
+  beat2Pills: ['Lisbon', 'Portugal', 'Location data only'] as const,
+  beat3Title(door: PhotoPermissionCarouselDoor): string {
+    return door === 'trips'
+      ? 'Every trip lands in your passport.'
+      : 'Your Photos Become Guess Where Challenges';
+  },
+  beat3Subtitle(door: PhotoPermissionCarouselDoor): string {
+    return door === 'trips'
+      ? 'Trips build from where your photos were taken, and unlock Guess Where challenges. Your photos stay on your device during the scan.'
+      : 'Guess Where challenges come from your photos, and the same scan builds your trips, too. Your photos stay on your device during the scan.';
+  },
+  continueCta: 'Continue',
+  footerNotice: 'The scan runs on your device · Full Access finds more trips',
+  tripsHeaderTitle: 'Find Your Trips',
+  stepAnnouncement(step: number, total: number, title: string): string {
+    return `Step ${step} of ${total}. ${title}`;
+  },
+} as const;
+
 const permission = {
   recoveryTitleDenied: 'Photo Access Needed',
   recoveryTitleLimited: 'Full Access Works Best',
@@ -257,6 +283,7 @@ const permission = {
   preheatAllowFullAccess: 'Allow Full Access',
   preheatDontAllow: "Don't Allow",
   preheatFooter: 'On your device until you choose to upload · Full Access finds more trips',
+  carousel: permissionCarousel,
 } as const;
 
 // ---------------------------------------------------------------------------
