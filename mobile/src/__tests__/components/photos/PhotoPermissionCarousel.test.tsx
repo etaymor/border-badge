@@ -3,7 +3,7 @@ import { AccessibilityInfo, FlatList, StyleSheet, View } from 'react-native';
 import { fireEvent, render, screen } from '@testing-library/react-native';
 
 import { PhotoPermissionCarousel } from '@components/photos/PhotoPermissionCarousel';
-import type { PhotoPermissionPreheatChoice } from '@components/photos/PhotoPermissionPreheat';
+import type { PhotoPermissionPreheatChoice } from '@components/photos/PhotoPermissionPreheatStack';
 import { SCAN_COPY } from '@constants/scanCopy';
 
 const mockUseReducedMotion = jest.fn(() => false);

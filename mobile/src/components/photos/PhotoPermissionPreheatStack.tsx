@@ -1,10 +1,11 @@
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import type { PhotoPermissionPreheatChoice } from '@components/photos/PhotoPermissionPreheat';
 import { colors, withAlpha } from '@constants/colors';
 import { SCAN_COPY } from '@constants/scanCopy';
 import { fonts } from '@constants/typography';
+
+export type PhotoPermissionPreheatChoice = 'full-access' | 'select-photos' | 'dont-allow';
 
 export interface PhotoPermissionPreheatStackProps {
   onChoose: (choice: PhotoPermissionPreheatChoice) => void;

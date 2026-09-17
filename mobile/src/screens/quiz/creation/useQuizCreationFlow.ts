@@ -18,6 +18,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Linking } from 'react-native';
 
+import type {
+  PhotoPermissionCarouselChangeVia,
+  PhotoPermissionCarouselStep,
+} from '@components/photos/PhotoPermissionCarousel';
+import type { PhotoPermissionPreheatChoice } from '@components/photos/PhotoPermissionPreheatStack';
 import { SCAN_COPY } from '@constants/scanCopy';
 import { usePhotoPermissionStatus } from '@hooks/usePhotoPermissions';
 import { useQuizBuildJob } from '@hooks/useQuizBuildJob';
@@ -86,9 +91,14 @@ export interface QuizCreationFlow {
   draftHeroUri: string | null;
   draftUploadCounts: { uploaded: number; total: number } | null;
   build: BuildView;
+  permissionCarouselStep: PhotoPermissionCarouselStep;
   startCreation: () => void;
   handleRequestPermission: () => void;
-  handlePreheatChoice: (choice: 'full-access' | 'select-photos' | 'dont-allow') => void;
+  handlePermissionCarouselBeatChange: (
+    step: PhotoPermissionCarouselStep,
+    via: PhotoPermissionCarouselChangeVia
+  ) => void;
+  handlePreheatChoice: (choice: PhotoPermissionPreheatChoice) => void;
   /** Stop the build, behind a confirm. */
   handleCancel: () => void;
   handleBack: () => void;
@@ -113,6 +123,12 @@ export function useQuizCreationFlow({ entryPoint, navigation }: Options): QuizCr
   const buildJob = useQuizBuildJob({ onOutcome: (result) => handleOutcome(result) });
 
   const [phase, setPhase] = useState<ScreenPhase>('checking-permission');
+  const [permissionCarouselStep, setPermissionCarouselStep] =
+    useState<PhotoPermissionCarouselStep>(1);
+  const permissionStepRef = useRef<PhotoPermissionCarouselStep>(1);
+  const reportedPermissionStepsRef = useRef<Set<PhotoPermissionCarouselStep>>(new Set());
+  const permissionRequestInFlightRef = useRef(false);
+  const permissionOsRequestedRef = useRef(false);
   // Progress is READ FROM THE JOB STORE, not held here. That is what lets the
   // screen unmount and remount without losing the build: it is a view onto a
   // running job, not its owner.
@@ -278,32 +294,68 @@ export function useQuizCreationFlow({ entryPoint, navigation }: Options): QuizCr
     };
   }, [permissionLoading, permissionStatus, analytics]);
 
+  useEffect(() => {
+    if (phase !== 'permission-request') return;
+
+    permissionStepRef.current = 1;
+    reportedPermissionStepsRef.current = new Set([1]);
+    permissionOsRequestedRef.current = false;
+    setPermissionCarouselStep(1);
+    Analytics.photoPermissionCarouselStep({ door: 'quiz', step: 1, via: 'initial' });
+
+    return () => {
+      if (!permissionOsRequestedRef.current) {
+        Analytics.photoPermissionCarouselLeft({
+          door: 'quiz',
+          step: permissionStepRef.current,
+        });
+      }
+    };
+  }, [phase]);
+
   // NOTE: there is deliberately no unmount abort here. The build is owned by
   // the `quiz-build` job, so leaving the screen leaves it running; the user
   // can keep using the app and come back to a fuller grid. Stopping is an
   // explicit, confirmed action (handleCancel).
 
   const handleRequestPermission = useStableCallback(async () => {
-    const granted = await requestPermission();
-    analytics.trackPermissionResult(granted);
-    if (granted === 'granted' || granted === 'limited') {
-      const currentFreshness = await getLibraryFreshness().catch(() => null);
-      setFreshness(currentFreshness);
-      setPhase('intro');
-    } else {
-      setPhase('permission-denied');
+    if (permissionRequestInFlightRef.current) return;
+    permissionRequestInFlightRef.current = true;
+    permissionOsRequestedRef.current = true;
+    try {
+      const granted = await requestPermission();
+      analytics.trackPermissionResult(granted);
+      if (granted === 'granted' || granted === 'limited') {
+        const currentFreshness = await getLibraryFreshness().catch(() => null);
+        setFreshness(currentFreshness);
+        setPhase('intro');
+      } else if (granted === 'denied') {
+        setPhase('permission-denied');
+      }
+    } catch {
+      // A rejected native request is recoverable from the still-mounted stack.
+    } finally {
+      permissionRequestInFlightRef.current = false;
     }
   });
 
-  const handlePreheatChoice = useStableCallback(
-    async (choice: 'full-access' | 'select-photos' | 'dont-allow') => {
-      if (choice === 'full-access') {
-        await handleRequestPermission();
-        return;
-      }
-      setPhase('permission-denied');
+  const handlePermissionCarouselBeatChange = useStableCallback(
+    (step: PhotoPermissionCarouselStep, via: PhotoPermissionCarouselChangeVia) => {
+      permissionStepRef.current = step;
+      setPermissionCarouselStep(step);
+      if (reportedPermissionStepsRef.current.has(step)) return;
+      reportedPermissionStepsRef.current.add(step);
+      Analytics.photoPermissionCarouselStep({ door: 'quiz', step, via });
     }
   );
+
+  const handlePreheatChoice = useStableCallback(async (choice: PhotoPermissionPreheatChoice) => {
+    if (choice === 'full-access') {
+      await handleRequestPermission();
+      return;
+    }
+    setPhase('permission-denied');
+  });
 
   // Stop the build outright. The persisted draft stays resumable (KTD7), so
   // the classification already paid for is not thrown away.
@@ -415,8 +467,10 @@ export function useQuizCreationFlow({ entryPoint, navigation }: Options): QuizCr
     draftHeroUri,
     draftUploadCounts,
     build,
+    permissionCarouselStep,
     startCreation,
     handleRequestPermission,
+    handlePermissionCarouselBeatChange,
     handlePreheatChoice,
     handleCancel,
     handleBack,

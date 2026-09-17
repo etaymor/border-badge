@@ -43,6 +43,15 @@ export const styles = StyleSheet.create({
     // Keep centered content clear of the sheet's rounded overlap.
     paddingBottom: 24,
   },
+  permissionHero: {
+    flex: 1,
+    minHeight: 280,
+    backgroundColor: colors.warmCream,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+    paddingBottom: 20,
+  },
   heroFooter: {
     ...StyleSheet.absoluteFillObject,
     justifyContent: 'flex-end',
@@ -72,9 +81,8 @@ export const styles = StyleSheet.create({
   // other phase, so it gets its own roomier rhythm rather than stretching
   // sheetContent (shared by phases with far less to say) to match.
   permissionSheetContent: {
-    gap: 18,
-    paddingTop: 4,
-    paddingBottom: 12,
+    paddingTop: 0,
+    paddingBottom: 4,
   },
   title: {
     fontFamily: fonts.playfair.bold,

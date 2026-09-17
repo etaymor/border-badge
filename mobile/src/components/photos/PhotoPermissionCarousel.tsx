@@ -10,7 +10,10 @@ import {
   type ViewToken,
 } from 'react-native';
 
-import { PhotoPermissionPreheatStack } from '@components/photos/PhotoPermissionPreheatStack';
+import {
+  PhotoPermissionPreheatStack,
+  type PhotoPermissionPreheatChoice,
+} from '@components/photos/PhotoPermissionPreheatStack';
 import { PrivacyLockGlyph } from '@components/photos/PrivacyLockGlyph';
 import { Button } from '@components/ui/Button';
 import { colors, withAlpha } from '@constants/colors';
@@ -18,8 +21,6 @@ import { SCAN_COPY, type PhotoPermissionCarouselDoor } from '@constants/scanCopy
 import { fonts } from '@constants/typography';
 import { useReducedMotion } from '@hooks/useReducedMotion';
 import { useStableCallback } from '@hooks/useStableCallback';
-
-import type { PhotoPermissionPreheatChoice } from './PhotoPermissionPreheat';
 
 export type PhotoPermissionCarouselStep = 1 | 2 | 3;
 export type PhotoPermissionCarouselChangeVia = 'tap' | 'swipe';

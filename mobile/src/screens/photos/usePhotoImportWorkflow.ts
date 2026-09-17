@@ -6,6 +6,11 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import type {
+  PhotoPermissionCarouselChangeVia,
+  PhotoPermissionCarouselStep,
+} from '@components/photos/PhotoPermissionCarousel';
+import type { PhotoPermissionPreheatChoice } from '@components/photos/PhotoPermissionPreheatStack';
 import { Analytics } from '@services/analytics';
 import { usePhotoPermissionStatus } from '@hooks/usePhotoPermissions';
 import { useOnboardingStore, selectHomeCountry } from '@stores/onboardingStore';
@@ -30,7 +35,6 @@ import type {
   PhotoImportWorkflowResult,
   UsePhotoImportWorkflowOptions,
 } from './photoImportTypes';
-import type { PhotoPermissionPreheatChoice } from '@components/photos/PhotoPermissionPreheat';
 import { usePhotoScan, type ScanResult, type ScanFailureReason } from './usePhotoScan';
 import { usePlaceSuggestions } from './usePlaceSuggestions';
 import { useEntryCreation } from './useEntryCreation';
@@ -59,11 +63,24 @@ export function usePhotoImportWorkflow({
     requestPermission,
   } = usePhotoPermissionStatus();
   const [permissionUi, setPermissionUi] = useState<'none' | 'preheat' | 'recovery'>('none');
+  const [permissionCarouselStep, setPermissionCarouselStep] =
+    useState<PhotoPermissionCarouselStep>(1);
   const pendingScanAfterGrantRef = useRef(false);
+  const permissionStepRef = useRef<PhotoPermissionCarouselStep>(1);
+  const reportedPermissionStepsRef = useRef<Set<PhotoPermissionCarouselStep>>(new Set());
+  const permissionRequestInFlightRef = useRef(false);
+  const permissionOsRequestedRef = useRef(false);
+  const permissionSoftAskShownRef = useRef(false);
   const permissionReady =
     !photoPermissionLoading &&
     (photoPermissionStatus === 'granted' || photoPermissionStatus === 'limited') &&
     permissionUi === 'none';
+
+  const trackPermissionSoftAsk = useCallback(() => {
+    if (permissionSoftAskShownRef.current) return;
+    permissionSoftAskShownRef.current = true;
+    Analytics.photoPermissionSoftAskShown({ door: 'trips' });
+  }, []);
 
   useEffect(() => {
     if (photoPermissionLoading) return;
@@ -77,13 +94,39 @@ export function usePhotoImportWorkflow({
     if (!autoStart || permissionUi !== 'none') return;
     if (photoPermissionStatus === 'undetermined') {
       setPermissionUi('preheat');
-      Analytics.photoPermissionSoftAskShown({ door: 'trips' });
+      trackPermissionSoftAsk();
       return;
     }
     if (photoPermissionStatus === 'denied') {
       setPermissionUi('recovery');
     }
-  }, [autoStart, photoPermissionLoading, photoPermissionStatus, permissionUi]);
+  }, [
+    autoStart,
+    photoPermissionLoading,
+    photoPermissionStatus,
+    permissionUi,
+    trackPermissionSoftAsk,
+  ]);
+
+  useEffect(() => {
+    if (permissionUi !== 'preheat') return;
+
+    permissionStepRef.current = 1;
+    reportedPermissionStepsRef.current = new Set([1]);
+    permissionOsRequestedRef.current = false;
+    setPermissionCarouselStep(1);
+    Analytics.photoPermissionCarouselStep({ door: 'trips', step: 1, via: 'initial' });
+
+    return () => {
+      permissionSoftAskShownRef.current = false;
+      if (!permissionOsRequestedRef.current) {
+        Analytics.photoPermissionCarouselLeft({
+          door: 'trips',
+          step: permissionStepRef.current,
+        });
+      }
+    };
+  }, [permissionUi]);
 
   // ==========================================================================
   // Core State
@@ -279,7 +322,7 @@ export function usePhotoImportWorkflow({
       if (photoPermissionStatus === 'undetermined') {
         pendingScanAfterGrantRef.current = true;
         setPermissionUi('preheat');
-        Analytics.photoPermissionSoftAskShown({ door: 'trips' });
+        trackPermissionSoftAsk();
         return;
       }
       if (photoPermissionStatus === 'denied') {
@@ -303,7 +346,18 @@ export function usePhotoImportWorkflow({
         }
       }
     },
-    [startScanInternal, photoPermissionStatus]
+    [startScanInternal, photoPermissionStatus, trackPermissionSoftAsk]
+  );
+
+  const handlePermissionCarouselBeatChange = useCallback(
+    (step: PhotoPermissionCarouselStep, via: PhotoPermissionCarouselChangeVia) => {
+      permissionStepRef.current = step;
+      setPermissionCarouselStep(step);
+      if (reportedPermissionStepsRef.current.has(step)) return;
+      reportedPermissionStepsRef.current.add(step);
+      Analytics.photoPermissionCarouselStep({ door: 'trips', step, via });
+    },
+    []
   );
 
   const handlePermissionPreheatChoice = useCallback(
@@ -313,31 +367,42 @@ export function usePhotoImportWorkflow({
         return;
       }
 
-      const result = await requestPermission();
-      Analytics.photoPermissionOsResult({ door: 'trips', status: result });
-      if (result === 'granted' || result === 'limited') {
-        setPermissionUi('none');
-        // autoStart: clearing preheat flips permissionReady so useAutoStartWorkflow
-        // starts the scan. Manual path uses the pending flag from startScan.
-        if (pendingScanAfterGrantRef.current) {
-          pendingScanAfterGrantRef.current = false;
-          setScanFailure(null);
-          setPhase('scanning');
-          const outcome = await startScanInternal(false);
-          if (!outcome.success) {
-            setPhase('idle');
-            if (outcome.reason) {
-              setScanFailure({
-                reason: outcome.reason,
-                title: outcome.title,
-                message: outcome.message,
-              });
+      if (permissionRequestInFlightRef.current) return;
+      permissionRequestInFlightRef.current = true;
+      permissionOsRequestedRef.current = true;
+      try {
+        const result = await requestPermission();
+        Analytics.photoPermissionOsResult({ door: 'trips', status: result });
+        if (result === 'granted' || result === 'limited') {
+          setPermissionUi('none');
+          // autoStart: clearing preheat flips permissionReady so useAutoStartWorkflow
+          // starts the scan. Manual path uses the pending flag from startScan.
+          if (pendingScanAfterGrantRef.current) {
+            pendingScanAfterGrantRef.current = false;
+            setScanFailure(null);
+            setPhase('scanning');
+            const outcome = await startScanInternal(false);
+            if (!outcome.success) {
+              setPhase('idle');
+              if (outcome.reason) {
+                setScanFailure({
+                  reason: outcome.reason,
+                  title: outcome.title,
+                  message: outcome.message,
+                });
+              }
             }
           }
+          return;
         }
-        return;
+        if (result === 'denied') {
+          setPermissionUi('recovery');
+        }
+      } catch {
+        // Keep the carousel or recovery sheet available for another attempt.
+      } finally {
+        permissionRequestInFlightRef.current = false;
       }
-      setPermissionUi('recovery');
     },
     [requestPermission, startScanInternal]
   );
@@ -700,6 +765,8 @@ export function usePhotoImportWorkflow({
     scanFailure,
     clearScanFailure,
     permissionUi,
+    permissionCarouselStep,
+    handlePermissionCarouselBeatChange,
     handlePermissionPreheatChoice,
     dismissPermissionRecovery,
     uploadStates,

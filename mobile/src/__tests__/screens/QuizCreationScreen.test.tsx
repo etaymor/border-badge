@@ -25,6 +25,7 @@ import { createMockNavigation } from '../utils/mockFactories';
 import { Image as ExpoImage } from 'expo-image';
 import { SCAN_COPY } from '@constants/scanCopy';
 import { QuizCreationScreen } from '@screens/quiz/QuizCreationScreen';
+import { Analytics } from '@services/analytics';
 import type { QuizCreationOutcome, QuizCreationProgress } from '@services/quiz/quizCreation';
 import { patchJobSlice, resetLibraryJobStore } from '@stores/libraryJobStore';
 import type { RootStackScreenProps } from '@navigation/types';
@@ -208,17 +209,82 @@ describe('QuizCreationScreen', () => {
     expect(mockStart).not.toHaveBeenCalled();
   });
 
-  it('renders the permission request state when undetermined', async () => {
+  it('renders quiz beat 1 without the permission stack or an OS request', async () => {
     mockPermission.status = 'undetermined';
 
     await renderScreen();
 
     await waitFor(() => expect(screen.getByTestId('quiz-permission-request')).toBeTruthy());
-    expect(screen.getByText('Allow Full Access')).toBeTruthy();
-    // One scan feeds trips as well, and this is the moment the user decides
-    // whether to grant at all - so the second payoff is named here.
-    expect(screen.getByText(/Guess Where challenges/i)).toBeTruthy();
+    expect(screen.getByText(SCAN_COPY.permission.carousel.beat1Title)).toBeTruthy();
+    expect(screen.queryByTestId('photo-permission-preheat-buttons')).toBeNull();
+    expect(mockPermission.requestPermission).not.toHaveBeenCalled();
     expect(mockStart).not.toHaveBeenCalled();
+  });
+
+  it('guards duplicate quiz requests and keeps an interrupted request on beat 3', async () => {
+    mockPermission.status = 'undetermined';
+    let resolveRequest!: (status: 'undetermined') => void;
+    mockPermission.requestPermission.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveRequest = resolve;
+      })
+    );
+
+    await renderScreen();
+    await waitFor(() => expect(screen.getByTestId('quiz-permission-request')).toBeTruthy());
+    fireEvent.press(screen.getByTestId('photo-permission-carousel-continue'));
+    fireEvent.press(screen.getByTestId('photo-permission-carousel-continue'));
+
+    const fullAccess = screen.getByTestId('photo-permission-preheat-full-access');
+    fireEvent.press(fullAccess);
+    fireEvent.press(fullAccess);
+    expect(mockPermission.requestPermission).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      resolveRequest('undetermined');
+    });
+
+    expect(screen.getByTestId('quiz-permission-request')).toBeTruthy();
+    expect(screen.getByTestId('photo-permission-preheat-full-access')).toBeTruthy();
+  });
+
+  it('offers Try Again after denial and re-requests permission', async () => {
+    mockPermission.status = 'undetermined';
+    mockPermission.requestPermission
+      .mockResolvedValueOnce('denied')
+      .mockResolvedValueOnce('granted');
+
+    await renderScreen();
+    await waitFor(() => expect(screen.getByTestId('quiz-permission-request')).toBeTruthy());
+    fireEvent.press(screen.getByTestId('photo-permission-carousel-continue'));
+    fireEvent.press(screen.getByTestId('photo-permission-carousel-continue'));
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('photo-permission-preheat-full-access'));
+    });
+
+    await waitFor(() => expect(screen.getByTestId('quiz-permission-denied')).toBeTruthy());
+    await act(async () => {
+      fireEvent.press(screen.getByText(SCAN_COPY.permission.recoveryRetryCta));
+    });
+    expect(mockPermission.requestPermission).toHaveBeenCalledTimes(2);
+  });
+
+  it('owns quiz step and left analytics for one carousel mount', async () => {
+    mockPermission.status = 'undetermined';
+    const stepSpy = jest.spyOn(Analytics, 'photoPermissionCarouselStep');
+    const leftSpy = jest.spyOn(Analytics, 'photoPermissionCarouselLeft');
+
+    const rendered = await renderScreen();
+    await waitFor(() =>
+      expect(stepSpy).toHaveBeenCalledWith({ door: 'quiz', step: 1, via: 'initial' })
+    );
+    fireEvent.press(screen.getByTestId('photo-permission-carousel-continue'));
+    fireEvent.press(screen.getByTestId('photo-permission-carousel-continue'));
+    rendered.unmount();
+
+    expect(stepSpy).toHaveBeenCalledWith({ door: 'quiz', step: 2, via: 'tap' });
+    expect(stepSpy).toHaveBeenCalledWith({ door: 'quiz', step: 3, via: 'tap' });
+    expect(leftSpy).toHaveBeenCalledWith({ door: 'quiz', step: 3 });
   });
 
   it('confirms on the intro step before creating; no auto-start (Q5)', async () => {

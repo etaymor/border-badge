@@ -11,16 +11,19 @@ import { ActivityIndicator, Linking, Text, View } from 'react-native';
 import { FlashList, ListRenderItem } from '@shopify/flash-list';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { PhotoPermissionPreheat } from '@components/photos/PhotoPermissionPreheat';
+import { PhotoPermissionCarousel } from '@components/photos/PhotoPermissionCarousel';
 import { PhotoPermissionRecoverySheet } from '@components/photos/PhotoPermissionRecoverySheet';
+import PermissionBeatVisual from '@components/photos/permissionBeats/PermissionBeatVisual';
 import { SatisfactionModal } from '@components/review';
 import { GlassBackButton, GlassIconButton } from '@components/ui';
 import type { TripCandidateDisplay, LocationClusterDisplay } from '@services/photoImport';
 import type { MergedSuggestion } from './photoImportTypes';
 import { useCountryByCode } from '@hooks/useCountries';
 import { useReviewRequest } from '@hooks/useReviewRequest';
+import { useReducedMotion } from '@hooks/useReducedMotion';
 import { useTrip } from '@hooks/useTrips';
 import { colors } from '@constants/colors';
+import { SCAN_COPY } from '@constants/scanCopy';
 import type { PassportStackScreenProps, RootStackParamList } from '@navigation/types';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -223,6 +226,7 @@ export function useLowSignalSeeding({
 
 export function PhotoImportScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
+  const reduceMotion = useReducedMotion();
   /**
    * Library size, for the magnitude and duration lines on the idle screen.
    * Read once on mount: it only has to be roughly right, and a wrong-by-a-few
@@ -307,6 +311,8 @@ export function PhotoImportScreen({ navigation, route }: Props) {
     scanFailure,
     clearScanFailure,
     permissionUi,
+    permissionCarouselStep,
+    handlePermissionCarouselBeatChange,
     handlePermissionPreheatChoice,
     getUploadState,
     uploadingClusterIds,
@@ -653,7 +659,7 @@ export function PhotoImportScreen({ navigation, route }: Props) {
               ? 'Scanning Photos'
               : phase === 'candidates'
                 ? 'We Found Trips'
-                : 'Import Photos'}
+                : SCAN_COPY.permission.carousel.tripsHeaderTitle}
         </Text>
         {phase === 'suggestions' && candidatesForCountry.length > 1 ? (
           <GlassIconButton
@@ -676,8 +682,20 @@ export function PhotoImportScreen({ navigation, route }: Props) {
 
       {/* Idle State — preheat / recovery gate OS ask before autoStart or scan */}
       {phase === 'idle' && permissionUi === 'preheat' && (
-        <View style={styles.idleContainer} testID="photo-import-permission-preheat">
-          <PhotoPermissionPreheat onChoose={handlePermissionPreheatChoice} />
+        <View style={styles.permissionCarouselContainer} testID="photo-import-permission-preheat">
+          <PhotoPermissionCarousel
+            door="trips"
+            step={permissionCarouselStep}
+            onBeatChange={handlePermissionCarouselBeatChange}
+            onChoose={handlePermissionPreheatChoice}
+            visual={
+              <PermissionBeatVisual
+                step={permissionCarouselStep}
+                reduceMotion={reduceMotion}
+                homeCountry={homeCountryCode}
+              />
+            }
+          />
         </View>
       )}
       {phase === 'idle' && permissionUi === 'recovery' && (
