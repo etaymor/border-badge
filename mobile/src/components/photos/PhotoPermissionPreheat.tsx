@@ -5,8 +5,9 @@
  */
 
 import React from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 
+import { PhotoPermissionPreheatStack } from '@components/photos/PhotoPermissionPreheatStack';
 import { colors, withAlpha } from '@constants/colors';
 import { SCAN_COPY } from '@constants/scanCopy';
 import { fonts } from '@constants/typography';
@@ -18,47 +19,14 @@ export interface PhotoPermissionPreheatProps {
   testID?: string;
 }
 
-/** iOS Photos sheet accent for Allow Full Access. */
-const IOS_FULL_ACCESS_BLUE = '#007AFF';
-
 export function PhotoPermissionPreheat({ onChoose, testID }: PhotoPermissionPreheatProps) {
   return (
     <View style={styles.container} testID={testID ?? 'photo-permission-preheat'}>
       <Text style={styles.title}>{SCAN_COPY.permission.preheatTitle}</Text>
       <Text style={styles.body}>{SCAN_COPY.permission.preheatBody}</Text>
 
-      <View style={styles.buttonStack} testID="photo-permission-preheat-buttons">
-        <Pressable
-          style={[styles.button, styles.secondaryButton]}
-          onPress={() => onChoose('select-photos')}
-          accessibilityRole="button"
-          accessibilityLabel={SCAN_COPY.permission.preheatSelectPhotos}
-          testID="photo-permission-preheat-select"
-        >
-          <Text style={styles.secondaryButtonText}>{SCAN_COPY.permission.preheatSelectPhotos}</Text>
-        </Pressable>
-
-        <Pressable
-          style={[styles.button, styles.fullAccessButton]}
-          onPress={() => onChoose('full-access')}
-          accessibilityRole="button"
-          accessibilityLabel={SCAN_COPY.permission.preheatAllowFullAccess}
-          testID="photo-permission-preheat-full-access"
-        >
-          <Text style={styles.fullAccessButtonText}>
-            {SCAN_COPY.permission.preheatAllowFullAccess}
-          </Text>
-        </Pressable>
-
-        <Pressable
-          style={[styles.button, styles.secondaryButton]}
-          onPress={() => onChoose('dont-allow')}
-          accessibilityRole="button"
-          accessibilityLabel={SCAN_COPY.permission.preheatDontAllow}
-          testID="photo-permission-preheat-dont-allow"
-        >
-          <Text style={styles.secondaryButtonText}>{SCAN_COPY.permission.preheatDontAllow}</Text>
-        </Pressable>
+      <View style={styles.stackSpacing}>
+        <PhotoPermissionPreheatStack onChoose={onChoose} />
       </View>
 
       <Text style={styles.footer}>{SCAN_COPY.permission.preheatFooter}</Text>
@@ -84,33 +52,8 @@ const styles = StyleSheet.create({
     color: colors.stormGray,
     textAlign: 'center',
   },
-  buttonStack: {
+  stackSpacing: {
     marginTop: 8,
-    gap: 10,
-  },
-  button: {
-    minHeight: 48,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  secondaryButton: {
-    backgroundColor: withAlpha(colors.midnightNavy, 0.08),
-  },
-  secondaryButtonText: {
-    fontFamily: fonts.openSans.semiBold,
-    fontSize: 17,
-    color: colors.midnightNavy,
-  },
-  fullAccessButton: {
-    backgroundColor: IOS_FULL_ACCESS_BLUE,
-  },
-  fullAccessButtonText: {
-    fontFamily: fonts.openSans.semiBold,
-    fontSize: 17,
-    color: colors.cloudWhite,
   },
   footer: {
     fontFamily: fonts.openSans.regular,
