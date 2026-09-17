@@ -26,6 +26,7 @@ jest.mock(
     return {
       default: {
         View: MockAnimatedView,
+        Image: createAnimatedComponent('Image'),
         createAnimatedComponent,
       },
       createAnimatedComponent,
@@ -75,6 +76,8 @@ jest.mock(
         return value;
       }),
       withDelay: jest.fn((_delayMs, animation) => animation),
+      withSequence: jest.fn((...animations) => animations[animations.length - 1]),
+      withRepeat: jest.fn((animation) => animation),
       runOnJS: jest.fn((fn) => fn),
       cancelAnimation: jest.fn(),
       useAnimatedReaction: jest.fn(),
@@ -101,6 +104,7 @@ jest.mock(
         ease: jest.fn(),
         cubic: jest.fn(),
         out: jest.fn((fn) => fn),
+        inOut: jest.fn((fn) => fn),
       },
       useReducedMotion: jest.fn(() => false),
     };
