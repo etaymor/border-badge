@@ -117,12 +117,25 @@ function allStrings(): Array<[string, string]> {
   push('permission.recoveryAllowMorePhotosCta', permission.recoveryAllowMorePhotosCta);
   push('permission.recoveryContinueLimitedCta', permission.recoveryContinueLimitedCta);
   push('permission.recoveryRetryCta', permission.recoveryRetryCta);
-  push('permission.preheatTitle', permission.preheatTitle);
-  push('permission.preheatBody', permission.preheatBody);
   push('permission.preheatSelectPhotos', permission.preheatSelectPhotos);
   push('permission.preheatAllowFullAccess', permission.preheatAllowFullAccess);
   push('permission.preheatDontAllow', permission.preheatDontAllow);
-  push('permission.preheatFooter', permission.preheatFooter);
+  push('permission.carousel.beat1Title', permission.carousel.beat1Title);
+  push('permission.carousel.beat1Subtitle', permission.carousel.beat1Subtitle);
+  push('permission.carousel.beat2Title', permission.carousel.beat2Title);
+  push('permission.carousel.beat2Subtitle', permission.carousel.beat2Subtitle);
+  push('permission.carousel.beat2Pills', permission.carousel.beat2Pills);
+  push('permission.carousel.continueCta', permission.carousel.continueCta);
+  push('permission.carousel.footerNotice', permission.carousel.footerNotice);
+  push('permission.carousel.tripsHeaderTitle', permission.carousel.tripsHeaderTitle);
+  push(
+    'permission.carousel.stepAnnouncement',
+    permission.carousel.stepAnnouncement(2, 3, permission.carousel.beat2Title)
+  );
+  for (const door of ['trips', 'quiz'] as const) {
+    push(`permission.carousel.beat3Title(${door})`, permission.carousel.beat3Title(door));
+    push(`permission.carousel.beat3Subtitle(${door})`, permission.carousel.beat3Subtitle(door));
+  }
 
   return entries;
 }
@@ -298,11 +311,57 @@ describe('SCAN_COPY - permission recovery', () => {
   });
 
   it('never claims photos are never uploaded', () => {
-    const { permission, shared } = SCAN_COPY;
-    const recovery = Object.values(permission).join(' ');
+    const { shared } = SCAN_COPY;
+    const recovery = allStrings()
+      .filter(([label]) => label.startsWith('permission.'))
+      .map(([, value]) => value)
+      .join(' ');
     const privacy = [shared.privacyTitle, ...shared.privacyBullets('France')].join(' ');
     expect(recovery).not.toMatch(/never upload/i);
     expect(privacy).not.toMatch(/never upload/i);
+  });
+});
+
+describe('SCAN_COPY - permission carousel', () => {
+  const carouselStrings = () =>
+    allStrings()
+      .filter(([label]) => label.startsWith('permission.carousel.'))
+      .map(([, value]) => value)
+      .join(' ');
+
+  it('keeps every subtitle scoped to scan privacy', () => {
+    const { carousel } = SCAN_COPY.permission;
+    expect(carousel.beat1Subtitle).toMatch(/scan/i);
+    expect(carousel.beat1Subtitle).toMatch(/only|skipped/i);
+    expect(carousel.beat2Subtitle).toMatch(/on your device/i);
+    expect(carousel.beat2Subtitle).toMatch(/location data/i);
+    expect(carousel.beat2Subtitle).not.toMatch(/\bGPS\b/);
+    for (const door of ['trips', 'quiz'] as const) {
+      expect(carousel.beat3Subtitle(door)).toMatch(/on your device during the scan/i);
+    }
+  });
+
+  it('leads beat 3 with the feature for its door and names both payoffs', () => {
+    const { carousel } = SCAN_COPY.permission;
+    expect(carousel.beat3Title('trips')).toBe('Every trip lands in your passport.');
+    expect(carousel.beat3Title('quiz')).toMatch(/^.*Guess Where/);
+    for (const door of ['trips', 'quiz'] as const) {
+      const subtitle = carousel.beat3Subtitle(door);
+      expect(subtitle).toMatch(/trips/i);
+      expect(subtitle).toMatch(/Guess Where/i);
+    }
+  });
+
+  it('avoids broader photo-handling claims', () => {
+    expect(carouselStrings()).not.toMatch(/\bnever\b|\bupload\b|the picture|the photo itself/i);
+  });
+
+  it('exports the accessibility announcement and trips header', () => {
+    const { carousel } = SCAN_COPY.permission;
+    expect(carousel.stepAnnouncement(2, 3, carousel.beat2Title)).toBe(
+      `Step 2 of 3. ${carousel.beat2Title}`
+    );
+    expect(carousel.tripsHeaderTitle).not.toMatch(/import/i);
   });
 });
 

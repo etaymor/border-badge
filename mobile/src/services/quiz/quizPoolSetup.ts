@@ -22,8 +22,14 @@ import { getAllCountries, getHomeCountry } from '@services/countriesDb';
 import { iso1A2Code } from '@services/photoImport/countryCoder';
 import { ensureFreshLibrary } from '@services/photoImport/photoBackgroundSync';
 import { getAllCachedPhotos } from '@services/photoImport/photoCacheDb';
+import {
+  pickScanPreviews,
+  type CountryPreviewRow,
+  type ScanPreviewBatchItem,
+} from '@services/photoImport/scanPreviewPicker';
 import { api } from '@services/api';
 import type { CachedPhoto } from '@services/photoImport/types';
+import { getCountryName } from '@utils/countries';
 
 import {
   CLASSIFICATION_BUDGET_PER_QUIZ,
@@ -196,6 +202,17 @@ export async function setUpQuizRun(
   // scanning progress at all: the wizard's scan step only exists when a
   // scan actually runs.
   let cached: CachedPhoto[];
+  const [persisted, countries, usedAssetIds, homeCountry] = await Promise.all([
+    loadDraftState(),
+    getAllCountries(),
+    getUsedAssetIds(),
+    getHomeCountry().catch(() => null),
+  ]);
+  const countryNames = new Map(
+    countries.map((country) => [country.code, country.name ?? getCountryName(country.code)])
+  );
+  let countryPreviews: readonly CountryPreviewRow[] = [];
+  let lastEmittedCountryPreviews = countryPreviews;
   const refresh = await ensureFreshLibrary({
     source: 'quiz',
     // The job runtime marks 'quiz-build' running before this function's
@@ -206,7 +223,33 @@ export async function setUpQuizRun(
     excludeKind: 'quiz-build',
     onProgress: (progress) => {
       env.heartbeat?.();
-      onProgress?.({ step: 'scanning', current: progress.current, total: progress.total });
+      const changedCountryPreviews =
+        countryPreviews === lastEmittedCountryPreviews ? undefined : countryPreviews;
+      lastEmittedCountryPreviews = countryPreviews;
+      onProgress?.({
+        step: 'scanning',
+        current: progress.current,
+        total: progress.total,
+        countryPreviews: changedCountryPreviews,
+      });
+    },
+    onBatch: (photos) => {
+      const previewItems: ScanPreviewBatchItem[] = [];
+      for (const photo of photos) {
+        const code = iso1A2Code([photo.location.longitude, photo.location.latitude], {
+          level: 'territory',
+        });
+        if (!code) continue;
+        previewItems.push({
+          code,
+          name: countryNames.get(code) ?? getCountryName(code),
+          photo,
+        });
+      }
+      const result = pickScanPreviews(countryPreviews, previewItems, {
+        homeCountry: homeCountry ?? '',
+      });
+      if (result.changed) countryPreviews = result.countryPreviews;
     },
     signal,
   });
@@ -232,12 +275,6 @@ export async function setUpQuizRun(
   }
   if (signal?.aborted) return { status: 'outcome', outcome: { status: 'cancelled' } };
 
-  const persisted = await loadDraftState();
-  const [countries, usedAssetIds, homeCountry] = await Promise.all([
-    getAllCountries(),
-    getUsedAssetIds(),
-    getHomeCountry().catch(() => null),
-  ]);
   const validCodes = new Set(countries.map((country) => country.code));
   const pool = cached.map(toCandidate);
 

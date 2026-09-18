@@ -18,10 +18,13 @@ import {
   markFailed,
   startScan,
 } from '@services/photoImport/photoScanService';
+import { runScanPass } from '@services/photoImport/photoScanSteps';
 import { __resetRuntimeForTesting } from '@services/jobs/jobRuntime';
 import { resetLibraryJobStore, useLibraryJobStore } from '@stores/libraryJobStore';
 
-import type { PhotoWithLocation } from '@services/photoImport';
+import type { JobRunContext } from '@services/jobs/jobTypes';
+import type { PhotoWithLocation, ScanProgress } from '@services/photoImport';
+import type { TripScanDetail } from '@stores/libraryJobStore';
 
 // --- Mocks ---
 
@@ -44,6 +47,11 @@ jest.mock('@services/analytics', () => ({
 
 jest.mock('@services/photoImport/photoBackgroundSync', () => ({
   abortBackgroundSync: jest.fn(),
+}));
+
+jest.mock('@services/photoImport/photoTaggingService', () => ({
+  abortTaggingPass: jest.fn(),
+  maybeRunTaggingPass: jest.fn(),
 }));
 
 jest.mock('@services/photoImport/errors', () => {
@@ -103,6 +111,7 @@ jest.mock('@services/photoImport/photoImportService', () => ({
 
 const cacheDb = jest.requireMock('@services/photoImport/photoCacheDb');
 const clusteringCache = jest.requireMock('@services/photoImport/photoClusteringCache');
+const countryCoder = jest.requireMock('@rapideditor/country-coder');
 const importService = jest.requireMock('@services/photoImport/photoImportService');
 const bgSync = jest.requireMock('@services/photoImport/photoBackgroundSync');
 
@@ -115,6 +124,32 @@ function makePhoto(id: string): PhotoWithLocation {
     filename: `${id}.jpg`,
     creationTime: new Date('2024-01-15T10:00:00Z'),
     location: { latitude: 35.0, longitude: 139.0 },
+  };
+}
+
+function makeLocatedPhoto(
+  id: string,
+  longitude: number,
+  overrides: Partial<PhotoWithLocation> = {}
+): PhotoWithLocation {
+  return {
+    ...makePhoto(id),
+    width: 1000,
+    height: 800,
+    location: { latitude: 1, longitude },
+    ...overrides,
+  };
+}
+
+function makeContext(detailEmits: TripScanDetail[]): JobRunContext {
+  return {
+    signal: new AbortController().signal,
+    heartbeat: jest.fn(),
+    emit: (_progress, detail) => {
+      if (detail !== undefined) detailEmits.push(detail as TripScanDetail);
+    },
+    shouldYield: () => false,
+    saveCheckpoint: jest.fn().mockResolvedValue(undefined),
   };
 }
 
@@ -149,6 +184,7 @@ beforeEach(() => {
   cacheDb.saveTripSegments.mockResolvedValue(undefined);
   cacheDb.setLastImportTime.mockResolvedValue(undefined);
   cacheDb.setMetadata.mockResolvedValue(undefined);
+  countryCoder.iso1A2Code.mockImplementation(() => 'JP');
 });
 
 describe('photoScanService.startScan return values', () => {
@@ -249,6 +285,141 @@ describe('photoScanService happy path', () => {
     const callArgs = importService.extractPhotosWithLocation.mock.calls[0];
     expect(callArgs[2]).toEqual(new Date(1000)); // since
     expect(tripScan().detail.isIncremental).toBe(true);
+  });
+});
+
+describe('photoScanService country preview integration', () => {
+  const countryCodes = ['JP', 'FR', 'DE', 'IT', 'ES', 'PT', 'GB', 'CA', 'MX', 'BR', 'AU'];
+
+  beforeEach(() => {
+    countryCoder.iso1A2Code.mockImplementation(([longitude]: [number, number]) =>
+      longitude === 0 ? 'US' : countryCodes[longitude - 1]
+    );
+    clusteringCache.segmentTripsFromCache.mockReturnValue({
+      candidates: [makeCandidate()],
+      photoLookup: new Map(),
+      clusterLookup: new Map(),
+      clusterDisplays: new Map(),
+    });
+  });
+
+  it('publishes one bounded non-home detail and skips an unchanged later batch', async () => {
+    const firstBatch = [
+      makeLocatedPhoto('home', 0),
+      ...countryCodes
+        .slice(0, 10)
+        .flatMap((_, index) => [
+          makeLocatedPhoto(`c${index}-1`, index + 1),
+          makeLocatedPhoto(`c${index}-2`, index + 1),
+          makeLocatedPhoto(`c${index}-3`, index + 1),
+        ]),
+    ];
+    const unchangedBatch = [
+      makeLocatedPhoto('eleventh', 11),
+      makeLocatedPhoto('later-favorite', 1, { isFavorite: true }),
+    ];
+    const allPhotos = [...firstBatch, ...unchangedBatch];
+    importService.extractPhotosWithLocation.mockImplementation(
+      (
+        onProgress: (progress: ScanProgress) => void,
+        _signal: AbortSignal | undefined,
+        _since: Date | undefined,
+        onBatch?: (photos: PhotoWithLocation[]) => void
+      ) => {
+        onBatch?.(firstBatch);
+        onBatch?.(unchangedBatch);
+        onProgress({
+          phase: 'scanning',
+          current: allPhotos.length,
+          total: allPhotos.length,
+          percentage: 100,
+        });
+        return Promise.resolve(allPhotos);
+      }
+    );
+    const detailEmits: TripScanDetail[] = [];
+
+    await runScanPass(makeContext(detailEmits), { homeCountry: 'US' });
+
+    expect(detailEmits).toHaveLength(2);
+    const published = detailEmits[1];
+    expect(published.countryPreviews).toHaveLength(10);
+    expect(published.countryPreviews.every((row) => row.previews.length === 2)).toBe(true);
+    expect(published.countryPreviews.flatMap((row) => row.previews)).not.toContainEqual(
+      expect.objectContaining({ assetId: 'later-favorite' })
+    );
+    expect(published.countryPreviews.map((row) => row.code)).not.toContain('US');
+    expect(published.countryPreviews.map((row) => row.code)).not.toContain('AU');
+  });
+
+  it('applies the same ranking and home exclusion during an incremental pass', async () => {
+    cacheDb.getLastImportTime.mockResolvedValue(1000);
+    cacheDb.getAllCachedPhotos.mockResolvedValue([
+      {
+        id: 'cached',
+        uri: 'file://cached.jpg',
+        filename: 'cached.jpg',
+        creationTime: 500,
+        latitude: 1,
+        longitude: 1,
+        geohash: 'g',
+        countryCode: 'JP',
+      },
+    ]);
+    const batch = [
+      makeLocatedPhoto('home', 0),
+      makeLocatedPhoto('jp-plain', 1),
+      makeLocatedPhoto('jp-favorite', 1, { isFavorite: true }),
+      makeLocatedPhoto('fr-1', 2),
+    ];
+    importService.extractPhotosWithLocation.mockImplementation(
+      (
+        _onProgress: (progress: ScanProgress) => void,
+        _signal: AbortSignal | undefined,
+        _since: Date | undefined,
+        onBatch?: (photos: PhotoWithLocation[]) => void
+      ) => {
+        onBatch?.(batch);
+        return Promise.resolve(batch);
+      }
+    );
+    const detailEmits: TripScanDetail[] = [];
+
+    await runScanPass(makeContext(detailEmits), { homeCountry: 'US' });
+
+    expect(importService.extractPhotosWithLocation.mock.calls[0][2]).toEqual(new Date(1000));
+    const published = detailEmits.at(-1)!;
+    expect(published.isIncremental).toBe(true);
+    expect(published.countryPreviews.map((row) => row.code)).toEqual(['JP', 'FR']);
+    expect(published.countryPreviews[0].previews.map((preview) => preview.assetId)).toEqual([
+      'jp-favorite',
+      'jp-plain',
+    ]);
+  });
+
+  it('completes a resumed legacy scan with no home country without filtering previews', async () => {
+    const batch = [makeLocatedPhoto('legacy-photo', 0)];
+    importService.extractPhotosWithLocation.mockImplementation(
+      (
+        _onProgress: (progress: ScanProgress) => void,
+        _signal: AbortSignal | undefined,
+        _since: Date | undefined,
+        onBatch?: (photos: PhotoWithLocation[]) => void
+      ) => {
+        onBatch?.(batch);
+        return Promise.resolve(batch);
+      }
+    );
+    const detailEmits: TripScanDetail[] = [];
+
+    const outcome = await runScanPass(makeContext(detailEmits), {
+      homeCountry: null,
+      resumed: true,
+    });
+
+    expect(outcome.status).toBe('completed');
+    expect(detailEmits.at(-1)?.countryPreviews.map(({ code }) => code)).toEqual(['US']);
+    expect(clusteringCache.segmentTripsFromCache).toHaveBeenCalledWith(expect.any(Array), null);
   });
 });
 

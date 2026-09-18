@@ -3,8 +3,8 @@ title: "The 4 Best Apps for Creating and Sharing Travel Lists in 2026"
 seo_title: "4 Best Apps for Sharing Travel Lists (2026)"
 description: "Stop using messy Google Docs to share your travel recommendations. We review the 4 best apps for creating and sharing curated travel lists with friends in 2026."
 category: guides
-published: 2026-07-30
-updated: 2026-07-30
+published: 2026-09-15
+updated: 2026-09-15
 tags:
   - Travel lists
   - Sharing
@@ -115,4 +115,4 @@ Your travel recommendations are valuable. They are the result of your time, mone
 
 Start curating your travel memories today, and the next time a friend asks for recommendations, you'll be ready.
 
-_Pricing and features verified July 2026. Competitor plans change; check each app's own pricing page before you buy._
+_Pricing and features verified September 2026. Competitor plans change; check each app's own pricing page before you buy._

@@ -1,0 +1,31 @@
+{# Download CTA with the passport screenshot. Used twice on each post: once
+   under the title (most readers never reach the footer) and once after the
+   FAQs. `location` is the data-track-location value so the two clicks do not
+   collapse in analytics. #}
+{% macro post_cta(location, loading='lazy', modifier='') %}
+<section class="post-cta{% if modifier %} {{ modifier }}{% endif %}">
+  <div class="post-cta-layout">
+    <div class="post-cta-copy">
+      <p class="post-cta-kicker">Free on the App Store</p>
+      <p class="post-cta-title">Stamp your passport. Keep the places.</p>
+      <p class="post-cta-sub">Track 227 countries, import trips from your camera roll, and share lists friends can open in a browser.</p>
+      <a href="{{ app_store_url | safe_external_url or '#download' }}"
+         class="cta-button"
+         data-track-location="{{ location }}">Download Free on iOS</a>
+    </div>
+    <div class="post-cta-device">
+      <div class="phone-frame phone-frame--sm">
+        <picture>
+          <source srcset="{{ url_for('static', path='images/screens/passport-home.webp') }}" type="image/webp">
+          <img src="{{ url_for('static', path='images/screens/passport-home.png') }}"
+               alt="Atlasi passport grid of visited country stamps"
+               width="834"
+               height="1813"
+               loading="{{ loading }}"
+               decoding="async">
+        </picture>
+      </div>
+    </div>
+  </div>
+</section>
+{% endmacro %}

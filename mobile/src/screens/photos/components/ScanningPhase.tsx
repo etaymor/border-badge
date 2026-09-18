@@ -10,16 +10,24 @@
 import React from 'react';
 import { ActivityIndicator, Linking, Text, TouchableOpacity, View } from 'react-native';
 
+import { CountryDiscoveryRows } from '@components/photos/CountryDiscoveryRows';
 import { PhotoPermissionRecoverySheet } from '@components/photos/PhotoPermissionRecoverySheet';
 import type { ScanProgress } from '@services/photoImport';
 import { colors } from '@constants/colors';
 import { SCAN_COPY } from '@constants/scanCopy';
 import { useLeaseKeepsRunning } from '@hooks/useContinuationLeaseState';
+import { useReducedMotion } from '@hooks/useReducedMotion';
+import {
+  selectScanCountryPreviews,
+  selectScanPhase,
+  useLibraryJobStore,
+} from '@stores/libraryJobStore';
 import { styles } from '../photoImportStyles';
 
 export interface ScanningPhaseProps {
   scanProgress: ScanProgress | null;
   isIncremental: boolean;
+  isPaused?: boolean;
   onCancelScan: () => void;
   /** Set when the service surfaces a recoverable failure mid-scan. */
   scanFailure?: { title: string; message: string; reason?: string } | null;
@@ -30,12 +38,17 @@ export interface ScanningPhaseProps {
 export function ScanningPhase({
   scanProgress,
   isIncremental,
+  isPaused = false,
   onCancelScan,
   scanFailure,
   onRetryScan,
 }: ScanningPhaseProps) {
   // Tier-gated hint: only while a continued-processing lease is actually held.
   const leaseKeepsRunning = useLeaseKeepsRunning();
+  const reduceMotion = useReducedMotion();
+  const countryPreviews = useLibraryJobStore(selectScanCountryPreviews);
+  const jobPhase = useLibraryJobStore(selectScanPhase);
+  const isComplete = jobPhase === 'completed' || jobPhase === 'failed';
 
   if (scanFailure) {
     if (scanFailure.reason === 'no-permission') {
@@ -86,19 +99,14 @@ export function ScanningPhase({
           ? SCAN_COPY.shared.persistenceParagraphWhileLeased('trip-scan')
           : SCAN_COPY.shared.persistenceParagraph}
       </Text>
-      {scanProgress?.discoveredCountries && scanProgress.discoveredCountries.length > 0 && (
-        // Announced live: this is the longest wait in the app, and the finds
-        // are the only evidence anything is happening. The country NAME, not
-        // a bare flag - VoiceOver announces regional-indicator pairs
-        // inconsistently, so a flag-only line reads as a truncated sentence.
-        <View style={styles.discoveryFeed} accessibilityLiveRegion="polite">
-          {scanProgress.discoveredCountries.slice(-5).map((country) => (
-            <Text key={country.code} style={styles.discoveryItem}>
-              {SCAN_COPY.trips.discovery(country.name ?? country.code)}
-            </Text>
-          ))}
-        </View>
-      )}
+      <View style={styles.discoveryRowsRegion}>
+        <CountryDiscoveryRows
+          rows={countryPreviews}
+          isComplete={isComplete}
+          isPaused={isPaused}
+          reduceMotion={reduceMotion}
+        />
+      </View>
       <TouchableOpacity onPress={onCancelScan} style={styles.cancelButton}>
         <Text style={styles.cancelText}>Cancel</Text>
       </TouchableOpacity>

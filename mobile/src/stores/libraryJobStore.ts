@@ -22,7 +22,8 @@
 import { create } from 'zustand';
 
 import type { JobFailure, JobPhase, JobProgress, LibraryJobKind } from '@services/jobs/jobTypes';
-import type { DiscoveredCountry, ScanProgress } from '@services/photoImport';
+import type { ScanProgress } from '@services/photoImport';
+import type { CountryPreviewRow } from '@services/photoImport/scanPreviewPicker';
 
 /** Where the banner should navigate when a finished job is tapped. */
 export interface JobResultRoute {
@@ -31,7 +32,7 @@ export interface JobResultRoute {
 }
 
 export interface TripScanDetail {
-  discoveredCountries: DiscoveredCountry[];
+  countryPreviews: readonly CountryPreviewRow[];
   isIncremental: boolean;
 }
 
@@ -44,6 +45,8 @@ export interface QuizBuildDetail {
   pickUris: string[];
   /** Photos put through the eligibility gate so far. Open-ended by design. */
   examined: number;
+  /** Sticky scan discoveries for this build, bounded by the shared picker. */
+  countryPreviews: readonly CountryPreviewRow[];
 }
 
 export interface LibraryJobSlice<P, D> {
@@ -77,11 +80,11 @@ const initialState: LibraryJobState = {
   jobs: {
     'trip-scan': {
       ...emptySlice,
-      detail: { discoveredCountries: [], isIncremental: false },
+      detail: { countryPreviews: [], isIncremental: false },
     },
     'quiz-build': {
       ...emptySlice,
-      detail: { step: 'scanning', pickUris: [], examined: 0 },
+      detail: { step: 'scanning', pickUris: [], examined: 0, countryPreviews: [] },
     },
   },
 };
@@ -118,11 +121,11 @@ function structuredCloneInitial(): LibraryJobState {
     jobs: {
       'trip-scan': {
         ...emptySlice,
-        detail: { discoveredCountries: [], isIncremental: false },
+        detail: { countryPreviews: [], isIncremental: false },
       },
       'quiz-build': {
         ...emptySlice,
-        detail: { step: 'scanning', pickUris: [], examined: 0 },
+        detail: { step: 'scanning', pickUris: [], examined: 0, countryPreviews: [] },
       },
     },
   };
@@ -141,8 +144,8 @@ export const selectScanPhase = (s: LibraryJobState) => s.jobs['trip-scan'].phase
 export const selectScanProgress = (s: LibraryJobState) => s.jobs['trip-scan'].progress;
 export const selectScanFailure = (s: LibraryJobState) => s.jobs['trip-scan'].failure;
 export const selectScanHasResult = (s: LibraryJobState) => s.jobs['trip-scan'].hasResult;
-export const selectScanDiscoveredCountries = (s: LibraryJobState) =>
-  s.jobs['trip-scan'].detail.discoveredCountries;
+export const selectScanCountryPreviews = (s: LibraryJobState) =>
+  s.jobs['trip-scan'].detail.countryPreviews;
 export const selectScanIsIncremental = (s: LibraryJobState) =>
   s.jobs['trip-scan'].detail.isIncremental;
 

@@ -52,6 +52,7 @@
  */
 
 export type ScanJobKind = 'trip-scan' | 'quiz-build';
+export type PhotoPermissionCarouselDoor = 'trips' | 'quiz';
 
 /** Sub-step of a quiz build, mirroring `QuizCreationProgress['step']`. */
 export type QuizWorkingStep = 'scanning' | 'checking' | 'building';
@@ -167,9 +168,8 @@ const trips = {
   },
 
   /**
-   * The name, not the flag. `DiscoveredCountry.name` already exists and was
-   * being discarded: VoiceOver announces regional-indicator pairs
-   * inconsistently, so a bare flag reads as a truncated sentence.
+   * The country name, not its flag. VoiceOver announces regional-indicator
+   * pairs inconsistently, so a bare flag reads as a truncated sentence.
    */
   discovery(countryName: string): string {
     return `Found photos from ${countryName}`;
@@ -237,6 +237,31 @@ const quiz = {
 // Permission recovery (denied / limited)
 // ---------------------------------------------------------------------------
 
+const permissionCarousel = {
+  beat1Title: 'We Find Your Trips in Your Photos',
+  beat1Subtitle:
+    'The scan reads only where each photo was taken. Photos without a location are skipped.',
+  beat2Title: 'Your Phone Reads Where Each Photo Was Taken',
+  beat2Subtitle: 'It happens on your device. The scan uses location data only.',
+  beat2Pills: ['Lisbon', 'Portugal', 'Location data only'] as const,
+  beat3Title(door: PhotoPermissionCarouselDoor): string {
+    return door === 'trips'
+      ? 'Every trip lands in your passport.'
+      : 'Your Photos Become Guess Where Challenges';
+  },
+  beat3Subtitle(door: PhotoPermissionCarouselDoor): string {
+    return door === 'trips'
+      ? 'Trips build from where your photos were taken, and unlock Guess Where challenges. Your photos stay on your device during the scan.'
+      : 'Guess Where challenges come from your photos, and the same scan builds your trips, too. Your photos stay on your device during the scan.';
+  },
+  continueCta: 'Continue',
+  footerNotice: 'The scan runs on your device · Full Access finds more trips',
+  tripsHeaderTitle: 'Find Your Trips',
+  stepAnnouncement(step: number, total: number, title: string): string {
+    return `Step ${step} of ${total}. ${title}`;
+  },
+} as const;
+
 const permission = {
   recoveryTitleDenied: 'Photo Access Needed',
   recoveryTitleLimited: 'Full Access Works Best',
@@ -250,13 +275,10 @@ const permission = {
   recoveryAllowMorePhotosCta: 'Allow More Photos',
   recoveryContinueLimitedCta: 'Continue With Selected Photos',
   recoveryRetryCta: 'Try Again',
-  preheatTitle: 'Connect Photos',
-  preheatBody:
-    'One scan of your library builds trips and Guess Where challenges. The scan runs on your device. Nothing is uploaded until you save a place or share a challenge.',
   preheatSelectPhotos: 'Select Photos',
   preheatAllowFullAccess: 'Allow Full Access',
   preheatDontAllow: "Don't Allow",
-  preheatFooter: 'On your device until you choose to upload · Full Access finds more trips',
+  carousel: permissionCarousel,
 } as const;
 
 // ---------------------------------------------------------------------------

@@ -11,6 +11,18 @@ import * as photoImportService from '../../../services/photoImport';
 import * as photoImportHooks from '../../../hooks/usePhotoImport';
 import { Analytics } from '../../../services/analytics';
 
+const mockRequestPermission = jest.fn();
+const mockPhotoPermission = {
+  status: 'granted' as 'undetermined' | 'granted' | 'limited' | 'denied',
+  isLoading: false,
+  refresh: jest.fn(),
+  requestPermission: mockRequestPermission,
+};
+
+jest.mock('../../../hooks/usePhotoPermissions', () => ({
+  usePhotoPermissionStatus: () => mockPhotoPermission,
+}));
+
 const mockCreateEntryMutateAsync = jest.fn();
 const mockUploadPhotos = jest.fn();
 const mockGetUploadState = jest.fn();
@@ -267,6 +279,10 @@ jest.mock('../../../services/analytics', () => ({
     photoImportClusterHidden: jest.fn(),
     photoImportWorkflowCompleted: jest.fn(),
     photoImportWorkflowExited: jest.fn(),
+    photoPermissionSoftAskShown: jest.fn(),
+    photoPermissionCarouselStep: jest.fn(),
+    photoPermissionCarouselLeft: jest.fn(),
+    photoPermissionOsResult: jest.fn(),
   },
   calculateApiPercentiles: jest.fn(() => ({ p50: 100, p95: 200, p99: 300 })),
 }));
@@ -388,6 +404,9 @@ describe('usePhotoImportWorkflow', () => {
     mockedPhotoImport.getAllCachedPhotos.mockResolvedValue([]);
     mockedPhotoImport.cachePhotos.mockResolvedValue(undefined);
     mockedPhotoImport.clearPhotoCache.mockResolvedValue(undefined);
+    mockPhotoPermission.status = 'granted';
+    mockPhotoPermission.isLoading = false;
+    mockRequestPermission.mockResolvedValue('granted');
   });
 
   afterEach(async () => {
@@ -422,6 +441,218 @@ describe('usePhotoImportWorkflow', () => {
         expect(result.current.lastImportTime).toBe(lastImportTime);
       });
     });
+  });
+
+  describe('handlePermissionPreheatChoice', () => {
+    it('opens manual scans on beat 1 and records each carousel step once', async () => {
+      mockPhotoPermission.status = 'undetermined';
+      const { result, unmount } = renderHook(() => usePhotoImportWorkflow({}), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      await act(async () => {
+        await result.current.startScan();
+        await result.current.startScan();
+      });
+
+      expect(result.current.permissionUi).toBe('preheat');
+      expect(result.current.permissionCarouselStep).toBe(1);
+      expect(Analytics.photoPermissionSoftAskShown).toHaveBeenCalledTimes(1);
+      expect(Analytics.photoPermissionCarouselStep).toHaveBeenCalledWith({
+        door: 'trips',
+        step: 1,
+        via: 'initial',
+      });
+
+      act(() => {
+        result.current.handlePermissionCarouselBeatChange(2, 'tap');
+        result.current.handlePermissionCarouselBeatChange(1, 'swipe');
+        result.current.handlePermissionCarouselBeatChange(2, 'swipe');
+      });
+
+      expect(Analytics.photoPermissionCarouselStep).toHaveBeenCalledWith({
+        door: 'trips',
+        step: 2,
+        via: 'tap',
+      });
+      expect(Analytics.photoPermissionCarouselStep).toHaveBeenCalledTimes(2);
+      unmount();
+      expect(Analytics.photoPermissionCarouselLeft).toHaveBeenCalledWith({
+        door: 'trips',
+        step: 2,
+      });
+    });
+
+    it('emits the soft ask once for each no-OS carousel mount', async () => {
+      mockPhotoPermission.status = 'undetermined';
+      const { result, unmount } = renderHook(() => usePhotoImportWorkflow({}), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      await act(async () => {
+        await result.current.startScan();
+        await result.current.startScan();
+      });
+      expect(result.current.permissionUi).toBe('preheat');
+      expect(Analytics.photoPermissionSoftAskShown).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        await result.current.handlePermissionPreheatChoice('select-photos');
+      });
+      expect(result.current.permissionUi).toBe('recovery');
+      expect(Analytics.photoPermissionCarouselLeft).toHaveBeenCalledTimes(1);
+
+      act(() => {
+        result.current.dismissPermissionRecovery();
+      });
+      await act(async () => {
+        await result.current.startScan();
+        await result.current.startScan();
+      });
+
+      expect(result.current.permissionUi).toBe('preheat');
+      expect(Analytics.photoPermissionSoftAskShown).toHaveBeenCalledTimes(2);
+      unmount();
+      expect(Analytics.photoPermissionCarouselLeft).toHaveBeenCalledTimes(2);
+    });
+
+    it('ignores duplicate requests, keeps interrupted access on beat 3, and emits no left', async () => {
+      mockPhotoPermission.status = 'undetermined';
+      let resolveRequest!: (status: 'undetermined') => void;
+      mockRequestPermission.mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveRequest = resolve;
+        })
+      );
+      const { result, unmount } = renderHook(() => usePhotoImportWorkflow({}), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      await act(async () => {
+        await result.current.startScan();
+      });
+      act(() => {
+        result.current.handlePermissionCarouselBeatChange(3, 'tap');
+        void result.current.handlePermissionPreheatChoice('full-access');
+        void result.current.handlePermissionPreheatChoice('full-access');
+      });
+      expect(mockRequestPermission).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        resolveRequest('undetermined');
+      });
+      expect(result.current.permissionUi).toBe('preheat');
+      expect(result.current.permissionCarouselStep).toBe(3);
+
+      unmount();
+      expect(Analytics.photoPermissionCarouselLeft).not.toHaveBeenCalled();
+    });
+
+    it('reopens the request guard when the permission request rejects', async () => {
+      mockPhotoPermission.status = 'undetermined';
+      mockRequestPermission.mockRejectedValueOnce(new Error('request interrupted'));
+      mockRequestPermission.mockResolvedValueOnce('undetermined');
+      const { result } = renderHook(() => usePhotoImportWorkflow({}), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      await act(async () => {
+        await result.current.startScan();
+        await result.current.handlePermissionPreheatChoice('full-access');
+      });
+      await act(async () => {
+        await result.current.handlePermissionPreheatChoice('full-access');
+      });
+
+      expect(mockRequestPermission).toHaveBeenCalledTimes(2);
+      expect(result.current.permissionUi).toBe('preheat');
+    });
+
+    it('starts a pending manual scan after a grant', async () => {
+      mockPhotoPermission.status = 'undetermined';
+      mockRequestPermission.mockResolvedValueOnce('granted');
+      mockScanResultRef.current = {
+        candidates: [createMockTripCandidate('trip-1')],
+        photoLookup: new Map(),
+        clusterLookup: new Map(),
+        clusterDisplays: new Map(),
+        importTime: Date.now(),
+        isIncremental: false,
+      };
+      const { result } = renderHook(() => usePhotoImportWorkflow({}), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      await act(async () => {
+        await result.current.startScan();
+      });
+      expect(mockedPhotoImport.startScan).not.toHaveBeenCalled();
+
+      await act(async () => {
+        await result.current.handlePermissionPreheatChoice('full-access');
+      });
+
+      expect(mockedPhotoImport.startScan).toHaveBeenCalledTimes(1);
+      expect(result.current.phase).toBe('candidates');
+    });
+
+    it('routes a denied request to recovery and granted users around the carousel', async () => {
+      mockPhotoPermission.status = 'undetermined';
+      mockRequestPermission.mockResolvedValueOnce('denied');
+      const denied = renderHook(() => usePhotoImportWorkflow({}), {
+        wrapper: createWrapper(queryClient),
+      });
+      await act(async () => {
+        await denied.result.current.handlePermissionPreheatChoice('full-access');
+      });
+      expect(denied.result.current.permissionUi).toBe('recovery');
+      denied.unmount();
+
+      mockPhotoPermission.status = 'granted';
+      const granted = renderHook(() => usePhotoImportWorkflow({ autoStart: true }), {
+        wrapper: createWrapper(queryClient),
+      });
+      expect(granted.result.current.permissionUi).toBe('none');
+      expect(Analytics.photoPermissionCarouselStep).not.toHaveBeenCalled();
+      granted.unmount();
+    });
+
+    it.each(['granted', 'limited', 'denied', 'undetermined'] as const)(
+      'emits the trips OS result exactly once when the request resolves %s',
+      async (status) => {
+        mockRequestPermission.mockResolvedValue(status);
+        const { result } = renderHook(() => usePhotoImportWorkflow({}), {
+          wrapper: createWrapper(queryClient),
+        });
+
+        await act(async () => {
+          await result.current.handlePermissionPreheatChoice('full-access');
+        });
+
+        expect(mockRequestPermission).toHaveBeenCalledTimes(1);
+        expect(Analytics.photoPermissionOsResult).toHaveBeenCalledTimes(1);
+        expect(Analytics.photoPermissionOsResult).toHaveBeenCalledWith({
+          door: 'trips',
+          status,
+        });
+      }
+    );
+
+    it.each(['select-photos', 'dont-allow'] as const)(
+      'does not emit an OS result for %s because no request occurs',
+      async (choice) => {
+        const { result } = renderHook(() => usePhotoImportWorkflow({}), {
+          wrapper: createWrapper(queryClient),
+        });
+
+        await act(async () => {
+          await result.current.handlePermissionPreheatChoice(choice);
+        });
+
+        expect(mockRequestPermission).not.toHaveBeenCalled();
+        expect(Analytics.photoPermissionOsResult).not.toHaveBeenCalled();
+      }
+    );
   });
 
   describe('startScan', () => {

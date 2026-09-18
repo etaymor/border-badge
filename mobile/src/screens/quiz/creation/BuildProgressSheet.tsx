@@ -11,15 +11,17 @@
  * starting over.
  */
 
+import { useEffect, useState } from 'react';
 import { Image } from 'expo-image';
 import { Text, View } from 'react-native';
-import Animated, { FadeIn } from 'react-native-reanimated';
+import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 
+import { CountryDiscoveryRows } from '@components/photos/CountryDiscoveryRows';
 import { Button } from '@components/ui/Button';
 import { SCAN_COPY } from '@constants/scanCopy';
 import { useLeaseKeepsRunning } from '@hooks/useContinuationLeaseState';
 
-import { DURATION_BASE } from '../components/motionTokens';
+import { DURATION_BASE, DURATION_FAST } from '../components/motionTokens';
 import { styles } from './quizCreationStyles';
 import type { BuildView } from './useQuizCreationFlow';
 
@@ -28,6 +30,7 @@ interface BuildProgressSheetProps {
   isFirstScan: boolean;
   durationLine: string;
   reduceMotion: boolean;
+  isPaused: boolean;
   onLeave: () => void;
   onStop: () => void;
 }
@@ -37,12 +40,19 @@ export function BuildProgressSheet({
   isFirstScan,
   durationLine,
   reduceMotion,
+  isPaused,
   onLeave,
   onStop,
 }: BuildProgressSheetProps) {
   const { step, pickUris, uploading, uploadedCount, barFraction } = build;
+  const showCountryPreviews = step === 'scanning';
+  const [discoveryLayerVisible, setDiscoveryLayerVisible] = useState(showCountryPreviews);
   // Tier-gated hint: only while a continued-processing lease is actually held.
   const leaseKeepsRunning = useLeaseKeepsRunning();
+
+  useEffect(() => {
+    setDiscoveryLayerVisible(showCountryPreviews);
+  }, [showCountryPreviews]);
 
   return (
     <View style={styles.sheetContent} testID="quiz-progress">
@@ -69,43 +79,35 @@ export function BuildProgressSheet({
         <View style={[styles.barFill, { width: `${barFraction * 100}%` }]} />
       </View>
 
-      <View style={styles.slotGrid}>
-        {Array.from({ length: build.slotTotal }, (_, index) => {
-          const uri = pickUris[index];
-          return (
-            <View key={index} style={styles.slotWrapper}>
-              <View style={styles.slot}>
-                <View
-                  style={styles.slotPlaceholder}
-                  testID={uri ? undefined : `quiz-slot-empty-${index}`}
-                >
-                  <SlotPlaceholderMark />
-                </View>
-                {uri ? (
-                  // The warm-cream layer mounts with the photo: the slot
-                  // brightens for a beat while the thumbnail fades in.
-                  // During the upload a slot stays dimmed until its own
-                  // photo is up - the grid itself is the upload meter.
-                  <Animated.View
-                    entering={reduceMotion ? undefined : FadeIn.duration(DURATION_BASE)}
-                    style={[
-                      styles.slotPhotoLayer,
-                      uploading && index >= uploadedCount && styles.slotPhotoPending,
-                    ]}
-                  >
-                    <Image
-                      source={{ uri }}
-                      style={styles.slotPhoto}
-                      contentFit="cover"
-                      cachePolicy="memory-disk"
-                      testID={`quiz-slot-photo-${index}`}
-                    />
-                  </Animated.View>
-                ) : null}
-              </View>
-            </View>
-          );
-        })}
+      <View style={styles.buildContentRegion} testID="quiz-build-content-region">
+        {discoveryLayerVisible ? (
+          <Animated.View
+            style={styles.buildContentLayer}
+            entering={reduceMotion ? undefined : FadeIn.duration(DURATION_FAST)}
+            exiting={reduceMotion ? undefined : FadeOut.duration(DURATION_FAST)}
+          >
+            <CountryDiscoveryRows
+              rows={build.countryPreviews}
+              isComplete={!showCountryPreviews}
+              isPaused={isPaused}
+              reduceMotion={reduceMotion}
+            />
+          </Animated.View>
+        ) : (
+          <Animated.View
+            style={styles.buildContentLayer}
+            entering={reduceMotion ? undefined : FadeIn.duration(DURATION_FAST)}
+            exiting={reduceMotion ? undefined : FadeOut.duration(DURATION_FAST)}
+          >
+            <SlotGrid
+              pickUris={pickUris}
+              slotTotal={build.slotTotal}
+              uploading={uploading}
+              uploadedCount={uploadedCount}
+              reduceMotion={reduceMotion}
+            />
+          </Animated.View>
+        )}
       </View>
 
       {/* THE EXPLAINERS BELONG TO THE FIRST SCAN, AND ONLY TO IT.
@@ -154,6 +156,53 @@ export function BuildProgressSheet({
           />
         </>
       ) : null}
+    </View>
+  );
+}
+
+interface SlotGridProps {
+  pickUris: string[];
+  slotTotal: number;
+  uploading: boolean;
+  uploadedCount: number;
+  reduceMotion: boolean;
+}
+
+function SlotGrid({ pickUris, slotTotal, uploading, uploadedCount, reduceMotion }: SlotGridProps) {
+  return (
+    <View style={styles.slotGrid}>
+      {Array.from({ length: slotTotal }, (_, index) => {
+        const uri = pickUris[index];
+        return (
+          <View key={index} style={styles.slotWrapper}>
+            <View style={styles.slot}>
+              <View
+                style={styles.slotPlaceholder}
+                testID={uri ? undefined : `quiz-slot-empty-${index}`}
+              >
+                <SlotPlaceholderMark />
+              </View>
+              {uri ? (
+                <Animated.View
+                  entering={reduceMotion ? undefined : FadeIn.duration(DURATION_BASE)}
+                  style={[
+                    styles.slotPhotoLayer,
+                    uploading && index >= uploadedCount && styles.slotPhotoPending,
+                  ]}
+                >
+                  <Image
+                    source={{ uri }}
+                    style={styles.slotPhoto}
+                    contentFit="cover"
+                    cachePolicy="memory-disk"
+                    testID={`quiz-slot-photo-${index}`}
+                  />
+                </Animated.View>
+              ) : null}
+            </View>
+          </View>
+        );
+      })}
     </View>
   );
 }

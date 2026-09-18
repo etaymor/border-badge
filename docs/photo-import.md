@@ -133,6 +133,29 @@ Both use a 60-day TTL (place data near a coordinate is very stable); the short i
 4. **Suggestions** - Fetch place suggestions from backend (vision data sent alongside clusters); text search fallback for detected business names
 5. **Confirmation** - User reviews suggestions with alternative place cycling (prev/next), creates entries
 
+## Scan-time country previews
+
+During extraction, `scanPreviewPicker.ts` builds country rows from PhotoKit
+metadata already in memory. It excludes the home country, screenshots, and
+network/iCloud-offloaded assets. Within each batch, candidates rank by favorite
+status, then pixel count, then dimensions that are not common social-save
+sizes, then newer capture time. This path has no photo-tag or vision dependency.
+
+Rows are append-only and bounded to 10 countries with two thumbnail slots each.
+Later batches may fill an open slot but never reorder, replace, or remove an
+established row or thumbnail. A structurally unchanged pick returns the existing
+array and is not published. Changed rows are carried in both
+`TripScanDetail.countryPreviews` and `QuizBuildDetail.countryPreviews`; quiz
+refresh progress includes them only on the progress tick after a changed batch.
+
+`CountryDiscoveryRows` presents the same fixed-height row layout for trip scans
+and for the quiz build while its step is `scanning`. Rows present at mount render
+settled; only later discoveries replay the queued arrival animation, and
+completion settles any queued rows immediately. The viewport keeps the newest
+rows visible without growing the surrounding screen. A thumbnail load failure
+silently empties that slot with recovery disabled, so scan-time previews never
+trigger an iCloud download.
+
 ## Photo Vision Classification
 
 The photo import pipeline optionally uses computer vision to improve place matching accuracy.

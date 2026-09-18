@@ -37,6 +37,12 @@ export interface PhotoThumbnailProps {
   style?: StyleProp<ImageStyle>;
   contentFit?: ImageContentFit;
   transition?: number;
+  /** Whether a failed URI may be re-resolved, potentially downloading from iCloud. */
+  recoverOnError?: boolean;
+  /** Called when the currently rendered URI fails to load. */
+  onError?: () => void;
+  testID?: string;
+  accessible?: boolean;
 }
 
 export function PhotoThumbnail({
@@ -45,6 +51,10 @@ export function PhotoThumbnail({
   style,
   contentFit = 'cover',
   transition = 200,
+  recoverOnError = true,
+  onError,
+  testID,
+  accessible = true,
 }: PhotoThumbnailProps) {
   // Effective URI shown by <Image>; seeded from the prop, swapped on retry.
   const [effectiveUri, setEffectiveUri] = useState(uri);
@@ -62,6 +72,12 @@ export function PhotoThumbnail({
   }
 
   const handleError = async () => {
+    onError?.();
+    if (!recoverOnError) {
+      setFailed(true);
+      return;
+    }
+
     // First failure with an asset id: try to re-resolve a fresh, loadable URI.
     if (!retried && assetId) {
       setRetried(true);
@@ -77,7 +93,11 @@ export function PhotoThumbnail({
 
   if (!effectiveUri || failed) {
     return (
-      <View style={[styles.placeholder, style]} testID="photo-thumbnail-placeholder">
+      <View
+        style={[styles.placeholder, style]}
+        testID="photo-thumbnail-placeholder"
+        accessible={accessible}
+      >
         <Ionicons name="image-outline" size={28} color={colors.textTertiary} />
       </View>
     );
@@ -85,12 +105,14 @@ export function PhotoThumbnail({
 
   return (
     <Image
+      testID={testID}
       source={{ uri: effectiveUri }}
       style={style}
       contentFit={contentFit}
       transition={transition}
       recyclingKey={effectiveUri}
       onError={handleError}
+      accessible={accessible}
     />
   );
 }

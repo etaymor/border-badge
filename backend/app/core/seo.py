@@ -112,6 +112,14 @@ LANDING_FAQS: list[dict[str, str]] = [
     },
 ]
 
+LANDING_GUIDE_SLUGS: tuple[str, ...] = (
+    "best-travel-tracking-apps-2026",
+    "best-apps-to-track-countries-visited",
+    "best-polarsteps-alternatives",
+)
+
+LANDING_SCREENSHOT_PATH = "/static/images/screens/passport-home.webp"
+
 
 def build_faq_page(faqs: list[dict[str, str]]) -> dict[str, Any]:
     """FAQPage node from question/answer pairs.
@@ -180,8 +188,9 @@ def build_landing_seo(base_url: str) -> SEOContext:
     return SEOContext(
         title="Atlasi - Track Countries, Import Travel Photos & Log Trips",
         description=(
-            "Track 227 countries, import photos from your camera roll to auto-create"
-            " trips, and log every place, meal, stay, and experience. Free on iOS."
+            "Track 227 countries, import photos from your camera roll to create trips"
+            " automatically, and log every place, meal, stay, and experience. Free to"
+            " start on iOS."
         ),
         canonical_url=base_url,
         og_title="Atlasi - Track Countries, Import Travel Photos & Log Trips",
@@ -217,6 +226,7 @@ def build_landing_structured_data(
             "price": "0",
             "priceCurrency": "USD",
         },
+        "screenshot": f"{base_url}{LANDING_SCREENSHOT_PATH}",
     }
     if app_store_url:
         application["installUrl"] = app_store_url

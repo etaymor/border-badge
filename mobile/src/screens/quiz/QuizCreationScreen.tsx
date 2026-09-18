@@ -39,15 +39,18 @@
  */
 
 import { ActivityIndicator, StatusBar, Text, View } from 'react-native';
+import { useIsFocused } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { PhotoPermissionPreheat } from '@components/photos/PhotoPermissionPreheat';
+import { PhotoPermissionCarousel } from '@components/photos/PhotoPermissionCarousel';
 import { PhotoPermissionRecoverySheet } from '@components/photos/PhotoPermissionRecoverySheet';
+import PermissionBeatVisual from '@components/photos/permissionBeats/PermissionBeatVisual';
 import { Button } from '@components/ui/Button';
 import { colors } from '@constants/colors';
 import { SCAN_COPY } from '@constants/scanCopy';
 import { useReducedMotion } from '@hooks/useReducedMotion';
 import type { RootStackScreenProps } from '@navigation/types';
+import { selectHomeCountry, useOnboardingStore } from '@stores/onboardingStore';
 
 import { PhotoHero } from './components/PhotoHero';
 import { QuizTopBar } from './components/QuizTopBar';
@@ -63,6 +66,8 @@ export function QuizCreationScreen({ navigation, route }: Props) {
   const entryPoint = route.params?.entryPoint ?? 'unknown';
   const insets = useSafeAreaInsets();
   const reduceMotion = useReducedMotion();
+  const isFocused = useIsFocused();
+  const homeCountry = useOnboardingStore(selectHomeCountry);
 
   const {
     phase,
@@ -75,7 +80,9 @@ export function QuizCreationScreen({ navigation, route }: Props) {
     draftHeroUri,
     draftUploadCounts,
     build,
+    permissionCarouselStep,
     startCreation,
+    handlePermissionCarouselBeatChange,
     handlePreheatChoice,
     handleCancel,
     handleBack,
@@ -116,7 +123,21 @@ export function QuizCreationScreen({ navigation, route }: Props) {
         <Text style={styles.heroEyebrow}>Guess Where</Text>
       </View>
     );
-  } else if (phase === 'intro' || phase === 'permission-request') {
+  } else if (phase === 'permission-request') {
+    hero = (
+      <View
+        style={[styles.permissionHero, { paddingTop: insets.top }]}
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
+      >
+        <PermissionBeatVisual
+          step={permissionCarouselStep}
+          reduceMotion={reduceMotion}
+          homeCountry={homeCountry}
+        />
+      </View>
+    );
+  } else if (phase === 'intro') {
     hero = posterHero;
   } else if (phase === 'resume-draft') {
     hero = draftHeroUri ? (
@@ -202,13 +223,24 @@ export function QuizCreationScreen({ navigation, route }: Props) {
             style={[styles.sheetContent, styles.permissionSheetContent]}
             testID="quiz-permission-request"
           >
-            <PhotoPermissionPreheat onChoose={handlePreheatChoice} />
+            <PhotoPermissionCarousel
+              door="quiz"
+              step={permissionCarouselStep}
+              onBeatChange={handlePermissionCarouselBeatChange}
+              onChoose={handlePreheatChoice}
+            />
           </View>
         )}
 
         {phase === 'permission-denied' && (
           <View style={styles.sheetContent} testID="quiz-permission-denied">
-            <PhotoPermissionRecoverySheet variant="denied" onOpenSettings={handleOpenSettings} />
+            <PhotoPermissionRecoverySheet
+              variant="denied"
+              onOpenSettings={handleOpenSettings}
+              onRetry={() => {
+                void handlePreheatChoice('full-access');
+              }}
+            />
           </View>
         )}
 
@@ -218,6 +250,7 @@ export function QuizCreationScreen({ navigation, route }: Props) {
             isFirstScan={isFirstScan}
             durationLine={durationLine}
             reduceMotion={reduceMotion}
+            isPaused={!isFocused}
             onLeave={handleBack}
             onStop={handleCancel}
           />

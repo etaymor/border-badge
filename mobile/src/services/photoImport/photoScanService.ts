@@ -63,7 +63,10 @@ interface ScanCheckpoint {
   done: boolean;
 }
 
-const EMPTY_DETAIL: TripScanDetail = { discoveredCountries: [], isIncremental: false };
+const EMPTY_DETAIL: TripScanDetail = {
+  countryPreviews: [],
+  isIncremental: false,
+};
 
 // ---------------------------------------------------------------------------
 // Module-level state — the heavyweight result only. Everything the runtime can

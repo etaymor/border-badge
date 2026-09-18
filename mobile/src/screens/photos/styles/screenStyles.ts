@@ -38,6 +38,12 @@ export const screenStyles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 40,
   },
+  permissionCarouselContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+    paddingBottom: 12,
+  },
   idleTitle: {
     fontFamily: fonts.playfair.bold,
     fontSize: 24,
