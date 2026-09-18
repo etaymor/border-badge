@@ -37,7 +37,6 @@ import {
   _setBackgroundSyncFlag,
 } from '@services/jobs/jobRuntimeState';
 import type { LibraryJobKind } from '@services/jobs/jobTypes';
-import type { CountryPreviewRow } from './scanPreviewPicker';
 import type { PhotoWithLocation, ScanProgress } from './types';
 
 // Lazy imports to avoid circular dependency
@@ -77,13 +76,9 @@ const BACKGROUND_SYNC_INTERVAL_MS = 60 * 60 * 1000;
 export interface RefreshProgress {
   current: number;
   total: number;
-  /** Included only on the progress tick following a changed extraction batch. */
-  countryPreviews?: readonly CountryPreviewRow[];
 }
 
-export type RefreshBatchHandler = (
-  photos: readonly PhotoWithLocation[]
-) => readonly CountryPreviewRow[] | undefined;
+export type RefreshBatchHandler = (photos: readonly PhotoWithLocation[]) => void;
 
 export function createRefreshProgressBridge(
   onProgress: ((progress: RefreshProgress) => void) | undefined,
@@ -92,19 +87,15 @@ export function createRefreshProgressBridge(
   handleProgress: (progress: ScanProgress) => void;
   handleBatch: (photos: PhotoWithLocation[]) => void;
 } {
-  let changedCountryPreviews: readonly CountryPreviewRow[] | undefined;
   return {
     handleProgress: (progress) => {
       onProgress?.({
         current: progress.current,
         total: progress.total,
-        ...(changedCountryPreviews ? { countryPreviews: changedCountryPreviews } : {}),
       });
-      changedCountryPreviews = undefined;
     },
     handleBatch: (photos) => {
-      const next = onBatch?.(photos);
-      if (next) changedCountryPreviews = next;
+      onBatch?.(photos);
     },
   };
 }

@@ -350,9 +350,6 @@ describe('photoScanService country preview integration', () => {
     );
     expect(published.countryPreviews.map((row) => row.code)).not.toContain('US');
     expect(published.countryPreviews.map((row) => row.code)).not.toContain('AU');
-    expect(published.discoveredCountries).toEqual(
-      published.countryPreviews.map(({ code, name }) => ({ code, name }))
-    );
   });
 
   it('applies the same ranking and home exclusion during an incremental pass', async () => {
@@ -398,7 +395,31 @@ describe('photoScanService country preview integration', () => {
       'jp-favorite',
       'jp-plain',
     ]);
-    expect(published.discoveredCountries.map(({ code }) => code)).not.toContain('US');
+  });
+
+  it('completes a resumed legacy scan with no home country without filtering previews', async () => {
+    const batch = [makeLocatedPhoto('legacy-photo', 0)];
+    importService.extractPhotosWithLocation.mockImplementation(
+      (
+        _onProgress: (progress: ScanProgress) => void,
+        _signal: AbortSignal | undefined,
+        _since: Date | undefined,
+        onBatch?: (photos: PhotoWithLocation[]) => void
+      ) => {
+        onBatch?.(batch);
+        return Promise.resolve(batch);
+      }
+    );
+    const detailEmits: TripScanDetail[] = [];
+
+    const outcome = await runScanPass(makeContext(detailEmits), {
+      homeCountry: null,
+      resumed: true,
+    });
+
+    expect(outcome.status).toBe('completed');
+    expect(detailEmits.at(-1)?.countryPreviews.map(({ code }) => code)).toEqual(['US']);
+    expect(clusteringCache.segmentTripsFromCache).toHaveBeenCalledWith(expect.any(Array), null);
   });
 });
 

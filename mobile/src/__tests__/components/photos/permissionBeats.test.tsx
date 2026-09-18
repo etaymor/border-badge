@@ -1,3 +1,4 @@
+import { StyleSheet } from 'react-native';
 import { render, screen } from '@testing-library/react-native';
 import { withRepeat } from 'react-native-reanimated';
 
@@ -40,11 +41,25 @@ describe('permission beat visuals', () => {
 
   it('renders each reduce-motion beat at its final static frame', () => {
     const grid = render(<TripsFoundBeat isActive reduceMotion />);
-    expect(screen.getAllByTestId(/^permission-beat1-check-/)).toHaveLength(8);
+    const checks = screen.getAllByTestId(/^permission-beat1-check-/);
+    expect(checks).toHaveLength(8);
+    checks.forEach((check) => {
+      expect(StyleSheet.flatten(check.props.style)).toMatchObject({
+        opacity: 1,
+        transform: [{ scale: 1 }],
+      });
+    });
     grid.unmount();
 
     const photo = render(<OnDeviceBeat isActive reduceMotion />);
-    expect(screen.getAllByTestId(/^permission-beat2-pill-/)).toHaveLength(3);
+    const pills = screen.getAllByTestId(/^permission-beat2-pill-/);
+    expect(pills).toHaveLength(3);
+    pills.forEach((pill) => {
+      expect(StyleSheet.flatten(pill.props.style)).toMatchObject({
+        opacity: 1,
+        transform: [{ translateY: 0 }, { scale: 1 }],
+      });
+    });
     photo.unmount();
 
     render(<PassportBeat isActive reduceMotion />);
@@ -115,5 +130,19 @@ describe('permission beat visuals', () => {
 
     expect(screen.getAllByTestId(/^permission-beat-[123]$/)).toHaveLength(1);
     expect(screen.getByTestId(`permission-beat-${step}`)).toBeTruthy();
+  });
+
+  it('uses a bounded visual frame for compact permission doors', () => {
+    render(<PermissionBeatVisual step={1} reduceMotion compact />);
+
+    expect(
+      StyleSheet.flatten(screen.getByTestId('permission-beat-visual').props.style)
+    ).toMatchObject({
+      height: 190,
+      minHeight: 190,
+    });
+    expect(
+      StyleSheet.flatten(screen.getByTestId('permission-beat-visual-content').props.style).transform
+    ).toEqual([{ scale: 0.7 }]);
   });
 });

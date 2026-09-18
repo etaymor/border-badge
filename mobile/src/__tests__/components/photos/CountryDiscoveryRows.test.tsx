@@ -96,6 +96,43 @@ describe('CountryDiscoveryRows', () => {
     );
   });
 
+  it('pauses queued arrivals and announcements until the host regains focus', () => {
+    const { rerender } = render(
+      <CountryDiscoveryRows rows={[]} isComplete={false} isPaused reduceMotion={false} />
+    );
+    const rows = [row('PT'), row('JP')];
+
+    rerender(<CountryDiscoveryRows rows={rows} isComplete={false} isPaused reduceMotion={false} />);
+    act(() => jest.advanceTimersByTime(SCAN_MIN_ARRIVAL_GAP * 2));
+
+    expect(
+      screen.getByTestId('country-discovery-row-PT', { includeHiddenElements: true }).props
+        .accessibilityElementsHidden
+    ).toBe(true);
+    expect(
+      screen.getByTestId('country-discovery-viewport', { includeHiddenElements: true }).props
+        .accessibilityElementsHidden
+    ).toBe(true);
+    expect(AccessibilityInfo.announceForAccessibility).not.toHaveBeenCalled();
+
+    rerender(
+      <CountryDiscoveryRows rows={rows} isComplete={false} isPaused={false} reduceMotion={false} />
+    );
+
+    expect(screen.getByTestId('country-discovery-row-PT').props.accessibilityElementsHidden).toBe(
+      false
+    );
+    expect(screen.getByTestId('country-discovery-viewport').props.accessibilityElementsHidden).toBe(
+      false
+    );
+    expect(AccessibilityInfo.announceForAccessibility).toHaveBeenCalledTimes(1);
+    act(() => jest.advanceTimersByTime(SCAN_MIN_ARRIVAL_GAP));
+    expect(screen.getByTestId('country-discovery-row-JP').props.accessibilityElementsHidden).toBe(
+      false
+    );
+    expect(AccessibilityInfo.announceForAccessibility).toHaveBeenCalledTimes(2);
+  });
+
   it('settles the remaining queue immediately when completion arrives', () => {
     const { rerender } = render(
       <CountryDiscoveryRows rows={[]} isComplete={false} reduceMotion={false} />

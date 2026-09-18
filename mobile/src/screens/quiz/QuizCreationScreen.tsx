@@ -39,6 +39,7 @@
  */
 
 import { ActivityIndicator, StatusBar, Text, View } from 'react-native';
+import { useIsFocused } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { PhotoPermissionCarousel } from '@components/photos/PhotoPermissionCarousel';
@@ -65,6 +66,7 @@ export function QuizCreationScreen({ navigation, route }: Props) {
   const entryPoint = route.params?.entryPoint ?? 'unknown';
   const insets = useSafeAreaInsets();
   const reduceMotion = useReducedMotion();
+  const isFocused = useIsFocused();
   const homeCountry = useOnboardingStore(selectHomeCountry);
 
   const {
@@ -248,6 +250,7 @@ export function QuizCreationScreen({ navigation, route }: Props) {
             isFirstScan={isFirstScan}
             durationLine={durationLine}
             reduceMotion={reduceMotion}
+            isPaused={!isFocused}
             onLeave={handleBack}
             onStop={handleCancel}
           />

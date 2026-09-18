@@ -64,9 +64,13 @@ function CheckBadge({ order, shouldAnimate }: CheckBadgeProps) {
     opacity: progress.value,
     transform: [{ scale: interpolate(progress.value, [0, 1], [0.35, 1]) }],
   }));
+  const staticBadgeStyle = !shouldAnimate ? styles.finalBadgeState : undefined;
 
   return (
-    <Animated.View testID={`permission-beat1-check-${order}`} style={[styles.badge, animatedStyle]}>
+    <Animated.View
+      testID={`permission-beat1-check-${order}`}
+      style={[styles.badge, animatedStyle, staticBadgeStyle]}
+    >
       <View style={styles.checkStem} />
       <View style={styles.checkArm} />
     </Animated.View>
@@ -147,6 +151,10 @@ const styles = StyleSheet.create({
     height: 22,
     borderRadius: 11,
     backgroundColor: colors.black,
+  },
+  finalBadgeState: {
+    opacity: 1,
+    transform: [{ scale: 1 }],
   },
   checkStem: {
     position: 'absolute',

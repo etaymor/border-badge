@@ -43,11 +43,12 @@ describe('libraryJobStore slice isolation', () => {
 
   it('hands out a fresh detail object on reset, so one reset cannot leak into the next', () => {
     const first = useLibraryJobStore.getState().jobs['trip-scan'].detail;
-    first.discoveredCountries.push({ code: 'JP', name: 'Japan' });
 
     resetLibraryJobStore();
 
-    expect(useLibraryJobStore.getState().jobs['trip-scan'].detail.discoveredCountries).toEqual([]);
+    const second = useLibraryJobStore.getState().jobs['trip-scan'].detail;
+    expect(second).not.toBe(first);
+    expect(second.countryPreviews).not.toBe(first.countryPreviews);
   });
 });
 

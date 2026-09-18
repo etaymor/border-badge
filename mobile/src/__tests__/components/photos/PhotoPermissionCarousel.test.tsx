@@ -2,7 +2,10 @@ import React, { useState } from 'react';
 import { AccessibilityInfo, FlatList, StyleSheet, View } from 'react-native';
 import { fireEvent, render, screen } from '@testing-library/react-native';
 
-import { PhotoPermissionCarousel } from '@components/photos/PhotoPermissionCarousel';
+import {
+  getPhotoPermissionCarouselBottomInset,
+  PhotoPermissionCarousel,
+} from '@components/photos/PhotoPermissionCarousel';
 import type { PhotoPermissionPreheatChoice } from '@components/photos/PhotoPermissionPreheatStack';
 import { SCAN_COPY } from '@constants/scanCopy';
 
@@ -175,6 +178,33 @@ describe('PhotoPermissionCarousel', () => {
 
     expect(continueHeight).toBeGreaterThan(0);
     expect(stackHeight).toBe(continueHeight);
+  });
+
+  it.each([
+    [667, 'quiz', 0],
+    [667, 'trips', 0],
+    [956, 'quiz', 94],
+    [956, 'trips', 0],
+  ] as const)(
+    'uses the measured bottom inset at height %s for the %s door',
+    (height, door, expectedInset) => {
+      expect(getPhotoPermissionCarouselBottomInset(height, door)).toBe(expectedInset);
+    }
+  );
+
+  it('sizes pager pages to the inset host width instead of the full window', () => {
+    render(<CarouselHarness />);
+
+    fireEvent(screen.getByTestId('photo-permission-carousel'), 'layout', {
+      nativeEvent: {
+        layout: { width: 320, height: 400, x: 0, y: 0 },
+      },
+    });
+
+    const pageStyle = StyleSheet.flatten(
+      screen.getByTestId('photo-permission-carousel-page-1').props.style
+    );
+    expect(pageStyle.width).toBe(320);
   });
 
   it.each([

@@ -10,7 +10,6 @@ export {
   selectQuizBuild,
   selectScanPhase,
   selectScanProgress,
-  selectScanDiscoveredCountries,
   selectScanCountryPreviews,
   selectScanIsIncremental,
   selectScanFailure,

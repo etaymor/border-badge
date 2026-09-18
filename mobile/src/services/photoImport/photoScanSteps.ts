@@ -68,7 +68,6 @@ export async function runScanPass(
 ): Promise<ScanPassOutcome> {
   const scanStartTime = Date.now();
   const detail: TripScanDetail = {
-    discoveredCountries: [],
     countryPreviews: [],
     isIncremental: false,
   };
@@ -110,14 +109,10 @@ export async function runScanPass(
       }
 
       const previewResult = pickScanPreviews(detail.countryPreviews, previewItems, {
-        homeCountry: opts.homeCountry!,
+        homeCountry: opts.homeCountry ?? '',
       });
       if (previewResult.changed) {
         detail.countryPreviews = previewResult.countryPreviews;
-        detail.discoveredCountries = previewResult.countryPreviews.map(({ code, name }) => ({
-          code,
-          name,
-        }));
         ctx.emit(lastProgress, { ...detail });
       }
 
@@ -137,13 +132,8 @@ export async function runScanPass(
 
     const onProgress = (progress: ScanProgress) => {
       if (ctx.signal.aborted) return;
-      const next: ScanProgress = {
-        ...progress,
-        discoveredCountries:
-          detail.discoveredCountries.length > 0 ? detail.discoveredCountries : undefined,
-      };
-      lastProgress = next;
-      ctx.emit(next);
+      lastProgress = progress;
+      ctx.emit(progress);
     };
 
     if (doIncremental) {

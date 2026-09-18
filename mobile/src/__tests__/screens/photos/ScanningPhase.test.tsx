@@ -81,4 +81,17 @@ describe('ScanningPhase country preview subscription', () => {
 
     expect(mockRowsRender).toHaveBeenLastCalledWith(expect.objectContaining({ isComplete: true }));
   });
+
+  it('forwards the host pause signal to the arrival queue', () => {
+    render(
+      <ScanningPhase
+        scanProgress={progress(1)}
+        isIncremental={false}
+        isPaused
+        onCancelScan={jest.fn()}
+      />
+    );
+
+    expect(mockRowsRender).toHaveBeenLastCalledWith(expect.objectContaining({ isPaused: true }));
+  });
 });

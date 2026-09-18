@@ -22,7 +22,7 @@
 import { create } from 'zustand';
 
 import type { JobFailure, JobPhase, JobProgress, LibraryJobKind } from '@services/jobs/jobTypes';
-import type { DiscoveredCountry, ScanProgress } from '@services/photoImport';
+import type { ScanProgress } from '@services/photoImport';
 import type { CountryPreviewRow } from '@services/photoImport/scanPreviewPicker';
 
 /** Where the banner should navigate when a finished job is tapped. */
@@ -32,7 +32,6 @@ export interface JobResultRoute {
 }
 
 export interface TripScanDetail {
-  discoveredCountries: DiscoveredCountry[];
   countryPreviews: readonly CountryPreviewRow[];
   isIncremental: boolean;
 }
@@ -81,7 +80,7 @@ const initialState: LibraryJobState = {
   jobs: {
     'trip-scan': {
       ...emptySlice,
-      detail: { discoveredCountries: [], countryPreviews: [], isIncremental: false },
+      detail: { countryPreviews: [], isIncremental: false },
     },
     'quiz-build': {
       ...emptySlice,
@@ -122,7 +121,7 @@ function structuredCloneInitial(): LibraryJobState {
     jobs: {
       'trip-scan': {
         ...emptySlice,
-        detail: { discoveredCountries: [], countryPreviews: [], isIncremental: false },
+        detail: { countryPreviews: [], isIncremental: false },
       },
       'quiz-build': {
         ...emptySlice,
@@ -145,8 +144,6 @@ export const selectScanPhase = (s: LibraryJobState) => s.jobs['trip-scan'].phase
 export const selectScanProgress = (s: LibraryJobState) => s.jobs['trip-scan'].progress;
 export const selectScanFailure = (s: LibraryJobState) => s.jobs['trip-scan'].failure;
 export const selectScanHasResult = (s: LibraryJobState) => s.jobs['trip-scan'].hasResult;
-export const selectScanDiscoveredCountries = (s: LibraryJobState) =>
-  s.jobs['trip-scan'].detail.discoveredCountries;
 export const selectScanCountryPreviews = (s: LibraryJobState) =>
   s.jobs['trip-scan'].detail.countryPreviews;
 export const selectScanIsIncremental = (s: LibraryJobState) =>

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, type ReactNode } from 'react';
+import React, { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   AccessibilityInfo,
   FlatList,
@@ -6,6 +6,7 @@ import {
   Text,
   useWindowDimensions,
   View,
+  type LayoutChangeEvent,
   type ListRenderItem,
   type ViewToken,
 } from 'react-native';
@@ -42,6 +43,24 @@ interface CarouselPage {
 
 const TOTAL_STEPS = 3;
 const ACTION_BAND_HEIGHT = 164;
+const QUIZ_TALL_SCREEN_START = 667;
+const QUIZ_TALL_SCREEN_END = 956;
+const QUIZ_TALL_SCREEN_BOTTOM_INSET = 94;
+
+export function getPhotoPermissionCarouselBottomInset(
+  windowHeight: number,
+  door: PhotoPermissionCarouselDoor
+): number {
+  if (door !== 'quiz' || windowHeight <= QUIZ_TALL_SCREEN_START) {
+    return 0;
+  }
+
+  const progress = Math.min(
+    1,
+    (windowHeight - QUIZ_TALL_SCREEN_START) / (QUIZ_TALL_SCREEN_END - QUIZ_TALL_SCREEN_START)
+  );
+  return Math.round(progress * QUIZ_TALL_SCREEN_BOTTOM_INSET);
+}
 
 function buildPages(door: PhotoPermissionCarouselDoor): CarouselPage[] {
   return [
@@ -75,13 +94,22 @@ export function PhotoPermissionCarousel({
   visual,
   testID = 'photo-permission-carousel',
 }: PhotoPermissionCarouselProps) {
-  const { width } = useWindowDimensions();
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  const [pageWidth, setPageWidth] = useState(windowWidth);
   const reduceMotion = useReducedMotion();
   const pagerRef = useRef<FlatList<CarouselPage>>(null);
   const reportedStepRef = useRef<PhotoPermissionCarouselStep>(step);
   const announcedStepRef = useRef<PhotoPermissionCarouselStep>(step);
   const pages = useMemo(() => buildPages(door), [door]);
   const viewabilityConfig = useMemo(() => ({ viewAreaCoveragePercentThreshold: 50 }), []);
+  const bottomInset = getPhotoPermissionCarouselBottomInset(windowHeight, door);
+  const handleLayout = useStableCallback((event: LayoutChangeEvent) => {
+    const measuredWidth = event.nativeEvent.layout.width;
+    if (measuredWidth <= 0) {
+      return;
+    }
+    setPageWidth(measuredWidth);
+  });
 
   useEffect(() => {
     reportedStepRef.current = step;
@@ -137,14 +165,21 @@ export function PhotoPermissionCarousel({
   );
 
   const renderPage: ListRenderItem<CarouselPage> = ({ item }) => (
-    <View style={[styles.page, { width }]} testID={`photo-permission-carousel-page-${item.step}`}>
+    <View
+      style={[styles.page, { width: pageWidth }]}
+      testID={`photo-permission-carousel-page-${item.step}`}
+    >
       <Text style={styles.title}>{item.title}</Text>
       <Text style={styles.subtitle}>{item.subtitle}</Text>
     </View>
   );
 
   return (
-    <View style={styles.container} testID={testID}>
+    <View
+      style={[styles.container, bottomInset > 0 && { paddingBottom: bottomInset }]}
+      onLayout={handleLayout}
+      testID={testID}
+    >
       {visual ? (
         <View
           style={styles.visual}
@@ -167,8 +202,8 @@ export function PhotoPermissionCarousel({
         showsHorizontalScrollIndicator={false}
         initialScrollIndex={step - 1}
         getItemLayout={(_data, index) => ({
-          length: width,
-          offset: width * index,
+          length: pageWidth,
+          offset: pageWidth * index,
           index,
         })}
         onViewableItemsChanged={handleViewableItemsChanged}
@@ -205,7 +240,10 @@ export function PhotoPermissionCarousel({
         )}
       </View>
 
-      <View style={styles.footer} testID="photo-permission-carousel-footer">
+      <View
+        style={[styles.footer, door === 'quiz' && styles.quizFooter]}
+        testID="photo-permission-carousel-footer"
+      >
         <PrivacyLockGlyph testID="photo-permission-carousel-lock" />
         <Text style={styles.footerText}>{SCAN_COPY.permission.carousel.footerNotice}</Text>
       </View>
@@ -274,6 +312,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 7,
+  },
+  quizFooter: {
+    marginTop: -12,
   },
   footerText: {
     flexShrink: 1,

@@ -1,5 +1,4 @@
 import { createRefreshProgressBridge } from '@services/photoImport/photoBackgroundSync';
-import type { CountryPreviewRow } from '@services/photoImport/scanPreviewPicker';
 import type { PhotoWithLocation, ScanProgress } from '@services/photoImport/types';
 
 const PROGRESS: ScanProgress = {
@@ -9,28 +8,20 @@ const PROGRESS: ScanProgress = {
   percentage: 50,
 };
 
-describe('photoBackgroundSync preview progress bridge', () => {
-  it('attaches changed previews once and leaves ordinary progress structurally quiet', () => {
-    const rows: readonly CountryPreviewRow[] = [
-      {
-        code: 'PT',
-        name: 'Portugal',
-        previews: [{ assetId: 'pt-1', uri: 'file:///pt-1.jpg' }],
-      },
-    ];
+describe('photoBackgroundSync progress bridge', () => {
+  it('forwards batches without coupling their result to progress', () => {
     const onProgress = jest.fn();
-    const onBatch = jest.fn().mockReturnValueOnce(rows).mockReturnValueOnce(undefined);
+    const onBatch = jest.fn();
     const bridge = createRefreshProgressBridge(onProgress, onBatch);
+    const batch = [{ id: 'pt-1' } as PhotoWithLocation];
 
-    bridge.handleBatch([{ id: 'pt-1' } as PhotoWithLocation]);
+    bridge.handleBatch(batch);
     bridge.handleProgress(PROGRESS);
     bridge.handleProgress({ ...PROGRESS, current: 100, percentage: 100 });
 
-    expect(onProgress).toHaveBeenNthCalledWith(1, {
-      current: 50,
-      total: 100,
-      countryPreviews: rows,
-    });
+    expect(onBatch).toHaveBeenCalledWith(batch);
+    expect(onBatch).toHaveReturnedWith(undefined);
+    expect(onProgress).toHaveBeenNthCalledWith(1, { current: 50, total: 100 });
     expect(onProgress).toHaveBeenNthCalledWith(2, { current: 100, total: 100 });
   });
 

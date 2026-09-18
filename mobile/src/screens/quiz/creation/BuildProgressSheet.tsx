@@ -11,6 +11,7 @@
  * starting over.
  */
 
+import { useEffect, useState } from 'react';
 import { Image } from 'expo-image';
 import { Text, View } from 'react-native';
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
@@ -29,6 +30,7 @@ interface BuildProgressSheetProps {
   isFirstScan: boolean;
   durationLine: string;
   reduceMotion: boolean;
+  isPaused: boolean;
   onLeave: () => void;
   onStop: () => void;
 }
@@ -38,13 +40,19 @@ export function BuildProgressSheet({
   isFirstScan,
   durationLine,
   reduceMotion,
+  isPaused,
   onLeave,
   onStop,
 }: BuildProgressSheetProps) {
   const { step, pickUris, uploading, uploadedCount, barFraction } = build;
   const showCountryPreviews = step === 'scanning';
+  const [discoveryLayerVisible, setDiscoveryLayerVisible] = useState(showCountryPreviews);
   // Tier-gated hint: only while a continued-processing lease is actually held.
   const leaseKeepsRunning = useLeaseKeepsRunning();
+
+  useEffect(() => {
+    setDiscoveryLayerVisible(showCountryPreviews);
+  }, [showCountryPreviews]);
 
   return (
     <View style={styles.sheetContent} testID="quiz-progress">
@@ -72,7 +80,7 @@ export function BuildProgressSheet({
       </View>
 
       <View style={styles.buildContentRegion} testID="quiz-build-content-region">
-        {showCountryPreviews ? (
+        {discoveryLayerVisible ? (
           <Animated.View
             style={styles.buildContentLayer}
             entering={reduceMotion ? undefined : FadeIn.duration(DURATION_FAST)}
@@ -80,7 +88,8 @@ export function BuildProgressSheet({
           >
             <CountryDiscoveryRows
               rows={build.countryPreviews}
-              isComplete={false}
+              isComplete={!showCountryPreviews}
+              isPaused={isPaused}
               reduceMotion={reduceMotion}
             />
           </Animated.View>

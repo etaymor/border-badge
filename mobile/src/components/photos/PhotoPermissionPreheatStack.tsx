@@ -11,6 +11,7 @@ export interface PhotoPermissionPreheatStackProps {
   onChoose: (choice: PhotoPermissionPreheatChoice) => void;
 }
 
+// Match the raw blue used by the iOS photo-permission action sheet.
 const IOS_FULL_ACCESS_BLUE = '#007AFF';
 
 export function PhotoPermissionPreheatStack({ onChoose }: PhotoPermissionPreheatStackProps) {
@@ -28,6 +29,7 @@ export function PhotoPermissionPreheatStack({ onChoose }: PhotoPermissionPreheat
 
       <Pressable
         style={[styles.button, styles.fullAccessButton]}
+        // Only this choice invokes the OS permission prompt; the others stay in-app.
         onPress={() => onChoose('full-access')}
         accessibilityRole="button"
         accessibilityLabel={SCAN_COPY.permission.preheatAllowFullAccess}

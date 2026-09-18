@@ -117,12 +117,9 @@ function allStrings(): Array<[string, string]> {
   push('permission.recoveryAllowMorePhotosCta', permission.recoveryAllowMorePhotosCta);
   push('permission.recoveryContinueLimitedCta', permission.recoveryContinueLimitedCta);
   push('permission.recoveryRetryCta', permission.recoveryRetryCta);
-  push('permission.preheatTitle', permission.preheatTitle);
-  push('permission.preheatBody', permission.preheatBody);
   push('permission.preheatSelectPhotos', permission.preheatSelectPhotos);
   push('permission.preheatAllowFullAccess', permission.preheatAllowFullAccess);
   push('permission.preheatDontAllow', permission.preheatDontAllow);
-  push('permission.preheatFooter', permission.preheatFooter);
   push('permission.carousel.beat1Title', permission.carousel.beat1Title);
   push('permission.carousel.beat1Subtitle', permission.carousel.beat1Subtitle);
   push('permission.carousel.beat2Title', permission.carousel.beat2Title);

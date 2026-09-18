@@ -222,6 +222,3 @@ export function usePhotoScan({
 
   return { startScan, cancelScan };
 }
-
-// Re-export shared types to avoid a churn-only consumer change.
-export type { DiscoveredCountry } from '@services/photoImport';

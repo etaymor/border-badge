@@ -212,6 +212,7 @@ export async function setUpQuizRun(
     countries.map((country) => [country.code, country.name ?? getCountryName(country.code)])
   );
   let countryPreviews: readonly CountryPreviewRow[] = [];
+  let lastEmittedCountryPreviews = countryPreviews;
   const refresh = await ensureFreshLibrary({
     source: 'quiz',
     // The job runtime marks 'quiz-build' running before this function's
@@ -222,11 +223,14 @@ export async function setUpQuizRun(
     excludeKind: 'quiz-build',
     onProgress: (progress) => {
       env.heartbeat?.();
+      const changedCountryPreviews =
+        countryPreviews === lastEmittedCountryPreviews ? undefined : countryPreviews;
+      lastEmittedCountryPreviews = countryPreviews;
       onProgress?.({
         step: 'scanning',
         current: progress.current,
         total: progress.total,
-        countryPreviews: progress.countryPreviews,
+        countryPreviews: changedCountryPreviews,
       });
     },
     onBatch: (photos) => {
@@ -245,9 +249,7 @@ export async function setUpQuizRun(
       const result = pickScanPreviews(countryPreviews, previewItems, {
         homeCountry: homeCountry ?? '',
       });
-      if (!result.changed) return undefined;
-      countryPreviews = result.countryPreviews;
-      return countryPreviews;
+      if (result.changed) countryPreviews = result.countryPreviews;
     },
     signal,
   });

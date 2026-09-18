@@ -168,9 +168,8 @@ const trips = {
   },
 
   /**
-   * The name, not the flag. `DiscoveredCountry.name` already exists and was
-   * being discarded: VoiceOver announces regional-indicator pairs
-   * inconsistently, so a bare flag reads as a truncated sentence.
+   * The country name, not its flag. VoiceOver announces regional-indicator
+   * pairs inconsistently, so a bare flag reads as a truncated sentence.
    */
   discovery(countryName: string): string {
     return `Found photos from ${countryName}`;
@@ -276,13 +275,9 @@ const permission = {
   recoveryAllowMorePhotosCta: 'Allow More Photos',
   recoveryContinueLimitedCta: 'Continue With Selected Photos',
   recoveryRetryCta: 'Try Again',
-  preheatTitle: 'Connect Photos',
-  preheatBody:
-    'One scan of your library builds trips and Guess Where challenges. The scan runs on your device. Nothing is uploaded until you save a place or share a challenge.',
   preheatSelectPhotos: 'Select Photos',
   preheatAllowFullAccess: 'Allow Full Access',
   preheatDontAllow: "Don't Allow",
-  preheatFooter: 'On your device until you choose to upload · Full Access finds more trips',
   carousel: permissionCarousel,
 } as const;
 

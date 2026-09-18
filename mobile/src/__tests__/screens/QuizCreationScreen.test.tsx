@@ -288,10 +288,20 @@ describe('QuizCreationScreen', () => {
     );
     fireEvent.press(screen.getByTestId('photo-permission-carousel-continue'));
     fireEvent.press(screen.getByTestId('photo-permission-carousel-continue'));
+    const pager = screen.getByTestId('photo-permission-carousel-pager');
+    fireEvent(pager, 'viewableItemsChanged', {
+      viewableItems: [{ index: 1, isViewable: true, item: { step: 2 } }],
+      changed: [],
+    });
+    fireEvent(pager, 'viewableItemsChanged', {
+      viewableItems: [{ index: 2, isViewable: true, item: { step: 3 } }],
+      changed: [],
+    });
     rendered.unmount();
 
     expect(stepSpy).toHaveBeenCalledWith({ door: 'quiz', step: 2, via: 'tap' });
     expect(stepSpy).toHaveBeenCalledWith({ door: 'quiz', step: 3, via: 'tap' });
+    expect(stepSpy).toHaveBeenCalledTimes(3);
     expect(leftSpy).toHaveBeenCalledWith({ door: 'quiz', step: 3 });
   });
 

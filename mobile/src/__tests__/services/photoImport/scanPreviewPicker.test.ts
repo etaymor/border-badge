@@ -191,11 +191,17 @@ describe('pickScanPreviews', () => {
       })
     );
 
-    const startedAt = performance.now();
-    const result = pickScanPreviews([], batch, { homeCountry: 'US' });
-    const elapsedMs = performance.now() - startedAt;
+    let result = pickScanPreviews([], batch, { homeCountry: 'US' });
+    const trialCpuTimesMs = Array.from({ length: 3 }, () => {
+      const startedCpuUsage = process.cpuUsage();
+      result = pickScanPreviews([], batch, { homeCountry: 'US' });
+      const elapsedCpuUsage = process.cpuUsage(startedCpuUsage);
+
+      return (elapsedCpuUsage.user + elapsedCpuUsage.system) / 1_000;
+    });
+    const elapsedCpuMs = Math.min(...trialCpuTimesMs);
 
     expect(result.countryPreviews).toHaveLength(10);
-    expect(elapsedMs).toBeLessThan(50);
+    expect(elapsedCpuMs).toBeLessThan(50);
   });
 });

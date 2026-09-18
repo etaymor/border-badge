@@ -1,5 +1,5 @@
 import { StyleSheet, View } from 'react-native';
-import { withSpring, withTiming } from 'react-native-reanimated';
+import { useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
 
 import { CountryRow } from '@components/photos/CountryRow';
 
@@ -89,6 +89,42 @@ describe('CountryRow', () => {
 
     expect(withTiming).toHaveBeenCalled();
     expect(withSpring).toHaveBeenCalled();
+  });
+
+  it('resets settled shared values before animating after entering flips true', () => {
+    const { rerender } = render(
+      <CountryRow
+        code="MX"
+        name="Mexico"
+        slots={[renderSlot('preview-one'), renderSlot('preview-two')]}
+        entering={false}
+        reduceMotion={false}
+      />
+    );
+    const [rowProgress, firstSlotProgress, secondSlotProgress] = jest
+      .mocked(useSharedValue)
+      .mock.results.slice(-3)
+      .map((result) => result.value);
+
+    jest.mocked(withTiming).mockImplementationOnce((value) => {
+      expect(rowProgress.value).toBe(0);
+      expect(firstSlotProgress.value).toBe(0);
+      expect(secondSlotProgress.value).toBe(0);
+      return value;
+    });
+
+    rerender(
+      <CountryRow
+        code="MX"
+        name="Mexico"
+        slots={[renderSlot('preview-one'), renderSlot('preview-two')]}
+        entering
+        reduceMotion={false}
+      />
+    );
+
+    expect(withTiming).toHaveBeenCalled();
+    expect(withSpring).toHaveBeenCalledTimes(2);
   });
 
   it('keeps the name and omits the stamp for an unknown code', () => {

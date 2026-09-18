@@ -63,11 +63,12 @@ function LocationPill({ label, index, shouldAnimate }: LocationPillProps) {
       { scale: interpolate(progress.value, [0, 1], [0.8, 1]) },
     ],
   }));
+  const staticPillStyle = !shouldAnimate ? styles.finalPillState : undefined;
 
   return (
     <Animated.View
       testID={`permission-beat2-pill-${index}`}
-      style={[styles.pill, pillPositions[index], animatedStyle]}
+      style={[styles.pill, pillPositions[index], animatedStyle, staticPillStyle]}
     >
       <Text style={styles.pillText}>{label}</Text>
     </Animated.View>
@@ -132,6 +133,10 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.16,
     shadowRadius: 7,
     shadowOffset: { width: 0, height: 3 },
+  },
+  finalPillState: {
+    opacity: 1,
+    transform: [{ translateY: 0 }, { scale: 1 }],
   },
   pillText: {
     color: colors.midnightNavy,

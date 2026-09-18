@@ -41,13 +41,27 @@ export function CountryRow({ code, name, slots, entering, reduceMotion }: Countr
   const secondSlotProgress = useSharedValue(shouldAnimate ? 0 : 1);
 
   useEffect(() => {
-    rowProgress.value = shouldAnimate ? withTiming(1, { duration: SCAN_ROW_ARRIVAL_DURATION }) : 1;
-    firstSlotProgress.value =
-      shouldAnimate && slots.length > 0 ? withSpring(1, SCAN_SLOT_FLY_IN_SPRING_CONFIG) : 1;
-    secondSlotProgress.value =
-      shouldAnimate && slots.length > 1
-        ? withDelay(SCAN_SLOT_FLY_IN_STAGGER, withSpring(1, SCAN_SLOT_FLY_IN_SPRING_CONFIG))
-        : 1;
+    if (!shouldAnimate) {
+      rowProgress.value = 1;
+      firstSlotProgress.value = 1;
+      secondSlotProgress.value = 1;
+      return;
+    }
+
+    rowProgress.value = 0;
+    firstSlotProgress.value = 0;
+    secondSlotProgress.value = 0;
+
+    rowProgress.value = withTiming(1, { duration: SCAN_ROW_ARRIVAL_DURATION });
+    if (slots.length > 0) {
+      firstSlotProgress.value = withSpring(1, SCAN_SLOT_FLY_IN_SPRING_CONFIG);
+    }
+    if (slots.length > 1) {
+      secondSlotProgress.value = withDelay(
+        SCAN_SLOT_FLY_IN_STAGGER,
+        withSpring(1, SCAN_SLOT_FLY_IN_SPRING_CONFIG)
+      );
+    }
   }, [firstSlotProgress, rowProgress, secondSlotProgress, shouldAnimate, slots.length]);
 
   const rowAnimatedStyle = useAnimatedStyle(() => ({

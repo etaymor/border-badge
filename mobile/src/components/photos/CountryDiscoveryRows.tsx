@@ -15,6 +15,7 @@ export const COUNTRY_DISCOVERY_VIEWPORT_HEIGHT = VISIBLE_ROW_COUNT * DISCOVERY_R
 export interface CountryDiscoveryRowsProps {
   rows: readonly CountryPreviewRow[];
   isComplete: boolean;
+  isPaused?: boolean;
   reduceMotion: boolean;
 }
 
@@ -58,6 +59,7 @@ function renderPreviewSlot(code: string, preview: ScanPreview, index: number): C
 function CountryDiscoveryRowsComponent({
   rows,
   isComplete,
+  isPaused = false,
   reduceMotion,
 }: CountryDiscoveryRowsProps) {
   const [initialKeys] = useState(() => new Set(rows.map((row) => row.code)));
@@ -74,7 +76,7 @@ function CountryDiscoveryRowsComponent({
   }, []);
 
   const settleRows = useCallback(
-    (queuedRows: readonly CountryPreviewRow[]) => {
+    (queuedRows: readonly CountryPreviewRow[], shouldAnnounce: boolean) => {
       setEnteringKey(null);
       if (queuedRows.length === 0) return;
       setArrivedKeys((current) => {
@@ -82,13 +84,14 @@ function CountryDiscoveryRowsComponent({
         queuedRows.forEach((row) => next.add(row.code));
         return next;
       });
-      queuedRows.forEach(announce);
+      if (shouldAnnounce) queuedRows.forEach(announce);
     },
     [announce]
   );
 
   const dequeueNext = useCallback(() => {
     timerRef.current = null;
+    if (isPaused) return;
     const next = queueRef.current.shift();
     if (!next) return;
 
@@ -97,12 +100,20 @@ function CountryDiscoveryRowsComponent({
     announce(next);
 
     timerRef.current = setTimeout(dequeueNext, SCAN_MIN_ARRIVAL_GAP);
-  }, [announce]);
+  }, [announce, isPaused]);
 
   useEffect(() => {
     const newRows = rows.filter((row) => !knownKeysRef.current.has(row.code));
     newRows.forEach((row) => knownKeysRef.current.add(row.code));
     queueRef.current.push(...newRows);
+
+    if (isPaused) {
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
+      setEnteringKey(null);
+    }
 
     if (isComplete) {
       if (timerRef.current) {
@@ -110,12 +121,12 @@ function CountryDiscoveryRowsComponent({
         timerRef.current = null;
       }
       const queuedRows = queueRef.current.splice(0);
-      settleRows(queuedRows);
+      settleRows(queuedRows, !isPaused);
       return;
     }
 
-    if (!timerRef.current && queueRef.current.length > 0) dequeueNext();
-  }, [dequeueNext, isComplete, rows, settleRows]);
+    if (!isPaused && !timerRef.current && queueRef.current.length > 0) dequeueNext();
+  }, [dequeueNext, isComplete, isPaused, rows, settleRows]);
 
   useEffect(
     () => () => {
@@ -138,6 +149,8 @@ function CountryDiscoveryRowsComponent({
       style={styles.viewport}
       pointerEvents="none"
       accessibilityRole="summary"
+      accessibilityElementsHidden={isPaused}
+      importantForAccessibility={isPaused ? 'no-hide-descendants' : 'auto'}
     >
       {rows.map((row) => {
         const hasArrived = arrivedKeys.has(row.code);

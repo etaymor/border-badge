@@ -245,15 +245,17 @@ describe('createQuizFromLibrary - scan country previews', () => {
       },
     ] as PhotoWithLocation[];
     mockEnsureFreshLibrary.mockImplementationOnce(async (options) => {
-      const countryPreviews = options.onBatch(batch);
-      options.onProgress({ current: 2, total: 2, countryPreviews });
+      options.onBatch(batch);
+      options.onProgress({ current: 1, total: 2 });
+      options.onProgress({ current: 2, total: 2 });
       return { status: 'refreshed', newPhotos: 2 };
     });
 
     await createQuizFromLibrary({ onProgress: (update) => progress.push(update) });
 
-    const scanning = progress.find((update) => update.step === 'scanning');
-    expect(scanning?.countryPreviews?.map((row) => row.code)).toEqual(['PT']);
+    const scanning = progress.filter((update) => update.step === 'scanning');
+    expect(scanning[0].countryPreviews?.map((row) => row.code)).toEqual(['PT']);
+    expect(scanning[1].countryPreviews).toBeUndefined();
     expect(mockGetHomeCountry.mock.invocationCallOrder[0]).toBeLessThan(
       mockEnsureFreshLibrary.mock.invocationCallOrder[0]
     );

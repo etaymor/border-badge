@@ -25,7 +25,7 @@ import { useTrip } from '@hooks/useTrips';
 import { colors } from '@constants/colors';
 import { SCAN_COPY } from '@constants/scanCopy';
 import type { PassportStackScreenProps, RootStackParamList } from '@navigation/types';
-import { useNavigation } from '@react-navigation/native';
+import { useIsFocused, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import {
   ManualPlaceSearch,
@@ -227,6 +227,7 @@ export function useLowSignalSeeding({
 export function PhotoImportScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
   const reduceMotion = useReducedMotion();
+  const isFocused = useIsFocused();
   /**
    * Library size, for the magnitude and duration lines on the idle screen.
    * Read once on mount: it only has to be roughly right, and a wrong-by-a-few
@@ -693,6 +694,7 @@ export function PhotoImportScreen({ navigation, route }: Props) {
                 step={permissionCarouselStep}
                 reduceMotion={reduceMotion}
                 homeCountry={homeCountryCode}
+                compact
               />
             }
           />
@@ -726,6 +728,7 @@ export function PhotoImportScreen({ navigation, route }: Props) {
         <ScanningPhase
           scanProgress={scanProgress}
           isIncremental={isIncremental}
+          isPaused={!isFocused}
           onCancelScan={handleCancelScan}
           scanFailure={scanFailure}
           onRetryScan={() => startScan(false)}

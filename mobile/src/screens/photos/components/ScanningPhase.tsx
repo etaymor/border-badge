@@ -27,6 +27,7 @@ import { styles } from '../photoImportStyles';
 export interface ScanningPhaseProps {
   scanProgress: ScanProgress | null;
   isIncremental: boolean;
+  isPaused?: boolean;
   onCancelScan: () => void;
   /** Set when the service surfaces a recoverable failure mid-scan. */
   scanFailure?: { title: string; message: string; reason?: string } | null;
@@ -37,6 +38,7 @@ export interface ScanningPhaseProps {
 export function ScanningPhase({
   scanProgress,
   isIncremental,
+  isPaused = false,
   onCancelScan,
   scanFailure,
   onRetryScan,
@@ -101,6 +103,7 @@ export function ScanningPhase({
         <CountryDiscoveryRows
           rows={countryPreviews}
           isComplete={isComplete}
+          isPaused={isPaused}
           reduceMotion={reduceMotion}
         />
       </View>

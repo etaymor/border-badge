@@ -1,4 +1,4 @@
-import { StyleSheet } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 
 import { DURATION_FAST } from '@screens/quiz/components/motionTokens';
@@ -15,6 +15,7 @@ interface PermissionBeatVisualProps {
   reduceMotion: boolean;
   homeCountry?: string | null;
   assets?: PermissionBeatAssets;
+  compact?: boolean;
 }
 
 function assertNever(value: never): never {
@@ -26,6 +27,7 @@ export default function PermissionBeatVisual({
   reduceMotion,
   homeCountry,
   assets = DEFAULT_PERMISSION_BEAT_ASSETS,
+  compact = false,
 }: PermissionBeatVisualProps) {
   let beat;
 
@@ -53,13 +55,20 @@ export default function PermissionBeatVisual({
   return (
     <Animated.View
       key={step}
-      style={styles.container}
+      style={[styles.container, compact && styles.compactContainer]}
       entering={reduceMotion ? undefined : FadeIn.duration(DURATION_FAST)}
       exiting={reduceMotion ? undefined : FadeOut.duration(DURATION_FAST)}
       accessible={false}
       pointerEvents="none"
+      testID="permission-beat-visual"
     >
-      {beat}
+      {compact ? (
+        <View style={styles.compactContent} testID="permission-beat-visual-content">
+          {beat}
+        </View>
+      ) : (
+        beat
+      )}
     </Animated.View>
   );
 }
@@ -70,5 +79,14 @@ const styles = StyleSheet.create({
     minHeight: 280,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  compactContainer: {
+    height: 190,
+    minHeight: 190,
+  },
+  compactContent: {
+    alignSelf: 'stretch',
+    alignItems: 'center',
+    transform: [{ scale: 0.7 }],
   },
 });
