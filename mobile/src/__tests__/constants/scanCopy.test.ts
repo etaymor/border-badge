@@ -54,7 +54,13 @@ function allStrings(): Array<[string, string]> {
     }
     push(`shared.durationLine(${total})`, shared.durationLine(total));
   }
+  for (const kind of ['trip-scan', 'quiz-build'] as const) {
+    for (const leased of [false, true]) {
+      push(`shared.stageLines(${kind}, leased=${leased})`, shared.stageLines(kind, { leased }));
+    }
+  }
 
+  push('trips.stageTitle', trips.stageTitle);
   push('trips.idleTitleFirst', trips.idleTitleFirst);
   push('trips.idleTitleReturning', trips.idleTitleReturning);
   push('trips.idleBodyFirst', trips.idleBodyFirst);
@@ -322,6 +328,12 @@ describe('SCAN_COPY - permission recovery', () => {
   });
 });
 
+function wordCount(value: string): number {
+  const trimmed = value.trim();
+  if (!trimmed) return 0;
+  return trimmed.split(/\s+/).length;
+}
+
 describe('SCAN_COPY - permission carousel', () => {
   const carouselStrings = () =>
     allStrings()
@@ -329,26 +341,47 @@ describe('SCAN_COPY - permission carousel', () => {
       .map(([, value]) => value)
       .join(' ');
 
-  it('keeps every subtitle scoped to scan privacy', () => {
+  it('uses the short beat copy', () => {
     const { carousel } = SCAN_COPY.permission;
-    expect(carousel.beat1Subtitle).toMatch(/scan/i);
-    expect(carousel.beat1Subtitle).toMatch(/only|skipped/i);
+    expect(carousel.beat1Title).toBe('Find your trips in your photos');
+    expect(carousel.beat1Subtitle).toBe('We read only where each photo was taken.');
+    expect(carousel.beat2Title).toBe('Your phone does the reading');
+    expect(carousel.beat2Subtitle).toBe('On your device. Location data only.');
+    expect(carousel.beat3Title('trips')).toBe('Every trip lands in your passport');
+    expect(carousel.beat3Subtitle('trips')).toBe('And unlocks Guess Where.');
+    expect(carousel.beat3Title('quiz')).toBe('Your photos become challenges');
+    expect(carousel.beat3Subtitle('quiz')).toBe('The same scan builds your trips.');
+  });
+
+  it('splits privacy across beat 1, beat 2, and the footer', () => {
+    const { carousel } = SCAN_COPY.permission;
+    expect(carousel.beat1Subtitle).toMatch(/only where each photo was taken/i);
     expect(carousel.beat2Subtitle).toMatch(/on your device/i);
     expect(carousel.beat2Subtitle).toMatch(/location data/i);
     expect(carousel.beat2Subtitle).not.toMatch(/\bGPS\b/);
-    for (const door of ['trips', 'quiz'] as const) {
-      expect(carousel.beat3Subtitle(door)).toMatch(/on your device during the scan/i);
-    }
+    expect(carousel.footerNotice).toMatch(/scan/i);
+    expect(carousel.footerNotice).toMatch(/on your device/i);
   });
 
-  it('leads beat 3 with the feature for its door and names both payoffs', () => {
+  it('keeps carousel titles to six words and subtitles to twelve', () => {
     const { carousel } = SCAN_COPY.permission;
-    expect(carousel.beat3Title('trips')).toBe('Every trip lands in your passport.');
-    expect(carousel.beat3Title('quiz')).toMatch(/^.*Guess Where/);
-    for (const door of ['trips', 'quiz'] as const) {
-      const subtitle = carousel.beat3Subtitle(door);
-      expect(subtitle).toMatch(/trips/i);
-      expect(subtitle).toMatch(/Guess Where/i);
+    const titles = [
+      carousel.beat1Title,
+      carousel.beat2Title,
+      carousel.beat3Title('trips'),
+      carousel.beat3Title('quiz'),
+    ];
+    const subtitles = [
+      carousel.beat1Subtitle,
+      carousel.beat2Subtitle,
+      carousel.beat3Subtitle('trips'),
+      carousel.beat3Subtitle('quiz'),
+    ];
+    for (const title of titles) {
+      expect(wordCount(title)).toBeLessThanOrEqual(6);
+    }
+    for (const subtitle of subtitles) {
+      expect(wordCount(subtitle)).toBeLessThanOrEqual(12);
     }
   });
 
@@ -362,6 +395,58 @@ describe('SCAN_COPY - permission carousel', () => {
       `Step 2 of 3. ${carousel.beat2Title}`
     );
     expect(carousel.tripsHeaderTitle).not.toMatch(/import/i);
+  });
+});
+
+describe('SCAN_COPY - scan stage lines', () => {
+  const reading = 'Reading where each photo was taken';
+  const onDevice = 'Everything stays on your device';
+  const sameScan = 'The same scan builds your trips';
+  const keepsGoing = 'Keeps going while you use the app';
+  const picksUp = 'Picks up where it left off next time';
+  const quizUpload = 'Only photos your challenge uses are ever uploaded';
+  const whileLeased = 'It keeps going a while after you leave';
+
+  it('orders the shared lines and keeps quiz-only claims on the quiz door', () => {
+    expect(SCAN_COPY.shared.stageLines('trip-scan')).toEqual([
+      reading,
+      onDevice,
+      keepsGoing,
+      picksUp,
+    ]);
+    expect(SCAN_COPY.shared.stageLines('quiz-build')).toEqual([
+      reading,
+      onDevice,
+      sameScan,
+      keepsGoing,
+      picksUp,
+      quizUpload,
+    ]);
+  });
+
+  it('replaces the leave line while a continued-processing lease is held', () => {
+    expect(SCAN_COPY.shared.stageLines('trip-scan', { leased: true })).toEqual([
+      reading,
+      onDevice,
+      whileLeased,
+      picksUp,
+    ]);
+    expect(SCAN_COPY.shared.stageLines('quiz-build', { leased: true })[3]).toBe(whileLeased);
+  });
+
+  it('keeps every stage line to ten words', () => {
+    for (const kind of ['trip-scan', 'quiz-build'] as const) {
+      for (const leased of [false, true]) {
+        for (const line of SCAN_COPY.shared.stageLines(kind, { leased })) {
+          expect(wordCount(line)).toBeLessThanOrEqual(10);
+        }
+      }
+    }
+  });
+
+  it('names the trips scanning stage', () => {
+    expect(SCAN_COPY.trips.stageTitle).toBe('Finding Your Trips');
+    expect(wordCount(SCAN_COPY.trips.stageTitle)).toBeLessThanOrEqual(6);
   });
 });
 

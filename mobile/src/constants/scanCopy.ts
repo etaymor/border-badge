@@ -137,11 +137,46 @@ function durationLine(total: number | null | undefined): string {
   return 'A library this size takes several minutes.';
 }
 
+/**
+ * One line under the stage card, rotated. Quiz-only claims stay off the trips
+ * door. The leave line swaps only while a continued-processing lease is held.
+ * Line 5 is the locked "picks up where it left off" claim trimmed to ten words.
+ */
+const stageLineReading = 'Reading where each photo was taken';
+const stageLineOnDevice = 'Everything stays on your device';
+const stageLineSameScan = 'The same scan builds your trips';
+const stageLineKeepsGoing = 'Keeps going while you use the app';
+const stageLinePicksUp = 'Picks up where it left off next time';
+const stageLineQuizUpload = 'Only photos your challenge uses are ever uploaded';
+const stageLineWhileLeased = 'It keeps going a while after you leave';
+
+function stageLines(kind: ScanJobKind, options?: { leased?: boolean }): readonly string[] {
+  const persistence = options?.leased ? stageLineWhileLeased : stageLineKeepsGoing;
+  switch (kind) {
+    case 'trip-scan':
+      return [stageLineReading, stageLineOnDevice, persistence, stageLinePicksUp];
+    case 'quiz-build':
+      return [
+        stageLineReading,
+        stageLineOnDevice,
+        stageLineSameScan,
+        persistence,
+        stageLinePicksUp,
+        stageLineQuizUpload,
+      ];
+    default: {
+      const _exhaustive: never = kind;
+      return _exhaustive;
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Trips
 // ---------------------------------------------------------------------------
 
 const trips = {
+  stageTitle: 'Finding Your Trips',
   idleTitleFirst: 'Ready to scan',
   /**
    * Was "Import Travel Photos" — the last survivor of the "import" vocabulary,
@@ -238,21 +273,16 @@ const quiz = {
 // ---------------------------------------------------------------------------
 
 const permissionCarousel = {
-  beat1Title: 'We Find Your Trips in Your Photos',
-  beat1Subtitle:
-    'The scan reads only where each photo was taken. Photos without a location are skipped.',
-  beat2Title: 'Your Phone Reads Where Each Photo Was Taken',
-  beat2Subtitle: 'It happens on your device. The scan uses location data only.',
-  beat2Pills: ['Lisbon', 'Portugal', 'Location data only'] as const,
+  beat1Title: 'Find your trips in your photos',
+  beat1Subtitle: 'We read only where each photo was taken.',
+  beat2Title: 'Your phone does the reading',
+  beat2Subtitle: 'On your device. Location data only.',
+  beat2Pills: ['Bøur', 'Faroe Islands', 'Location data only'] as const,
   beat3Title(door: PhotoPermissionCarouselDoor): string {
-    return door === 'trips'
-      ? 'Every trip lands in your passport.'
-      : 'Your Photos Become Guess Where Challenges';
+    return door === 'trips' ? 'Every trip lands in your passport' : 'Your photos become challenges';
   },
   beat3Subtitle(door: PhotoPermissionCarouselDoor): string {
-    return door === 'trips'
-      ? 'Trips build from where your photos were taken, and unlock Guess Where challenges. Your photos stay on your device during the scan.'
-      : 'Guess Where challenges come from your photos, and the same scan builds your trips, too. Your photos stay on your device during the scan.';
+    return door === 'trips' ? 'And unlocks Guess Where.' : 'The same scan builds your trips.';
   },
   continueCta: 'Continue',
   footerNotice: 'The scan runs on your device · Full Access finds more trips',
@@ -341,6 +371,7 @@ export const SCAN_COPY = {
     persistenceParagraphWhileLeased,
     scaleLine,
     durationLine,
+    stageLines,
   },
   trips,
   quiz,
