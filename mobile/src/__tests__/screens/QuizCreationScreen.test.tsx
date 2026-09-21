@@ -333,7 +333,7 @@ describe('QuizCreationScreen', () => {
     await renderScreen();
 
     await waitFor(() => expect(screen.getByTestId('quiz-freshness-line')).toBeTruthy());
-    expect(screen.getByText(/library is ready/)).toBeTruthy();
+    expect(screen.getByText(/Library ready/)).toBeTruthy();
     expect(screen.getByText(/812 photos/)).toBeTruthy();
   });
 
@@ -343,18 +343,21 @@ describe('QuizCreationScreen', () => {
     await renderScreen();
 
     await waitFor(() => expect(screen.getByTestId('quiz-freshness-line')).toBeTruthy());
-    expect(screen.getByText(/check your library for new photos/)).toBeTruthy();
+    expect(screen.getByText(/Checking for new photos/)).toBeTruthy();
   });
 
-  it('names the trips payoff on the very first scan (Q5)', async () => {
-    mockGetLibraryFreshness.mockResolvedValue(neverSyncedFreshness());
+  it('states the size of a first scan in one line', async () => {
+    mockGetLibraryFreshness.mockResolvedValue({
+      ...neverSyncedFreshness(),
+      cachedPhotoCount: 53_000,
+    });
 
     await renderScreen();
 
     await waitFor(() => expect(screen.getByTestId('quiz-freshness-line')).toBeTruthy());
-    // Only the first-ever scan gets the pitch; a stale library already has
-    // trips, so it keeps the plain incremental-check line above.
-    expect(screen.getByText(/builds your trips/i)).toBeTruthy();
+    expect(screen.getByText('About 53,000 photos · several minutes')).toBeTruthy();
+    expect(screen.queryByTestId('quiz-scale-line')).toBeNull();
+    expect(screen.queryByTestId('quiz-duration-line')).toBeNull();
   });
 
   it('pre-flights a picks-bearing draft straight to the resume confirm (Q5)', async () => {
@@ -399,7 +402,7 @@ describe('QuizCreationScreen', () => {
     await startFromIntro();
 
     await waitFor(() => expect(screen.getByTestId('quiz-thin-library')).toBeTruthy());
-    expect(screen.getByText(/geotagged, outdoors/)).toBeTruthy();
+    expect(screen.getByText(/geotagged outdoor photos/)).toBeTruthy();
     expect(screen.getByText('Try Again')).toBeTruthy();
   });
 

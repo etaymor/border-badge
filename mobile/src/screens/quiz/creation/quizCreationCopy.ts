@@ -10,6 +10,9 @@
 
 import type { QuizCreationOutcome } from '@services/quiz/quizCreation';
 
+export const THIN_LIBRARY_TITLE = 'Not Enough Photos Yet';
+export const THIN_LIBRARY_BODY = 'A challenge needs 5 geotagged outdoor photos without people.';
+
 /**
  * Name the rule that actually failed. The backend has always returned a
  * per-image rejection reason; until it was surfaced here, every decline read
@@ -18,22 +21,22 @@ import type { QuizCreationOutcome } from '@services/quiz/quizCreation';
  */
 export function thinLibraryReason(outcome: QuizCreationOutcome | null): string {
   if (outcome?.status !== 'thin-library' || !outcome.hasGeoCandidates) {
-    return 'We could not find geotagged travel photos in your library.';
+    return 'No geotagged travel photos in your library.';
   }
   switch (outcome.dominantReason) {
     case 'people_present':
-      return 'Most of the ones we checked had people in them.';
+      return 'Most photos we checked had people in them.';
     case 'indoor':
-      return 'Most of the ones we checked were taken indoors.';
+      return 'Most photos we checked were taken indoors.';
     case 'category_not_allowed':
-      return 'Most of the ones we checked were not scenery or landmarks.';
+      return 'Most photos we checked were not scenery or landmarks.';
     case 'prepare_failed':
-      return 'Most of the ones we checked could not be opened - they may still be in iCloud.';
+      return 'Some photos may still be in iCloud.';
     case 'unclassifiable':
     case 'service_error':
-      return 'We could not read most of the ones we checked. Try again in a moment.';
+      return 'We could not read them. Try again in a moment.';
     default:
-      return 'We found travel photos, but too few passed those checks.';
+      return 'Too few photos passed the checks.';
   }
 }
 

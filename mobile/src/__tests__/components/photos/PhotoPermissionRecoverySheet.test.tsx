@@ -10,6 +10,8 @@ describe('PhotoPermissionRecoverySheet', () => {
     render(<PhotoPermissionRecoverySheet variant="denied" onOpenSettings={onOpenSettings} />);
 
     expect(screen.getByText(SCAN_COPY.permission.recoveryTitleDenied)).toBeTruthy();
+    expect(screen.queryByText(SCAN_COPY.permission.recoveryPrivacyReportTip)).toBeNull();
+    fireEvent.press(screen.getByTestId('photo-permission-recovery-why'));
     expect(screen.getByText(SCAN_COPY.permission.recoveryPrivacyReportTip)).toBeTruthy();
     fireEvent.press(screen.getByText(SCAN_COPY.permission.recoveryOpenSettingsCta));
     expect(onOpenSettings).toHaveBeenCalledTimes(1);

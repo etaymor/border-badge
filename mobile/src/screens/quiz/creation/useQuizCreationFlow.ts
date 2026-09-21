@@ -45,7 +45,6 @@ import { selectQuizDetail, selectQuizProgress, useLibraryJobStore } from '@store
 import type { QuizEntryPoint, RootStackScreenProps } from '@navigation/types';
 
 import { useQuizCreationAnalytics } from '../useQuizCreationAnalytics';
-import { formatSyncedAgo } from './quizCreationCopy';
 
 export type ScreenPhase =
   | 'checking-permission'
@@ -88,8 +87,6 @@ export interface QuizCreationFlow {
   /** The one line the intro shows about how fresh the shared library is. */
   freshnessLine: string;
   isFirstScan: boolean;
-  scaleLine: string;
-  durationLine: string;
   draftHeroUri: string | null;
   draftUploadCounts: { uploaded: number; total: number } | null;
   build: BuildView;
@@ -406,22 +403,14 @@ export function useQuizCreationFlow({ entryPoint, navigation }: Options): QuizCr
     }
   });
 
-  const syncedAgo = formatSyncedAgo(freshness?.lastSuccessAt ?? null);
-  /**
-   * A first scan is the run this screen has to explain hardest, so it gets
-   * three short lines - what will happen, how big the library is, roughly how
-   * long. Everything else gets one.
-   */
   const isFirstScan = !freshness?.fresh && freshness?.reason === 'never-synced';
   const freshnessLine = freshness?.fresh
     ? freshness.reason === 'writer-active'
       ? SCAN_COPY.quiz.freshnessSyncing
-      : SCAN_COPY.quiz.freshnessReady(syncedAgo, freshness.cachedPhotoCount)
+      : SCAN_COPY.quiz.freshnessReady(freshness.cachedPhotoCount)
     : isFirstScan
-      ? SCAN_COPY.quiz.freshnessNeverSynced
+      ? SCAN_COPY.shared.scaleAndDurationLine(freshness?.cachedPhotoCount)
       : SCAN_COPY.quiz.freshnessStale;
-  const scaleLine = SCAN_COPY.shared.scaleLine(freshness?.cachedPhotoCount, isFirstScan);
-  const durationLine = SCAN_COPY.shared.durationLine(freshness?.cachedPhotoCount);
 
   const build = useMemo<BuildView>(() => {
     // Live build state (service contract: pickUris = the locked game in slot
@@ -466,8 +455,6 @@ export function useQuizCreationFlow({ entryPoint, navigation }: Options): QuizCr
     limitedAccess,
     freshnessLine,
     isFirstScan,
-    scaleLine,
-    durationLine,
     draftHeroUri,
     draftUploadCounts,
     build,

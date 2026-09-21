@@ -20,6 +20,12 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 
 import { SCAN_COPY } from '@constants/scanCopy';
+import {
+  THIN_LIBRARY_BODY,
+  THIN_LIBRARY_TITLE,
+  thinLibraryReason,
+} from '@screens/quiz/creation/quizCreationCopy';
+import type { QuizCreationOutcome } from '@services/quiz/quizCreation';
 
 const SRC = join(__dirname, '../..');
 
@@ -46,10 +52,6 @@ function allStrings(): Array<[string, string]> {
     );
   }
   for (const total of [0, 900, 4_999, 12_000, 53_282]) {
-    for (const first of [true, false]) {
-      push(`shared.scaleLine(${total}, ${first})`, shared.scaleLine(total, first));
-    }
-    push(`shared.durationLine(${total})`, shared.durationLine(total));
     push(`shared.scaleAndDurationLine(${total})`, shared.scaleAndDurationLine(total));
   }
   for (const kind of ['trip-scan', 'quiz-build'] as const) {
@@ -95,11 +97,10 @@ function allStrings(): Array<[string, string]> {
   push('quiz.workingPrivacy', quiz.workingPrivacy);
   push('quiz.leaveCta', quiz.leaveCta);
   push('quiz.stopCta', quiz.stopCta);
-  push('quiz.freshnessNeverSynced', quiz.freshnessNeverSynced);
   push('quiz.freshnessStale', quiz.freshnessStale);
   push('quiz.freshnessSyncing', quiz.freshnessSyncing);
-  push('quiz.freshnessReady', quiz.freshnessReady('2 hours ago', 53_282));
-  push('quiz.freshnessReady(bare)', quiz.freshnessReady(null, 0));
+  push('quiz.freshnessReady', quiz.freshnessReady(53_282));
+  push('quiz.freshnessReady(bare)', quiz.freshnessReady(0));
 
   for (const kind of ['trip-scan', 'quiz-build'] as const) {
     for (const state of ['running', 'waiting', 'completed', 'failed'] as const) {
@@ -224,11 +225,6 @@ describe('SCAN_COPY - the one-scan promise', () => {
 });
 
 describe('SCAN_COPY - magnitude without a false denominator', () => {
-  it('renders nothing rather than guessing at an unknown library size', () => {
-    expect(SCAN_COPY.shared.scaleLine(null, true)).toBe('');
-    expect(SCAN_COPY.shared.durationLine(undefined)).toBe('');
-  });
-
   it('merges scale and duration into one short line', () => {
     expect(SCAN_COPY.shared.scaleAndDurationLine(null)).toBe('');
     expect(SCAN_COPY.shared.scaleAndDurationLine(0)).toBe('');
@@ -237,12 +233,6 @@ describe('SCAN_COPY - magnitude without a false denominator', () => {
     );
     expect(wordCount(SCAN_COPY.shared.scaleAndDurationLine(53_282))).toBeLessThanOrEqual(8);
     expect(SCAN_COPY.trips.lastScannedLine('3 days ago')).toBe('Last scanned 3 days ago');
-  });
-
-  it('buckets duration instead of counting down', () => {
-    expect(SCAN_COPY.shared.durationLine(900)).toBe('Usually under a minute.');
-    expect(SCAN_COPY.shared.durationLine(12_000)).toBe('Usually a few minutes.');
-    expect(SCAN_COPY.shared.durationLine(53_282)).toMatch(/several minutes/);
   });
 
   it('tells the truth about which pass this is', () => {
@@ -325,7 +315,11 @@ describe('SCAN_COPY - permission recovery', () => {
 function wordCount(value: string): number {
   const trimmed = value.trim();
   if (!trimmed) return 0;
-  return trimmed.split(/\s+/).length;
+  return trimmed.split(/\s+/).filter((token) => /[A-Za-z0-9]/.test(token)).length;
+}
+
+function words(parts: readonly string[]): number {
+  return wordCount(parts.filter(Boolean).join(' '));
 }
 
 describe('SCAN_COPY - permission carousel', () => {
@@ -469,5 +463,76 @@ describe('SCAN_COPY - provenance', () => {
   it.each(RETIRED)('%s no longer hardcodes "%s"', (file, literal) => {
     const source = readFileSync(join(SRC, '..', file), 'utf8');
     expect(source).not.toContain(literal);
+  });
+});
+
+describe('SCAN_COPY - surface word budgets', () => {
+  const { shared, trips, quiz, permission } = SCAN_COPY;
+  const carousel = permission.carousel;
+  const longest = (lines: readonly string[]) =>
+    lines.reduce((best, line) => (wordCount(line) > wordCount(best) ? line : best), '');
+
+  const thinReasons = [
+    null,
+    'people_present',
+    'indoor',
+    'category_not_allowed',
+    'prepare_failed',
+    'unclassifiable',
+    'service_error',
+    'other',
+  ].map((dominantReason) =>
+    thinLibraryReason({
+      status: 'thin-library',
+      eligibleCount: 1,
+      hasGeoCandidates: dominantReason !== null,
+      dominantReason,
+    } as QuizCreationOutcome)
+  );
+
+  const SURFACE_BUDGETS: Array<[string, number, number]> = [
+    ['carousel beat 1', 18, words([carousel.beat1Title, carousel.beat1Subtitle])],
+    ['carousel beat 2', 18, words([carousel.beat2Title, carousel.beat2Subtitle])],
+    [
+      'carousel beat 3 trips',
+      18,
+      words([carousel.beat3Title('trips'), carousel.beat3Subtitle('trips')]),
+    ],
+    [
+      'carousel beat 3 quiz',
+      18,
+      words([carousel.beat3Title('quiz'), carousel.beat3Subtitle('quiz')]),
+    ],
+    ['trips idle first', 12, words([trips.idleTitleFirst, shared.scaleAndDurationLine(53_000)])],
+    [
+      'trips idle returning',
+      10,
+      words([trips.idleTitleReturning, trips.lastScannedLine('3 days ago')]),
+    ],
+    [
+      'quiz intro first',
+      20,
+      words([quiz.introTitle, quiz.introBody, shared.scaleAndDurationLine(53_000)]),
+    ],
+    ['quiz intro ready', 20, words([quiz.introTitle, quiz.introBody, quiz.freshnessReady(53_000)])],
+    ['quiz intro stale', 20, words([quiz.introTitle, quiz.introBody, quiz.freshnessStale])],
+    ['quiz intro syncing', 20, words([quiz.introTitle, quiz.introBody, quiz.freshnessSyncing])],
+    ['quiz build', 16, words([quiz.workingTitle, longest(shared.stageLines('quiz-build'))])],
+    ['trips scan', 16, words([trips.stageTitle, longest(shared.stageLines('trip-scan'))])],
+    ['recovery denied', 18, words([permission.recoveryTitleDenied, permission.recoveryBodyDenied])],
+    [
+      'recovery limited',
+      20,
+      words([permission.recoveryTitleLimited, permission.recoveryBodyLimited]),
+    ],
+    ...thinReasons.map((reason, index): [string, number, number] => [
+      `thin library ${index}`,
+      24,
+      words([THIN_LIBRARY_TITLE, THIN_LIBRARY_BODY, reason]),
+    ]),
+  ];
+
+  it.each(SURFACE_BUDGETS)('%s stays within %i words (has %i)', (_name, budget, count) => {
+    expect(count).toBeLessThanOrEqual(budget);
   });
 });

@@ -54,7 +54,11 @@ import { selectHomeCountry, useOnboardingStore } from '@stores/onboardingStore';
 import { PhotoHero } from './components/PhotoHero';
 import { QuizTopBar } from './components/QuizTopBar';
 import { BuildProgressSheet, QuizWorkingStage } from './creation/BuildProgressSheet';
-import { thinLibraryReason } from './creation/quizCreationCopy';
+import {
+  THIN_LIBRARY_BODY,
+  THIN_LIBRARY_TITLE,
+  thinLibraryReason,
+} from './creation/quizCreationCopy';
 import { styles } from './creation/quizCreationStyles';
 import { useQuizCreationFlow } from './creation/useQuizCreationFlow';
 import { introPoster } from './sampleAssets';
@@ -74,8 +78,6 @@ export function QuizCreationScreen({ navigation, route }: Props) {
     limitedAccess,
     freshnessLine,
     isFirstScan,
-    scaleLine,
-    durationLine,
     draftHeroUri,
     draftUploadCounts,
     build,
@@ -187,19 +189,9 @@ export function QuizCreationScreen({ navigation, route }: Props) {
           <View style={styles.sheetContent} testID="quiz-intro-step">
             <Text style={styles.title}>{SCAN_COPY.quiz.introTitle}</Text>
             <Text style={styles.body}>{SCAN_COPY.quiz.introBody}</Text>
-            <Text style={styles.freshnessLine} testID="quiz-freshness-line">
-              {freshnessLine}
-            </Text>
-            {/* Magnitude appears ONCE, here, where it is context rather than a
-                wait. A first scan is the only run that needs both lines. */}
-            {isFirstScan && scaleLine ? (
-              <Text style={styles.freshnessDetail} testID="quiz-scale-line">
-                {scaleLine}
-              </Text>
-            ) : null}
-            {isFirstScan && durationLine ? (
-              <Text style={styles.freshnessDetail} testID="quiz-duration-line">
-                {durationLine}
+            {freshnessLine ? (
+              <Text style={styles.freshnessLine} testID="quiz-freshness-line">
+                {freshnessLine}
               </Text>
             ) : null}
             <Button title="Build My Challenge" onPress={startCreation} testID="quiz-build-start" />
@@ -268,10 +260,8 @@ export function QuizCreationScreen({ navigation, route }: Props) {
             </View>
           ) : (
             <View style={styles.sheetContent} testID="quiz-thin-library">
-              <Text style={styles.title}>Not Enough Photos Yet</Text>
-              <Text style={styles.body}>
-                A challenge needs 5 photos that are geotagged, outdoors, and people-free.
-              </Text>
+              <Text style={styles.title}>{THIN_LIBRARY_TITLE}</Text>
+              <Text style={styles.body}>{THIN_LIBRARY_BODY}</Text>
               <Text style={styles.hint} testID="quiz-thin-reason">
                 {thinLibraryReason(outcome)}
               </Text>

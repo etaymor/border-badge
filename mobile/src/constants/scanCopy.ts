@@ -100,32 +100,8 @@ function persistenceParagraphWhileLeased(kind: ScanJobKind): string {
 }
 
 /**
- * Magnitude, stated ONCE and up front — where it is context rather than a
- * wait. Returns '' for an unknown total: rendering nothing beats guessing.
- */
-function scaleLine(total: number | null | undefined, isFirstScan: boolean): string {
-  if (!total || total <= 0) return '';
-  const count = total.toLocaleString();
-  return isFirstScan
-    ? `About ${count} photos to look through. The first pass is the long one — after this we only look at what's new.`
-    : `Only the ${count} photos added since your last check.`;
-}
-
-/**
- * Duration in buckets, never a countdown. The classification step's per-batch
- * latency makes a smooth ETA impossible, and an ETA that slips is worse than
- * none at all.
- */
-function durationLine(total: number | null | undefined): string {
-  if (!total || total <= 0) return '';
-  if (total < 5_000) return 'Usually under a minute.';
-  if (total < 20_000) return 'Usually a few minutes.';
-  return 'A library this size takes several minutes.';
-}
-
-/**
- * Scale and duration as one line under the idle card. Empty when the count
- * is unknown. Eight words at the large-library bucket.
+ * Magnitude, stated once and up front. Empty when the count is unknown.
+ * Eight words at the large-library bucket, counting the middot as a separator.
  */
 function scaleAndDurationLine(total: number | null | undefined): string {
   if (!total || total <= 0) return '';
@@ -257,14 +233,13 @@ const quiz = {
   leaveCta: 'Leave It Running',
   stopCta: 'Stop',
 
-  freshnessNeverSynced:
-    'First we scan your library. It runs on your device, and the same scan builds your trips, too.',
-  freshnessStale: 'First we check your library for new photos. Usually quick.',
-  freshnessSyncing: 'Your library is syncing right now — we will use the freshest photos.',
-  freshnessReady(syncedAgo: string | null, cachedPhotoCount: number): string {
-    const when = syncedAgo ? ` — ${syncedAgo}` : '';
-    const count = cachedPhotoCount > 0 ? ` — ${cachedPhotoCount.toLocaleString()} photos` : '';
-    return `Your photo library is ready${when}${count}. No scan needed.`;
+  freshnessStale: 'Checking for new photos.',
+  freshnessSyncing: 'Your library is syncing.',
+  freshnessReady(cachedPhotoCount: number): string {
+    if (cachedPhotoCount > 0) {
+      return `Library ready · ${cachedPhotoCount.toLocaleString()} photos`;
+    }
+    return 'Library ready';
   },
 } as const;
 
@@ -295,10 +270,9 @@ const permissionCarousel = {
 const permission = {
   recoveryTitleDenied: 'Photo Access Needed',
   recoveryTitleLimited: 'Full Access Works Best',
-  recoveryBodyDenied:
-    'Full Access is needed to find trips across your library. The scan runs on your device. Nothing is uploaded until you save a place or share a challenge.',
+  recoveryBodyDenied: 'Full Access finds trips across your library. The scan runs on your device.',
   recoveryBodyLimited:
-    'Limited selection may miss trips in the rest of your library. Full Access lets the scan find them. The scan runs on your device. Nothing is uploaded until you save a place or share a challenge.',
+    'A limited selection can miss trips. Full Access finds them. The scan runs on your device.',
   recoveryPrivacyReportTip:
     "You can inspect network activity in Apple's App Privacy Report (Settings → Privacy & Security → App Privacy Report).",
   recoveryOpenSettingsCta: 'Open Settings',
@@ -367,8 +341,6 @@ export const SCAN_COPY = {
     persistenceParagraph,
     leaveHintWhileLeased,
     persistenceParagraphWhileLeased,
-    scaleLine,
-    durationLine,
     scaleAndDurationLine,
     stageLines,
   },
