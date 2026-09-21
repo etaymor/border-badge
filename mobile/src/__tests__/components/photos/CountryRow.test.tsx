@@ -36,6 +36,16 @@ describe('CountryRow', () => {
       width: 56,
       height: 56,
     });
+    expect(
+      StyleSheet.flatten(screen.getByTestId('country-row-PT').props.style).justifyContent
+    ).toBeUndefined();
+    expect(StyleSheet.flatten(screen.getByTestId('country-slots').props.style).gap).toBe(12);
+    expect(
+      StyleSheet.flatten(screen.getByTestId('country-row-stamp-PT').props.style)
+    ).toMatchObject({
+      width: 44,
+      height: 44,
+    });
   });
 
   it('caps thumbnail content at two fixed slots', () => {

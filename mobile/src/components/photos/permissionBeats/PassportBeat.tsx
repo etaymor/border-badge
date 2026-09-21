@@ -1,19 +1,9 @@
 import { useEffect, type ReactNode } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { StyleSheet } from 'react-native';
 import { Image } from 'expo-image';
-import Animated, {
-  Easing,
-  interpolate,
-  useAnimatedStyle,
-  useSharedValue,
-  withDelay,
-  withRepeat,
-  withSequence,
-  withTiming,
-} from 'react-native-reanimated';
+import Animated, { interpolate, useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
 
 import { CountryRow, type CountryRowSlot } from '@components/photos/CountryRow';
-import { SCAN_SLOT_FLY_IN_DURATION, SCAN_SLOT_FLY_IN_STAGGER } from '@components/photos/scanMotion';
 import { colors } from '@constants/colors';
 
 import {
@@ -21,7 +11,8 @@ import {
   PERMISSION_BEAT_DEMO_COUNTRIES,
   type PermissionBeatAssets,
 } from './permissionBeatAssets';
-import { PERMISSION_BEAT_LOOP_HOLD, PERMISSION_BEAT_RESET_DURATION } from './permissionMotion';
+import { PERMISSION_SHELF_STAGGER, permissionBeatVisibleMs } from './permissionMotion';
+import { permissionPopLoop, usePermissionBeatFade } from './usePermissionBeatFade';
 
 const AnimatedImage = Animated.createAnimatedComponent(Image);
 const ROW_COUNT = 3;
@@ -42,6 +33,13 @@ interface PassportTileProps {
   assets: PermissionBeatAssets;
 }
 
+function shelfOrigin(rowIndex: number, slotIndex: number): { x: number; y: number } {
+  return {
+    x: -(32 + slotIndex * 56),
+    y: (1 - rowIndex) * 64,
+  };
+}
+
 function PassportTile({
   code,
   slotIndex,
@@ -51,34 +49,21 @@ function PassportTile({
 }: PassportTileProps) {
   const progress = useSharedValue(shouldAnimate ? 0 : 1);
   const source = assets.beat3?.[code]?.[slotIndex];
+  const rowIndex = Math.floor(sequenceIndex / SLOTS_PER_ROW);
+  const { x: originX, y: originY } = shelfOrigin(rowIndex, slotIndex);
 
   useEffect(() => {
     progress.value = shouldAnimate
-      ? withRepeat(
-          withSequence(
-            withDelay(
-              sequenceIndex * SCAN_SLOT_FLY_IN_STAGGER,
-              withTiming(1, {
-                duration: SCAN_SLOT_FLY_IN_DURATION,
-                easing: Easing.inOut(Easing.ease),
-              })
-            ),
-            withDelay(
-              PERMISSION_BEAT_LOOP_HOLD,
-              withTiming(0, { duration: PERMISSION_BEAT_RESET_DURATION })
-            )
-          ),
-          -1
-        )
+      ? permissionPopLoop(sequenceIndex, ROW_COUNT * SLOTS_PER_ROW, PERMISSION_SHELF_STAGGER)
       : 1;
   }, [progress, sequenceIndex, shouldAnimate]);
 
   const animatedStyle = useAnimatedStyle(() => ({
     opacity: progress.value,
     transform: [
-      { translateX: interpolate(progress.value, [0, 1], [-110 - slotIndex * 42, 0]) },
-      { translateY: interpolate(progress.value, [0, 1], [-70, 0]) },
-      { scale: interpolate(progress.value, [0, 1], [0.72, 1]) },
+      { translateX: interpolate(progress.value, [0, 1], [originX, 0]) },
+      { translateY: interpolate(progress.value, [0, 1], [originY, 0]) },
+      { scale: interpolate(progress.value, [0, 1], [0.6, 1]) },
     ],
   }));
 
@@ -112,9 +97,13 @@ export default function PassportBeat({
     ({ code }) => code !== normalizedHomeCountry
   ).slice(0, ROW_COUNT);
   const shouldAnimate = isActive && !reduceMotion;
+  const fadeStyle = usePermissionBeatFade(
+    shouldAnimate,
+    permissionBeatVisibleMs(ROW_COUNT * SLOTS_PER_ROW, PERMISSION_SHELF_STAGGER)
+  );
 
   return (
-    <View testID="permission-beat-3" style={styles.rows} accessible={false}>
+    <Animated.View testID="permission-beat-3" style={[styles.rows, fadeStyle]} accessible={false}>
       {countries.map(({ code, name }, rowIndex) => {
         const slots = Array.from({ length: SLOTS_PER_ROW }, (_, slotIndex) =>
           createSlot(() => (
@@ -139,7 +128,7 @@ export default function PassportBeat({
           />
         );
       })}
-    </View>
+    </Animated.View>
   );
 }
 
@@ -152,9 +141,11 @@ const placeholderTints = [
 
 const styles = StyleSheet.create({
   rows: {
+    flex: 1,
     width: '100%',
-    maxWidth: 350,
-    gap: 5,
+    justifyContent: 'center',
+    gap: 12,
+    paddingHorizontal: 16,
   },
   tile: {
     width: '100%',

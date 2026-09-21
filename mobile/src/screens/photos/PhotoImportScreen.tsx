@@ -694,7 +694,6 @@ export function PhotoImportScreen({ navigation, route }: Props) {
                 step={permissionCarouselStep}
                 reduceMotion={reduceMotion}
                 homeCountry={homeCountryCode}
-                compact
               />
             }
           />

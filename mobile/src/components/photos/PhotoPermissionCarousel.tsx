@@ -259,6 +259,7 @@ const styles = StyleSheet.create({
   },
   visual: {
     alignSelf: 'stretch',
+    alignItems: 'center',
   },
   pager: {
     flexGrow: 0,

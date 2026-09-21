@@ -111,7 +111,7 @@ export function CountryRow({ code, name, slots, entering, reduceMotion }: Countr
         </Text>
       </View>
 
-      <View style={styles.slots}>
+      <View style={styles.slots} testID="country-slots">
         {populatedSlots.map((renderSlot, index) => (
           <Animated.View
             key={index}
@@ -132,10 +132,10 @@ export function CountryRow({ code, name, slots, entering, reduceMotion }: Countr
 
 const styles = StyleSheet.create({
   row: {
+    width: '100%',
     minHeight: 64,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
     gap: 12,
   },
   finalRowState: {
@@ -144,17 +144,17 @@ const styles = StyleSheet.create({
   },
   identity: {
     minWidth: 0,
-    flex: 1,
+    flexShrink: 1,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
   },
   stamp: {
-    width: 48,
-    height: 48,
+    width: 44,
+    height: 44,
   },
   name: {
-    flex: 1,
+    flexShrink: 1,
     fontFamily: fonts.body.semiBold,
     fontSize: 15,
     lineHeight: 20,
@@ -162,7 +162,7 @@ const styles = StyleSheet.create({
   },
   slots: {
     flexDirection: 'row',
-    gap: 8,
+    gap: 12,
   },
   slot: {
     width: COUNTRY_ROW_SLOT_SIZE,

@@ -5,8 +5,18 @@ import { withRepeat } from 'react-native-reanimated';
 import OnDeviceBeat from '@components/photos/permissionBeats/OnDeviceBeat';
 import PassportBeat from '@components/photos/permissionBeats/PassportBeat';
 import PermissionBeatVisual from '@components/photos/permissionBeats/PermissionBeatVisual';
+import {
+  PERMISSION_BEAT_FADE_OUT,
+  PERMISSION_CHECK_STAGGER,
+  PERMISSION_POP_DURATION,
+  permissionBeatResetDelay,
+  permissionBeatVisibleMs,
+} from '@components/photos/permissionBeats/permissionMotion';
 import TripsFoundBeat from '@components/photos/permissionBeats/TripsFoundBeat';
-import type { PermissionBeatAssets } from '@components/photos/permissionBeats/permissionBeatAssets';
+import {
+  DEFAULT_PERMISSION_BEAT_ASSETS,
+  type PermissionBeatAssets,
+} from '@components/photos/permissionBeats/permissionBeatAssets';
 
 const partialAssets: PermissionBeatAssets = {
   beat1: [{ uri: 'asset://travel-one' }],
@@ -16,27 +26,58 @@ const partialAssets: PermissionBeatAssets = {
 };
 
 describe('permission beat visuals', () => {
-  it('renders twelve tinted placeholders in the trips grid', () => {
-    render(<TripsFoundBeat isActive={false} reduceMotion={false} />);
+  it('resets each pop at the same instant the frame finishes fading', () => {
+    const count = 8;
+    const visibleMs = permissionBeatVisibleMs(count, PERMISSION_CHECK_STAGGER);
+    const fadeEnd = visibleMs + PERMISSION_BEAT_FADE_OUT;
 
-    expect(screen.getAllByTestId(/^permission-beat-placeholder-/)).toHaveLength(12);
-    expect(screen.getAllByTestId(/^permission-beat1-tile-/)).toHaveLength(12);
+    for (let order = 0; order < count; order += 1) {
+      const snapAt =
+        order * PERMISSION_CHECK_STAGGER +
+        PERMISSION_POP_DURATION +
+        permissionBeatResetDelay(order, count, PERMISSION_CHECK_STAGGER);
+      expect(snapAt).toBe(fadeEnd);
+    }
+  });
+
+  it('renders twenty tiles filling the trips grid', () => {
+    render(<TripsFoundBeat isActive={false} reduceMotion={false} assets={{}} />);
+
+    expect(screen.getAllByTestId(/^permission-beat-placeholder-/)).toHaveLength(20);
+    expect(screen.getAllByTestId(/^permission-beat1-tile-/)).toHaveLength(20);
+    expect(StyleSheet.flatten(screen.getByTestId('permission-beat-1').props.style).gap).toBe(4);
   });
 
   it('renders one tinted placeholder and the three SCAN_COPY pills', () => {
-    render(<OnDeviceBeat isActive={false} reduceMotion={false} />);
+    render(<OnDeviceBeat isActive={false} reduceMotion={false} assets={{}} />);
 
     expect(screen.getAllByTestId(/^permission-beat-placeholder-/)).toHaveLength(1);
-    expect(screen.getByText('Lisbon')).toBeTruthy();
-    expect(screen.getByText('Portugal')).toBeTruthy();
+    expect(screen.getByText('Bøur')).toBeTruthy();
+    expect(screen.getByText('Faroe Islands')).toBeTruthy();
     expect(screen.getByText('Location data only')).toBeTruthy();
   });
 
   it('renders six tinted placeholders in three shared country rows', () => {
-    render(<PassportBeat isActive={false} reduceMotion={false} />);
+    render(<PassportBeat isActive={false} reduceMotion={false} assets={{}} />);
 
     expect(screen.getAllByTestId(/^permission-beat-placeholder-/)).toHaveLength(6);
     expect(screen.getAllByTestId(/^country-row-/)).toHaveLength(12);
+  });
+
+  it('wires the delivered stills into the default asset map', () => {
+    expect(DEFAULT_PERMISSION_BEAT_ASSETS.beat1).toHaveLength(12);
+    expect(DEFAULT_PERMISSION_BEAT_ASSETS.beat2).toBeDefined();
+    expect(Object.keys(DEFAULT_PERMISSION_BEAT_ASSETS.beat3 ?? {})).toEqual([
+      'HR',
+      'JP',
+      'MX',
+      'IT',
+    ]);
+    expect(DEFAULT_PERMISSION_BEAT_ASSETS.beat3?.HR).toHaveLength(2);
+
+    render(<TripsFoundBeat isActive={false} reduceMotion={false} />);
+    expect(screen.getAllByTestId(/^permission-beat1-image-/)).toHaveLength(12);
+    expect(screen.getAllByTestId(/^permission-beat-placeholder-/)).toHaveLength(8);
   });
 
   it('renders each reduce-motion beat at its final static frame', () => {
@@ -76,19 +117,19 @@ describe('permission beat visuals', () => {
   });
 
   it.each([
-    [1, 8],
-    [2, 3],
-    [3, 6],
-  ] as const)('loops only the visible content for active step %s', (step, loopCount) => {
+    [1, 9],
+    [2, 4],
+    [3, 7],
+  ] as const)('loops the beat and its fade for active step %s', (step, loopCount) => {
     render(<PermissionBeatVisual step={step} reduceMotion={false} homeCountry="US" />);
 
     expect(withRepeat).toHaveBeenCalledTimes(loopCount);
   });
 
   it('filters a normalized home country and fills from the fourth demo country', () => {
-    render(<PassportBeat isActive={false} reduceMotion homeCountry=" pt " />);
+    render(<PassportBeat isActive={false} reduceMotion homeCountry=" hr " />);
 
-    expect(screen.queryByTestId('country-row-PT')).toBeNull();
+    expect(screen.queryByTestId('country-row-HR')).toBeNull();
     expect(screen.getByTestId('country-row-JP')).toBeTruthy();
     expect(screen.getByTestId('country-row-MX')).toBeTruthy();
     expect(screen.getByTestId('country-row-IT')).toBeTruthy();
@@ -97,7 +138,7 @@ describe('permission beat visuals', () => {
   it('uses the first three demo countries when home is outside the demo', () => {
     render(<PassportBeat isActive={false} reduceMotion homeCountry="US" />);
 
-    expect(screen.getByTestId('country-row-PT')).toBeTruthy();
+    expect(screen.getByTestId('country-row-HR')).toBeTruthy();
     expect(screen.getByTestId('country-row-JP')).toBeTruthy();
     expect(screen.getByTestId('country-row-MX')).toBeTruthy();
     expect(screen.queryByTestId('country-row-IT')).toBeNull();
@@ -108,10 +149,10 @@ describe('permission beat visuals', () => {
     expect(screen.getByTestId('permission-beat1-image-0').props.source).toContainEqual(
       partialAssets.beat1?.[0]
     );
-    expect(screen.getAllByTestId(/^permission-beat-placeholder-/)).toHaveLength(11);
+    expect(screen.getAllByTestId(/^permission-beat-placeholder-/)).toHaveLength(19);
     grid.unmount();
 
-    render(<PassportBeat isActive={false} reduceMotion assets={partialAssets} homeCountry="PT" />);
+    render(<PassportBeat isActive={false} reduceMotion assets={partialAssets} homeCountry="HR" />);
     expect(screen.getByTestId('permission-beat3-image-JP-0').props.source).toContainEqual(
       partialAssets.beat3?.JP?.[0]
     );
@@ -132,17 +173,13 @@ describe('permission beat visuals', () => {
     expect(screen.getByTestId(`permission-beat-${step}`)).toBeTruthy();
   });
 
-  it('uses a bounded visual frame for compact permission doors', () => {
-    render(<PermissionBeatVisual step={1} reduceMotion compact />);
+  it('frames every beat in the stage card', () => {
+    render(<PermissionBeatVisual step={1} reduceMotion />);
 
-    expect(
-      StyleSheet.flatten(screen.getByTestId('permission-beat-visual').props.style)
-    ).toMatchObject({
-      height: 190,
-      minHeight: 190,
-    });
-    expect(
-      StyleSheet.flatten(screen.getByTestId('permission-beat-visual-content').props.style).transform
-    ).toEqual([{ scale: 0.7 }]);
+    const frame = StyleSheet.flatten(screen.getByTestId('stage-card').props.style);
+    expect(frame.aspectRatio).toBeCloseTo(4 / 5);
+    expect(frame.borderRadius).toBe(24);
+    expect(frame.overflow).toBe('hidden');
+    expect(screen.queryByTestId('permission-beat-visual-content')).toBeNull();
   });
 });

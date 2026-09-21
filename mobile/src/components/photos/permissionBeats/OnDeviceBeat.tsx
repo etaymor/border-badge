@@ -1,28 +1,15 @@
 import { useEffect } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { Image } from 'expo-image';
-import Animated, {
-  interpolate,
-  useAnimatedStyle,
-  useSharedValue,
-  withDelay,
-  withRepeat,
-  withSequence,
-  withSpring,
-  withTiming,
-} from 'react-native-reanimated';
+import Animated, { interpolate, useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
 
 import { colors } from '@constants/colors';
 import { SCAN_COPY } from '@constants/scanCopy';
 import { fonts } from '@constants/typography';
 
 import { DEFAULT_PERMISSION_BEAT_ASSETS, type PermissionBeatAssets } from './permissionBeatAssets';
-import {
-  PERMISSION_BEAT_LOOP_HOLD,
-  PERMISSION_BEAT_RESET_DURATION,
-  PERMISSION_PILL_STAGGER,
-  PERMISSION_POP_SPRING_CONFIG,
-} from './permissionMotion';
+import { PERMISSION_PILL_STAGGER, permissionBeatVisibleMs } from './permissionMotion';
+import { permissionPopLoop, usePermissionBeatFade } from './usePermissionBeatFade';
 
 const AnimatedImage = Animated.createAnimatedComponent(Image);
 
@@ -40,21 +27,13 @@ interface LocationPillProps {
 
 function LocationPill({ label, index, shouldAnimate }: LocationPillProps) {
   const progress = useSharedValue(shouldAnimate ? 0 : 1);
+  const pillCount = SCAN_COPY.permission.carousel.beat2Pills.length;
 
   useEffect(() => {
     progress.value = shouldAnimate
-      ? withRepeat(
-          withSequence(
-            withDelay(index * PERMISSION_PILL_STAGGER, withSpring(1, PERMISSION_POP_SPRING_CONFIG)),
-            withDelay(
-              PERMISSION_BEAT_LOOP_HOLD,
-              withTiming(0, { duration: PERMISSION_BEAT_RESET_DURATION })
-            )
-          ),
-          -1
-        )
+      ? permissionPopLoop(index, pillCount, PERMISSION_PILL_STAGGER)
       : 1;
-  }, [index, progress, shouldAnimate]);
+  }, [index, pillCount, progress, shouldAnimate]);
 
   const animatedStyle = useAnimatedStyle(() => ({
     opacity: progress.value,
@@ -70,6 +49,7 @@ function LocationPill({ label, index, shouldAnimate }: LocationPillProps) {
       testID={`permission-beat2-pill-${index}`}
       style={[styles.pill, pillPositions[index], animatedStyle, staticPillStyle]}
     >
+      <View style={styles.leader} testID={`permission-beat2-dot-${index}`} />
       <Text style={styles.pillText}>{label}</Text>
     </Animated.View>
   );
@@ -81,9 +61,16 @@ export default function OnDeviceBeat({
   assets = DEFAULT_PERMISSION_BEAT_ASSETS,
 }: OnDeviceBeatProps) {
   const shouldAnimate = isActive && !reduceMotion;
+  const fadeStyle = usePermissionBeatFade(
+    shouldAnimate,
+    permissionBeatVisibleMs(
+      SCAN_COPY.permission.carousel.beat2Pills.length,
+      PERMISSION_PILL_STAGGER
+    )
+  );
 
   return (
-    <View testID="permission-beat-2" style={styles.frame} accessible={false}>
+    <Animated.View testID="permission-beat-2" style={[styles.frame, fadeStyle]} accessible={false}>
       {assets.beat2 ? (
         <AnimatedImage
           testID="permission-beat2-image"
@@ -100,31 +87,32 @@ export default function OnDeviceBeat({
       {SCAN_COPY.permission.carousel.beat2Pills.map((label, index) => (
         <LocationPill key={label} label={label} index={index} shouldAnimate={shouldAnimate} />
       ))}
-    </View>
+    </Animated.View>
   );
 }
 
 const pillPositions = [
-  { top: 30, right: -30 },
-  { top: 104, left: -34 },
-  { bottom: 34, right: -44 },
+  { top: 24, right: 16 },
+  { top: '46%' as const, left: 16 },
+  { bottom: 24, right: 16 },
 ];
 
 const styles = StyleSheet.create({
   frame: {
-    width: 190,
-    height: 254,
+    flex: 1,
+    width: '100%',
   },
   image: {
-    width: '100%',
-    height: '100%',
-    borderRadius: 18,
+    ...StyleSheet.absoluteFillObject,
   },
   placeholder: {
     backgroundColor: colors.lakeBlue,
   },
   pill: {
     position: 'absolute',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
     paddingHorizontal: 12,
     paddingVertical: 7,
     borderRadius: 16,
@@ -133,6 +121,12 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.16,
     shadowRadius: 7,
     shadowOffset: { width: 0, height: 3 },
+  },
+  leader: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: colors.sunsetGold,
   },
   finalPillState: {
     opacity: 1,
