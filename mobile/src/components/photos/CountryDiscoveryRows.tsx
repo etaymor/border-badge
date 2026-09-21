@@ -1,9 +1,10 @@
-import { memo, useCallback, useEffect, useRef, useState } from 'react';
+import { memo, useState } from 'react';
 import { AccessibilityInfo, Platform, StyleSheet, View } from 'react-native';
 
 import { CountryRow, type CountryRowSlot } from '@components/photos/CountryRow';
-import { SCAN_MIN_ARRIVAL_GAP } from '@components/photos/scanMotion';
+import { useArrivalQueue } from '@components/photos/useArrivalQueue';
 import { SCAN_COPY } from '@constants/scanCopy';
+import { useStableCallback } from '@hooks/useStableCallback';
 import type { CountryPreviewRow, ScanPreview } from '@services/photoImport/scanPreviewPicker';
 import { PhotoThumbnail } from '@screens/photos/components/PhotoThumbnail';
 
@@ -62,80 +63,18 @@ function CountryDiscoveryRowsComponent({
   isPaused = false,
   reduceMotion,
 }: CountryDiscoveryRowsProps) {
-  const [initialKeys] = useState(() => new Set(rows.map((row) => row.code)));
-  const [arrivedKeys, setArrivedKeys] = useState(() => new Set(initialKeys));
-  const [enteringKey, setEnteringKey] = useState<string | null>(null);
-  const knownKeysRef = useRef(new Set(initialKeys));
-  const queueRef = useRef<CountryPreviewRow[]>([]);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const announce = useCallback((row: CountryPreviewRow) => {
+  const announce = useStableCallback((row: CountryPreviewRow) => {
     if (Platform.OS === 'ios') {
       AccessibilityInfo.announceForAccessibility(SCAN_COPY.trips.discovery(row.name));
     }
-  }, []);
+  });
 
-  const settleRows = useCallback(
-    (queuedRows: readonly CountryPreviewRow[], shouldAnnounce: boolean) => {
-      setEnteringKey(null);
-      if (queuedRows.length === 0) return;
-      setArrivedKeys((current) => {
-        const next = new Set(current);
-        queuedRows.forEach((row) => next.add(row.code));
-        return next;
-      });
-      if (shouldAnnounce) queuedRows.forEach(announce);
-    },
-    [announce]
-  );
-
-  const dequeueNext = useCallback(() => {
-    timerRef.current = null;
-    if (isPaused) return;
-    const next = queueRef.current.shift();
-    if (!next) return;
-
-    setEnteringKey(next.code);
-    setArrivedKeys((current) => new Set(current).add(next.code));
-    announce(next);
-
-    timerRef.current = setTimeout(dequeueNext, SCAN_MIN_ARRIVAL_GAP);
-  }, [announce, isPaused]);
-
-  useEffect(() => {
-    const newRows = rows.filter((row) => !knownKeysRef.current.has(row.code));
-    newRows.forEach((row) => knownKeysRef.current.add(row.code));
-    queueRef.current.push(...newRows);
-
-    if (isPaused) {
-      if (timerRef.current) {
-        clearTimeout(timerRef.current);
-        timerRef.current = null;
-      }
-      setEnteringKey(null);
-    }
-
-    if (isComplete) {
-      if (timerRef.current) {
-        clearTimeout(timerRef.current);
-        timerRef.current = null;
-      }
-      const queuedRows = queueRef.current.splice(0);
-      settleRows(queuedRows, !isPaused);
-      return;
-    }
-
-    if (!isPaused && !timerRef.current && queueRef.current.length > 0) dequeueNext();
-  }, [dequeueNext, isComplete, isPaused, rows, settleRows]);
-
-  useEffect(
-    () => () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
-      timerRef.current = null;
-      queueRef.current = [];
-    },
-    []
-  );
+  const { arrivedKeys, enteringKey } = useArrivalQueue({
+    rows,
+    isComplete,
+    isPaused,
+    onArrive: announce,
+  });
 
   const arrivedRows = rows.filter((row) => arrivedKeys.has(row.code));
   const firstVisibleIndex = Math.max(0, arrivedRows.length - VISIBLE_ROW_COUNT);
