@@ -21,6 +21,7 @@
 
 import { SCAN_COPY } from '@constants/scanCopy';
 import { Analytics } from '@services/analytics';
+import { getAllCountries } from '@services/countriesDb';
 import { getCountryName } from '@utils/countries';
 
 import type { JobFailure, JobRunContext } from '@services/jobs/jobTypes';
@@ -83,6 +84,13 @@ export async function runScanPass(
       await clearPhotoCache();
     }
 
+    // Prefer the countries reference (same source as the quiz path) so Hermes
+    // builds without Intl.DisplayNames still get human names instead of ISO codes.
+    const countries = await getAllCountries();
+    const countryNames = new Map(
+      countries.map((country) => [country.code, country.name ?? getCountryName(country.code)])
+    );
+
     detail.isIncremental = doIncremental;
     ctx.emit(null, { ...detail });
 
@@ -104,7 +112,11 @@ export async function runScanPass(
         });
         photoCountryCodes.set(photo.id, code ?? null);
         if (code) {
-          previewItems.push({ code, name: getCountryName(code), photo });
+          previewItems.push({
+            code,
+            name: countryNames.get(code) ?? getCountryName(code),
+            photo,
+          });
         }
       }
 

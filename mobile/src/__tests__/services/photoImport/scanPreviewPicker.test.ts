@@ -56,7 +56,7 @@ describe('pickScanPreviews', () => {
     expect(result.changed).toBe(true);
   });
 
-  it('creates a row but excludes screenshot and network previews', () => {
+  it('creates a row but excludes screenshots while keeping network assets as last resort', () => {
     const result = pickScanPreviews(
       [],
       [
@@ -66,7 +66,40 @@ describe('pickScanPreviews', () => {
       { homeCountry: 'US' }
     );
 
-    expect(result.countryPreviews).toEqual([{ code: 'JP', name: 'Country JP', previews: [] }]);
+    expect(result.countryPreviews).toEqual([
+      {
+        code: 'JP',
+        name: 'Country JP',
+        previews: [{ assetId: 'network', uri: 'file://network.jpg' }],
+      },
+    ]);
+  });
+
+  it('returns up to two network-only previews when a country has no local assets', () => {
+    const result = pickScanPreviews(
+      [],
+      [
+        item('net-1', 'JP', { isNetworkAsset: true }),
+        item('net-2', 'JP', { isNetworkAsset: true }),
+        item('net-3', 'JP', { isNetworkAsset: true }),
+      ],
+      { homeCountry: 'US' }
+    );
+
+    expect(ids(result.countryPreviews)).toEqual(['net-1', 'net-2']);
+  });
+
+  it('ranks every local photo ahead of every network photo before other criteria', () => {
+    const result = pickScanPreviews(
+      [],
+      [
+        item('network-favorite', 'JP', { isNetworkAsset: true, isFavorite: true }),
+        item('local-plain', 'JP', { isFavorite: false }),
+      ],
+      { homeCountry: 'US' }
+    );
+
+    expect(ids(result.countryPreviews)).toEqual(['local-plain', 'network-favorite']);
   });
 
   it('orders ties by pixels, non-social dimensions, then creation time', () => {

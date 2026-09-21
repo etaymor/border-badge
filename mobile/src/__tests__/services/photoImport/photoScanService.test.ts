@@ -36,6 +36,10 @@ jest.mock('@utils/countries', () => ({
   getCountryName: jest.fn((code: string) => `Country ${code}`),
 }));
 
+jest.mock('@services/countriesDb', () => ({
+  getAllCountries: jest.fn().mockResolvedValue([]),
+}));
+
 jest.mock('@services/analytics', () => ({
   Analytics: {
     photoImportScanStarted: jest.fn(),

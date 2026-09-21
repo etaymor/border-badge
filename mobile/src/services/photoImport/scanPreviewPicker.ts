@@ -66,6 +66,11 @@ function creationTime(photo: PhotoWithLocation): number {
 }
 
 function compareCandidates(left: PhotoWithLocation, right: PhotoWithLocation): number {
+  // Network (iCloud-optimized) assets are last-resort: every local ranks above every network.
+  const networkDifference =
+    Number(left.isNetworkAsset === true) - Number(right.isNetworkAsset === true);
+  if (networkDifference !== 0) return networkDifference;
+
   const favoriteDifference = Number(right.isFavorite === true) - Number(left.isFavorite === true);
   if (favoriteDifference !== 0) return favoriteDifference;
 
@@ -79,12 +84,7 @@ function compareCandidates(left: PhotoWithLocation, right: PhotoWithLocation): n
 }
 
 function addCandidate(pending: PendingCountry, photo: PhotoWithLocation, limit: number): void {
-  if (
-    limit === 0 ||
-    photo.isScreenshot === true ||
-    photo.isNetworkAsset === true ||
-    pending.candidateIds.has(photo.id)
-  ) {
+  if (limit === 0 || photo.isScreenshot === true || pending.candidateIds.has(photo.id)) {
     return;
   }
 
