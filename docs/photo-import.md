@@ -20,7 +20,7 @@ The photo import feature allows users to scan their device photo library and aut
 
 ### Mobile Screen Components (`mobile/src/screens/photos/components/`)
 
-- `IdlePhase.tsx`, `ScanningPhase.tsx`, `SuggestionsPhase.tsx` - Workflow phase UIs
+- `IdlePhase.tsx`, `ScanningPhase.tsx`, `SuggestionsPhase.tsx` - Workflow phase UIs. Idle and scanning share `StageCard` with the permission carousel
 - `PlaceSuggestionCard.tsx` - Individual suggestion with prev/next alternative cycling
 - `ClusterListItem.tsx`, `PhotoClusterCard.tsx` - Cluster displays
 - `PhotoGalleryModal.tsx` - Full-screen photo gallery
@@ -133,13 +133,54 @@ Both use a 60-day TTL (place data near a coordinate is very stable); the short i
 4. **Suggestions** - Fetch place suggestions from backend (vision data sent alongside clusters); text search fallback for detected business names
 5. **Confirmation** - User reviews suggestions with alternative place cycling (prev/next), creates entries
 
+## Scan surfaces
+
+The trips door and the Guess Where build share one frame: a navy hero, one
+`StageCard` (4:5, 24pt radius), and a warm-cream sheet underneath.
+
+**Permission carousel.** Both doors play three beats inside the card before
+the system prompt. Beat copy is a title and one line. The lock footer
+("The scan runs on your device · Full Access finds more trips") stays on
+screen. Allow Full Access is the consent: `usePhotoImportWorkflow` starts
+the scan on that grant even when the route did not pass `autoStart`, so the
+idle screen does not appear as a second pitch.
+
+**Idle.** Only when the user arrives with access already granted. A first
+run holds beat 3 on its last frame, with the title "Ready to scan", one
+magnitude line, Start Scan, and the lock footer. A return visit holds the
+reading grid still, with "Check for New Photos", "Last scanned …", and a
+Refresh All Photos text link. The polaroid, the privacy-notice block, and
+the body sentences are gone from this screen.
+
+**Live scan.** `ScanStage` fills the card: a placeholder grid with a sweep
+until the first country arrives, then the newest four rows. The sheet is a
+title ("Finding Your Trips" / "Building Your Challenge"), a counter with a
+thin gold bar, and one rotating status line from `SCAN_COPY.shared.stageLines`.
+A first scan also shows Leave It Running and Stop. Stop still confirms
+before it cancels. The quiz card swaps to the slot grid once checking begins.
+
+Claims that used to be paragraphs on these screens now live in shorter
+places:
+
+| Removed | Where the claim lives now |
+| --- | --- |
+| Idle `PrivacyNotice` (device scan, home-country read, upload triggers) | Carousel beats and the lock footer; the quiz upload line in `stageLines('quiz-build')` |
+| Quiz working privacy lines and the persistence paragraph | The rotating status line (`stageLines`) |
+| Trips `scanningHint` and the spinner-plus-sentence progress | The same status line, plus the counter |
+| Recovery-sheet upload sentence and the always-visible Privacy Report tip | The two-sentence recovery body; the tip sits behind "Why is this safe?" |
+
 ## Scan-time country previews
 
 During extraction, `scanPreviewPicker.ts` builds country rows from PhotoKit
-metadata already in memory. It excludes the home country, screenshots, and
-network/iCloud-offloaded assets. Within each batch, candidates rank by favorite
-status, then pixel count, then dimensions that are not common social-save
-sizes, then newer capture time. This path has no photo-tag or vision dependency.
+metadata already in memory. It excludes the home country and screenshots.
+Network/iCloud-offloaded assets stay as last-resort candidates, ranked after
+every local one, and render through `PhotoThumbnail` with recovery disabled
+so a scan never starts an iCloud download. Within each batch, local
+candidates rank by favorite status, then pixel count, then dimensions that
+are not common social-save sizes, then newer capture time. This path has no
+photo-tag or vision dependency. Country names come from the countries
+reference, falling back to `getCountryName` only when the reference has no
+entry.
 
 Rows are append-only and bounded to 10 countries with two thumbnail slots each.
 Later batches may fill an open slot but never reorder, replace, or remove an
@@ -148,13 +189,12 @@ array and is not published. Changed rows are carried in both
 `TripScanDetail.countryPreviews` and `QuizBuildDetail.countryPreviews`; quiz
 refresh progress includes them only on the progress tick after a changed batch.
 
-`CountryDiscoveryRows` presents the same fixed-height row layout for trip scans
-and for the quiz build while its step is `scanning`. Rows present at mount render
-settled; only later discoveries replay the queued arrival animation, and
-completion settles any queued rows immediately. The viewport keeps the newest
-rows visible without growing the surrounding screen. A thumbnail load failure
-silently empties that slot with recovery disabled, so scan-time previews never
-trigger an iCloud download.
+`ScanStage` presents the row layout for trip scans and for the quiz build
+while its step is `scanning`. The arrival queue lives in `useArrivalQueue`:
+rows present at mount render settled; only later discoveries replay the
+queued arrival animation, and completion settles any queued rows immediately.
+The card keeps the newest four rows and fades older ones out the top. A
+thumbnail load failure shows the placeholder tile with recovery disabled.
 
 ## Photo Vision Classification
 
@@ -501,6 +541,8 @@ binaries built before the module. On-device verification:
 | File                                                     | Purpose                                |
 | -------------------------------------------------------- | -------------------------------------- |
 | `mobile/src/screens/photos/PhotoImportScreen.tsx`        | Main photo import UI                   |
+| `mobile/src/components/photos/StageCard.tsx`             | Shared framed card for carousel, idle, and scan |
+| `mobile/src/components/photos/ScanStage.tsx`             | Live country shelf inside the card     |
 | `mobile/src/screens/photos/PhotoTripsScreen.tsx`         | Browse photo-discovered trips          |
 | `mobile/src/services/photoImport/visionPhoto.ts`         | Vision photo selection and preparation |
 | `mobile/src/services/photoImport/photoBackgroundSync.ts` | Background cache refresh               |
