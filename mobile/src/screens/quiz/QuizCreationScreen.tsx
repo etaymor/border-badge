@@ -13,10 +13,9 @@
  * slice says. That is why leaving mid-build no longer destroys it, and why
  * coming back reattaches to a partly-filled grid instead of restarting.
  *
- * Every phase shares one layout shell: a hero region up top (the most recent
- * find during the build, the intro poster before it, a plain navy field for
- * the utility states) over a warm-cream sheet that carries the copy and
- * actions.
+ * Every phase shares one layout shell: a navy hero up top (the stage card
+ * during the build, the intro poster before it, a plain navy field for the
+ * utility states) over a warm-cream sheet that carries the copy and actions.
  *
  * Owns every state of the creation flow:
  * - intro (freshness-aware confirm) and resume-draft confirm (pre-flighted
@@ -54,7 +53,7 @@ import { selectHomeCountry, useOnboardingStore } from '@stores/onboardingStore';
 
 import { PhotoHero } from './components/PhotoHero';
 import { QuizTopBar } from './components/QuizTopBar';
-import { BuildProgressSheet } from './creation/BuildProgressSheet';
+import { BuildProgressSheet, QuizWorkingStage } from './creation/BuildProgressSheet';
 import { thinLibraryReason } from './creation/quizCreationCopy';
 import { styles } from './creation/quizCreationStyles';
 import { useQuizCreationFlow } from './creation/useQuizCreationFlow';
@@ -111,16 +110,12 @@ export function QuizCreationScreen({ navigation, route }: Props) {
   const { lastPickUri } = build;
   let hero = neutralHero;
   if (phase === 'working') {
-    hero = lastPickUri ? (
-      <PhotoHero
-        source={lastPickUri}
-        scrim="bottom"
-        style={styles.heroFill}
-        testID="quiz-working-hero"
-      />
-    ) : (
-      <View style={[styles.heroNeutral, { paddingTop: insets.top }]} testID="quiz-hero-empty">
-        <Text style={styles.heroEyebrow}>Guess Where</Text>
+    // Back lives in the hero's safe-area row, above the card — the same
+    // arrangement as the permission beats, so the control never covers a tile.
+    hero = (
+      <View style={styles.permissionHero} testID="quiz-working-hero">
+        <QuizTopBar onClose={handleClose} icon="back" testID="quiz-creation-top-bar" />
+        <QuizWorkingStage build={build} reduceMotion={reduceMotion} isPaused={!isFocused} />
       </View>
     );
   } else if (phase === 'permission-request') {
@@ -181,7 +176,7 @@ export function QuizCreationScreen({ navigation, route }: Props) {
     <View style={styles.stage}>
       <StatusBar barStyle="light-content" />
       <View style={styles.heroRegion}>{hero}</View>
-      {phase !== 'permission-request' ? (
+      {phase !== 'permission-request' && phase !== 'working' ? (
         <View style={styles.topBar} pointerEvents="box-none">
           <QuizTopBar onClose={handleClose} icon="back" testID="quiz-creation-top-bar" />
         </View>
@@ -255,9 +250,7 @@ export function QuizCreationScreen({ navigation, route }: Props) {
           <BuildProgressSheet
             build={build}
             isFirstScan={isFirstScan}
-            durationLine={durationLine}
             reduceMotion={reduceMotion}
-            isPaused={!isFocused}
             onLeave={handleBack}
             onStop={handleCancel}
           />

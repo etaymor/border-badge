@@ -123,25 +123,17 @@ export const screenStyles = StyleSheet.create({
     marginLeft: 6,
   },
 
+  // Live scan: navy hero + cream sheet, same shell as the permission carousel.
+  scanStageLayout: {
+    flex: 1,
+  },
+
   // Scanning state
   scanningContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 40,
-  },
-  scanningTitle: {
-    fontFamily: fonts.playfair.bold,
-    fontSize: 20,
-    color: colors.midnightNavy,
-    marginTop: 24,
-    marginBottom: 8,
-  },
-  scanningProgress: {
-    fontFamily: fonts.openSans.regular,
-    fontSize: 16,
-    color: colors.textSecondary,
-    marginBottom: 16,
   },
   progressBar: {
     width: '100%',
@@ -153,15 +145,6 @@ export const screenStyles = StyleSheet.create({
   progressFill: {
     height: '100%',
     backgroundColor: colors.sunsetGold,
-  },
-  scanningHint: {
-    fontFamily: fonts.openSans.regular,
-    fontSize: 14,
-    color: colors.textSecondary,
-    textAlign: 'center',
-    lineHeight: 20,
-    marginTop: 20,
-    paddingHorizontal: 20,
   },
   discoveryFeed: {
     marginTop: 20,

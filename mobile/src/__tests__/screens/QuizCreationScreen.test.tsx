@@ -470,7 +470,7 @@ describe('QuizCreationScreen', () => {
 
       emitProgress({ step: 'scanning', current: 0, total: 100 }, []);
 
-      expect(screen.getByTestId('country-discovery-viewport')).toBeTruthy();
+      expect(screen.getByTestId('scan-stage-reading-grid')).toBeTruthy();
       expect(screen.queryByTestId('quiz-slot-empty-0')).toBeNull();
     });
 
@@ -512,7 +512,7 @@ describe('QuizCreationScreen', () => {
       emitProgress({ step: 'checking', current: 0, total: 10, pickUris: [] });
 
       expect(screen.getByTestId('quiz-slot-empty-0')).toBeTruthy();
-      expect(screen.queryByTestId('country-discovery-viewport')).toBeNull();
+      expect(screen.queryByTestId('scan-stage')).toBeNull();
     });
 
     it('renders the counter, found thumbnails, placeholders, and privacy line while hunting', async () => {
@@ -520,9 +520,7 @@ describe('QuizCreationScreen', () => {
       emitProgress({ step: 'checking', current: 3, total: 10, pickUris: picks });
 
       expect(screen.getByText('Building Your Challenge')).toBeTruthy();
-      expect(
-        screen.getByText(SCAN_COPY.quiz.workingStatus('checking', { isFirstScan: false }))
-      ).toBeTruthy();
+      expect(screen.getByText(SCAN_COPY.shared.stageLines('quiz-build')[0])).toBeTruthy();
       expect(screen.getByTestId('quiz-found-counter')).toBeTruthy();
       expect(screen.getByText('3 of 10')).toBeTruthy();
 
@@ -554,11 +552,15 @@ describe('QuizCreationScreen', () => {
       await startHeld();
       emitProgress({ step: 'checking', current: 3, total: 10, pickUris: picks });
 
-      expect(screen.getByText(SCAN_COPY.quiz.workingPrivacy[0])).toBeTruthy();
-      expect(screen.getByText(SCAN_COPY.quiz.workingPrivacy[1])).toBeTruthy();
-      expect(screen.getByText(SCAN_COPY.shared.persistenceParagraph)).toBeTruthy();
+      expect(screen.getByText(SCAN_COPY.shared.stageLines('quiz-build')[0])).toBeTruthy();
       expect(screen.getByTestId('quiz-leave-running')).toBeTruthy();
       expect(screen.getByTestId('quiz-cancel')).toBeTruthy();
+      expect(screen.queryByTestId('quiz-privacy-line')).toBeNull();
+      expect(screen.queryByTestId('quiz-trips-line')).toBeNull();
+      expect(screen.queryByTestId('quiz-persistence-line')).toBeNull();
+      expect(screen.queryByText(SCAN_COPY.quiz.workingPrivacy[0])).toBeNull();
+      expect(screen.queryByText(SCAN_COPY.quiz.workingPrivacy[1])).toBeNull();
+      expect(screen.queryByText(SCAN_COPY.shared.persistenceParagraph)).toBeNull();
     });
 
     it('drops even the first-scan copy once the upload starts', async () => {
@@ -575,26 +577,23 @@ describe('QuizCreationScreen', () => {
       expect(screen.queryByTestId('quiz-cancel')).toBeNull();
     });
 
-    it('shows the most recent find as the hero photo', async () => {
+    it('keeps found photos in the stage card while the challenge is built', async () => {
       await startHeld();
       emitProgress({ step: 'checking', current: 3, total: 10, pickUris: picks });
 
       expect(screen.getByTestId('quiz-working-hero')).toBeTruthy();
       expect(screen.queryByTestId('quiz-hero-empty')).toBeNull();
-      // The hero image (no slot testID) renders the LAST found pick.
-      const heroImage = screen
-        .UNSAFE_getAllByType(ExpoImage)
-        .find((node) => node.props.source?.uri === picks[2] && !node.props.testID);
-      expect(heroImage).toBeTruthy();
+      expect(screen.getByTestId('quiz-slot-photo-2').props.source.uri).toBe(picks[2]);
     });
 
-    it('renders a neutral navy field before any photo is found - no fake imagery', async () => {
+    it('renders the stage card before any photo is found', async () => {
       await startHeld();
       emitProgress({ step: 'checking', current: 0, total: 10, pickUris: [] });
 
-      expect(screen.getByTestId('quiz-hero-empty')).toBeTruthy();
-      expect(screen.queryByTestId('quiz-working-hero')).toBeNull();
+      expect(screen.getByTestId('quiz-working-hero')).toBeTruthy();
+      expect(screen.queryByTestId('quiz-hero-empty')).toBeNull();
       expect(screen.queryByTestId('quiz-slot-photo-0')).toBeNull();
+      expect(screen.getByTestId('quiz-slot-empty-0')).toBeTruthy();
       expect(screen.getByText('0 of 10')).toBeTruthy();
     });
 
@@ -603,9 +602,7 @@ describe('QuizCreationScreen', () => {
       emitProgress({ step: 'checking', current: 3, total: 10, pickUris: picks });
       emitProgress({ step: 'building', current: 1, total: 3, pickUris: picks });
 
-      expect(
-        screen.getByText(SCAN_COPY.quiz.workingStatus('building', { isFirstScan: false }))
-      ).toBeTruthy();
+      expect(screen.getByText(SCAN_COPY.shared.stageLines('quiz-build')[0])).toBeTruthy();
       // The counter reads FOUND photos, so it does not restart at the
       // handover: the hunt is over and every slot is filled.
       expect(screen.getByText('3 of 3')).toBeTruthy();

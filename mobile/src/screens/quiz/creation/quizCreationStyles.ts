@@ -116,53 +116,9 @@ export const styles = StyleSheet.create({
     color: withAlpha(colors.midnightNavy, 0.6),
     textAlign: 'center',
   },
-  statusLine: {
-    fontFamily: fonts.body.regular,
-    fontSize: 15,
-    lineHeight: 22,
-    color: colors.textSecondary,
-    textAlign: 'center',
-    marginTop: -6,
-  },
-  counter: {
-    fontFamily: fonts.playfair.bold,
-    fontSize: 40,
-    lineHeight: 48,
-    color: colors.textPrimary,
-    textAlign: 'center',
-  },
-  counterOf: {
-    fontFamily: fonts.playfair.regular,
-    fontSize: 22,
-    color: colors.stormGray,
-  },
-  examinedLine: {
-    fontFamily: fonts.body.regular,
-    fontSize: 13,
-    lineHeight: 19,
-    color: colors.stormGray,
-    textAlign: 'center',
-    marginTop: -8,
-  },
-  barTrack: {
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: withAlpha(colors.sunsetGold, 0.25),
-    overflow: 'hidden',
-  },
-  barFill: {
-    height: '100%',
-    borderRadius: 3,
-    backgroundColor: colors.sunsetGold,
-  },
-  buildContentRegion: {
-    width: '100%',
-    aspectRatio: 5 / 2,
-    overflow: 'hidden',
-    position: 'relative',
-  },
-  buildContentLayer: {
-    ...StyleSheet.absoluteFillObject,
+  slotStageHost: {
+    flex: 1,
+    justifyContent: 'center',
   },
   slotGrid: {
     flexDirection: 'row',
@@ -227,13 +183,6 @@ export const styles = StyleSheet.create({
   },
   slotPhoto: {
     flex: 1,
-  },
-  privacyLine: {
-    fontFamily: fonts.body.regular,
-    fontSize: 13,
-    lineHeight: 19,
-    color: colors.stormGray,
-    textAlign: 'center',
   },
   hint: {
     fontFamily: fonts.body.regular,

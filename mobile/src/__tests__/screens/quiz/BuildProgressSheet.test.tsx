@@ -2,15 +2,16 @@ import mockReact from 'react';
 import { Text as MockText } from 'react-native';
 import { render, screen } from '@testing-library/react-native';
 
-import { BuildProgressSheet } from '@screens/quiz/creation/BuildProgressSheet';
+import { SCAN_COPY } from '@constants/scanCopy';
+import { BuildProgressSheet, QuizWorkingStage } from '@screens/quiz/creation/BuildProgressSheet';
 import type { BuildView } from '@screens/quiz/creation/useQuizCreationFlow';
 
 const mockRowsRender = jest.fn();
 
-jest.mock('@components/photos/CountryDiscoveryRows', () => ({
-  CountryDiscoveryRows: mockReact.memo((props: { isComplete: boolean; isPaused: boolean }) => {
+jest.mock('@components/photos/ScanStage', () => ({
+  ScanStage: mockReact.memo((props: { isComplete: boolean; isPaused: boolean }) => {
     mockRowsRender(props);
-    return <MockText testID="mock-country-rows">Country rows</MockText>;
+    return <MockText testID="mock-scan-stage">Scan stage</MockText>;
   }),
 }));
 
@@ -33,39 +34,45 @@ const build = (step: BuildView['step']): BuildView => ({
   examined: 0,
 });
 
-describe('BuildProgressSheet country arrival handover', () => {
+describe('QuizWorkingStage country arrival handover', () => {
   beforeEach(() => {
     mockRowsRender.mockClear();
   });
 
-  it('flushes discovery completion before handing the fixed layer to the slot grid', () => {
+  it('flushes discovery completion before handing the card to the slot grid', () => {
     const { rerender } = render(
-      <BuildProgressSheet
-        build={build('scanning')}
-        isFirstScan
-        durationLine=""
-        reduceMotion
-        isPaused={false}
-        onLeave={jest.fn()}
-        onStop={jest.fn()}
-      />
+      <QuizWorkingStage build={build('scanning')} reduceMotion isPaused={false} />
     );
 
-    rerender(
-      <BuildProgressSheet
-        build={build('checking')}
-        isFirstScan
-        durationLine=""
-        reduceMotion
-        isPaused={false}
-        onLeave={jest.fn()}
-        onStop={jest.fn()}
-      />
-    );
+    rerender(<QuizWorkingStage build={build('checking')} reduceMotion isPaused={false} />);
 
     expect(mockRowsRender).toHaveBeenCalledWith(
       expect.objectContaining({ isComplete: true, isPaused: false })
     );
     expect(screen.getByTestId('quiz-slot-empty-0')).toBeTruthy();
+    expect(screen.getByTestId('stage-card')).toBeTruthy();
+  });
+});
+
+describe('BuildProgressSheet', () => {
+  it('rotates one status line and omits the privacy paragraphs', () => {
+    render(
+      <BuildProgressSheet
+        build={build('checking')}
+        isFirstScan
+        reduceMotion
+        onLeave={jest.fn()}
+        onStop={jest.fn()}
+      />
+    );
+
+    expect(screen.getByText(SCAN_COPY.quiz.workingTitle)).toBeTruthy();
+    expect(screen.getByText(SCAN_COPY.shared.stageLines('quiz-build')[0])).toBeTruthy();
+    expect(screen.getByTestId('quiz-leave-running')).toBeTruthy();
+    expect(screen.getByTestId('quiz-cancel')).toBeTruthy();
+    expect(screen.queryByTestId('quiz-privacy-line')).toBeNull();
+    expect(screen.queryByTestId('quiz-trips-line')).toBeNull();
+    expect(screen.queryByTestId('quiz-persistence-line')).toBeNull();
+    expect(screen.queryByTestId('quiz-working-duration')).toBeNull();
   });
 });

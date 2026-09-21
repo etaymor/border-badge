@@ -641,12 +641,13 @@ export function PhotoImportScreen({ navigation, route }: Props) {
   );
 
   const isPermissionPreheat = phase === 'idle' && permissionUi === 'preheat';
+  const isScanStage = phase === 'scanning' && !scanFailure;
 
   return (
     <View
       style={[
         styles.container,
-        isPermissionPreheat ? styles.permissionStage : { paddingTop: insets.top },
+        isPermissionPreheat || isScanStage ? styles.permissionStage : { paddingTop: insets.top },
       ]}
     >
       {isPermissionPreheat ? (
@@ -687,6 +688,15 @@ export function PhotoImportScreen({ navigation, route }: Props) {
             />
           </View>
         </>
+      ) : isScanStage ? (
+        <ScanningPhase
+          scanProgress={scanProgress}
+          isIncremental={isIncremental}
+          isPaused={!isFocused}
+          onCancelScan={handleCancelScan}
+          onLeave={() => handleBackNavigation('goBack')}
+          onRetryScan={() => startScan(false)}
+        />
       ) : (
         <>
           {/* Header */}
@@ -759,6 +769,7 @@ export function PhotoImportScreen({ navigation, route }: Props) {
               isIncremental={isIncremental}
               isPaused={!isFocused}
               onCancelScan={handleCancelScan}
+              onLeave={() => handleBackNavigation('goBack')}
               scanFailure={scanFailure}
               onRetryScan={() => startScan(false)}
             />

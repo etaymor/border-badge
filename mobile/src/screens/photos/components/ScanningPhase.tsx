@@ -1,19 +1,21 @@
 /**
  * Scanning phase UI for the photo import screen.
  *
- * Shows progress bar, country discovery feed, and cancel button. When the
- * service has surfaced a failure, renders the failed-state branch with a
- * Retry button that delegates back to startScan. Permission denials use the
- * shared recovery sheet instead of a generic Scan Failed alert.
+ * A live scan uses the same stage card and sheet as the quiz build: navy
+ * hero, framed card, then title, counter, one rotating line, and — on a
+ * first scan — Leave It Running plus Stop. Stop still confirms before it
+ * cancels. A surfaced failure keeps the recovery / retry branch.
  */
 
-import React from 'react';
-import { ActivityIndicator, Linking, Text, TouchableOpacity, View } from 'react-native';
+import { Linking, StatusBar, Text, TouchableOpacity, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { CountryDiscoveryRows } from '@components/photos/CountryDiscoveryRows';
+import { ScanSheetBody } from '@components/photos/ScanSheetBody';
+import { ScanStage } from '@components/photos/ScanStage';
+import { StageCard } from '@components/photos/StageCard';
 import { PhotoPermissionRecoverySheet } from '@components/photos/PhotoPermissionRecoverySheet';
+import { GlassBackButton } from '@components/ui';
 import type { ScanProgress } from '@services/photoImport';
-import { colors } from '@constants/colors';
 import { SCAN_COPY } from '@constants/scanCopy';
 import { useLeaseKeepsRunning } from '@hooks/useContinuationLeaseState';
 import { useReducedMotion } from '@hooks/useReducedMotion';
@@ -29,6 +31,8 @@ export interface ScanningPhaseProps {
   isIncremental: boolean;
   isPaused?: boolean;
   onCancelScan: () => void;
+  /** Leave the screen without stopping the job. */
+  onLeave: () => void;
   /** Set when the service surfaces a recoverable failure mid-scan. */
   scanFailure?: { title: string; message: string; reason?: string } | null;
   /** Called when the user taps Retry from the failed-state branch. */
@@ -40,10 +44,11 @@ export function ScanningPhase({
   isIncremental,
   isPaused = false,
   onCancelScan,
+  onLeave,
   scanFailure,
   onRetryScan,
 }: ScanningPhaseProps) {
-  // Tier-gated hint: only while a continued-processing lease is actually held.
+  const insets = useSafeAreaInsets();
   const leaseKeepsRunning = useLeaseKeepsRunning();
   const reduceMotion = useReducedMotion();
   const countryPreviews = useLibraryJobStore(selectScanCountryPreviews);
@@ -78,38 +83,43 @@ export function ScanningPhase({
     );
   }
 
+  const current = scanProgress?.current ?? 0;
+  const total = scanProgress?.total ?? 0;
+
   return (
-    <View style={styles.scanningContainer}>
-      <ActivityIndicator size="large" color={colors.sunsetGold} />
-      <Text style={styles.scanningTitle}>
-        {SCAN_COPY.trips.scanningTitle(scanProgress?.phase, isIncremental)}
-      </Text>
-      <Text style={styles.scanningProgress}>
-        {SCAN_COPY.trips.scanningProgress(
-          scanProgress?.current ?? 0,
-          scanProgress?.total ?? 0,
-          scanProgress?.phase === 'scanning' ? scanProgress?.gpsPhotoCount : undefined
-        )}
-      </Text>
-      <View style={styles.progressBar}>
-        <View style={[styles.progressFill, { width: `${scanProgress?.percentage ?? 0}%` }]} />
+    <View style={styles.scanStageLayout} testID="photo-import-scan-stage">
+      <StatusBar barStyle="light-content" />
+      <View style={[styles.permissionHero, { paddingTop: insets.top }]}>
+        <View style={styles.permissionHeroHeader}>
+          <GlassBackButton variant="dark" onPress={onLeave} />
+          <View style={styles.headerSpacer} />
+        </View>
+        <View style={styles.permissionHeroCardArea}>
+          <StageCard>
+            <ScanStage
+              rows={countryPreviews}
+              isComplete={isComplete}
+              isPaused={isPaused}
+              reduceMotion={reduceMotion}
+            />
+          </StageCard>
+        </View>
       </View>
-      <Text style={styles.scanningHint}>
-        {leaseKeepsRunning
-          ? SCAN_COPY.shared.persistenceParagraphWhileLeased('trip-scan')
-          : SCAN_COPY.shared.persistenceParagraph}
-      </Text>
-      <View style={styles.discoveryRowsRegion}>
-        <CountryDiscoveryRows
-          rows={countryPreviews}
-          isComplete={isComplete}
-          isPaused={isPaused}
+      <View style={[styles.permissionCarouselContainer, { paddingBottom: insets.bottom + 12 }]}>
+        <ScanSheetBody
+          title={SCAN_COPY.trips.stageTitle}
+          current={current}
+          total={total}
+          barFraction={(scanProgress?.percentage ?? 0) / 100}
+          lines={SCAN_COPY.shared.stageLines('trip-scan', { leased: leaseKeepsRunning })}
           reduceMotion={reduceMotion}
+          showActions={!isIncremental}
+          onLeave={onLeave}
+          onStop={onCancelScan}
+          leaveTestID="photo-import-leave"
+          stopTestID="photo-import-stop"
         />
       </View>
-      <TouchableOpacity onPress={onCancelScan} style={styles.cancelButton}>
-        <Text style={styles.cancelText}>Cancel</Text>
-      </TouchableOpacity>
     </View>
   );
 }

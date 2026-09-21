@@ -1,104 +1,59 @@
 /**
- * BuildProgressSheet - the wizard's working phase: what a user stares at for
- * up to ninety seconds.
+ * BuildProgressSheet - the wizard's working phase.
  *
- * The build reads as ONE continuous process, because it is: the job locks each
- * photo into its slot as it is found (`pickLedger`), so `pickUris` is
- * append-only from the first find through the last upload. This component
- * holds up its end - one meter spanning both steps and a counter that never
- * restarts. Both used to reset at the hunt/upload handover, on top of a photo
- * list that changed underneath them, which read as the build crashing and
- * starting over.
+ * The navy hero hosts one stage card (`QuizWorkingStage`): the live scan
+ * shelf while the library is being read, then the same card's slot grid once
+ * photos start landing. The cream sheet under it is the shared scan body —
+ * title, counter, one rotating line, and the first-scan action row.
+ *
+ * The build reads as ONE continuous process: `pickUris` is append-only from
+ * the first find through the last upload, and the counter never restarts.
+ * Leaving the scanning step passes `isComplete` for one render so the arrival
+ * queue drains before the slot grid takes the card.
  */
 
 import { useEffect, useState } from 'react';
 import { Image } from 'expo-image';
-import { Text, View } from 'react-native';
-import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
+import { View } from 'react-native';
+import Animated, { FadeIn } from 'react-native-reanimated';
 
-import { CountryDiscoveryRows } from '@components/photos/CountryDiscoveryRows';
-import { Button } from '@components/ui/Button';
+import { ScanSheetBody } from '@components/photos/ScanSheetBody';
+import { ScanStage } from '@components/photos/ScanStage';
+import { StageCard } from '@components/photos/StageCard';
 import { SCAN_COPY } from '@constants/scanCopy';
 import { useLeaseKeepsRunning } from '@hooks/useContinuationLeaseState';
 
-import { DURATION_BASE, DURATION_FAST } from '../components/motionTokens';
+import { DURATION_BASE } from '../components/motionTokens';
 import { styles } from './quizCreationStyles';
 import type { BuildView } from './useQuizCreationFlow';
 
-interface BuildProgressSheetProps {
+interface QuizWorkingStageProps {
   build: BuildView;
-  isFirstScan: boolean;
-  durationLine: string;
   reduceMotion: boolean;
   isPaused: boolean;
-  onLeave: () => void;
-  onStop: () => void;
 }
 
-export function BuildProgressSheet({
-  build,
-  isFirstScan,
-  durationLine,
-  reduceMotion,
-  isPaused,
-  onLeave,
-  onStop,
-}: BuildProgressSheetProps) {
-  const { step, pickUris, uploading, uploadedCount, barFraction } = build;
+export function QuizWorkingStage({ build, reduceMotion, isPaused }: QuizWorkingStageProps) {
+  const { step, pickUris, uploading, uploadedCount } = build;
   const showCountryPreviews = step === 'scanning';
   const [discoveryLayerVisible, setDiscoveryLayerVisible] = useState(showCountryPreviews);
-  // Tier-gated hint: only while a continued-processing lease is actually held.
-  const leaseKeepsRunning = useLeaseKeepsRunning();
 
   useEffect(() => {
     setDiscoveryLayerVisible(showCountryPreviews);
   }, [showCountryPreviews]);
 
   return (
-    <View style={styles.sheetContent} testID="quiz-progress">
-      <Text style={styles.title}>{SCAN_COPY.quiz.workingTitle}</Text>
-      <Text style={styles.statusLine} testID="quiz-working-status">
-        {SCAN_COPY.quiz.workingStatus(step, { isFirstScan })}
-      </Text>
-
-      {build.showCounter && (
-        <Text style={styles.counter} testID="quiz-found-counter">
-          {build.foundCount}
-          <Text style={styles.counterOf}> of </Text>
-          {build.foundTotal}
-        </Text>
-      )}
-
-      {step === 'scanning' && durationLine ? (
-        <Text style={styles.examinedLine} testID="quiz-working-duration">
-          {durationLine}
-        </Text>
-      ) : null}
-
-      <View style={styles.barTrack} testID="quiz-progress-track">
-        <View style={[styles.barFill, { width: `${barFraction * 100}%` }]} />
-      </View>
-
-      <View style={styles.buildContentRegion} testID="quiz-build-content-region">
+    <View style={styles.permissionHeroCardArea} testID="quiz-build-content-region">
+      <StageCard>
         {discoveryLayerVisible ? (
-          <Animated.View
-            style={styles.buildContentLayer}
-            entering={reduceMotion ? undefined : FadeIn.duration(DURATION_FAST)}
-            exiting={reduceMotion ? undefined : FadeOut.duration(DURATION_FAST)}
-          >
-            <CountryDiscoveryRows
-              rows={build.countryPreviews}
-              isComplete={!showCountryPreviews}
-              isPaused={isPaused}
-              reduceMotion={reduceMotion}
-            />
-          </Animated.View>
+          <ScanStage
+            rows={build.countryPreviews}
+            isComplete={!showCountryPreviews}
+            isPaused={isPaused}
+            reduceMotion={reduceMotion}
+          />
         ) : (
-          <Animated.View
-            style={styles.buildContentLayer}
-            entering={reduceMotion ? undefined : FadeIn.duration(DURATION_FAST)}
-            exiting={reduceMotion ? undefined : FadeOut.duration(DURATION_FAST)}
-          >
+          <View style={styles.slotStageHost}>
             <SlotGrid
               pickUris={pickUris}
               slotTotal={build.slotTotal}
@@ -106,56 +61,43 @@ export function BuildProgressSheet({
               uploadedCount={uploadedCount}
               reduceMotion={reduceMotion}
             />
-          </Animated.View>
+          </View>
         )}
-      </View>
+      </StageCard>
+    </View>
+  );
+}
 
-      {/* THE EXPLAINERS BELONG TO THE FIRST SCAN, AND ONLY TO IT.
-          All of this used to render on every build, so someone creating
-          their fifth challenge - no scan, nothing to explain, twenty
-          seconds of work - got a wall of text about a library scan that
-          was not running. It answers a question only a first-time user
-          has. `isFirstScan` is the never-synced case, which is exactly
-          "the first round". */}
-      {isFirstScan && !uploading ? (
-        <>
-          <Text style={styles.privacyLine} testID="quiz-privacy-line">
-            {SCAN_COPY.quiz.workingPrivacy[0]}
-          </Text>
-          {/* One STATEMENT about trips, never a button - nothing competes
-              with the challenge the user is waiting for. */}
-          <Text style={styles.privacyLine} testID="quiz-trips-line">
-            {SCAN_COPY.quiz.workingPrivacy[1]}
-          </Text>
-          <Text style={styles.privacyLine} testID="quiz-persistence-line">
-            {leaseKeepsRunning
-              ? SCAN_COPY.shared.persistenceParagraphWhileLeased('quiz-build')
-              : SCAN_COPY.shared.persistenceParagraph}
-          </Text>
-        </>
-      ) : null}
+interface BuildProgressSheetProps {
+  build: BuildView;
+  isFirstScan: boolean;
+  reduceMotion: boolean;
+  onLeave: () => void;
+  onStop: () => void;
+}
 
-      {/* Same gate: the leave/stop pair exists to teach that a first,
-          long scan survives leaving the screen. A repeat build is over in
-          seconds, so the pair is noise - and "Stop" next to a nearly-full
-          grid reads as a way to lose it. The header back control still
-          leaves from every phase. */}
-      {isFirstScan && !uploading ? (
-        <>
-          <Button
-            title={SCAN_COPY.quiz.leaveCta}
-            variant="ghost"
-            onPress={onLeave}
-            testID="quiz-leave-running"
-          />
-          <Button
-            title={SCAN_COPY.quiz.stopCta}
-            variant="ghost"
-            onPress={onStop}
-            testID="quiz-cancel"
-          />
-        </>
-      ) : null}
+export function BuildProgressSheet({
+  build,
+  isFirstScan,
+  reduceMotion,
+  onLeave,
+  onStop,
+}: BuildProgressSheetProps) {
+  const leaseKeepsRunning = useLeaseKeepsRunning();
+
+  return (
+    <View testID="quiz-progress">
+      <ScanSheetBody
+        title={SCAN_COPY.quiz.workingTitle}
+        current={build.foundCount}
+        total={build.foundTotal}
+        barFraction={build.barFraction}
+        lines={SCAN_COPY.shared.stageLines('quiz-build', { leased: leaseKeepsRunning })}
+        reduceMotion={reduceMotion}
+        showActions={isFirstScan && !build.uploading}
+        onLeave={onLeave}
+        onStop={onStop}
+      />
     </View>
   );
 }
