@@ -23,8 +23,11 @@ import { act, fireEvent, render, screen, waitFor } from '../utils/testUtils';
 import { createMockNavigation } from '../utils/mockFactories';
 
 import { Image as ExpoImage } from 'expo-image';
+import { StyleSheet } from 'react-native';
+import { colors } from '@constants/colors';
 import { SCAN_COPY } from '@constants/scanCopy';
 import { QuizCreationScreen } from '@screens/quiz/QuizCreationScreen';
+import { styles as quizCreationStyles } from '@screens/quiz/creation/quizCreationStyles';
 import { Analytics } from '@services/analytics';
 import type { CountryPreviewRow } from '@services/photoImport/scanPreviewPicker';
 import type { QuizCreationOutcome, QuizCreationProgress } from '@services/quiz/quizCreation';
@@ -227,6 +230,12 @@ describe('QuizCreationScreen', () => {
     expect(screen.queryByTestId('photo-permission-preheat-buttons')).toBeNull();
     expect(mockPermission.requestPermission).not.toHaveBeenCalled();
     expect(mockStart).not.toHaveBeenCalled();
+  });
+
+  it('puts the permission hero on midnightNavy so light-content status bar stays readable', () => {
+    expect(StyleSheet.flatten(quizCreationStyles.permissionHero).backgroundColor).toBe(
+      colors.midnightNavy
+    );
   });
 
   it('guards duplicate quiz requests and keeps an interrupted request on beat 3', async () => {

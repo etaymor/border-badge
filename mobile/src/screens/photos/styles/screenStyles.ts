@@ -31,6 +31,37 @@ export const screenStyles = StyleSheet.create({
     width: 44,
   },
 
+  // Permission carousel: navy hero band matching the quiz door (back + title
+  // above the StageCard; cream sheet carries the pager/CTA below).
+  permissionStage: {
+    backgroundColor: colors.midnightNavy,
+  },
+  permissionHero: {
+    flex: 1,
+    minHeight: 280,
+    backgroundColor: colors.midnightNavy,
+  },
+  permissionHeroHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  permissionHeroTitle: {
+    flex: 1,
+    fontFamily: fonts.playfair.bold,
+    fontSize: 24,
+    color: colors.warmCream,
+    textAlign: 'center',
+  },
+  permissionHeroCardArea: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+    paddingBottom: 20,
+  },
+
   // Idle state
   idleContainer: {
     flex: 1,
@@ -39,8 +70,11 @@ export const screenStyles = StyleSheet.create({
     paddingHorizontal: 40,
   },
   permissionCarouselContainer: {
-    flex: 1,
-    justifyContent: 'center',
+    backgroundColor: colors.warmCream,
+    borderTopLeftRadius: 36,
+    borderTopRightRadius: 36,
+    marginTop: -28,
+    paddingTop: 32,
     paddingHorizontal: 24,
     paddingBottom: 12,
   },

@@ -124,17 +124,22 @@ export function QuizCreationScreen({ navigation, route }: Props) {
       </View>
     );
   } else if (phase === 'permission-request') {
+    // Back lives in the hero's safe-area row (via QuizTopBar), above the card —
+    // never overlaid on the StageCard tiles the way the absolute topBar would.
     hero = (
-      <View
-        style={[styles.permissionHero, { paddingTop: insets.top }]}
-        accessibilityElementsHidden
-        importantForAccessibility="no-hide-descendants"
-      >
-        <PermissionBeatVisual
-          step={permissionCarouselStep}
-          reduceMotion={reduceMotion}
-          homeCountry={homeCountry}
-        />
+      <View style={styles.permissionHero} testID="quiz-permission-hero">
+        <QuizTopBar onClose={handleClose} icon="back" testID="quiz-creation-top-bar" />
+        <View
+          style={styles.permissionHeroCardArea}
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+        >
+          <PermissionBeatVisual
+            step={permissionCarouselStep}
+            reduceMotion={reduceMotion}
+            homeCountry={homeCountry}
+          />
+        </View>
       </View>
     );
   } else if (phase === 'intro') {
@@ -176,9 +181,11 @@ export function QuizCreationScreen({ navigation, route }: Props) {
     <View style={styles.stage}>
       <StatusBar barStyle="light-content" />
       <View style={styles.heroRegion}>{hero}</View>
-      <View style={styles.topBar} pointerEvents="box-none">
-        <QuizTopBar onClose={handleClose} icon="back" testID="quiz-creation-top-bar" />
-      </View>
+      {phase !== 'permission-request' ? (
+        <View style={styles.topBar} pointerEvents="box-none">
+          <QuizTopBar onClose={handleClose} icon="back" testID="quiz-creation-top-bar" />
+        </View>
+      ) : null}
 
       <View style={[styles.sheet, { paddingBottom: insets.bottom + 20 }]}>
         {phase === 'intro' && (

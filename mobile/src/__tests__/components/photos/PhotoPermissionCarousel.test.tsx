@@ -7,7 +7,9 @@ import {
   PhotoPermissionCarousel,
 } from '@components/photos/PhotoPermissionCarousel';
 import type { PhotoPermissionPreheatChoice } from '@components/photos/PhotoPermissionPreheatStack';
+import { colors } from '@constants/colors';
 import { SCAN_COPY } from '@constants/scanCopy';
+import { styles as photoImportStyles } from '@screens/photos/photoImportStyles';
 
 const mockUseReducedMotion = jest.fn(() => false);
 
@@ -191,6 +193,12 @@ describe('PhotoPermissionCarousel', () => {
       expect(getPhotoPermissionCarouselBottomInset(height, door)).toBe(expectedInset);
     }
   );
+
+  it('puts the trips permission hero on midnightNavy to match the quiz door', () => {
+    expect(StyleSheet.flatten(photoImportStyles.permissionHero).backgroundColor).toBe(
+      colors.midnightNavy
+    );
+  });
 
   it('sizes pager pages to the inset host width instead of the full window', () => {
     render(<CarouselHarness />);

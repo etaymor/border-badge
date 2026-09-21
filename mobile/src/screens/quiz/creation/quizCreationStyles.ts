@@ -46,7 +46,11 @@ export const styles = StyleSheet.create({
   permissionHero: {
     flex: 1,
     minHeight: 280,
-    backgroundColor: colors.warmCream,
+    backgroundColor: colors.midnightNavy,
+  },
+  // Card sits below the safe-area back row so the control never overlays tiles.
+  permissionHeroCardArea: {
+    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 24,
