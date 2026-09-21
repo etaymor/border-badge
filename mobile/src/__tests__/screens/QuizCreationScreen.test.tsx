@@ -63,8 +63,7 @@ jest.mock('@hooks/usePhotoPermissions', () => ({
 
 const mockPresentLimitedOrSettings = jest.fn(async () => 'picker' as const);
 jest.mock('@services/photoImport/photoImportService', () => ({
-  presentLimitedPhotoPickerOrOpenSettings: (...args: unknown[]) =>
-    mockPresentLimitedOrSettings(...args),
+  presentLimitedPhotoPickerOrOpenSettings: () => mockPresentLimitedOrSettings(),
 }));
 
 let mockOutcome: QuizCreationOutcome = { status: 'created', quizId: 'quiz-1', photoCount: 6 };

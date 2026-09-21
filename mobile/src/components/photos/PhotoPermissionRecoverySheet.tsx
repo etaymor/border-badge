@@ -46,7 +46,7 @@ export function PhotoPermissionRecoverySheet({
         <Text style={styles.disclosureLabel}>Why is this safe?</Text>
       </Pressable>
       {whyOpen ? <Text style={styles.tip}>{copy.recoveryPrivacyReportTip}</Text> : null}
-      {limitedPrimaryIsPicker ? (
+      {limitedPrimaryIsPicker && onAllowMorePhotos ? (
         <Button title={copy.recoveryAllowMorePhotosCta} onPress={onAllowMorePhotos} />
       ) : null}
       <Button
