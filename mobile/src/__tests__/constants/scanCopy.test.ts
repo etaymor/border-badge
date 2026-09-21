@@ -33,9 +33,6 @@ function allStrings(): Array<[string, string]> {
 
   const { shared, trips, quiz, banner, permission } = SCAN_COPY;
 
-  push('shared.privacyTitle', shared.privacyTitle);
-  push('shared.privacyBullets', shared.privacyBullets('France'));
-  push('shared.privacyBullets(null)', shared.privacyBullets(null));
   push('shared.purposeTrips', shared.purposeTrips);
   push('shared.purposeQuiz', shared.purposeQuiz);
   push('shared.leaveHint', shared.leaveHint);
@@ -53,6 +50,7 @@ function allStrings(): Array<[string, string]> {
       push(`shared.scaleLine(${total}, ${first})`, shared.scaleLine(total, first));
     }
     push(`shared.durationLine(${total})`, shared.durationLine(total));
+    push(`shared.scaleAndDurationLine(${total})`, shared.scaleAndDurationLine(total));
   }
   for (const kind of ['trip-scan', 'quiz-build'] as const) {
     for (const leased of [false, true]) {
@@ -67,6 +65,7 @@ function allStrings(): Array<[string, string]> {
   push('trips.idleBodyReturning', trips.idleBodyReturning);
   push('trips.idleCtaFirst', trips.idleCtaFirst);
   push('trips.idleCtaReturning', trips.idleCtaReturning);
+  push('trips.lastScannedLine', trips.lastScannedLine('3 days ago'));
   for (const phase of ['scanning', 'geocoding', undefined] as const) {
     for (const incremental of [true, false]) {
       push(
@@ -222,24 +221,22 @@ describe('SCAN_COPY - the one-scan promise', () => {
     const tripsLine = SCAN_COPY.shared.purposeTrips;
     expect(tripsLine.indexOf('trips')).toBeLessThan(tripsLine.toLowerCase().indexOf('guess where'));
   });
-
-  it('names both upload triggers in the privacy bullets', () => {
-    const bullets = SCAN_COPY.shared.privacyBullets('France').join(' ');
-    expect(bullets).toMatch(/save a place/i);
-    expect(bullets).toMatch(/share a challenge/i);
-  });
-
-  it('leads the privacy bullets with the strongest claim', () => {
-    // Device-first: the home-country qualifier then reads as detail rather
-    // than as a limitation to parse.
-    expect(SCAN_COPY.shared.privacyBullets('France')[0]).toMatch(/on your device/i);
-  });
 });
 
 describe('SCAN_COPY - magnitude without a false denominator', () => {
   it('renders nothing rather than guessing at an unknown library size', () => {
     expect(SCAN_COPY.shared.scaleLine(null, true)).toBe('');
     expect(SCAN_COPY.shared.durationLine(undefined)).toBe('');
+  });
+
+  it('merges scale and duration into one short line', () => {
+    expect(SCAN_COPY.shared.scaleAndDurationLine(null)).toBe('');
+    expect(SCAN_COPY.shared.scaleAndDurationLine(0)).toBe('');
+    expect(SCAN_COPY.shared.scaleAndDurationLine(53_000)).toBe(
+      'About 53,000 photos · several minutes'
+    );
+    expect(wordCount(SCAN_COPY.shared.scaleAndDurationLine(53_282))).toBeLessThanOrEqual(8);
+    expect(SCAN_COPY.trips.lastScannedLine('3 days ago')).toBe('Last scanned 3 days ago');
   });
 
   it('buckets duration instead of counting down', () => {
@@ -317,14 +314,11 @@ describe('SCAN_COPY - permission recovery', () => {
   });
 
   it('never claims photos are never uploaded', () => {
-    const { shared } = SCAN_COPY;
     const recovery = allStrings()
       .filter(([label]) => label.startsWith('permission.'))
       .map(([, value]) => value)
       .join(' ');
-    const privacy = [shared.privacyTitle, ...shared.privacyBullets('France')].join(' ');
     expect(recovery).not.toMatch(/never upload/i);
-    expect(privacy).not.toMatch(/never upload/i);
   });
 });
 

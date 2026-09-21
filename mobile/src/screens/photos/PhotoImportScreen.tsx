@@ -258,7 +258,6 @@ export function PhotoImportScreen({ navigation, route }: Props) {
 
   // Home country for privacy notice
   const homeCountryCode = useOnboardingStore(selectHomeCountry);
-  const { data: homeCountryData } = useCountryByCode(homeCountryCode);
 
   // Gallery state with cluster context and photo IDs for selection
   const [previewGallery, setPreviewGallery] = useState<{
@@ -642,12 +641,15 @@ export function PhotoImportScreen({ navigation, route }: Props) {
 
   const isPermissionPreheat = phase === 'idle' && permissionUi === 'preheat';
   const isScanStage = phase === 'scanning' && !scanFailure;
+  const isIdleStage = phase === 'idle' && permissionUi === 'none';
 
   return (
     <View
       style={[
         styles.container,
-        isPermissionPreheat || isScanStage ? styles.permissionStage : { paddingTop: insets.top },
+        isPermissionPreheat || isScanStage || isIdleStage
+          ? styles.permissionStage
+          : { paddingTop: insets.top },
       ]}
     >
       {isPermissionPreheat ? (
@@ -696,6 +698,15 @@ export function PhotoImportScreen({ navigation, route }: Props) {
           onCancelScan={handleCancelScan}
           onLeave={() => handleBackNavigation('goBack')}
           onRetryScan={() => startScan(false)}
+        />
+      ) : isIdleStage ? (
+        <IdlePhase
+          autoStart={autoStart}
+          lastImportTime={lastImportTime}
+          homeCountry={homeCountryCode}
+          onStartScan={startScan}
+          onLeave={() => handleBackNavigation('goBack')}
+          cachedPhotoCount={cachedPhotoCount}
         />
       ) : (
         <>
@@ -751,15 +762,6 @@ export function PhotoImportScreen({ navigation, route }: Props) {
                 }}
               />
             </View>
-          )}
-          {phase === 'idle' && permissionUi === 'none' && (
-            <IdlePhase
-              autoStart={autoStart}
-              lastImportTime={lastImportTime}
-              homeCountryName={homeCountryData?.name}
-              onStartScan={startScan}
-              cachedPhotoCount={cachedPhotoCount}
-            />
           )}
 
           {/* Scanning State (also renders the failed-state branch with Retry) */}

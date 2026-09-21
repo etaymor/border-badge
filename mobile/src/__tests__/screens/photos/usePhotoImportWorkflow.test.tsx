@@ -596,6 +596,22 @@ describe('usePhotoImportWorkflow', () => {
       expect(result.current.phase).toBe('candidates');
     });
 
+    it('starts the scan after a carousel grant when the route did not auto-start', async () => {
+      mockPhotoPermission.status = 'undetermined';
+      mockRequestPermission.mockResolvedValueOnce('granted');
+      const { result } = renderHook(() => usePhotoImportWorkflow({ autoStart: false }), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      await act(async () => {
+        await result.current.handlePermissionPreheatChoice('full-access');
+      });
+
+      expect(mockedPhotoImport.startScan).toHaveBeenCalledTimes(1);
+      expect(result.current.phase).toBe('scanning');
+      expect(result.current.permissionUi).toBe('none');
+    });
+
     it('routes a denied request to recovery and granted users around the carousel', async () => {
       mockPhotoPermission.status = 'undetermined';
       mockRequestPermission.mockResolvedValueOnce('denied');

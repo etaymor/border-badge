@@ -375,10 +375,13 @@ export function usePhotoImportWorkflow({
         Analytics.photoPermissionOsResult({ door: 'trips', status: result });
         if (result === 'granted' || result === 'limited') {
           setPermissionUi('none');
-          // autoStart: clearing preheat flips permissionReady so useAutoStartWorkflow
-          // starts the scan. Manual path uses the pending flag from startScan.
-          if (pendingScanAfterGrantRef.current) {
-            pendingScanAfterGrantRef.current = false;
+          // A carousel grant is the consent. Routes that did not arrive with
+          // autoStart still start the scan here, so idle never appears as a
+          // second pitch. autoStart routes keep using useAutoStartWorkflow
+          // once permission is ready, unless a manual scan was already pending.
+          const startFromCarousel = pendingScanAfterGrantRef.current || !autoStart;
+          pendingScanAfterGrantRef.current = false;
+          if (startFromCarousel) {
             setScanFailure(null);
             setPhase('scanning');
             const outcome = await startScanInternal(false);
@@ -404,7 +407,7 @@ export function usePhotoImportWorkflow({
         permissionRequestInFlightRef.current = false;
       }
     },
-    [requestPermission, startScanInternal]
+    [autoStart, requestPermission, startScanInternal]
   );
 
   const dismissPermissionRecovery = useCallback(() => {

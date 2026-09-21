@@ -61,20 +61,6 @@ export type QuizWorkingStep = 'scanning' | 'checking' | 'building';
 // Shared
 // ---------------------------------------------------------------------------
 
-const privacyTitle = 'Your photos stay private';
-
-/**
- * Device-first, deliberately. The strongest claim leads, so the home-country
- * qualifier reads as detail rather than as a limitation to parse.
- */
-function privacyBullets(homeCountryName?: string | null): string[] {
-  return [
-    'The scan runs entirely on your device',
-    `Only location data from photos taken outside ${homeCountryName ?? 'your home country'} is read`,
-    'Nothing is uploaded until you save a place or share a challenge',
-  ];
-}
-
 /**
  * The two purpose lines. Both name both payoffs — that symmetry is what makes
  * the promise the same promise whichever door you came through — but each
@@ -138,6 +124,17 @@ function durationLine(total: number | null | undefined): string {
 }
 
 /**
+ * Scale and duration as one line under the idle card. Empty when the count
+ * is unknown. Eight words at the large-library bucket.
+ */
+function scaleAndDurationLine(total: number | null | undefined): string {
+  if (!total || total <= 0) return '';
+  const pace =
+    total < 5_000 ? 'under a minute' : total < 20_000 ? 'a few minutes' : 'several minutes';
+  return `About ${total.toLocaleString()} photos · ${pace}`;
+}
+
+/**
  * One line under the stage card, rotated. Quiz-only claims stay off the trips
  * door. The leave line swaps only while a continued-processing lease is held.
  * Line 5 is the locked "picks up where it left off" claim trimmed to ten words.
@@ -188,6 +185,9 @@ const trips = {
     'Check for new photos since your last scan, or refresh to re-scan your entire library.',
   idleCtaFirst: 'Start Scan',
   idleCtaReturning: 'Check for New Photos',
+  lastScannedLine(when: string): string {
+    return `Last scanned ${when}`;
+  },
 
   scanningTitle(phase: string | undefined, isIncremental: boolean): string {
     if (phase === 'geocoding') return 'Working Out Where They Were Taken';
@@ -360,8 +360,6 @@ const banner = {
 
 export const SCAN_COPY = {
   shared: {
-    privacyTitle,
-    privacyBullets,
     purposeTrips,
     purposeQuiz,
     leaveHint,
@@ -371,6 +369,7 @@ export const SCAN_COPY = {
     persistenceParagraphWhileLeased,
     scaleLine,
     durationLine,
+    scaleAndDurationLine,
     stageLines,
   },
   trips,
