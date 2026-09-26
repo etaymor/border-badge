@@ -3,7 +3,11 @@
  */
 
 import type { SelectedPlace } from '@components/places';
-import type { PhotoPermissionPreheatChoice } from '@components/photos/PhotoPermissionPreheat';
+import type {
+  PhotoPermissionCarouselChangeVia,
+  PhotoPermissionCarouselStep,
+} from '@components/photos/PhotoPermissionCarousel';
+import type { PhotoPermissionPreheatChoice } from '@components/photos/PhotoPermissionPreheatStack';
 import type { ClusterUploadState } from '@hooks/useMultiClusterUpload';
 import type { SuggestionDispatchState } from '@hooks/usePhotoImport';
 import type {
@@ -80,6 +84,11 @@ export interface PhotoImportWorkflowResult {
   clearScanFailure: () => void;
   /** Soft-ask / recovery overlay while Photos access is unresolved */
   permissionUi: 'none' | 'preheat' | 'recovery';
+  permissionCarouselStep: PhotoPermissionCarouselStep;
+  handlePermissionCarouselBeatChange: (
+    step: PhotoPermissionCarouselStep,
+    via: PhotoPermissionCarouselChangeVia
+  ) => void;
   handlePermissionPreheatChoice: (choice: PhotoPermissionPreheatChoice) => void;
   dismissPermissionRecovery: () => void;
 

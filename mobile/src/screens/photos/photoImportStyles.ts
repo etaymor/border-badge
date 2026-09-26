@@ -5,8 +5,12 @@
  * single `styles` export so consumers don't need to change imports.
  */
 
-import { screenStyles } from './styles/screenStyles';
 import { cardStyles } from './styles/cardStyles';
 import { galleryStyles } from './styles/galleryStyles';
+import { screenStyles } from './styles/screenStyles';
 
-export const styles = { ...screenStyles, ...cardStyles, ...galleryStyles } as const;
+export const styles = {
+  ...screenStyles,
+  ...cardStyles,
+  ...galleryStyles,
+} as const;

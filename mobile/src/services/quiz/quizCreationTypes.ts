@@ -6,6 +6,8 @@
  * depending on each other or on `quizCreation.ts` itself.
  */
 
+import type { CountryPreviewRow, ReadingPreview } from '@services/photoImport/scanPreviewPicker';
+
 export type QuizCreationStep = 'scanning' | 'checking' | 'building';
 
 export interface QuizCreationProgress {
@@ -30,6 +32,10 @@ export interface QuizCreationProgress {
    * that moves during one.
    */
   examined?: number;
+  /** Present on scan progress only when a batch changed the bounded preview rows. */
+  countryPreviews?: readonly CountryPreviewRow[];
+  /** Present on scan progress only when a batch changed the live grid window. */
+  readingPreviews?: readonly ReadingPreview[];
 }
 
 export type QuizCreationOutcome =

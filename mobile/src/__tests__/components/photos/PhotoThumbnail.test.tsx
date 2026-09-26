@@ -96,6 +96,18 @@ describe('PhotoThumbnail', () => {
     expect(mockResolveLoadableUri).not.toHaveBeenCalled();
   });
 
+  it('reports the error without recovery when retry is disabled', async () => {
+    const onError = jest.fn();
+    const utils = render(
+      <PhotoThumbnail uri="ph://stale" assetId="asset-1" recoverOnError={false} onError={onError} />
+    );
+
+    fireEvent(getImage(utils), 'error');
+
+    await waitFor(() => expect(onError).toHaveBeenCalledTimes(1));
+    expect(mockResolveLoadableUri).not.toHaveBeenCalled();
+  });
+
   it('does not retry more than once (second failure shows placeholder)', async () => {
     mockResolveLoadableUri.mockResolvedValue('file:///fresh.jpg');
 

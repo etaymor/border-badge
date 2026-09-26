@@ -18,6 +18,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Linking } from 'react-native';
 
+import type {
+  PhotoPermissionCarouselChangeVia,
+  PhotoPermissionCarouselStep,
+} from '@components/photos/PhotoPermissionCarousel';
+import type { PhotoPermissionPreheatChoice } from '@components/photos/PhotoPermissionPreheatStack';
 import { SCAN_COPY } from '@constants/scanCopy';
 import { usePhotoPermissionStatus } from '@hooks/usePhotoPermissions';
 import { useQuizBuildJob } from '@hooks/useQuizBuildJob';
@@ -28,6 +33,7 @@ import {
   type LibraryFreshness,
 } from '@services/photoImport/photoLibrarySyncStatus';
 import { presentLimitedPhotoPickerOrOpenSettings } from '@services/photoImport/photoImportService';
+import type { CountryPreviewRow, ReadingPreview } from '@services/photoImport/scanPreviewPicker';
 import { QUIZ_MAX_PHOTOS } from '@services/quiz/candidateSelection';
 import { loadDraftState } from '@services/quiz/quizCreation';
 import type {
@@ -39,7 +45,6 @@ import { selectQuizDetail, selectQuizProgress, useLibraryJobStore } from '@store
 import type { QuizEntryPoint, RootStackScreenProps } from '@navigation/types';
 
 import { useQuizCreationAnalytics } from '../useQuizCreationAnalytics';
-import { formatSyncedAgo } from './quizCreationCopy';
 
 export type ScreenPhase =
   | 'checking-permission'
@@ -63,6 +68,8 @@ const HUNT_BAR_SHARE = 0.7;
 export interface BuildView {
   step: QuizCreationStep;
   pickUris: string[];
+  countryPreviews: readonly CountryPreviewRow[];
+  readingPreviews: readonly ReadingPreview[];
   lastPickUri: string | null;
   uploading: boolean;
   uploadedCount: number;
@@ -81,14 +88,17 @@ export interface QuizCreationFlow {
   /** The one line the intro shows about how fresh the shared library is. */
   freshnessLine: string;
   isFirstScan: boolean;
-  scaleLine: string;
-  durationLine: string;
   draftHeroUri: string | null;
   draftUploadCounts: { uploaded: number; total: number } | null;
   build: BuildView;
+  permissionCarouselStep: PhotoPermissionCarouselStep;
   startCreation: () => void;
   handleRequestPermission: () => void;
-  handlePreheatChoice: (choice: 'full-access' | 'select-photos' | 'dont-allow') => void;
+  handlePermissionCarouselBeatChange: (
+    step: PhotoPermissionCarouselStep,
+    via: PhotoPermissionCarouselChangeVia
+  ) => void;
+  handlePreheatChoice: (choice: PhotoPermissionPreheatChoice) => void;
   /** Stop the build, behind a confirm. */
   handleCancel: () => void;
   handleBack: () => void;
@@ -113,6 +123,12 @@ export function useQuizCreationFlow({ entryPoint, navigation }: Options): QuizCr
   const buildJob = useQuizBuildJob({ onOutcome: (result) => handleOutcome(result) });
 
   const [phase, setPhase] = useState<ScreenPhase>('checking-permission');
+  const [permissionCarouselStep, setPermissionCarouselStep] =
+    useState<PhotoPermissionCarouselStep>(1);
+  const permissionStepRef = useRef<PhotoPermissionCarouselStep>(1);
+  const reportedPermissionStepsRef = useRef<Set<PhotoPermissionCarouselStep>>(new Set());
+  const permissionRequestInFlightRef = useRef(false);
+  const permissionOsRequestedRef = useRef(false);
   // Progress is READ FROM THE JOB STORE, not held here. That is what lets the
   // screen unmount and remount without losing the build: it is a view onto a
   // running job, not its owner.
@@ -126,6 +142,8 @@ export function useQuizCreationFlow({ entryPoint, navigation }: Options): QuizCr
       total: jobProgress.total,
       pickUris: jobDetail.pickUris,
       examined: jobDetail.examined,
+      countryPreviews: jobDetail.countryPreviews,
+      readingPreviews: jobDetail.readingPreviews,
     };
   }, [jobProgress, jobDetail]);
   const [outcome, setOutcome] = useState<QuizCreationOutcome | null>(null);
@@ -278,32 +296,68 @@ export function useQuizCreationFlow({ entryPoint, navigation }: Options): QuizCr
     };
   }, [permissionLoading, permissionStatus, analytics]);
 
+  useEffect(() => {
+    if (phase !== 'permission-request') return;
+
+    permissionStepRef.current = 1;
+    reportedPermissionStepsRef.current = new Set([1]);
+    permissionOsRequestedRef.current = false;
+    setPermissionCarouselStep(1);
+    Analytics.photoPermissionCarouselStep({ door: 'quiz', step: 1, via: 'initial' });
+
+    return () => {
+      if (!permissionOsRequestedRef.current) {
+        Analytics.photoPermissionCarouselLeft({
+          door: 'quiz',
+          step: permissionStepRef.current,
+        });
+      }
+    };
+  }, [phase]);
+
   // NOTE: there is deliberately no unmount abort here. The build is owned by
   // the `quiz-build` job, so leaving the screen leaves it running; the user
   // can keep using the app and come back to a fuller grid. Stopping is an
   // explicit, confirmed action (handleCancel).
 
   const handleRequestPermission = useStableCallback(async () => {
-    const granted = await requestPermission();
-    analytics.trackPermissionResult(granted);
-    if (granted === 'granted' || granted === 'limited') {
-      const currentFreshness = await getLibraryFreshness().catch(() => null);
-      setFreshness(currentFreshness);
-      setPhase('intro');
-    } else {
-      setPhase('permission-denied');
+    if (permissionRequestInFlightRef.current) return;
+    permissionRequestInFlightRef.current = true;
+    permissionOsRequestedRef.current = true;
+    try {
+      const granted = await requestPermission();
+      analytics.trackPermissionResult(granted);
+      if (granted === 'granted' || granted === 'limited') {
+        const currentFreshness = await getLibraryFreshness().catch(() => null);
+        setFreshness(currentFreshness);
+        setPhase('intro');
+      } else if (granted === 'denied') {
+        setPhase('permission-denied');
+      }
+    } catch {
+      // A rejected native request is recoverable from the still-mounted stack.
+    } finally {
+      permissionRequestInFlightRef.current = false;
     }
   });
 
-  const handlePreheatChoice = useStableCallback(
-    async (choice: 'full-access' | 'select-photos' | 'dont-allow') => {
-      if (choice === 'full-access') {
-        await handleRequestPermission();
-        return;
-      }
-      setPhase('permission-denied');
+  const handlePermissionCarouselBeatChange = useStableCallback(
+    (step: PhotoPermissionCarouselStep, via: PhotoPermissionCarouselChangeVia) => {
+      permissionStepRef.current = step;
+      setPermissionCarouselStep(step);
+      if (reportedPermissionStepsRef.current.has(step)) return;
+      reportedPermissionStepsRef.current.add(step);
+      Analytics.photoPermissionCarouselStep({ door: 'quiz', step, via });
     }
   );
+
+  const handlePreheatChoice = useStableCallback(async (choice: PhotoPermissionPreheatChoice) => {
+    if (choice === 'full-access') {
+      await handleRequestPermission();
+      return;
+    }
+    setPhase('permission-denied');
+  });
 
   // Stop the build outright. The persisted draft stays resumable (KTD7), so
   // the classification already paid for is not thrown away.
@@ -351,22 +405,14 @@ export function useQuizCreationFlow({ entryPoint, navigation }: Options): QuizCr
     }
   });
 
-  const syncedAgo = formatSyncedAgo(freshness?.lastSuccessAt ?? null);
-  /**
-   * A first scan is the run this screen has to explain hardest, so it gets
-   * three short lines - what will happen, how big the library is, roughly how
-   * long. Everything else gets one.
-   */
   const isFirstScan = !freshness?.fresh && freshness?.reason === 'never-synced';
   const freshnessLine = freshness?.fresh
     ? freshness.reason === 'writer-active'
       ? SCAN_COPY.quiz.freshnessSyncing
-      : SCAN_COPY.quiz.freshnessReady(syncedAgo, freshness.cachedPhotoCount)
+      : SCAN_COPY.quiz.freshnessReady(freshness.cachedPhotoCount)
     : isFirstScan
-      ? SCAN_COPY.quiz.freshnessNeverSynced
+      ? SCAN_COPY.shared.scaleAndDurationLine(freshness?.cachedPhotoCount)
       : SCAN_COPY.quiz.freshnessStale;
-  const scaleLine = SCAN_COPY.shared.scaleLine(freshness?.cachedPhotoCount, isFirstScan);
-  const durationLine = SCAN_COPY.shared.durationLine(freshness?.cachedPhotoCount);
 
   const build = useMemo<BuildView>(() => {
     // Live build state (service contract: pickUris = the locked game in slot
@@ -385,6 +431,8 @@ export function useQuizCreationFlow({ entryPoint, navigation }: Options): QuizCr
     return {
       step,
       pickUris,
+      countryPreviews: progress?.countryPreviews ?? [],
+      readingPreviews: progress?.readingPreviews ?? [],
       lastPickUri: pickUris.length > 0 ? pickUris[pickUris.length - 1] : null,
       uploading,
       uploadedCount: uploading ? (progress?.current ?? 0) : 0,
@@ -410,13 +458,13 @@ export function useQuizCreationFlow({ entryPoint, navigation }: Options): QuizCr
     limitedAccess,
     freshnessLine,
     isFirstScan,
-    scaleLine,
-    durationLine,
     draftHeroUri,
     draftUploadCounts,
     build,
+    permissionCarouselStep,
     startCreation,
     handleRequestPermission,
+    handlePermissionCarouselBeatChange,
     handlePreheatChoice,
     handleCancel,
     handleBack,

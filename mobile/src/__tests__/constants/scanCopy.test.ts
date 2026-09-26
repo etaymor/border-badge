@@ -20,6 +20,12 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 
 import { SCAN_COPY } from '@constants/scanCopy';
+import {
+  THIN_LIBRARY_BODY,
+  THIN_LIBRARY_TITLE,
+  thinLibraryReason,
+} from '@screens/quiz/creation/quizCreationCopy';
+import type { QuizCreationOutcome } from '@services/quiz/quizCreation';
 
 const SRC = join(__dirname, '../..');
 
@@ -33,9 +39,6 @@ function allStrings(): Array<[string, string]> {
 
   const { shared, trips, quiz, banner, permission } = SCAN_COPY;
 
-  push('shared.privacyTitle', shared.privacyTitle);
-  push('shared.privacyBullets', shared.privacyBullets('France'));
-  push('shared.privacyBullets(null)', shared.privacyBullets(null));
   push('shared.purposeTrips', shared.purposeTrips);
   push('shared.purposeQuiz', shared.purposeQuiz);
   push('shared.leaveHint', shared.leaveHint);
@@ -49,18 +52,22 @@ function allStrings(): Array<[string, string]> {
     );
   }
   for (const total of [0, 900, 4_999, 12_000, 53_282]) {
-    for (const first of [true, false]) {
-      push(`shared.scaleLine(${total}, ${first})`, shared.scaleLine(total, first));
+    push(`shared.scaleAndDurationLine(${total})`, shared.scaleAndDurationLine(total));
+  }
+  for (const kind of ['trip-scan', 'quiz-build'] as const) {
+    for (const leased of [false, true]) {
+      push(`shared.stageLines(${kind}, leased=${leased})`, shared.stageLines(kind, { leased }));
     }
-    push(`shared.durationLine(${total})`, shared.durationLine(total));
   }
 
+  push('trips.stageTitle', trips.stageTitle);
   push('trips.idleTitleFirst', trips.idleTitleFirst);
   push('trips.idleTitleReturning', trips.idleTitleReturning);
   push('trips.idleBodyFirst', trips.idleBodyFirst);
   push('trips.idleBodyReturning', trips.idleBodyReturning);
   push('trips.idleCtaFirst', trips.idleCtaFirst);
   push('trips.idleCtaReturning', trips.idleCtaReturning);
+  push('trips.lastScannedLine', trips.lastScannedLine('3 days ago'));
   for (const phase of ['scanning', 'geocoding', undefined] as const) {
     for (const incremental of [true, false]) {
       push(
@@ -77,7 +84,8 @@ function allStrings(): Array<[string, string]> {
   push('quiz.permissionBody', quiz.permissionBody);
   push('quiz.permissionCta', quiz.permissionCta);
   push('quiz.introTitle', quiz.introTitle);
-  push('quiz.introBody', quiz.introBody);
+  quiz.introLines(null).forEach((line, index) => push(`quiz.introLines[${index}]`, line));
+  push('quiz.introLines(fresh)', quiz.introLines(quiz.freshnessReady(53_000)));
   push('quiz.workingTitle', quiz.workingTitle);
   for (const step of ['scanning', 'checking', 'building'] as const) {
     for (const isFirstScan of [true, false]) {
@@ -90,11 +98,10 @@ function allStrings(): Array<[string, string]> {
   push('quiz.workingPrivacy', quiz.workingPrivacy);
   push('quiz.leaveCta', quiz.leaveCta);
   push('quiz.stopCta', quiz.stopCta);
-  push('quiz.freshnessNeverSynced', quiz.freshnessNeverSynced);
   push('quiz.freshnessStale', quiz.freshnessStale);
   push('quiz.freshnessSyncing', quiz.freshnessSyncing);
-  push('quiz.freshnessReady', quiz.freshnessReady('2 hours ago', 53_282));
-  push('quiz.freshnessReady(bare)', quiz.freshnessReady(null, 0));
+  push('quiz.freshnessReady', quiz.freshnessReady(53_282));
+  push('quiz.freshnessReady(bare)', quiz.freshnessReady(0));
 
   for (const kind of ['trip-scan', 'quiz-build'] as const) {
     for (const state of ['running', 'waiting', 'completed', 'failed'] as const) {
@@ -117,12 +124,25 @@ function allStrings(): Array<[string, string]> {
   push('permission.recoveryAllowMorePhotosCta', permission.recoveryAllowMorePhotosCta);
   push('permission.recoveryContinueLimitedCta', permission.recoveryContinueLimitedCta);
   push('permission.recoveryRetryCta', permission.recoveryRetryCta);
-  push('permission.preheatTitle', permission.preheatTitle);
-  push('permission.preheatBody', permission.preheatBody);
   push('permission.preheatSelectPhotos', permission.preheatSelectPhotos);
   push('permission.preheatAllowFullAccess', permission.preheatAllowFullAccess);
   push('permission.preheatDontAllow', permission.preheatDontAllow);
-  push('permission.preheatFooter', permission.preheatFooter);
+  push('permission.carousel.beat1Title', permission.carousel.beat1Title);
+  push('permission.carousel.beat2Title', permission.carousel.beat2Title);
+  push('permission.carousel.beat2Pills', permission.carousel.beat2Pills);
+  push('permission.carousel.continueCta', permission.carousel.continueCta);
+  push('permission.carousel.footerNotice', permission.carousel.footerNotice);
+  push('permission.carousel.tripsHeaderTitle', permission.carousel.tripsHeaderTitle);
+  push(
+    'permission.carousel.stepAnnouncement',
+    permission.carousel.stepAnnouncement(2, 3, permission.carousel.beat2Title)
+  );
+  for (const door of ['trips', 'quiz'] as const) {
+    push(`permission.carousel.beat3Title(${door})`, permission.carousel.beat3Title(door));
+    permission.carousel
+      .footerLines(door)
+      .forEach((line, index) => push(`permission.carousel.footerLines(${door})[${index}]`, line));
+  }
 
   return entries;
 }
@@ -203,30 +223,17 @@ describe('SCAN_COPY - the one-scan promise', () => {
     const tripsLine = SCAN_COPY.shared.purposeTrips;
     expect(tripsLine.indexOf('trips')).toBeLessThan(tripsLine.toLowerCase().indexOf('guess where'));
   });
-
-  it('names both upload triggers in the privacy bullets', () => {
-    const bullets = SCAN_COPY.shared.privacyBullets('France').join(' ');
-    expect(bullets).toMatch(/save a place/i);
-    expect(bullets).toMatch(/share a challenge/i);
-  });
-
-  it('leads the privacy bullets with the strongest claim', () => {
-    // Device-first: the home-country qualifier then reads as detail rather
-    // than as a limitation to parse.
-    expect(SCAN_COPY.shared.privacyBullets('France')[0]).toMatch(/on your device/i);
-  });
 });
 
 describe('SCAN_COPY - magnitude without a false denominator', () => {
-  it('renders nothing rather than guessing at an unknown library size', () => {
-    expect(SCAN_COPY.shared.scaleLine(null, true)).toBe('');
-    expect(SCAN_COPY.shared.durationLine(undefined)).toBe('');
-  });
-
-  it('buckets duration instead of counting down', () => {
-    expect(SCAN_COPY.shared.durationLine(900)).toBe('Usually under a minute.');
-    expect(SCAN_COPY.shared.durationLine(12_000)).toBe('Usually a few minutes.');
-    expect(SCAN_COPY.shared.durationLine(53_282)).toMatch(/several minutes/);
+  it('merges scale and duration into one short line', () => {
+    expect(SCAN_COPY.shared.scaleAndDurationLine(null)).toBe('');
+    expect(SCAN_COPY.shared.scaleAndDurationLine(0)).toBe('');
+    expect(SCAN_COPY.shared.scaleAndDurationLine(53_000)).toBe(
+      'About 53,000 photos · several minutes'
+    );
+    expect(wordCount(SCAN_COPY.shared.scaleAndDurationLine(53_282))).toBeLessThanOrEqual(8);
+    expect(SCAN_COPY.trips.lastScannedLine('3 days ago')).toBe('Last scanned 3 days ago');
   });
 
   it('tells the truth about which pass this is', () => {
@@ -298,11 +305,133 @@ describe('SCAN_COPY - permission recovery', () => {
   });
 
   it('never claims photos are never uploaded', () => {
-    const { permission, shared } = SCAN_COPY;
-    const recovery = Object.values(permission).join(' ');
-    const privacy = [shared.privacyTitle, ...shared.privacyBullets('France')].join(' ');
+    const recovery = allStrings()
+      .filter(([label]) => label.startsWith('permission.'))
+      .map(([, value]) => value)
+      .join(' ');
     expect(recovery).not.toMatch(/never upload/i);
-    expect(privacy).not.toMatch(/never upload/i);
+  });
+});
+
+function wordCount(value: string): number {
+  const trimmed = value.trim();
+  if (!trimmed) return 0;
+  return trimmed.split(/\s+/).filter((token) => /[A-Za-z0-9]/.test(token)).length;
+}
+
+function words(parts: readonly string[]): number {
+  return wordCount(parts.filter(Boolean).join(' '));
+}
+
+describe('SCAN_COPY - permission carousel', () => {
+  const carouselStrings = () =>
+    allStrings()
+      .filter(([label]) => label.startsWith('permission.carousel.'))
+      .map(([, value]) => value)
+      .join(' ');
+
+  it('uses the short beat copy', () => {
+    const { carousel } = SCAN_COPY.permission;
+    expect(carousel.beat1Title).toBe('Find your trips in your photos');
+    expect(carousel.beat2Title).toBe('Your phone does the reading');
+    expect(carousel.beat3Title('trips')).toBe('Every trip lands in your passport');
+    expect(carousel.beat3Title('quiz')).toBe('Your photos become challenges');
+  });
+
+  it('carries every privacy claim in the rotating footer, on both doors', () => {
+    const { carousel } = SCAN_COPY.permission;
+    for (const door of ['trips', 'quiz'] as const) {
+      const footer = carousel.footerLines(door).join(' | ');
+      expect(footer).toMatch(/only where each photo was taken/i);
+      expect(footer).toMatch(/on your device/i);
+      expect(footer).toMatch(/location data/i);
+      expect(footer).toMatch(/full access/i);
+      expect(footer).not.toMatch(/\bGPS\b/);
+    }
+    expect(carousel.footerLines('trips').join(' ')).toMatch(/guess where/i);
+    expect(carousel.footerLines('quiz').join(' ')).toMatch(/same scan builds your trips/i);
+    expect(carousel.footerNotice).toMatch(/on your device/i);
+  });
+
+  it('keeps carousel titles to six words and each footer line to ten', () => {
+    const { carousel } = SCAN_COPY.permission;
+    const titles = [
+      carousel.beat1Title,
+      carousel.beat2Title,
+      carousel.beat3Title('trips'),
+      carousel.beat3Title('quiz'),
+    ];
+    const footerLines = [...carousel.footerLines('trips'), ...carousel.footerLines('quiz')];
+    for (const title of titles) {
+      expect(wordCount(title)).toBeLessThanOrEqual(6);
+    }
+    for (const line of footerLines) {
+      expect(wordCount(line)).toBeLessThanOrEqual(10);
+    }
+  });
+
+  it('avoids broader photo-handling claims', () => {
+    expect(carouselStrings()).not.toMatch(/\bnever\b|\bupload\b|the picture|the photo itself/i);
+  });
+
+  it('exports the accessibility announcement and trips header', () => {
+    const { carousel } = SCAN_COPY.permission;
+    expect(carousel.stepAnnouncement(2, 3, carousel.beat2Title)).toBe(
+      `Step 2 of 3. ${carousel.beat2Title}`
+    );
+    expect(carousel.tripsHeaderTitle).not.toMatch(/import/i);
+  });
+});
+
+describe('SCAN_COPY - scan stage lines', () => {
+  const reading = 'Reading where each photo was taken';
+  const onDevice = 'Everything stays on your device';
+  const sameScan = 'The same scan builds your trips';
+  const keepsGoing = 'Keeps going while you use the app';
+  const picksUp = 'Picks up where it left off next time';
+  const quizUpload = 'Only photos your challenge uses are ever uploaded';
+  const whileLeased = 'It keeps going a while after you leave';
+
+  it('orders the shared lines and keeps quiz-only claims on the quiz door', () => {
+    expect(SCAN_COPY.shared.stageLines('trip-scan')).toEqual([
+      reading,
+      onDevice,
+      keepsGoing,
+      picksUp,
+    ]);
+    expect(SCAN_COPY.shared.stageLines('quiz-build')).toEqual([
+      reading,
+      onDevice,
+      sameScan,
+      keepsGoing,
+      picksUp,
+      quizUpload,
+    ]);
+  });
+
+  it('replaces the leave line while a continued-processing lease is held', () => {
+    expect(SCAN_COPY.shared.stageLines('trip-scan', { leased: true })).toEqual([
+      reading,
+      onDevice,
+      whileLeased,
+      picksUp,
+    ]);
+    expect(SCAN_COPY.shared.stageLines('quiz-build', { leased: true })[3]).toBe(whileLeased);
+  });
+
+  it('keeps every stage line to ten words', () => {
+    for (const kind of ['trip-scan', 'quiz-build'] as const) {
+      for (const leased of [false, true]) {
+        for (const line of SCAN_COPY.shared.stageLines(kind, { leased })) {
+          expect(wordCount(line)).toBeLessThanOrEqual(10);
+        }
+      }
+    }
+  });
+
+  it('names the trips scanning stage', () => {
+    expect(SCAN_COPY.trips.stageTitle).toBe('Finding Your Trips');
+    expect(wordCount(SCAN_COPY.trips.stageTitle)).toBeLessThanOrEqual(6);
   });
 });
 
@@ -331,5 +460,78 @@ describe('SCAN_COPY - provenance', () => {
   it.each(RETIRED)('%s no longer hardcodes "%s"', (file, literal) => {
     const source = readFileSync(join(SRC, '..', file), 'utf8');
     expect(source).not.toContain(literal);
+  });
+});
+
+describe('SCAN_COPY - surface word budgets', () => {
+  const { shared, trips, quiz, permission } = SCAN_COPY;
+  const carousel = permission.carousel;
+  const longest = (lines: readonly string[]) =>
+    lines.reduce((best, line) => (wordCount(line) > wordCount(best) ? line : best), '');
+
+  const thinReasons = [
+    null,
+    'people_present',
+    'indoor',
+    'category_not_allowed',
+    'prepare_failed',
+    'unclassifiable',
+    'service_error',
+    'other',
+  ].map((dominantReason) =>
+    thinLibraryReason({
+      status: 'thin-library',
+      eligibleCount: 1,
+      hasGeoCandidates: dominantReason !== null,
+      dominantReason,
+    } as QuizCreationOutcome)
+  );
+
+  const SURFACE_BUDGETS: Array<[string, number, number]> = [
+    ['carousel beat 1', 16, words([carousel.beat1Title, longest(carousel.footerLines('trips'))])],
+    ['carousel beat 2', 16, words([carousel.beat2Title, longest(carousel.footerLines('trips'))])],
+    [
+      'carousel beat 3 trips',
+      16,
+      words([carousel.beat3Title('trips'), longest(carousel.footerLines('trips'))]),
+    ],
+    [
+      'carousel beat 3 quiz',
+      16,
+      words([carousel.beat3Title('quiz'), longest(carousel.footerLines('quiz'))]),
+    ],
+    ['trips idle first', 12, words([trips.idleTitleFirst, shared.scaleAndDurationLine(53_000)])],
+    [
+      'trips idle returning',
+      10,
+      words([trips.idleTitleReturning, trips.lastScannedLine('3 days ago')]),
+    ],
+    ...[
+      shared.scaleAndDurationLine(53_000),
+      quiz.freshnessReady(53_000),
+      quiz.freshnessStale,
+      quiz.freshnessSyncing,
+    ].map((freshness, index): [string, number, number] => [
+      `quiz intro ${index}`,
+      12,
+      words([quiz.introTitle, longest(quiz.introLines(freshness))]),
+    ]),
+    ['quiz build', 16, words([quiz.workingTitle, longest(shared.stageLines('quiz-build'))])],
+    ['trips scan', 16, words([trips.stageTitle, longest(shared.stageLines('trip-scan'))])],
+    ['recovery denied', 18, words([permission.recoveryTitleDenied, permission.recoveryBodyDenied])],
+    [
+      'recovery limited',
+      20,
+      words([permission.recoveryTitleLimited, permission.recoveryBodyLimited]),
+    ],
+    ...thinReasons.map((reason, index): [string, number, number] => [
+      `thin library ${index}`,
+      24,
+      words([THIN_LIBRARY_TITLE, THIN_LIBRARY_BODY, reason]),
+    ]),
+  ];
+
+  it.each(SURFACE_BUDGETS)('%s stays within %i words (has %i)', (_name, budget, count) => {
+    expect(count).toBeLessThanOrEqual(budget);
   });
 });

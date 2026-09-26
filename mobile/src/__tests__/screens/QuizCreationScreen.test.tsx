@@ -25,6 +25,8 @@ import { createMockNavigation } from '../utils/mockFactories';
 import { Image as ExpoImage } from 'expo-image';
 import { SCAN_COPY } from '@constants/scanCopy';
 import { QuizCreationScreen } from '@screens/quiz/QuizCreationScreen';
+import { Analytics } from '@services/analytics';
+import type { CountryPreviewRow } from '@services/photoImport/scanPreviewPicker';
 import type { QuizCreationOutcome, QuizCreationProgress } from '@services/quiz/quizCreation';
 import { patchJobSlice, resetLibraryJobStore } from '@stores/libraryJobStore';
 import type { RootStackScreenProps } from '@navigation/types';
@@ -58,8 +60,7 @@ jest.mock('@hooks/usePhotoPermissions', () => ({
 
 const mockPresentLimitedOrSettings = jest.fn(async () => 'picker' as const);
 jest.mock('@services/photoImport/photoImportService', () => ({
-  presentLimitedPhotoPickerOrOpenSettings: (...args: unknown[]) =>
-    mockPresentLimitedOrSettings(...args),
+  presentLimitedPhotoPickerOrOpenSettings: () => mockPresentLimitedOrSettings(),
 }));
 
 let mockOutcome: QuizCreationOutcome = { status: 'created', quizId: 'quiz-1', photoCount: 6 };
@@ -79,7 +80,10 @@ let capturedOnOutcome: ((outcome: QuizCreationOutcome) => void) | undefined;
  * exercises the same path production uses rather than a callback the screen
  * happens to hold.
  */
-function writeProgress(update: QuizCreationProgress) {
+function writeProgress(
+  update: QuizCreationProgress,
+  countryPreviews: readonly CountryPreviewRow[] = []
+) {
   patchJobSlice('quiz-build', {
     progress: {
       current: update.current ?? 0,
@@ -91,6 +95,7 @@ function writeProgress(update: QuizCreationProgress) {
       step: update.step,
       pickUris: update.pickUris ?? [],
       examined: update.examined ?? 0,
+      countryPreviews,
     },
   });
 }
@@ -104,9 +109,12 @@ const mockStart = jest.fn(() => {
 });
 const mockCancel = jest.fn();
 
-function emitProgress(update: QuizCreationProgress) {
+function emitProgress(
+  update: QuizCreationProgress,
+  countryPreviews: readonly CountryPreviewRow[] = []
+) {
   act(() => {
-    writeProgress(update);
+    writeProgress(update, countryPreviews);
   });
 }
 
@@ -116,7 +124,7 @@ jest.mock('@hooks/useQuizBuildJob', () => ({
     return {
       phase: 'idle',
       percentage: null,
-      detail: { step: 'scanning', pickUris: [], examined: 0 },
+      detail: { step: 'scanning', pickUris: [], examined: 0, countryPreviews: [] },
       isActive: false,
       isWaiting: false,
       start: mockStart,
@@ -208,17 +216,92 @@ describe('QuizCreationScreen', () => {
     expect(mockStart).not.toHaveBeenCalled();
   });
 
-  it('renders the permission request state when undetermined', async () => {
+  it('renders quiz beat 1 without the permission stack or an OS request', async () => {
     mockPermission.status = 'undetermined';
 
     await renderScreen();
 
     await waitFor(() => expect(screen.getByTestId('quiz-permission-request')).toBeTruthy());
-    expect(screen.getByText('Allow Full Access')).toBeTruthy();
-    // One scan feeds trips as well, and this is the moment the user decides
-    // whether to grant at all - so the second payoff is named here.
-    expect(screen.getByText(/Guess Where challenges/i)).toBeTruthy();
+    expect(screen.getByText(SCAN_COPY.permission.carousel.beat1Title)).toBeTruthy();
+    expect(screen.queryByTestId('photo-permission-preheat-buttons')).toBeNull();
+    expect(mockPermission.requestPermission).not.toHaveBeenCalled();
     expect(mockStart).not.toHaveBeenCalled();
+  });
+
+  it('guards duplicate quiz requests and keeps an interrupted request on beat 3', async () => {
+    mockPermission.status = 'undetermined';
+    let resolveRequest!: (status: 'undetermined') => void;
+    mockPermission.requestPermission.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveRequest = resolve;
+      })
+    );
+
+    await renderScreen();
+    await waitFor(() => expect(screen.getByTestId('quiz-permission-request')).toBeTruthy());
+    fireEvent.press(screen.getByTestId('photo-permission-carousel-continue'));
+    fireEvent.press(screen.getByTestId('photo-permission-carousel-continue'));
+
+    const fullAccess = screen.getByTestId('photo-permission-preheat-full-access');
+    fireEvent.press(fullAccess);
+    fireEvent.press(fullAccess);
+    expect(mockPermission.requestPermission).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      resolveRequest('undetermined');
+    });
+
+    expect(screen.getByTestId('quiz-permission-request')).toBeTruthy();
+    expect(screen.getByTestId('photo-permission-preheat-full-access')).toBeTruthy();
+  });
+
+  it('offers Try Again after denial and re-requests permission', async () => {
+    mockPermission.status = 'undetermined';
+    mockPermission.requestPermission
+      .mockResolvedValueOnce('denied')
+      .mockResolvedValueOnce('granted');
+
+    await renderScreen();
+    await waitFor(() => expect(screen.getByTestId('quiz-permission-request')).toBeTruthy());
+    fireEvent.press(screen.getByTestId('photo-permission-carousel-continue'));
+    fireEvent.press(screen.getByTestId('photo-permission-carousel-continue'));
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('photo-permission-preheat-full-access'));
+    });
+
+    await waitFor(() => expect(screen.getByTestId('quiz-permission-denied')).toBeTruthy());
+    await act(async () => {
+      fireEvent.press(screen.getByText(SCAN_COPY.permission.recoveryRetryCta));
+    });
+    expect(mockPermission.requestPermission).toHaveBeenCalledTimes(2);
+  });
+
+  it('owns quiz step and left analytics for one carousel mount', async () => {
+    mockPermission.status = 'undetermined';
+    const stepSpy = jest.spyOn(Analytics, 'photoPermissionCarouselStep');
+    const leftSpy = jest.spyOn(Analytics, 'photoPermissionCarouselLeft');
+
+    const rendered = await renderScreen();
+    await waitFor(() =>
+      expect(stepSpy).toHaveBeenCalledWith({ door: 'quiz', step: 1, via: 'initial' })
+    );
+    fireEvent.press(screen.getByTestId('photo-permission-carousel-continue'));
+    fireEvent.press(screen.getByTestId('photo-permission-carousel-continue'));
+    const pager = screen.getByTestId('photo-permission-carousel-pager');
+    fireEvent(pager, 'viewableItemsChanged', {
+      viewableItems: [{ index: 1, isViewable: true, item: { step: 2 } }],
+      changed: [],
+    });
+    fireEvent(pager, 'viewableItemsChanged', {
+      viewableItems: [{ index: 2, isViewable: true, item: { step: 3 } }],
+      changed: [],
+    });
+    rendered.unmount();
+
+    expect(stepSpy).toHaveBeenCalledWith({ door: 'quiz', step: 2, via: 'tap' });
+    expect(stepSpy).toHaveBeenCalledWith({ door: 'quiz', step: 3, via: 'tap' });
+    expect(stepSpy).toHaveBeenCalledTimes(3);
+    expect(leftSpy).toHaveBeenCalledWith({ door: 'quiz', step: 3 });
   });
 
   it('confirms on the intro step before creating; no auto-start (Q5)', async () => {
@@ -239,9 +322,8 @@ describe('QuizCreationScreen', () => {
   it('announces a ready library on the intro when the cache is fresh (Q5)', async () => {
     await renderScreen();
 
-    await waitFor(() => expect(screen.getByTestId('quiz-freshness-line')).toBeTruthy());
-    expect(screen.getByText(/library is ready/)).toBeTruthy();
-    expect(screen.getByText(/812 photos/)).toBeTruthy();
+    await waitFor(() => expect(screen.getByLabelText(/Library ready · 812 photos/)).toBeTruthy());
+    expect(screen.getByTestId('quiz-intro-line')).toBe(screen.getByLabelText(/Library ready/));
   });
 
   it('announces the upcoming photo check when the cache is stale (Q5)', async () => {
@@ -249,19 +331,22 @@ describe('QuizCreationScreen', () => {
 
     await renderScreen();
 
-    await waitFor(() => expect(screen.getByTestId('quiz-freshness-line')).toBeTruthy());
-    expect(screen.getByText(/check your library for new photos/)).toBeTruthy();
+    await waitFor(() => expect(screen.getByLabelText(/Checking for new photos/)).toBeTruthy());
   });
 
-  it('names the trips payoff on the very first scan (Q5)', async () => {
-    mockGetLibraryFreshness.mockResolvedValue(neverSyncedFreshness());
+  it('states the size of a first scan in one line', async () => {
+    mockGetLibraryFreshness.mockResolvedValue({
+      ...neverSyncedFreshness(),
+      cachedPhotoCount: 53_000,
+    });
 
     await renderScreen();
 
-    await waitFor(() => expect(screen.getByTestId('quiz-freshness-line')).toBeTruthy());
-    // Only the first-ever scan gets the pitch; a stale library already has
-    // trips, so it keeps the plain incremental-check line above.
-    expect(screen.getByText(/builds your trips/i)).toBeTruthy();
+    await waitFor(() =>
+      expect(screen.getByLabelText(/About 53,000 photos · several minutes/)).toBeTruthy()
+    );
+    expect(screen.queryByTestId('quiz-scale-line')).toBeNull();
+    expect(screen.queryByTestId('quiz-duration-line')).toBeNull();
   });
 
   it('pre-flights a picks-bearing draft straight to the resume confirm (Q5)', async () => {
@@ -306,7 +391,7 @@ describe('QuizCreationScreen', () => {
     await startFromIntro();
 
     await waitFor(() => expect(screen.getByTestId('quiz-thin-library')).toBeTruthy());
-    expect(screen.getByText(/geotagged, outdoors/)).toBeTruthy();
+    expect(screen.getByText(/geotagged outdoor photos/)).toBeTruthy();
     expect(screen.getByText('Try Again')).toBeTruthy();
   });
 
@@ -371,14 +456,67 @@ describe('QuizCreationScreen', () => {
       await waitFor(() => expect(screen.getByTestId('quiz-progress')).toBeTruthy());
     }
 
+    it('shows an empty discovery viewport before the first scanning row arrives', async () => {
+      mockGetLibraryFreshness.mockResolvedValue(staleFreshness());
+      await startHeld();
+
+      emitProgress({ step: 'scanning', current: 0, total: 100 }, []);
+
+      expect(
+        screen.getByTestId('scan-stage-reading-grid', { includeHiddenElements: true })
+      ).toBeTruthy();
+      expect(screen.queryByTestId('stamp-scatter')).toBeNull();
+      expect(screen.queryByTestId('quiz-slot-empty-0')).toBeNull();
+    });
+
+    it('shows country previews only during scanning in the fixed grid region', async () => {
+      mockGetLibraryFreshness.mockResolvedValue(staleFreshness());
+      await startHeld();
+      const previews: CountryPreviewRow[] = [
+        {
+          code: 'PT',
+          name: 'Portugal',
+          previews: [{ assetId: 'pt-1', uri: 'file:///pt-1.jpg' }],
+        },
+        {
+          code: 'JP',
+          name: 'Japan',
+          previews: [{ assetId: 'jp-1', uri: 'file:///jp-1.jpg' }],
+        },
+      ];
+
+      emitProgress({ step: 'scanning', current: 50, total: 100 }, previews);
+
+      // Stamps only on the card; the names reach VoiceOver, never the screen.
+      expect(screen.getByTestId('stamp-scatter-PT')).toBeTruthy();
+      expect(screen.getByLabelText('Found photos from Portugal')).toBeTruthy();
+      expect(screen.queryByText('Portugal')).toBeNull();
+      expect(screen.queryByTestId('quiz-slot-empty-0')).toBeNull();
+      const scanningRegionStyle = screen.getByTestId('quiz-build-content-region').props.style;
+
+      emitProgress({ step: 'checking', current: 0, total: 10, pickUris: [] }, previews);
+
+      expect(screen.queryByTestId('stamp-scatter-PT')).toBeNull();
+      expect(screen.getByTestId('quiz-slot-empty-0')).toBeTruthy();
+      expect(screen.getByTestId('quiz-build-content-region').props.style).toEqual(
+        scanningRegionStyle
+      );
+    });
+
+    it('keeps the fresh-cache checking view on the existing slot grid', async () => {
+      await startHeld();
+      emitProgress({ step: 'checking', current: 0, total: 10, pickUris: [] });
+
+      expect(screen.getByTestId('quiz-slot-empty-0')).toBeTruthy();
+      expect(screen.queryByTestId('scan-stage')).toBeNull();
+    });
+
     it('renders the counter, found thumbnails, placeholders, and privacy line while hunting', async () => {
       await startHeld();
       emitProgress({ step: 'checking', current: 3, total: 10, pickUris: picks });
 
       expect(screen.getByText('Building Your Challenge')).toBeTruthy();
-      expect(
-        screen.getByText(SCAN_COPY.quiz.workingStatus('checking', { isFirstScan: false }))
-      ).toBeTruthy();
+      expect(screen.getByText(SCAN_COPY.shared.stageLines('quiz-build')[0])).toBeTruthy();
       expect(screen.getByTestId('quiz-found-counter')).toBeTruthy();
       expect(screen.getByText('3 of 10')).toBeTruthy();
 
@@ -410,11 +548,15 @@ describe('QuizCreationScreen', () => {
       await startHeld();
       emitProgress({ step: 'checking', current: 3, total: 10, pickUris: picks });
 
-      expect(screen.getByText(SCAN_COPY.quiz.workingPrivacy[0])).toBeTruthy();
-      expect(screen.getByText(SCAN_COPY.quiz.workingPrivacy[1])).toBeTruthy();
-      expect(screen.getByText(SCAN_COPY.shared.persistenceParagraph)).toBeTruthy();
+      expect(screen.getByText(SCAN_COPY.shared.stageLines('quiz-build')[0])).toBeTruthy();
       expect(screen.getByTestId('quiz-leave-running')).toBeTruthy();
       expect(screen.getByTestId('quiz-cancel')).toBeTruthy();
+      expect(screen.queryByTestId('quiz-privacy-line')).toBeNull();
+      expect(screen.queryByTestId('quiz-trips-line')).toBeNull();
+      expect(screen.queryByTestId('quiz-persistence-line')).toBeNull();
+      expect(screen.queryByText(SCAN_COPY.quiz.workingPrivacy[0])).toBeNull();
+      expect(screen.queryByText(SCAN_COPY.quiz.workingPrivacy[1])).toBeNull();
+      expect(screen.queryByText(SCAN_COPY.shared.persistenceParagraph)).toBeNull();
     });
 
     it('drops even the first-scan copy once the upload starts', async () => {
@@ -431,26 +573,23 @@ describe('QuizCreationScreen', () => {
       expect(screen.queryByTestId('quiz-cancel')).toBeNull();
     });
 
-    it('shows the most recent find as the hero photo', async () => {
+    it('keeps found photos in the stage card while the challenge is built', async () => {
       await startHeld();
       emitProgress({ step: 'checking', current: 3, total: 10, pickUris: picks });
 
       expect(screen.getByTestId('quiz-working-hero')).toBeTruthy();
       expect(screen.queryByTestId('quiz-hero-empty')).toBeNull();
-      // The hero image (no slot testID) renders the LAST found pick.
-      const heroImage = screen
-        .UNSAFE_getAllByType(ExpoImage)
-        .find((node) => node.props.source?.uri === picks[2] && !node.props.testID);
-      expect(heroImage).toBeTruthy();
+      expect(screen.getByTestId('quiz-slot-photo-2').props.source.uri).toBe(picks[2]);
     });
 
-    it('renders a neutral navy field before any photo is found - no fake imagery', async () => {
+    it('renders the stage card before any photo is found', async () => {
       await startHeld();
       emitProgress({ step: 'checking', current: 0, total: 10, pickUris: [] });
 
-      expect(screen.getByTestId('quiz-hero-empty')).toBeTruthy();
-      expect(screen.queryByTestId('quiz-working-hero')).toBeNull();
+      expect(screen.getByTestId('quiz-working-hero')).toBeTruthy();
+      expect(screen.queryByTestId('quiz-hero-empty')).toBeNull();
       expect(screen.queryByTestId('quiz-slot-photo-0')).toBeNull();
+      expect(screen.getByTestId('quiz-slot-empty-0')).toBeTruthy();
       expect(screen.getByText('0 of 10')).toBeTruthy();
     });
 
@@ -459,9 +598,7 @@ describe('QuizCreationScreen', () => {
       emitProgress({ step: 'checking', current: 3, total: 10, pickUris: picks });
       emitProgress({ step: 'building', current: 1, total: 3, pickUris: picks });
 
-      expect(
-        screen.getByText(SCAN_COPY.quiz.workingStatus('building', { isFirstScan: false }))
-      ).toBeTruthy();
+      expect(screen.getByText(SCAN_COPY.shared.stageLines('quiz-build')[0])).toBeTruthy();
       // The counter reads FOUND photos, so it does not restart at the
       // handover: the hunt is over and every slot is filled.
       expect(screen.getByText('3 of 3')).toBeTruthy();
