@@ -13,7 +13,7 @@ The app uses **email/password authentication** for all users via Supabase Auth. 
 
 ### New Users (Onboarding)
 
-1. Complete onboarding steps (WelcomeCarousel through ProgressSummary) → NameEntry → `AccountCreationScreen`
+1. Complete onboarding steps (OnboardingSlider through ProgressSummary) → NameEntry → `AccountCreationScreen`
 2. Enter email → password field appears when email is valid
 3. Submit → `useSignUpWithPassword` creates account, sets `needsPostSignupFlow` flag
 4. Navigate to EmotionalHook → FunctionalHook → Paywall (post-signup flow)

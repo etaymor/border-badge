@@ -90,14 +90,14 @@ describe('Analytics Service', () => {
     };
 
     describe('Onboarding events', () => {
-      it('tracks viewOnboardingWelcome', () => {
-        Analytics.viewOnboardingWelcome();
+      it('tracks viewOnboardingSlide with index, beat and via', () => {
+        Analytics.viewOnboardingSlide({ index: 2, beat: 'share', via: 'swipe' });
 
-        expect(consoleLogSpy).toHaveBeenCalledWith(
-          '[Analytics] Track:',
-          'view_onboarding_welcome',
-          {}
-        );
+        expect(consoleLogSpy).toHaveBeenCalledWith('[Analytics] Track:', 'view_onboarding_slide', {
+          index: 2,
+          beat: 'share',
+          via: 'swipe',
+        });
       });
 
       it('tracks viewOnboardingContinent with continent parameter', () => {

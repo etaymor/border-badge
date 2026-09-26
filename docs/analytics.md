@@ -44,6 +44,25 @@ person. Join on a resource id instead.
    props never breaks a `jest.fn()` mock; adding a name it does not have
    surfaces as "undefined is not a function".
 
+## Onboarding intro (PostHog, mobile only)
+
+The first screen a new user sees is the animated four-beat intro
+(`OnboardingSliderScreen`).
+
+| Event | When | Properties |
+| --- | --- | --- |
+| `view_onboarding_slider` | the intro mounts (top of the onboarding funnel) | none |
+| `view_onboarding_slide` | an intro beat is first shown during one intro mount | `index` (1-4), `beat` (`trips` / `share` / `passport` / `guess_where`), `via` (`initial` / `tap` / `swipe`) |
+| `skip_to_login` | Login is tapped on the intro | `from_screen: 'OnboardingSlider'` |
+
+`view_onboarding_slide` follows the photo-carousel rule: once per beat per
+mount, so swiping back does not re-count. The first beat reports `initial`
+only after the animated splash has started to fade, so it counts a real view.
+Drop-off between beats is `view_onboarding_slide` by `index`.
+
+`view_onboarding_welcome` is retired: the separate video welcome screen was
+folded into the intro, so funnels should start at `view_onboarding_slider`.
+
 ## Photo permission carousel (PostHog, mobile only)
 
 | Event                            | When                                                                | Properties                                          |

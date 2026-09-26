@@ -5,13 +5,12 @@
  * Bug: iOS pauses background audio when expo-video players initialize because
  * the default audioMixingMode ('auto') can still interrupt other audio sessions.
  * All onboarding videos are muted and decorative, so they should use 'mixWithOthers'.
+ * (The intro slider no longer uses video; see OnboardingSliderScreen.test.tsx.)
  */
 
 import { render } from '../../utils/testUtils';
 import { createMockNavigation } from '../../utils/mockFactories';
 
-import { WelcomeCarouselScreen } from '@screens/onboarding/WelcomeCarouselScreen';
-import { OnboardingSliderScreen } from '@screens/onboarding/OnboardingSliderScreen';
 import { ContinentIntroScreen } from '@screens/onboarding/ContinentIntroScreen';
 
 import type { OnboardingStackScreenProps } from '@navigation/types';
@@ -24,44 +23,6 @@ const mockNavigation = createMockNavigation();
 describe('Onboarding video players do not interrupt background music', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-  });
-
-  it('WelcomeCarouselScreen sets audioMixingMode to mixWithOthers', () => {
-    const navigation =
-      mockNavigation as unknown as OnboardingStackScreenProps<'WelcomeCarousel'>['navigation'];
-
-    render(<WelcomeCarouselScreen navigation={navigation} route={{} as never} />);
-
-    expect(useVideoPlayer).toHaveBeenCalled();
-    const callback = useVideoPlayer.mock.calls[0][1];
-    const mockPlayer = {
-      loop: false,
-      muted: false,
-      audioMixingMode: 'auto',
-      play: jest.fn(),
-      pause: jest.fn(),
-    };
-    callback(mockPlayer);
-
-    expect(mockPlayer.audioMixingMode).toBe('mixWithOthers');
-  });
-
-  it('OnboardingSliderScreen sets audioMixingMode to mixWithOthers', () => {
-    const navigation =
-      mockNavigation as unknown as OnboardingStackScreenProps<'OnboardingSlider'>['navigation'];
-
-    render(<OnboardingSliderScreen navigation={navigation} route={{} as never} />);
-
-    // OnboardingSliderScreen uses one player per slide (3 total)
-    expect(useVideoPlayer).toHaveBeenCalledTimes(3);
-
-    // Verify all three players get audioMixingMode set
-    for (let i = 0; i < 3; i++) {
-      const callback = useVideoPlayer.mock.calls[i][1];
-      const mockPlayer = { loop: false, muted: false, audioMixingMode: 'auto', play: jest.fn() };
-      callback(mockPlayer);
-      expect(mockPlayer.audioMixingMode).toBe('mixWithOthers');
-    }
   });
 
   it('ContinentIntroScreen sets audioMixingMode to mixWithOthers', () => {

@@ -26,9 +26,8 @@ describe('Onboarding Flow', () => {
       await device.launchApp({ newInstance: true, delete: true });
     });
 
-    it('displays welcome carousel on first launch', async () => {
-      // Should see first slide with title (testID: carousel-title-1)
-      await waitFor(element(by.id('carousel-title-1')))
+    it('displays the intro slider on first launch', async () => {
+      await waitFor(element(by.text('Find the places you forgot')))
         .toBeVisible()
         .withTimeout(10000);
     });
@@ -40,23 +39,23 @@ describe('Onboarding Flow', () => {
 
       // Swipe to next slide
       await element(by.type('RCTScrollView')).swipe('left');
-      await waitFor(element(by.text('Track Your Travels')))
+      await waitFor(element(by.text('Seen it? Saved it.')))
         .toBeVisible()
         .withTimeout(3000);
 
       // Swipe to next slide
       await element(by.type('RCTScrollView')).swipe('left');
-      await waitFor(element(by.text('Log Trips + Get Recs')))
+      await waitFor(element(by.text('Collect the whole world')))
         .toBeVisible()
         .withTimeout(3000);
 
       // Swipe to last slide with CTA
       await element(by.type('RCTScrollView')).swipe('left');
-      await waitFor(element(by.text('Share & Compare')))
+      await waitFor(element(by.text("Guess where I've been")))
         .toBeVisible()
         .withTimeout(3000);
 
-      // Should see "Start My Journey" button
+      // Should see the "Start my journey" CTA
       await expect(element(by.id('start-journey-button'))).toBeVisible();
     });
 

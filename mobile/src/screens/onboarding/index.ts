@@ -12,4 +12,3 @@ export { NameEntryScreen } from './NameEntryScreen';
 export { PaywallScreen } from './PaywallScreen';
 export { ProgressSummaryScreen } from './ProgressSummaryScreen';
 export { default as TrackingPreferenceScreen } from './TrackingPreferenceScreen';
-export { WelcomeCarouselScreen } from './WelcomeCarouselScreen';

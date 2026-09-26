@@ -36,7 +36,6 @@ PRESET=slow
 MOBILE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONT_DIR="$MOBILE_DIR/assets/country-images/continents"
 WONDERS_DIR="$MOBILE_DIR/assets/country-images/wonders-world"
-ONB_DIR="$MOBILE_DIR/assets/onboarding-videos"
 
 APPLY=0
 if [[ "${1:-}" == "--apply" ]]; then APPLY=1; fi
@@ -48,11 +47,7 @@ REFERENCED=(
   "$CONT_DIR/europe.mp4"
   "$CONT_DIR/oceania.mp4"
   "$CONT_DIR/north-america.mp4"
-  "$WONDERS_DIR/Atlantis.mp4"
   "$WONDERS_DIR/Atlantis2.mp4"
-  "$ONB_DIR/onboarding1-share.mp4"
-  "$ONB_DIR/onboarding2-country-track.mp4"
-  "$ONB_DIR/onboarding3-trips.mp4"
 )
 
 encode_one() {

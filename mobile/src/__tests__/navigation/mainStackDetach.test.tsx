@@ -123,9 +123,6 @@ jest.mock('@screens/onboarding/PaywallScreen', () => ({ PaywallScreen: () => nul
 jest.mock('@screens/onboarding/ProgressSummaryScreen', () => ({
   ProgressSummaryScreen: () => null,
 }));
-jest.mock('@screens/onboarding/WelcomeCarouselScreen', () => ({
-  WelcomeCarouselScreen: () => null,
-}));
 
 // ErrorBoundary just renders children.
 jest.mock('@components/ui/ErrorBoundary', () => ({
@@ -245,7 +242,7 @@ describe('main-navigator freeze config (detachPreviousScreen must stay off)', ()
     it('RETAINS detachPreviousScreen + freezeOnBlur (forward-mostly flow, no pop co-animation to protect)', () => {
       render(<OnboardingNavigator />);
 
-      const record = findNavigatorWithScreen('WelcomeCarousel');
+      const record = findNavigatorWithScreen('OnboardingSlider');
       expect(record.screenOptions).toBeDefined();
       expect(record.screenOptions?.detachPreviousScreen).toBe(true);
       expect(record.screenOptions?.freezeOnBlur).toBe(true);

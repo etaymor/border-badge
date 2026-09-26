@@ -153,11 +153,19 @@ export function calculateApiPercentiles(responseTimes: number[]): {
 // Typed Event Helpers
 // ============================================================================
 
+export type OnboardingIntroBeat = 'trips' | 'share' | 'passport' | 'guess_where';
+export type OnboardingIntroSlideVia = 'initial' | 'tap' | 'swipe';
+
 // Onboarding Events
 export const Analytics = {
   // Onboarding funnel
-  viewOnboardingWelcome: () => track('view_onboarding_welcome'),
   viewOnboardingSlider: () => track('view_onboarding_slider'),
+  /** Once per intro beat per slider mount; `index` is 1-based. */
+  viewOnboardingSlide: (props: {
+    index: number;
+    beat: OnboardingIntroBeat;
+    via: OnboardingIntroSlideVia;
+  }) => track('view_onboarding_slide', { index: props.index, beat: props.beat, via: props.via }),
   viewOnboardingMotivation: () => track('view_onboarding_motivation'),
   viewOnboardingHomeCountry: () => track('view_onboarding_home_country'),
   viewOnboardingTracking: () => track('view_onboarding_tracking'),

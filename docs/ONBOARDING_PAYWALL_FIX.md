@@ -125,7 +125,7 @@ Key detail: when `needsPostSignupFlow` is true and user is authenticated, we sho
 **Reorder screens: AccountCreation before hooks and paywall:**
 
 ```
-WelcomeCarousel → OnboardingSlider → Motivation → HomeCountry →
+OnboardingSlider → Motivation → HomeCountry →
 DreamDestination → ContinentIntro → ContinentCountryGrid → AntarcticaPrompt →
 ProgressSummary → NameEntry → AccountCreation → EmotionalHook →
 FunctionalHook → Paywall
@@ -422,7 +422,7 @@ useEffect(() => {
 
 ## Flow Walkthrough: New User (Email Auth)
 
-1. User goes through onboarding: WelcomeCarousel → ... → NameEntry
+1. User goes through onboarding: OnboardingSlider → ... → NameEntry
 2. User taps "Continue" on NameEntry → navigates to **AccountCreation**
 3. User enters email + password → taps "Create Account"
 4. `useSignUpWithPassword.onSuccess`:

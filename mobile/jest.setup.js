@@ -23,14 +23,22 @@ jest.mock(
       ({ children, entering: _entering, exiting: _exiting, layout: _layout, ...props }, ref) =>
         mockReact.createElement('View', { ...props, ref }, children)
     );
+    // Reanimated's FlatList, backed by the RN one so pages render and scroll
+    // handler objects (from the useAnimatedScrollHandler mock) pass straight
+    // through as props that tests can call.
+    const MockAnimatedFlatList = mockReact.forwardRef((props, ref) =>
+      mockReact.createElement(require('react-native').FlatList, { ...props, ref })
+    );
     return {
       default: {
         View: MockAnimatedView,
         Image: createAnimatedComponent('Image'),
+        FlatList: MockAnimatedFlatList,
         createAnimatedComponent,
       },
       createAnimatedComponent,
       View: MockAnimatedView,
+      FlatList: MockAnimatedFlatList,
       FadeInUp: {
         duration: () => ({
           springify: () => ({}),
@@ -81,6 +89,11 @@ jest.mock(
       runOnJS: jest.fn((fn) => fn),
       cancelAnimation: jest.fn(),
       useAnimatedReaction: jest.fn(),
+      // Hand the handler object back so tests can call e.g.
+      // `list.props.onScroll.onMomentumScrollEnd({ contentOffset: { x } })`.
+      useAnimatedScrollHandler: jest.fn((handlers) => handlers),
+      useAnimatedRef: jest.fn(() => mockReact.useRef(null)),
+      Extrapolation: { CLAMP: 'clamp', EXTEND: 'extend', IDENTITY: 'identity' },
       interpolate: jest.fn((value, inputRange, outputRange) => {
         // Linear interpolation supporting multiple keyframes
         // Find the segment that contains our value
@@ -105,6 +118,11 @@ jest.mock(
         cubic: jest.fn(),
         out: jest.fn((fn) => fn),
         inOut: jest.fn((fn) => fn),
+        in: jest.fn((fn) => fn),
+        sin: jest.fn(),
+        quad: jest.fn(),
+        back: jest.fn(() => jest.fn()),
+        bezier: jest.fn(() => jest.fn()),
       },
       useReducedMotion: jest.fn(() => false),
     };
