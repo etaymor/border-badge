@@ -36,11 +36,10 @@ describe('IdlePhase', () => {
     expect(screen.queryByText(SCAN_COPY.trips.idleBodyFirst)).toBeNull();
   });
 
-  it('holds the reading grid and names the last scan on a return visit', () => {
+  it('holds the stamp page and names the last scan on a return visit', () => {
     renderIdle(Date.now() - (3 * 24 + 1) * 60 * 60 * 1000);
 
-    expect(screen.getByTestId('scan-stage-reading-grid')).toBeTruthy();
-    expect(screen.queryByTestId('permission-beat-3')).toBeNull();
+    expect(screen.getByTestId('permission-beat-3')).toBeTruthy();
     expect(screen.getAllByText(SCAN_COPY.trips.idleTitleReturning)).toHaveLength(2);
     expect(screen.getByText('Last scanned 3 days ago')).toBeTruthy();
     expect(screen.getByTestId('photo-import-refresh')).toBeTruthy();

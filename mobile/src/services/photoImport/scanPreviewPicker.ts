@@ -176,3 +176,65 @@ export function pickScanPreviews(
     ? { countryPreviews: next, changed: true }
     : { countryPreviews: current, changed: false };
 }
+
+// ---------------------------------------------------------------------------
+// Reading previews: the live photo grid shown while the scan reads the library
+// ---------------------------------------------------------------------------
+
+export const MAX_READING_PREVIEWS = 24;
+export const READING_PREVIEWS_PER_BATCH = 4;
+
+export interface ReadingPreview extends ScanPreview {
+  /** Taken outside the home country — the grid badges these as trip photos. */
+  isTravel: boolean;
+}
+
+export interface ReadingPreviewBatchItem {
+  /** Territory code, or null when the location resolved to no country. */
+  code: string | null;
+  photo: PhotoWithLocation;
+}
+
+export interface ReadingPreviewResult {
+  readingPreviews: readonly ReadingPreview[];
+  changed: boolean;
+}
+
+/**
+ * Sample a few photos from one scan batch into a rolling window of the most
+ * recent reads. Evenly spaced through the batch so a burst from one day does
+ * not fill the grid with near-duplicates. Local assets only: the grid never
+ * waits on an iCloud-optimized original.
+ */
+export function appendReadingPreviews(
+  current: readonly ReadingPreview[],
+  batch: readonly ReadingPreviewBatchItem[],
+  options: ScanPreviewPickerOptions
+): ReadingPreviewResult {
+  const homeCountry = options.homeCountry.trim().toUpperCase();
+  const seen = new Set(current.map((preview) => preview.assetId));
+  const eligible = batch.filter(
+    ({ photo }) =>
+      photo.isNetworkAsset !== true && photo.isScreenshot !== true && !seen.has(photo.id)
+  );
+  if (eligible.length === 0) return { readingPreviews: current, changed: false };
+
+  const take = Math.min(READING_PREVIEWS_PER_BATCH, eligible.length);
+  const step = eligible.length / take;
+  const additions: ReadingPreview[] = [];
+  for (let index = 0; index < take; index += 1) {
+    const { code, photo } = eligible[Math.floor(index * step)];
+    if (additions.some((preview) => preview.assetId === photo.id)) continue;
+    const normalizedCode = code?.trim().toUpperCase() ?? '';
+    additions.push({
+      assetId: photo.id,
+      uri: photo.uri,
+      isTravel: normalizedCode !== '' && normalizedCode !== homeCountry,
+    });
+  }
+
+  return {
+    readingPreviews: [...current, ...additions].slice(-MAX_READING_PREVIEWS),
+    changed: true,
+  };
+}

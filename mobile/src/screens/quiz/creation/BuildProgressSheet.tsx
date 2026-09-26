@@ -1,9 +1,9 @@
 /**
  * BuildProgressSheet - the wizard's working phase.
  *
- * The navy hero hosts one stage card (`QuizWorkingStage`): the live scan
- * shelf while the library is being read, then the same card's slot grid once
- * photos start landing. The cream sheet under it is the shared scan body —
+ * The navy hero hosts one full-bleed stage (`QuizWorkingStage`): the live
+ * scan while the library is being read, then the slot grid once photos start
+ * landing. The cream sheet under it is the shared scan body —
  * title, counter, one rotating line, and the first-scan action row.
  *
  * The build reads as ONE continuous process: `pickUris` is append-only from
@@ -14,12 +14,12 @@
 
 import { useEffect, useState } from 'react';
 import { Image } from 'expo-image';
-import { View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import Animated, { FadeIn } from 'react-native-reanimated';
 
 import { ScanSheetBody } from '@components/photos/ScanSheetBody';
 import { ScanStage } from '@components/photos/ScanStage';
-import { StageCard } from '@components/photos/StageCard';
+import { useStageInsets } from '@components/photos/StageHero';
 import { SCAN_COPY } from '@constants/scanCopy';
 import { useLeaseKeepsRunning } from '@hooks/useContinuationLeaseState';
 
@@ -36,6 +36,7 @@ interface QuizWorkingStageProps {
 export function QuizWorkingStage({ build, reduceMotion, isPaused }: QuizWorkingStageProps) {
   const { step, pickUris, uploading, uploadedCount } = build;
   const showCountryPreviews = step === 'scanning';
+  const stageInsets = useStageInsets();
   const [discoveryLayerVisible, setDiscoveryLayerVisible] = useState(showCountryPreviews);
 
   useEffect(() => {
@@ -43,27 +44,31 @@ export function QuizWorkingStage({ build, reduceMotion, isPaused }: QuizWorkingS
   }, [showCountryPreviews]);
 
   return (
-    <View style={styles.permissionHeroCardArea} testID="quiz-build-content-region">
-      <StageCard>
-        {discoveryLayerVisible ? (
-          <ScanStage
-            rows={build.countryPreviews}
-            isComplete={!showCountryPreviews}
-            isPaused={isPaused}
+    <View style={StyleSheet.absoluteFill} testID="quiz-build-content-region">
+      {discoveryLayerVisible ? (
+        <ScanStage
+          rows={build.countryPreviews}
+          readingPreviews={build.readingPreviews}
+          isComplete={!showCountryPreviews}
+          isPaused={isPaused}
+          reduceMotion={reduceMotion}
+        />
+      ) : (
+        <View
+          style={[
+            styles.slotStageHost,
+            { paddingTop: stageInsets.top, paddingBottom: stageInsets.bottom },
+          ]}
+        >
+          <SlotGrid
+            pickUris={pickUris}
+            slotTotal={build.slotTotal}
+            uploading={uploading}
+            uploadedCount={uploadedCount}
             reduceMotion={reduceMotion}
           />
-        ) : (
-          <View style={styles.slotStageHost}>
-            <SlotGrid
-              pickUris={pickUris}
-              slotTotal={build.slotTotal}
-              uploading={uploading}
-              uploadedCount={uploadedCount}
-              reduceMotion={reduceMotion}
-            />
-          </View>
-        )}
-      </StageCard>
+        </View>
+      )}
     </View>
   );
 }

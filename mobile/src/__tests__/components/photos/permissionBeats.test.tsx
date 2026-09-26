@@ -6,12 +6,16 @@ import OnDeviceBeat from '@components/photos/permissionBeats/OnDeviceBeat';
 import PassportBeat from '@components/photos/permissionBeats/PassportBeat';
 import PermissionBeatVisual from '@components/photos/permissionBeats/PermissionBeatVisual';
 import {
-  PERMISSION_BEAT_FADE_OUT,
   PERMISSION_CHECK_STAGGER,
   PERMISSION_POP_DURATION,
-  permissionBeatResetDelay,
   permissionBeatVisibleMs,
 } from '@components/photos/permissionBeats/permissionMotion';
+import {
+  PERMISSION_CLOCK_STILL,
+  permissionBeatCycleMs,
+  permissionFadeAt,
+  permissionPopAt,
+} from '@components/photos/permissionBeats/usePermissionBeatFade';
 import TripsFoundBeat from '@components/photos/permissionBeats/TripsFoundBeat';
 import {
   DEFAULT_PERMISSION_BEAT_ASSETS,
@@ -26,26 +30,41 @@ const partialAssets: PermissionBeatAssets = {
 };
 
 describe('permission beat visuals', () => {
-  it('resets each pop at the same instant the frame finishes fading', () => {
-    const count = 8;
-    const visibleMs = permissionBeatVisibleMs(count, PERMISSION_CHECK_STAGGER);
-    const fadeEnd = visibleMs + PERMISSION_BEAT_FADE_OUT;
+  it('derives every pop and the fade from one clock, so the loop never double-flashes', () => {
+    const timing = { count: 8, stagger: PERMISSION_CHECK_STAGGER };
+    const cycle = permissionBeatCycleMs(timing);
+    const fadeStart = permissionBeatVisibleMs(timing.count, timing.stagger);
 
-    for (let order = 0; order < count; order += 1) {
-      const snapAt =
-        order * PERMISSION_CHECK_STAGGER +
-        PERMISSION_POP_DURATION +
-        permissionBeatResetDelay(order, count, PERMISSION_CHECK_STAGGER);
-      expect(snapAt).toBe(fadeEnd);
+    // Every overlay has fully popped before the fade starts...
+    for (let order = 0; order < timing.count; order += 1) {
+      expect(permissionPopAt(fadeStart, order, timing.stagger)).toBe(1);
     }
+    // ...the fade reaches zero exactly as the clock wraps...
+    expect(permissionFadeAt(cycle, timing)).toBe(0);
+    // ...and on the wrap every overlay restarts hidden, so nothing flashes back.
+    for (let order = 0; order < timing.count; order += 1) {
+      expect(permissionPopAt(0, order, timing.stagger) * permissionFadeAt(0, timing)).toBe(0);
+    }
+    // Pops are staggered and overshoot a little on the way in.
+    expect(permissionPopAt(PERMISSION_POP_DURATION * 0.7, 0, timing.stagger)).toBeGreaterThan(1);
+    expect(permissionPopAt(PERMISSION_POP_DURATION * 0.7, 1, timing.stagger)).toBeLessThan(1);
   });
 
-  it('renders twenty tiles filling the trips grid', () => {
+  it('rests every overlay at its final frame when the clock is still', () => {
+    const timing = { count: 3, stagger: 220 };
+    expect(permissionPopAt(PERMISSION_CLOCK_STILL, 2, timing.stagger)).toBe(1);
+    expect(permissionFadeAt(PERMISSION_CLOCK_STILL, timing)).toBe(1);
+  });
+
+  it('renders a full-bleed 3 x 4 grid, one tile per delivered still', () => {
     render(<TripsFoundBeat isActive={false} reduceMotion={false} assets={{}} />);
 
-    expect(screen.getAllByTestId(/^permission-beat-placeholder-/)).toHaveLength(20);
-    expect(screen.getAllByTestId(/^permission-beat1-tile-/)).toHaveLength(20);
-    expect(StyleSheet.flatten(screen.getByTestId('permission-beat-1').props.style).gap).toBe(4);
+    expect(screen.getAllByTestId(/^permission-beat1-tile-/)).toHaveLength(12);
+    expect(StyleSheet.flatten(screen.getByTestId('permission-beat-1').props.style)).toMatchObject({
+      position: 'absolute',
+      top: 0,
+      bottom: 0,
+    });
   });
 
   it('renders one tinted placeholder and the three SCAN_COPY pills', () => {
@@ -57,11 +76,12 @@ describe('permission beat visuals', () => {
     expect(screen.getByText('Location data only')).toBeTruthy();
   });
 
-  it('renders six tinted placeholders in three shared country rows', () => {
+  it('scatters the demo stamps with two tucked photos each and no names', () => {
     render(<PassportBeat isActive={false} reduceMotion={false} assets={{}} />);
 
-    expect(screen.getAllByTestId(/^permission-beat-placeholder-/)).toHaveLength(6);
-    expect(screen.getAllByTestId(/^country-row-/)).toHaveLength(12);
+    expect(screen.getAllByTestId(/^permission-beat-placeholder-/)).toHaveLength(8);
+    expect(screen.getAllByTestId(/^stamp-scatter-stamp-/)).toHaveLength(4);
+    expect(screen.queryAllByText(/.+/)).toHaveLength(0);
   });
 
   it('wires the delivered stills into the default asset map', () => {
@@ -76,8 +96,9 @@ describe('permission beat visuals', () => {
     expect(DEFAULT_PERMISSION_BEAT_ASSETS.beat3?.HR).toHaveLength(2);
 
     render(<TripsFoundBeat isActive={false} reduceMotion={false} />);
+    // Every tile is a real photo: no tinted stand-ins.
     expect(screen.getAllByTestId(/^permission-beat1-image-/)).toHaveLength(12);
-    expect(screen.getAllByTestId(/^permission-beat-placeholder-/)).toHaveLength(8);
+    expect(screen.queryAllByTestId(/^permission-beat-placeholder-/)).toHaveLength(0);
   });
 
   it('renders each reduce-motion beat at its final static frame', () => {
@@ -104,7 +125,7 @@ describe('permission beat visuals', () => {
     photo.unmount();
 
     render(<PassportBeat isActive reduceMotion />);
-    expect(screen.getAllByTestId(/^country-row-slot-/)).toHaveLength(6);
+    expect(screen.getAllByTestId(/^stamp-scatter-photo-/)).toHaveLength(8);
   });
 
   it('does not start loops for inactive beats or any reduce-motion beat', () => {
@@ -117,31 +138,30 @@ describe('permission beat visuals', () => {
   });
 
   it.each([
-    [1, 9],
-    [2, 4],
-    [3, 7],
-  ] as const)('loops the beat and its fade for active step %s', (step, loopCount) => {
+    [1, 1],
+    [2, 1],
+    [3, 1],
+  ] as const)('runs one shared clock for active step %s', (step, loopCount) => {
     render(<PermissionBeatVisual step={step} reduceMotion={false} homeCountry="US" />);
 
     expect(withRepeat).toHaveBeenCalledTimes(loopCount);
   });
 
-  it('filters a normalized home country and fills from the fourth demo country', () => {
+  it('filters a normalized home country out of the demo stamps', () => {
     render(<PassportBeat isActive={false} reduceMotion homeCountry=" hr " />);
 
-    expect(screen.queryByTestId('country-row-HR')).toBeNull();
-    expect(screen.getByTestId('country-row-JP')).toBeTruthy();
-    expect(screen.getByTestId('country-row-MX')).toBeTruthy();
-    expect(screen.getByTestId('country-row-IT')).toBeTruthy();
+    expect(screen.queryByTestId('stamp-scatter-HR')).toBeNull();
+    expect(screen.getByTestId('stamp-scatter-JP')).toBeTruthy();
+    expect(screen.getByTestId('stamp-scatter-MX')).toBeTruthy();
+    expect(screen.getByTestId('stamp-scatter-IT')).toBeTruthy();
   });
 
-  it('uses the first three demo countries when home is outside the demo', () => {
+  it('uses every demo country when home is outside the demo', () => {
     render(<PassportBeat isActive={false} reduceMotion homeCountry="US" />);
 
-    expect(screen.getByTestId('country-row-HR')).toBeTruthy();
-    expect(screen.getByTestId('country-row-JP')).toBeTruthy();
-    expect(screen.getByTestId('country-row-MX')).toBeTruthy();
-    expect(screen.queryByTestId('country-row-IT')).toBeNull();
+    for (const code of ['HR', 'JP', 'MX', 'IT']) {
+      expect(screen.getByTestId(`stamp-scatter-${code}`)).toBeTruthy();
+    }
   });
 
   it('uses supplied assets while retaining placeholders for missing entries', () => {
@@ -149,7 +169,7 @@ describe('permission beat visuals', () => {
     expect(screen.getByTestId('permission-beat1-image-0').props.source).toContainEqual(
       partialAssets.beat1?.[0]
     );
-    expect(screen.getAllByTestId(/^permission-beat-placeholder-/)).toHaveLength(19);
+    expect(screen.getAllByTestId(/^permission-beat-placeholder-/)).toHaveLength(11);
     grid.unmount();
 
     render(<PassportBeat isActive={false} reduceMotion assets={partialAssets} homeCountry="HR" />);
@@ -173,13 +193,12 @@ describe('permission beat visuals', () => {
     expect(screen.getByTestId(`permission-beat-${step}`)).toBeTruthy();
   });
 
-  it('frames every beat in the stage card', () => {
-    render(<PermissionBeatVisual step={1} reduceMotion />);
-
-    const frame = StyleSheet.flatten(screen.getByTestId('stage-card').props.style);
-    expect(frame.aspectRatio).toBeCloseTo(4 / 5);
-    expect(frame.borderRadius).toBe(24);
-    expect(frame.overflow).toBe('hidden');
-    expect(screen.queryByTestId('permission-beat-visual-content')).toBeNull();
+  it('keeps the photos on screen for the whole loop; only overlays fade', () => {
+    render(<PermissionBeatVisual step={2} reduceMotion={false} />);
+    const beat = screen.getByTestId('permission-beat-2');
+    expect(StyleSheet.flatten(beat.props.style).opacity).toBeUndefined();
+    expect(
+      StyleSheet.flatten(screen.getByTestId('permission-beat2-image').props.style).opacity
+    ).toBeUndefined();
   });
 });

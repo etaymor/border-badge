@@ -7,9 +7,7 @@ import {
   PhotoPermissionCarousel,
 } from '@components/photos/PhotoPermissionCarousel';
 import type { PhotoPermissionPreheatChoice } from '@components/photos/PhotoPermissionPreheatStack';
-import { colors } from '@constants/colors';
 import { SCAN_COPY } from '@constants/scanCopy';
-import { styles as photoImportStyles } from '@screens/photos/photoImportStyles';
 
 const mockUseReducedMotion = jest.fn(() => false);
 
@@ -77,7 +75,8 @@ describe('PhotoPermissionCarousel', () => {
     render(<CarouselHarness />);
 
     expect(screen.getByText(SCAN_COPY.permission.carousel.beat1Title)).toBeTruthy();
-    expect(screen.getByText(SCAN_COPY.permission.carousel.beat1Subtitle)).toBeTruthy();
+    // Title only: the beat's supporting claims rotate through the footer.
+    expect(screen.getByTestId('photo-permission-carousel-page-1').children).toHaveLength(1);
     expect(screen.getByText(SCAN_COPY.permission.carousel.continueCta)).toBeTruthy();
     expect(screen.queryByTestId('photo-permission-preheat-buttons')).toBeNull();
   });
@@ -148,8 +147,26 @@ describe('PhotoPermissionCarousel', () => {
           onChoose={jest.fn()}
         />
       );
-      expect(screen.getByText(SCAN_COPY.permission.carousel.footerNotice)).toBeTruthy();
+      expect(screen.getByText(SCAN_COPY.permission.carousel.footerLines('trips')[0])).toBeTruthy();
       expect(screen.getByTestId('photo-permission-carousel-lock')).toBeTruthy();
+    }
+  });
+
+  it('rotates every privacy claim through one footer line, per door', () => {
+    for (const door of ['trips', 'quiz'] as const) {
+      const { unmount } = render(
+        <PhotoPermissionCarousel
+          door={door}
+          step={1}
+          onBeatChange={jest.fn()}
+          onChoose={jest.fn()}
+        />
+      );
+      const lines = SCAN_COPY.permission.carousel.footerLines(door);
+      const footerLine = screen.getByTestId('photo-permission-carousel-footer-line');
+      expect(footerLine.props.accessibilityLabel).toBe(lines.join('. '));
+      expect(footerLine.props.numberOfLines).toBe(1);
+      unmount();
     }
   });
 
@@ -193,12 +210,6 @@ describe('PhotoPermissionCarousel', () => {
       expect(getPhotoPermissionCarouselBottomInset(height, door)).toBe(expectedInset);
     }
   );
-
-  it('puts the trips permission hero on midnightNavy to match the quiz door', () => {
-    expect(StyleSheet.flatten(photoImportStyles.permissionHero).backgroundColor).toBe(
-      colors.midnightNavy
-    );
-  });
 
   it('sizes pager pages to the inset host width instead of the full window', () => {
     render(<CarouselHarness />);

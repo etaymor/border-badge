@@ -45,7 +45,15 @@ import {
 import { applyPersistedSplits, applySavedPhotoFilter } from './photoClusteringDisplay';
 import { getAllSavedPhotoIds, getClusterSplitsForParents } from './photoCacheDbSuggestions';
 import { extractPhotosWithLocation } from './photoImportService';
-import { pickScanPreviews, type ScanPreviewBatchItem } from './scanPreviewPicker';
+import {
+  appendReadingPreviews,
+  pickScanPreviews,
+  type ReadingPreviewBatchItem,
+  type ScanPreviewBatchItem,
+} from './scanPreviewPicker';
+
+/** The live grid refreshes at most this often; batches can land faster. */
+const READING_PREVIEW_MIN_INTERVAL_MS = 300;
 import { maybeRunTaggingPass } from './photoTaggingService';
 import type { CachedPhoto, PhotoWithLocation, ScanProgress } from './types';
 import type { PhotoScanResult, PhotoScanStartOptions } from './photoScanTypes';
@@ -70,8 +78,10 @@ export async function runScanPass(
   const scanStartTime = Date.now();
   const detail: TripScanDetail = {
     countryPreviews: [],
+    readingPreviews: [],
     isIncremental: false,
   };
+  let lastReadingPreviewAt = 0;
 
   try {
     Analytics.photoImportScanStarted();
@@ -106,11 +116,13 @@ export async function runScanPass(
       if (ctx.signal.aborted) return;
 
       const previewItems: ScanPreviewBatchItem[] = [];
+      const readingItems: ReadingPreviewBatchItem[] = [];
       for (const photo of batchPhotos) {
         const code = iso1A2Code([photo.location.longitude, photo.location.latitude], {
           level: 'territory',
         });
         photoCountryCodes.set(photo.id, code ?? null);
+        readingItems.push({ code: code ?? null, photo });
         if (code) {
           previewItems.push({
             code,
@@ -123,8 +135,22 @@ export async function runScanPass(
       const previewResult = pickScanPreviews(detail.countryPreviews, previewItems, {
         homeCountry: opts.homeCountry ?? '',
       });
+      let detailChanged = previewResult.changed;
       if (previewResult.changed) {
         detail.countryPreviews = previewResult.countryPreviews;
+      }
+      const now = Date.now();
+      if (now - lastReadingPreviewAt >= READING_PREVIEW_MIN_INTERVAL_MS) {
+        const readingResult = appendReadingPreviews(detail.readingPreviews, readingItems, {
+          homeCountry: opts.homeCountry ?? '',
+        });
+        if (readingResult.changed) {
+          detail.readingPreviews = readingResult.readingPreviews;
+          lastReadingPreviewAt = now;
+          detailChanged = true;
+        }
+      }
+      if (detailChanged) {
         ctx.emit(lastProgress, { ...detail });
       }
 

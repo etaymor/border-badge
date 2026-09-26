@@ -23,13 +23,19 @@ import { iso1A2Code } from '@services/photoImport/countryCoder';
 import { ensureFreshLibrary } from '@services/photoImport/photoBackgroundSync';
 import { getAllCachedPhotos } from '@services/photoImport/photoCacheDb';
 import {
+  appendReadingPreviews,
   pickScanPreviews,
   type CountryPreviewRow,
+  type ReadingPreview,
+  type ReadingPreviewBatchItem,
   type ScanPreviewBatchItem,
 } from '@services/photoImport/scanPreviewPicker';
 import { api } from '@services/api';
 import type { CachedPhoto } from '@services/photoImport/types';
 import { getCountryName } from '@utils/countries';
+
+/** The live grid refreshes at most this often; batches can land faster. */
+const READING_PREVIEW_MIN_INTERVAL_MS = 300;
 
 import {
   CLASSIFICATION_BUDGET_PER_QUIZ,
@@ -213,6 +219,9 @@ export async function setUpQuizRun(
   );
   let countryPreviews: readonly CountryPreviewRow[] = [];
   let lastEmittedCountryPreviews = countryPreviews;
+  let readingPreviews: readonly ReadingPreview[] = [];
+  let lastEmittedReadingPreviews = readingPreviews;
+  let lastReadingPreviewAt = 0;
   const refresh = await ensureFreshLibrary({
     source: 'quiz',
     // The job runtime marks 'quiz-build' running before this function's
@@ -226,19 +235,25 @@ export async function setUpQuizRun(
       const changedCountryPreviews =
         countryPreviews === lastEmittedCountryPreviews ? undefined : countryPreviews;
       lastEmittedCountryPreviews = countryPreviews;
+      const changedReadingPreviews =
+        readingPreviews === lastEmittedReadingPreviews ? undefined : readingPreviews;
+      lastEmittedReadingPreviews = readingPreviews;
       onProgress?.({
         step: 'scanning',
         current: progress.current,
         total: progress.total,
         countryPreviews: changedCountryPreviews,
+        readingPreviews: changedReadingPreviews,
       });
     },
     onBatch: (photos) => {
       const previewItems: ScanPreviewBatchItem[] = [];
+      const readingItems: ReadingPreviewBatchItem[] = [];
       for (const photo of photos) {
         const code = iso1A2Code([photo.location.longitude, photo.location.latitude], {
           level: 'territory',
         });
+        readingItems.push({ code: code ?? null, photo });
         if (!code) continue;
         previewItems.push({
           code,
@@ -250,6 +265,16 @@ export async function setUpQuizRun(
         homeCountry: homeCountry ?? '',
       });
       if (result.changed) countryPreviews = result.countryPreviews;
+      const now = Date.now();
+      if (now - lastReadingPreviewAt >= READING_PREVIEW_MIN_INTERVAL_MS) {
+        const reading = appendReadingPreviews(readingPreviews, readingItems, {
+          homeCountry: homeCountry ?? '',
+        });
+        if (reading.changed) {
+          readingPreviews = reading.readingPreviews;
+          lastReadingPreviewAt = now;
+        }
+      }
     },
     signal,
   });

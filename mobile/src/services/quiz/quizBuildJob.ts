@@ -23,8 +23,10 @@
 import { Analytics } from '@services/analytics';
 import {
   MAX_SCAN_PREVIEW_COUNTRIES,
+  MAX_READING_PREVIEWS,
   MAX_SCAN_PREVIEWS_PER_COUNTRY,
   type CountryPreviewRow,
+  type ReadingPreview,
 } from '@services/photoImport/scanPreviewPicker';
 
 import { CLASSIFICATION_BUDGET_PER_QUIZ } from './candidateSelection';
@@ -47,6 +49,7 @@ import { patchJobSlice, type QuizBuildDetail } from '@stores/libraryJobStore';
  */
 let lastOutcome: QuizCreationOutcome | null = null;
 let buildCountryPreviews: readonly CountryPreviewRow[] = [];
+let buildReadingPreviews: readonly ReadingPreview[] = [];
 
 export interface QuizBuildOptions {
   /** Where the build was launched from, for funnel attribution. */
@@ -85,11 +88,15 @@ function publish(ctx: JobRunContext, progress: QuizCreationProgress): void {
   if (progress.countryPreviews) {
     buildCountryPreviews = boundCountryPreviews(progress.countryPreviews);
   }
+  if (progress.readingPreviews) {
+    buildReadingPreviews = progress.readingPreviews.slice(-MAX_READING_PREVIEWS);
+  }
   const detail: QuizBuildDetail = {
     step: progress.step,
     pickUris: progress.pickUris ?? [],
     examined: progress.examined ?? 0,
     countryPreviews: buildCountryPreviews,
+    readingPreviews: buildReadingPreviews,
   };
   ctx.emit(
     {
@@ -252,6 +259,7 @@ registerJob<QuizBuildCheckpoint, QuizBuildOptions>({
   onStart: (options, info) => {
     lastOutcome = null;
     buildCountryPreviews = [];
+    buildReadingPreviews = [];
     // Drop any in-memory state from a previous build BEFORE the first unit.
     // A resume rebuilds what it needs from SQLite; see `quizPoolSetup`.
     beginQuizRun();
@@ -269,7 +277,13 @@ registerJob<QuizBuildCheckpoint, QuizBuildOptions>({
     const seedPickUris = options?.seedPickUris ?? [];
     const seedStep = options?.seedStep ?? 'scanning';
     patchJobSlice('quiz-build', {
-      detail: { step: seedStep, pickUris: seedPickUris, examined: 0, countryPreviews: [] },
+      detail: {
+        step: seedStep,
+        pickUris: seedPickUris,
+        examined: 0,
+        countryPreviews: [],
+        readingPreviews: [],
+      },
       progress: {
         current: 0,
         total: seedPickUris.length,

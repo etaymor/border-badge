@@ -11,8 +11,7 @@ import { ActivityIndicator, Pressable, StatusBar, StyleSheet, Text, View } from 
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { PrivacyLockGlyph } from '@components/photos/PrivacyLockGlyph';
-import { ScanStage } from '@components/photos/ScanStage';
-import { StageCard } from '@components/photos/StageCard';
+import { StageHero } from '@components/photos/StageHero';
 import PassportBeat from '@components/photos/permissionBeats/PassportBeat';
 import { Button, GlassBackButton } from '@components/ui';
 import { colors } from '@constants/colors';
@@ -70,25 +69,17 @@ export function IdlePhase({
   return (
     <View style={styles.scanStageLayout} testID="photo-import-idle">
       <StatusBar barStyle="light-content" />
-      <View style={[styles.permissionHero, { paddingTop: insets.top }]}>
-        <View style={styles.permissionHeroHeader}>
-          <GlassBackButton variant="dark" onPress={onLeave} />
-          <View style={styles.headerSpacer} />
-        </View>
-        <View style={styles.permissionHeroCardArea}>
-          <StageCard>
-            {isFirstRun ? (
-              <PassportBeat
-                isActive={false}
-                reduceMotion={reduceMotion}
-                homeCountry={homeCountry}
-              />
-            ) : (
-              <ScanStage rows={[]} isComplete={false} reduceMotion />
-            )}
-          </StageCard>
-        </View>
-      </View>
+      <StageHero
+        titleless
+        header={
+          <View style={[styles.permissionHeroHeader, { paddingTop: insets.top }]}>
+            <GlassBackButton variant="dark" onPress={onLeave} />
+            <View style={styles.headerSpacer} />
+          </View>
+        }
+      >
+        <PassportBeat isActive={false} reduceMotion={reduceMotion} homeCountry={homeCountry} />
+      </StageHero>
       <View style={[styles.permissionCarouselContainer, { paddingBottom: insets.bottom + 12 }]}>
         <View style={sheetStyles.body}>
           <Text style={sheetStyles.title}>
@@ -143,7 +134,7 @@ const sheetStyles = StyleSheet.create({
     paddingTop: 8,
   },
   title: {
-    fontFamily: fonts.playfair.regular,
+    fontFamily: fonts.playfair.bold,
     fontSize: 26,
     lineHeight: 32,
     color: colors.midnightNavy,

@@ -33,7 +33,7 @@ import {
   type LibraryFreshness,
 } from '@services/photoImport/photoLibrarySyncStatus';
 import { presentLimitedPhotoPickerOrOpenSettings } from '@services/photoImport/photoImportService';
-import type { CountryPreviewRow } from '@services/photoImport/scanPreviewPicker';
+import type { CountryPreviewRow, ReadingPreview } from '@services/photoImport/scanPreviewPicker';
 import { QUIZ_MAX_PHOTOS } from '@services/quiz/candidateSelection';
 import { loadDraftState } from '@services/quiz/quizCreation';
 import type {
@@ -69,6 +69,7 @@ export interface BuildView {
   step: QuizCreationStep;
   pickUris: string[];
   countryPreviews: readonly CountryPreviewRow[];
+  readingPreviews: readonly ReadingPreview[];
   lastPickUri: string | null;
   uploading: boolean;
   uploadedCount: number;
@@ -142,6 +143,7 @@ export function useQuizCreationFlow({ entryPoint, navigation }: Options): QuizCr
       pickUris: jobDetail.pickUris,
       examined: jobDetail.examined,
       countryPreviews: jobDetail.countryPreviews,
+      readingPreviews: jobDetail.readingPreviews,
     };
   }, [jobProgress, jobDetail]);
   const [outcome, setOutcome] = useState<QuizCreationOutcome | null>(null);
@@ -430,6 +432,7 @@ export function useQuizCreationFlow({ entryPoint, navigation }: Options): QuizCr
       step,
       pickUris,
       countryPreviews: progress?.countryPreviews ?? [],
+      readingPreviews: progress?.readingPreviews ?? [],
       lastPickUri: pickUris.length > 0 ? pickUris[pickUris.length - 1] : null,
       uploading,
       uploadedCount: uploading ? (progress?.current ?? 0) : 0,

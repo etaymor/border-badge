@@ -1,4 +1,7 @@
 import {
+  MAX_READING_PREVIEWS,
+  READING_PREVIEWS_PER_BATCH,
+  appendReadingPreviews,
   pickScanPreviews,
   type CountryPreviewRow,
   type ScanPreviewBatchItem,
@@ -236,5 +239,69 @@ describe('pickScanPreviews', () => {
 
     expect(result.countryPreviews).toHaveLength(10);
     expect(elapsedCpuMs).toBeLessThan(50);
+  });
+});
+
+describe('appendReadingPreviews', () => {
+  const read = (
+    id: string,
+    code: string | null = 'JP',
+    overrides: Partial<PhotoWithLocation> = {}
+  ) => ({
+    code,
+    photo: photo(id, overrides),
+  });
+
+  it('samples a few photos per batch, spread through the batch', () => {
+    const batch = Array.from({ length: 40 }, (_, index) => read(`p${index}`));
+    const { readingPreviews, changed } = appendReadingPreviews([], batch, { homeCountry: 'US' });
+
+    expect(changed).toBe(true);
+    expect(readingPreviews.map((preview) => preview.assetId)).toEqual(['p0', 'p10', 'p20', 'p30']);
+    expect(readingPreviews).toHaveLength(READING_PREVIEWS_PER_BATCH);
+  });
+
+  it('skips iCloud-only originals, screenshots, and photos already shown', () => {
+    const batch = [
+      read('cloud', 'JP', { isNetworkAsset: true }),
+      read('shot', 'JP', { isScreenshot: true }),
+      read('seen'),
+      read('fresh'),
+    ];
+    const current = [{ assetId: 'seen', uri: 'file://seen.jpg', isTravel: true }];
+
+    const { readingPreviews } = appendReadingPreviews(current, batch, { homeCountry: 'US' });
+
+    expect(readingPreviews.map((preview) => preview.assetId)).toEqual(['seen', 'fresh']);
+  });
+
+  it('marks only photos outside the home country as trip photos', () => {
+    const batch = [read('home', 'us'), read('away', 'JP'), read('sea', null)];
+    const { readingPreviews } = appendReadingPreviews([], batch, { homeCountry: ' US ' });
+
+    expect(Object.fromEntries(readingPreviews.map((p) => [p.assetId, p.isTravel]))).toEqual({
+      home: false,
+      away: true,
+      sea: false,
+    });
+  });
+
+  it('keeps only the most recent window', () => {
+    let window: ReturnType<typeof appendReadingPreviews>['readingPreviews'] = [];
+    for (let batchIndex = 0; batchIndex < 10; batchIndex += 1) {
+      const batch = Array.from({ length: 4 }, (_, index) => read(`b${batchIndex}-${index}`));
+      window = appendReadingPreviews(window, batch, { homeCountry: 'US' }).readingPreviews;
+    }
+
+    expect(window).toHaveLength(MAX_READING_PREVIEWS);
+    expect(window[window.length - 1].assetId).toBe('b9-3');
+  });
+
+  it('reports no change when nothing in the batch is usable', () => {
+    const current = [{ assetId: 'a', uri: 'file://a.jpg', isTravel: false }];
+    const result = appendReadingPreviews(current, [read('a')], { homeCountry: 'US' });
+
+    expect(result.changed).toBe(false);
+    expect(result.readingPreviews).toBe(current);
   });
 });

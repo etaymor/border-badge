@@ -98,7 +98,7 @@ const styles = StyleSheet.create({
     paddingTop: 8,
   },
   title: {
-    fontFamily: fonts.playfair.regular,
+    fontFamily: fonts.playfair.bold,
     fontSize: 26,
     lineHeight: 32,
     color: colors.midnightNavy,

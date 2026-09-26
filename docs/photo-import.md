@@ -20,7 +20,7 @@ The photo import feature allows users to scan their device photo library and aut
 
 ### Mobile Screen Components (`mobile/src/screens/photos/components/`)
 
-- `IdlePhase.tsx`, `ScanningPhase.tsx`, `SuggestionsPhase.tsx` - Workflow phase UIs. Idle and scanning share `StageCard` with the permission carousel
+- `IdlePhase.tsx`, `ScanningPhase.tsx`, `SuggestionsPhase.tsx` - Workflow phase UIs. Idle and scanning share `StageHero` with the permission carousel
 - `PlaceSuggestionCard.tsx` - Individual suggestion with prev/next alternative cycling
 - `ClusterListItem.tsx`, `PhotoClusterCard.tsx` - Cluster displays
 - `PhotoGalleryModal.tsx` - Full-screen photo gallery
@@ -135,29 +135,56 @@ Both use a 60-day TTL (place data near a coordinate is very stable); the short i
 
 ## Scan surfaces
 
-The trips door and the Guess Where build share one frame: a navy hero, one
-`StageCard` (4:5, 24pt radius), and a warm-cream sheet underneath.
+The trips door and the Guess Where build share one frame: a full-bleed navy
+stage (`StageHero`) with a warm-cream sheet underneath. The visual fills the
+hero edge to edge, from the top of the screen down under the sheet's rounded
+top. The header floats over it. A header with a title gets a navy scrim and
+the visible band starts below it. A title-less header (just the back button)
+drops the scrim, and the band starts under the status bar with only the
+button's corner kept clear. The hero publishes that band as `StageInsets`
+(`useStageInsets`). Anything that must be seen in full (pills, stamps, slots)
+lays out inside the band, and backgrounds (photo grids, the beat-2 photo)
+just fill.
 
-**Permission carousel.** Both doors play three beats inside the card before
-the system prompt. Beat copy is a title and one line. The lock footer
-("The scan runs on your device · Full Access finds more trips") stays on
-screen. Allow Full Access is the consent: `usePhotoImportWorkflow` starts
+**Beat loops.** Each beat runs one linear clock (`usePermissionBeatClock`).
+Every overlay (checks, pills, stamps) derives its pop and the shared fade
+from that clock, so they can't drift apart; separate repeating springs
+used to cause a visible double flash at the loop reset. The photos never
+read the clock, so they stay on screen for the whole loop.
+
+**Permission carousel.** Both doors play three beats on the stage before
+the system prompt. Each beat is a title only. The claims the subtitles
+used to carry rotate, one short line at a time, through the lock footer
+(`SCAN_COPY.permission.carousel.footerLines(door)`). The footer's
+accessibility label reads every line at once. Beat 3 is the same
+`StampScatter` the live scan uses, fed demo stamps and stills. Allow Full Access is the consent: `usePhotoImportWorkflow` starts
 the scan on that grant even when the route did not pass `autoStart`, so the
 idle screen does not appear as a second pitch.
 
-**Idle.** Only when the user arrives with access already granted. A first
-run holds beat 3 on its last frame, with the title "Ready to scan", one
-magnitude line, Start Scan, and the lock footer. A return visit holds the
-reading grid still, with "Check for New Photos", "Last scanned …", and a
-Refresh All Photos text link. The polaroid, the privacy-notice block, and
+**Idle.** Only when the user arrives with access already granted. Both first
+and return visits hold beat 3's stamp page on its last frame. A first run
+adds the title "Ready to scan", one magnitude line, Start Scan, and the
+lock footer. A return visit adds "Check for New Photos", "Last scanned …",
+and a Refresh All Photos text link. The polaroid, the privacy-notice block, and
 the body sentences are gone from this screen.
 
-**Live scan.** `ScanStage` fills the card: a placeholder grid with a sweep
-until the first country arrives, then the newest four rows. The sheet is a
+**Live scan.** `ScanStage` fills the stage with two layers and renders no
+text; a test enforces that. `ReadingGrid` fills a 3 x 4 grid (the same as
+beat 1), edge to edge,
+with the user's own photos as the scan reads them. Tiles fill in a scattered
+order, then churn one at a time. Trip photos (outside the home country) get
+a gold check. When the first country is found the grid dims to a texture,
+and `StampScatter` pops each country's stamp onto the navy at a scattered,
+tilted spot with up to two of its photos tucked behind it. The live scan
+shows six stamps at once; when a seventh arrives, it takes the oldest
+stamp's spot and the old one fades out. There are no
+country names or codes on screen; the full name reaches VoiceOver through
+each stamp's label and the arrival announcement. The quiz intro is the
+title plus one rotating line (`SCAN_COPY.quiz.introLines`). The sheet is a
 title ("Finding Your Trips" / "Building Your Challenge"), a counter with a
 thin gold bar, and one rotating status line from `SCAN_COPY.shared.stageLines`.
 A first scan also shows Leave It Running and Stop. Stop still confirms
-before it cancels. The quiz card swaps to the slot grid once checking begins.
+before it cancels. The quiz stage swaps to the slot grid once checking begins.
 
 Claims that used to be paragraphs on these screens now live in shorter
 places:
@@ -189,12 +216,22 @@ array and is not published. Changed rows are carried in both
 `TripScanDetail.countryPreviews` and `QuizBuildDetail.countryPreviews`; quiz
 refresh progress includes them only on the progress tick after a changed batch.
 
-`ScanStage` presents the row layout for trip scans and for the quiz build
-while its step is `scanning`. The arrival queue lives in `useArrivalQueue`:
-rows present at mount render settled; only later discoveries replay the
-queued arrival animation, and completion settles any queued rows immediately.
-The card keeps the newest four rows and fades older ones out the top. A
-thumbnail load failure shows the placeholder tile with recovery disabled.
+`ScanStage` presents the stamps for trip scans and for the quiz build while
+its step is `scanning`. The arrival queue lives in `useArrivalQueue`: rows
+present at mount render settled; only later discoveries pop in, and
+completion settles any queued rows immediately. `stampScatterLayout.ts`
+cuts the visible band into a staggered grid sized for the page's capacity,
+so fewer stamps per page means bigger stamps. It visits the anchors
+farthest-first, so the first few finds already span the band. It slides any
+stamp out from under a title-less back button. The first country's code
+seeds the jitter, so one scan's layout never reshuffles. A thumbnail load failure drops that tucked photo; recovery stays
+disabled.
+
+**Reading previews.** The same batch hook samples up to four photos per batch
+into `readingPreviews` (`appendReadingPreviews`), a rolling window of 24
+local, non-screenshot assets. It refreshes at most every 300 ms and is
+carried on `TripScanDetail` and `QuizBuildDetail`. A network asset never
+enters the window, so the grid never waits on an iCloud original.
 
 ## Photo Vision Classification
 
@@ -541,8 +578,10 @@ binaries built before the module. On-device verification:
 | File                                                     | Purpose                                |
 | -------------------------------------------------------- | -------------------------------------- |
 | `mobile/src/screens/photos/PhotoImportScreen.tsx`        | Main photo import UI                   |
-| `mobile/src/components/photos/StageCard.tsx`             | Shared framed card for carousel, idle, and scan |
-| `mobile/src/components/photos/ScanStage.tsx`             | Live country shelf inside the card     |
+| `mobile/src/components/photos/StageHero.tsx`             | Full-bleed navy stage + visible-band insets for carousel, idle, and scan |
+| `mobile/src/components/photos/ScanStage.tsx`             | Live scan stage: reading grid + stamps |
+| `mobile/src/components/photos/StampScatter.tsx`          | Scattered stamps with tucked photos    |
+| `mobile/src/components/photos/ReadingGrid.tsx`           | Live grid of photos being read         |
 | `mobile/src/screens/photos/PhotoTripsScreen.tsx`         | Browse photo-discovered trips          |
 | `mobile/src/services/photoImport/visionPhoto.ts`         | Vision photo selection and preparation |
 | `mobile/src/services/photoImport/photoBackgroundSync.ts` | Background cache refresh               |

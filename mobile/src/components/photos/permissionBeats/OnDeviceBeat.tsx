@@ -1,17 +1,26 @@
-import { useEffect } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View, type ViewStyle } from 'react-native';
 import { Image } from 'expo-image';
-import Animated, { interpolate, useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
+import Animated, { interpolate, useAnimatedStyle, type SharedValue } from 'react-native-reanimated';
 
-import { colors } from '@constants/colors';
+import { useStageInsets } from '@components/photos/StageHero';
+import { colors, withAlpha } from '@constants/colors';
 import { SCAN_COPY } from '@constants/scanCopy';
 import { fonts } from '@constants/typography';
 
 import { DEFAULT_PERMISSION_BEAT_ASSETS, type PermissionBeatAssets } from './permissionBeatAssets';
-import { PERMISSION_PILL_STAGGER, permissionBeatVisibleMs } from './permissionMotion';
-import { permissionPopLoop, usePermissionBeatFade } from './usePermissionBeatFade';
+import { PERMISSION_PILL_STAGGER } from './permissionMotion';
+import {
+  permissionFadeAt,
+  permissionPopAt,
+  usePermissionBeatClock,
+  type PermissionBeatTiming,
+} from './usePermissionBeatFade';
 
-const AnimatedImage = Animated.createAnimatedComponent(Image);
+const PILL_EDGE = 16;
+const PILL_TIMING: PermissionBeatTiming = {
+  count: SCAN_COPY.permission.carousel.beat2Pills.length,
+  stagger: PERMISSION_PILL_STAGGER,
+};
 
 interface OnDeviceBeatProps {
   isActive: boolean;
@@ -23,31 +32,27 @@ interface LocationPillProps {
   label: string;
   index: number;
   shouldAnimate: boolean;
+  clock: SharedValue<number>;
+  position: ViewStyle;
 }
 
-function LocationPill({ label, index, shouldAnimate }: LocationPillProps) {
-  const progress = useSharedValue(shouldAnimate ? 0 : 1);
-  const pillCount = SCAN_COPY.permission.carousel.beat2Pills.length;
-
-  useEffect(() => {
-    progress.value = shouldAnimate
-      ? permissionPopLoop(index, pillCount, PERMISSION_PILL_STAGGER)
-      : 1;
-  }, [index, pillCount, progress, shouldAnimate]);
-
-  const animatedStyle = useAnimatedStyle(() => ({
-    opacity: progress.value,
-    transform: [
-      { translateY: interpolate(progress.value, [0, 1], [8, 0]) },
-      { scale: interpolate(progress.value, [0, 1], [0.8, 1]) },
-    ],
-  }));
+function LocationPill({ label, index, shouldAnimate, clock, position }: LocationPillProps) {
+  const animatedStyle = useAnimatedStyle(() => {
+    const pop = permissionPopAt(clock.value, index, PILL_TIMING.stagger);
+    return {
+      opacity: Math.min(1, pop) * permissionFadeAt(clock.value, PILL_TIMING),
+      transform: [
+        { translateY: interpolate(pop, [0, 1], [8, 0]) },
+        { scale: interpolate(pop, [0, 1], [0.8, 1]) },
+      ],
+    };
+  });
   const staticPillStyle = !shouldAnimate ? styles.finalPillState : undefined;
 
   return (
     <Animated.View
       testID={`permission-beat2-pill-${index}`}
-      style={[styles.pill, pillPositions[index], animatedStyle, staticPillStyle]}
+      style={[styles.pill, position, animatedStyle, staticPillStyle]}
     >
       <View style={styles.leader} testID={`permission-beat2-dot-${index}`} />
       <Text style={styles.pillText}>{label}</Text>
@@ -61,18 +66,20 @@ export default function OnDeviceBeat({
   assets = DEFAULT_PERMISSION_BEAT_ASSETS,
 }: OnDeviceBeatProps) {
   const shouldAnimate = isActive && !reduceMotion;
-  const fadeStyle = usePermissionBeatFade(
-    shouldAnimate,
-    permissionBeatVisibleMs(
-      SCAN_COPY.permission.carousel.beat2Pills.length,
-      PERMISSION_PILL_STAGGER
-    )
-  );
+  const insets = useStageInsets();
+  // Pills sit inside the visible band: below the header, above the sheet.
+  const pillPositions: ViewStyle[] = [
+    { top: insets.top + PILL_EDGE, right: PILL_EDGE },
+    { top: '50%', left: PILL_EDGE },
+    { bottom: insets.bottom + PILL_EDGE, right: PILL_EDGE },
+  ];
+  const clock = usePermissionBeatClock(shouldAnimate, PILL_TIMING);
 
   return (
-    <Animated.View testID="permission-beat-2" style={[styles.frame, fadeStyle]} accessible={false}>
+    // The photo holds still for the whole loop; only the pills pop and fade.
+    <View testID="permission-beat-2" style={styles.frame} accessible={false}>
       {assets.beat2 ? (
-        <AnimatedImage
+        <Image
           testID="permission-beat2-image"
           source={assets.beat2}
           style={styles.image}
@@ -85,28 +92,28 @@ export default function OnDeviceBeat({
         />
       )}
       {SCAN_COPY.permission.carousel.beat2Pills.map((label, index) => (
-        <LocationPill key={label} label={label} index={index} shouldAnimate={shouldAnimate} />
+        <LocationPill
+          key={label}
+          label={label}
+          index={index}
+          shouldAnimate={shouldAnimate}
+          clock={clock}
+          position={pillPositions[index]}
+        />
       ))}
-    </Animated.View>
+    </View>
   );
 }
 
-const pillPositions = [
-  { top: 24, right: 16 },
-  { top: '46%' as const, left: 16 },
-  { bottom: 24, right: 16 },
-];
-
 const styles = StyleSheet.create({
   frame: {
-    flex: 1,
-    width: '100%',
+    ...StyleSheet.absoluteFillObject,
   },
   image: {
     ...StyleSheet.absoluteFillObject,
   },
   placeholder: {
-    backgroundColor: colors.lakeBlue,
+    backgroundColor: withAlpha(colors.cloudWhite, 0.06),
   },
   pill: {
     position: 'absolute',

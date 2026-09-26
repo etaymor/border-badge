@@ -84,7 +84,8 @@ function allStrings(): Array<[string, string]> {
   push('quiz.permissionBody', quiz.permissionBody);
   push('quiz.permissionCta', quiz.permissionCta);
   push('quiz.introTitle', quiz.introTitle);
-  push('quiz.introBody', quiz.introBody);
+  quiz.introLines(null).forEach((line, index) => push(`quiz.introLines[${index}]`, line));
+  push('quiz.introLines(fresh)', quiz.introLines(quiz.freshnessReady(53_000)));
   push('quiz.workingTitle', quiz.workingTitle);
   for (const step of ['scanning', 'checking', 'building'] as const) {
     for (const isFirstScan of [true, false]) {
@@ -127,9 +128,7 @@ function allStrings(): Array<[string, string]> {
   push('permission.preheatAllowFullAccess', permission.preheatAllowFullAccess);
   push('permission.preheatDontAllow', permission.preheatDontAllow);
   push('permission.carousel.beat1Title', permission.carousel.beat1Title);
-  push('permission.carousel.beat1Subtitle', permission.carousel.beat1Subtitle);
   push('permission.carousel.beat2Title', permission.carousel.beat2Title);
-  push('permission.carousel.beat2Subtitle', permission.carousel.beat2Subtitle);
   push('permission.carousel.beat2Pills', permission.carousel.beat2Pills);
   push('permission.carousel.continueCta', permission.carousel.continueCta);
   push('permission.carousel.footerNotice', permission.carousel.footerNotice);
@@ -140,7 +139,9 @@ function allStrings(): Array<[string, string]> {
   );
   for (const door of ['trips', 'quiz'] as const) {
     push(`permission.carousel.beat3Title(${door})`, permission.carousel.beat3Title(door));
-    push(`permission.carousel.beat3Subtitle(${door})`, permission.carousel.beat3Subtitle(door));
+    permission.carousel
+      .footerLines(door)
+      .forEach((line, index) => push(`permission.carousel.footerLines(${door})[${index}]`, line));
   }
 
   return entries;
@@ -332,26 +333,27 @@ describe('SCAN_COPY - permission carousel', () => {
   it('uses the short beat copy', () => {
     const { carousel } = SCAN_COPY.permission;
     expect(carousel.beat1Title).toBe('Find your trips in your photos');
-    expect(carousel.beat1Subtitle).toBe('We read only where each photo was taken.');
     expect(carousel.beat2Title).toBe('Your phone does the reading');
-    expect(carousel.beat2Subtitle).toBe('On your device. Location data only.');
     expect(carousel.beat3Title('trips')).toBe('Every trip lands in your passport');
-    expect(carousel.beat3Subtitle('trips')).toBe('And unlocks Guess Where.');
     expect(carousel.beat3Title('quiz')).toBe('Your photos become challenges');
-    expect(carousel.beat3Subtitle('quiz')).toBe('The same scan builds your trips.');
   });
 
-  it('splits privacy across beat 1, beat 2, and the footer', () => {
+  it('carries every privacy claim in the rotating footer, on both doors', () => {
     const { carousel } = SCAN_COPY.permission;
-    expect(carousel.beat1Subtitle).toMatch(/only where each photo was taken/i);
-    expect(carousel.beat2Subtitle).toMatch(/on your device/i);
-    expect(carousel.beat2Subtitle).toMatch(/location data/i);
-    expect(carousel.beat2Subtitle).not.toMatch(/\bGPS\b/);
-    expect(carousel.footerNotice).toMatch(/scan/i);
+    for (const door of ['trips', 'quiz'] as const) {
+      const footer = carousel.footerLines(door).join(' | ');
+      expect(footer).toMatch(/only where each photo was taken/i);
+      expect(footer).toMatch(/on your device/i);
+      expect(footer).toMatch(/location data/i);
+      expect(footer).toMatch(/full access/i);
+      expect(footer).not.toMatch(/\bGPS\b/);
+    }
+    expect(carousel.footerLines('trips').join(' ')).toMatch(/guess where/i);
+    expect(carousel.footerLines('quiz').join(' ')).toMatch(/same scan builds your trips/i);
     expect(carousel.footerNotice).toMatch(/on your device/i);
   });
 
-  it('keeps carousel titles to six words and subtitles to twelve', () => {
+  it('keeps carousel titles to six words and each footer line to ten', () => {
     const { carousel } = SCAN_COPY.permission;
     const titles = [
       carousel.beat1Title,
@@ -359,17 +361,12 @@ describe('SCAN_COPY - permission carousel', () => {
       carousel.beat3Title('trips'),
       carousel.beat3Title('quiz'),
     ];
-    const subtitles = [
-      carousel.beat1Subtitle,
-      carousel.beat2Subtitle,
-      carousel.beat3Subtitle('trips'),
-      carousel.beat3Subtitle('quiz'),
-    ];
+    const footerLines = [...carousel.footerLines('trips'), ...carousel.footerLines('quiz')];
     for (const title of titles) {
       expect(wordCount(title)).toBeLessThanOrEqual(6);
     }
-    for (const subtitle of subtitles) {
-      expect(wordCount(subtitle)).toBeLessThanOrEqual(12);
+    for (const line of footerLines) {
+      expect(wordCount(line)).toBeLessThanOrEqual(10);
     }
   });
 
@@ -491,17 +488,17 @@ describe('SCAN_COPY - surface word budgets', () => {
   );
 
   const SURFACE_BUDGETS: Array<[string, number, number]> = [
-    ['carousel beat 1', 18, words([carousel.beat1Title, carousel.beat1Subtitle])],
-    ['carousel beat 2', 18, words([carousel.beat2Title, carousel.beat2Subtitle])],
+    ['carousel beat 1', 16, words([carousel.beat1Title, longest(carousel.footerLines('trips'))])],
+    ['carousel beat 2', 16, words([carousel.beat2Title, longest(carousel.footerLines('trips'))])],
     [
       'carousel beat 3 trips',
-      18,
-      words([carousel.beat3Title('trips'), carousel.beat3Subtitle('trips')]),
+      16,
+      words([carousel.beat3Title('trips'), longest(carousel.footerLines('trips'))]),
     ],
     [
       'carousel beat 3 quiz',
-      18,
-      words([carousel.beat3Title('quiz'), carousel.beat3Subtitle('quiz')]),
+      16,
+      words([carousel.beat3Title('quiz'), longest(carousel.footerLines('quiz'))]),
     ],
     ['trips idle first', 12, words([trips.idleTitleFirst, shared.scaleAndDurationLine(53_000)])],
     [
@@ -509,14 +506,16 @@ describe('SCAN_COPY - surface word budgets', () => {
       10,
       words([trips.idleTitleReturning, trips.lastScannedLine('3 days ago')]),
     ],
-    [
-      'quiz intro first',
-      20,
-      words([quiz.introTitle, quiz.introBody, shared.scaleAndDurationLine(53_000)]),
-    ],
-    ['quiz intro ready', 20, words([quiz.introTitle, quiz.introBody, quiz.freshnessReady(53_000)])],
-    ['quiz intro stale', 20, words([quiz.introTitle, quiz.introBody, quiz.freshnessStale])],
-    ['quiz intro syncing', 20, words([quiz.introTitle, quiz.introBody, quiz.freshnessSyncing])],
+    ...[
+      shared.scaleAndDurationLine(53_000),
+      quiz.freshnessReady(53_000),
+      quiz.freshnessStale,
+      quiz.freshnessSyncing,
+    ].map((freshness, index): [string, number, number] => [
+      `quiz intro ${index}`,
+      12,
+      words([quiz.introTitle, longest(quiz.introLines(freshness))]),
+    ]),
     ['quiz build', 16, words([quiz.workingTitle, longest(shared.stageLines('quiz-build'))])],
     ['trips scan', 16, words([trips.stageTitle, longest(shared.stageLines('trip-scan'))])],
     ['recovery denied', 18, words([permission.recoveryTitleDenied, permission.recoveryBodyDenied])],

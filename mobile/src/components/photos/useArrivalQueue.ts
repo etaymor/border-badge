@@ -21,7 +21,7 @@ export interface UseArrivalQueueResult {
 }
 
 /**
- * FIFO arrival pacing shared by CountryDiscoveryRows and ScanStage.
+ * FIFO arrival pacing for ScanStage stamps.
  * Mount-known keys settle immediately; later keys dequeue one per
  * SCAN_MIN_ARRIVAL_GAP unless paused. Completion drains the queue at once.
  */

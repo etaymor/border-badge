@@ -23,11 +23,8 @@ import { act, fireEvent, render, screen, waitFor } from '../utils/testUtils';
 import { createMockNavigation } from '../utils/mockFactories';
 
 import { Image as ExpoImage } from 'expo-image';
-import { StyleSheet } from 'react-native';
-import { colors } from '@constants/colors';
 import { SCAN_COPY } from '@constants/scanCopy';
 import { QuizCreationScreen } from '@screens/quiz/QuizCreationScreen';
-import { styles as quizCreationStyles } from '@screens/quiz/creation/quizCreationStyles';
 import { Analytics } from '@services/analytics';
 import type { CountryPreviewRow } from '@services/photoImport/scanPreviewPicker';
 import type { QuizCreationOutcome, QuizCreationProgress } from '@services/quiz/quizCreation';
@@ -231,12 +228,6 @@ describe('QuizCreationScreen', () => {
     expect(mockStart).not.toHaveBeenCalled();
   });
 
-  it('puts the permission hero on midnightNavy so light-content status bar stays readable', () => {
-    expect(StyleSheet.flatten(quizCreationStyles.permissionHero).backgroundColor).toBe(
-      colors.midnightNavy
-    );
-  });
-
   it('guards duplicate quiz requests and keeps an interrupted request on beat 3', async () => {
     mockPermission.status = 'undetermined';
     let resolveRequest!: (status: 'undetermined') => void;
@@ -331,9 +322,8 @@ describe('QuizCreationScreen', () => {
   it('announces a ready library on the intro when the cache is fresh (Q5)', async () => {
     await renderScreen();
 
-    await waitFor(() => expect(screen.getByTestId('quiz-freshness-line')).toBeTruthy());
-    expect(screen.getByText(/Library ready/)).toBeTruthy();
-    expect(screen.getByText(/812 photos/)).toBeTruthy();
+    await waitFor(() => expect(screen.getByLabelText(/Library ready · 812 photos/)).toBeTruthy());
+    expect(screen.getByTestId('quiz-intro-line')).toBe(screen.getByLabelText(/Library ready/));
   });
 
   it('announces the upcoming photo check when the cache is stale (Q5)', async () => {
@@ -341,8 +331,7 @@ describe('QuizCreationScreen', () => {
 
     await renderScreen();
 
-    await waitFor(() => expect(screen.getByTestId('quiz-freshness-line')).toBeTruthy());
-    expect(screen.getByText(/Checking for new photos/)).toBeTruthy();
+    await waitFor(() => expect(screen.getByLabelText(/Checking for new photos/)).toBeTruthy());
   });
 
   it('states the size of a first scan in one line', async () => {
@@ -353,8 +342,9 @@ describe('QuizCreationScreen', () => {
 
     await renderScreen();
 
-    await waitFor(() => expect(screen.getByTestId('quiz-freshness-line')).toBeTruthy());
-    expect(screen.getByText('About 53,000 photos · several minutes')).toBeTruthy();
+    await waitFor(() =>
+      expect(screen.getByLabelText(/About 53,000 photos · several minutes/)).toBeTruthy()
+    );
     expect(screen.queryByTestId('quiz-scale-line')).toBeNull();
     expect(screen.queryByTestId('quiz-duration-line')).toBeNull();
   });
@@ -472,7 +462,10 @@ describe('QuizCreationScreen', () => {
 
       emitProgress({ step: 'scanning', current: 0, total: 100 }, []);
 
-      expect(screen.getByTestId('scan-stage-reading-grid')).toBeTruthy();
+      expect(
+        screen.getByTestId('scan-stage-reading-grid', { includeHiddenElements: true })
+      ).toBeTruthy();
+      expect(screen.queryByTestId('stamp-scatter')).toBeNull();
       expect(screen.queryByTestId('quiz-slot-empty-0')).toBeNull();
     });
 
@@ -494,15 +487,16 @@ describe('QuizCreationScreen', () => {
 
       emitProgress({ step: 'scanning', current: 50, total: 100 }, previews);
 
-      expect(screen.getByText('Portugal')).toBeTruthy();
-      expect(screen.getByText('Japan')).toBeTruthy();
+      // Stamps only on the card; the names reach VoiceOver, never the screen.
+      expect(screen.getByTestId('stamp-scatter-PT')).toBeTruthy();
+      expect(screen.getByLabelText('Found photos from Portugal')).toBeTruthy();
+      expect(screen.queryByText('Portugal')).toBeNull();
       expect(screen.queryByTestId('quiz-slot-empty-0')).toBeNull();
       const scanningRegionStyle = screen.getByTestId('quiz-build-content-region').props.style;
 
       emitProgress({ step: 'checking', current: 0, total: 10, pickUris: [] }, previews);
 
-      expect(screen.queryByText('Portugal')).toBeNull();
-      expect(screen.queryByText('Japan')).toBeNull();
+      expect(screen.queryByTestId('stamp-scatter-PT')).toBeNull();
       expect(screen.getByTestId('quiz-slot-empty-0')).toBeTruthy();
       expect(screen.getByTestId('quiz-build-content-region').props.style).toEqual(
         scanningRegionStyle

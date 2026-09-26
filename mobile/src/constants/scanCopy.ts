@@ -198,7 +198,14 @@ const quiz = {
   permissionCta: 'Allow Photo Access',
 
   introTitle: 'New Challenge',
-  introBody: '5-10 photos from your trips. Play once to set the score, then share.',
+  /**
+   * The intro's one line under the title, rotated: what a challenge is, how
+   * it is played, then the library freshness line when there is one.
+   */
+  introLines(freshnessLine?: string | null): readonly string[] {
+    const lines = ['5-10 photos from your trips', 'Play once to set the score, then share'];
+    return freshnessLine ? [...lines, freshnessLine] : lines;
+  },
 
   workingTitle: 'Building Your Challenge',
 
@@ -249,18 +256,26 @@ const quiz = {
 
 const permissionCarousel = {
   beat1Title: 'Find your trips in your photos',
-  beat1Subtitle: 'We read only where each photo was taken.',
   beat2Title: 'Your phone does the reading',
-  beat2Subtitle: 'On your device. Location data only.',
   beat2Pills: ['Bøur', 'Faroe Islands', 'Location data only'] as const,
   beat3Title(door: PhotoPermissionCarouselDoor): string {
     return door === 'trips' ? 'Every trip lands in your passport' : 'Your photos become challenges';
   },
-  beat3Subtitle(door: PhotoPermissionCarouselDoor): string {
-    return door === 'trips' ? 'And unlocks Guess Where.' : 'The same scan builds your trips.';
-  },
   continueCta: 'Continue',
   footerNotice: 'The scan runs on your device · Full Access finds more trips',
+  /**
+   * The beats carry a title only; everything the subtitles used to say
+   * rotates through the lock footer, one short line at a time.
+   */
+  footerLines(door: PhotoPermissionCarouselDoor): readonly string[] {
+    return [
+      'The scan runs on your device',
+      'We read only where each photo was taken',
+      'Location data only',
+      door === 'trips' ? 'Your trips also unlock Guess Where' : 'The same scan builds your trips',
+      'Full Access finds more trips',
+    ];
+  },
   tripsHeaderTitle: 'Find Your Trips',
   stepAnnouncement(step: number, total: number, title: string): string {
     return `Step ${step} of ${total}. ${title}`;

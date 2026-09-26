@@ -1,7 +1,6 @@
 import { StyleSheet } from 'react-native';
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 
-import StageCard from '@components/photos/StageCard';
 import { DURATION_FAST } from '@screens/quiz/components/motionTokens';
 
 import OnDeviceBeat from './OnDeviceBeat';
@@ -52,25 +51,22 @@ export default function PermissionBeatVisual({
   }
 
   return (
-    <StageCard>
-      <Animated.View
-        key={step}
-        style={styles.beat}
-        entering={reduceMotion ? undefined : FadeIn.duration(DURATION_FAST)}
-        exiting={reduceMotion ? undefined : FadeOut.duration(DURATION_FAST)}
-        accessible={false}
-        pointerEvents="none"
-        testID="permission-beat-visual"
-      >
-        {beat}
-      </Animated.View>
-    </StageCard>
+    <Animated.View
+      key={step}
+      style={styles.beat}
+      entering={reduceMotion ? undefined : FadeIn.duration(DURATION_FAST)}
+      exiting={reduceMotion ? undefined : FadeOut.duration(DURATION_FAST)}
+      accessible={false}
+      pointerEvents="none"
+      testID="permission-beat-visual"
+    >
+      {beat}
+    </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
   beat: {
-    flex: 1,
-    width: '100%',
+    ...StyleSheet.absoluteFillObject,
   },
 });

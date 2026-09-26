@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { StyleSheet, Text } from 'react-native';
+import { StyleSheet, Text, type StyleProp, type TextStyle } from 'react-native';
 import Animated, {
   runOnJS,
   useAnimatedStyle,
@@ -18,6 +18,8 @@ export interface RotatingStatusLineProps {
   firstHoldMs: number;
   holdMs: number;
   reduceMotion: boolean;
+  textStyle?: StyleProp<TextStyle>;
+  testID?: string;
 }
 
 export function RotatingStatusLine({
@@ -25,6 +27,8 @@ export function RotatingStatusLine({
   firstHoldMs,
   holdMs,
   reduceMotion,
+  textStyle,
+  testID,
 }: RotatingStatusLineProps) {
   const [index, setIndex] = useState(0);
   const usedFirstHold = useRef(false);
@@ -62,8 +66,14 @@ export function RotatingStatusLine({
 
   return (
     <Animated.View style={animatedStyle}>
-      <Text style={styles.line} numberOfLines={1}>
-        {lines[index]}
+      <Text
+        style={[styles.line, textStyle]}
+        numberOfLines={1}
+        testID={testID}
+        // VoiceOver hears every line at once instead of whichever is showing.
+        accessibilityLabel={lines.join('. ')}
+      >
+        {lines[index % lines.length]}
       </Text>
     </Animated.View>
   );

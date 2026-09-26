@@ -1,8 +1,8 @@
 /**
  * Scanning phase UI for the photo import screen.
  *
- * A live scan uses the same stage card and sheet as the quiz build: navy
- * hero, framed card, then title, counter, one rotating line, and — on a
+ * A live scan uses the same stage and sheet as the quiz build: a full-bleed
+ * navy hero with the header floating over it, then title, counter, one rotating line, and — on a
  * first scan — Leave It Running plus Stop. Stop still confirms before it
  * cancels. A surfaced failure keeps the recovery / retry branch.
  */
@@ -12,7 +12,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ScanSheetBody } from '@components/photos/ScanSheetBody';
 import { ScanStage } from '@components/photos/ScanStage';
-import { StageCard } from '@components/photos/StageCard';
+import { StageHero } from '@components/photos/StageHero';
 import { PhotoPermissionRecoverySheet } from '@components/photos/PhotoPermissionRecoverySheet';
 import { GlassBackButton } from '@components/ui';
 import type { ScanProgress } from '@services/photoImport';
@@ -22,6 +22,7 @@ import { useReducedMotion } from '@hooks/useReducedMotion';
 import {
   selectScanCountryPreviews,
   selectScanPhase,
+  selectScanReadingPreviews,
   useLibraryJobStore,
 } from '@stores/libraryJobStore';
 import { styles } from '../photoImportStyles';
@@ -52,6 +53,7 @@ export function ScanningPhase({
   const leaseKeepsRunning = useLeaseKeepsRunning();
   const reduceMotion = useReducedMotion();
   const countryPreviews = useLibraryJobStore(selectScanCountryPreviews);
+  const readingPreviews = useLibraryJobStore(selectScanReadingPreviews);
   const jobPhase = useLibraryJobStore(selectScanPhase);
   const isComplete = jobPhase === 'completed' || jobPhase === 'failed';
 
@@ -89,22 +91,23 @@ export function ScanningPhase({
   return (
     <View style={styles.scanStageLayout} testID="photo-import-scan-stage">
       <StatusBar barStyle="light-content" />
-      <View style={[styles.permissionHero, { paddingTop: insets.top }]}>
-        <View style={styles.permissionHeroHeader}>
-          <GlassBackButton variant="dark" onPress={onLeave} />
-          <View style={styles.headerSpacer} />
-        </View>
-        <View style={styles.permissionHeroCardArea}>
-          <StageCard>
-            <ScanStage
-              rows={countryPreviews}
-              isComplete={isComplete}
-              isPaused={isPaused}
-              reduceMotion={reduceMotion}
-            />
-          </StageCard>
-        </View>
-      </View>
+      <StageHero
+        titleless
+        header={
+          <View style={[styles.permissionHeroHeader, { paddingTop: insets.top }]}>
+            <GlassBackButton variant="dark" onPress={onLeave} />
+            <View style={styles.headerSpacer} />
+          </View>
+        }
+      >
+        <ScanStage
+          rows={countryPreviews}
+          readingPreviews={readingPreviews}
+          isComplete={isComplete}
+          isPaused={isPaused}
+          reduceMotion={reduceMotion}
+        />
+      </StageHero>
       <View style={[styles.permissionCarouselContainer, { paddingBottom: insets.bottom + 12 }]}>
         <ScanSheetBody
           title={SCAN_COPY.trips.stageTitle}

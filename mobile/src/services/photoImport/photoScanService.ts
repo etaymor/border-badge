@@ -65,6 +65,7 @@ interface ScanCheckpoint {
 
 const EMPTY_DETAIL: TripScanDetail = {
   countryPreviews: [],
+  readingPreviews: [],
   isIncremental: false,
 };
 

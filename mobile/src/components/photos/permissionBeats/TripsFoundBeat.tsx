@@ -1,21 +1,30 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { Image } from 'expo-image';
-import Animated, { interpolate, useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
+import Animated, { interpolate, useAnimatedStyle, type SharedValue } from 'react-native-reanimated';
 
-import { colors } from '@constants/colors';
+import { colors, withAlpha } from '@constants/colors';
 
 import { DEFAULT_PERMISSION_BEAT_ASSETS, type PermissionBeatAssets } from './permissionBeatAssets';
-import { PERMISSION_CHECK_STAGGER, permissionBeatVisibleMs } from './permissionMotion';
-import { permissionPopLoop, usePermissionBeatFade } from './usePermissionBeatFade';
+import { PERMISSION_CHECK_STAGGER } from './permissionMotion';
+import {
+  permissionFadeAt,
+  permissionPopAt,
+  usePermissionBeatClock,
+  type PermissionBeatTiming,
+} from './usePermissionBeatFade';
 
-const COLUMNS = 4;
-const ROWS = 5;
-const TILE_COUNT = COLUMNS * ROWS;
-const GUTTER = 4;
+/** 3 x 4 = exactly the twelve delivered stills; no tile is ever a stand-in. */
+export const TRIPS_FOUND_COLUMNS = 3;
+export const TRIPS_FOUND_ROWS = 4;
+const TILE_COUNT = TRIPS_FOUND_COLUMNS * TRIPS_FOUND_ROWS;
+const GUTTER = 3;
 const TRAVEL_TILE_INDEXES = new Set([0, 1, 3, 4, 6, 7, 9, 10]);
 const TRAVEL_TILE_COUNT = TRAVEL_TILE_INDEXES.size;
-const AnimatedImage = Animated.createAnimatedComponent(Image);
+const CHECK_TIMING: PermissionBeatTiming = {
+  count: TRAVEL_TILE_COUNT,
+  stagger: PERMISSION_CHECK_STAGGER,
+};
 
 interface TripsFoundBeatProps {
   isActive: boolean;
@@ -26,21 +35,17 @@ interface TripsFoundBeatProps {
 interface CheckBadgeProps {
   order: number;
   shouldAnimate: boolean;
+  clock: SharedValue<number>;
 }
 
-function CheckBadge({ order, shouldAnimate }: CheckBadgeProps) {
-  const progress = useSharedValue(shouldAnimate ? 0 : 1);
-
-  useEffect(() => {
-    progress.value = shouldAnimate
-      ? permissionPopLoop(order, TRAVEL_TILE_COUNT, PERMISSION_CHECK_STAGGER)
-      : 1;
-  }, [order, progress, shouldAnimate]);
-
-  const animatedStyle = useAnimatedStyle(() => ({
-    opacity: progress.value,
-    transform: [{ scale: interpolate(progress.value, [0, 1], [0.35, 1]) }],
-  }));
+function CheckBadge({ order, shouldAnimate, clock }: CheckBadgeProps) {
+  const animatedStyle = useAnimatedStyle(() => {
+    const pop = permissionPopAt(clock.value, order, CHECK_TIMING.stagger);
+    return {
+      opacity: Math.min(1, pop) * permissionFadeAt(clock.value, CHECK_TIMING),
+      transform: [{ scale: interpolate(pop, [0, 1], [0.35, 1]) }],
+    };
+  });
   const staticBadgeStyle = !shouldAnimate ? styles.finalBadgeState : undefined;
 
   return (
@@ -54,25 +59,32 @@ function CheckBadge({ order, shouldAnimate }: CheckBadgeProps) {
   );
 }
 
+/**
+ * Beat 1: the library as a full-bleed grid. The photos hold still; only the
+ * checks pop onto the trip photos, fade, and pop again.
+ */
 export default function TripsFoundBeat({
   isActive,
   reduceMotion,
   assets = DEFAULT_PERMISSION_BEAT_ASSETS,
 }: TripsFoundBeatProps) {
   const shouldAnimate = isActive && !reduceMotion;
-  const fadeStyle = usePermissionBeatFade(
-    shouldAnimate,
-    permissionBeatVisibleMs(TRAVEL_TILE_COUNT, PERMISSION_CHECK_STAGGER)
-  );
+  const clock = usePermissionBeatClock(shouldAnimate, CHECK_TIMING);
   const [frame, setFrame] = useState({ width: 0, height: 0 });
   let travelOrder = 0;
-  const tileWidth = frame.width > 0 ? (frame.width - GUTTER * (COLUMNS - 1)) / COLUMNS : undefined;
-  const tileHeight = frame.height > 0 ? (frame.height - GUTTER * (ROWS - 1)) / ROWS : undefined;
+  const tileWidth =
+    frame.width > 0
+      ? (frame.width - GUTTER * (TRIPS_FOUND_COLUMNS - 1)) / TRIPS_FOUND_COLUMNS
+      : undefined;
+  const tileHeight =
+    frame.height > 0
+      ? (frame.height - GUTTER * (TRIPS_FOUND_ROWS - 1)) / TRIPS_FOUND_ROWS
+      : undefined;
 
   return (
-    <Animated.View
+    <View
       testID="permission-beat-1"
-      style={[styles.grid, fadeStyle]}
+      style={styles.grid}
       accessible={false}
       onLayout={(event) => {
         const { width, height } = event.nativeEvent.layout;
@@ -96,7 +108,7 @@ export default function TripsFoundBeat({
             ]}
           >
             {source ? (
-              <AnimatedImage
+              <Image
                 testID={`permission-beat1-image-${index}`}
                 source={source}
                 style={styles.image}
@@ -105,37 +117,28 @@ export default function TripsFoundBeat({
             ) : (
               <View
                 testID={`permission-beat-placeholder-beat1-${index}`}
-                style={[styles.image, styles.placeholder, placeholderTints[index % 4]]}
+                style={[styles.image, styles.placeholder]}
               />
             )}
             {isTravelTile ? (
-              <CheckBadge order={order} shouldAnimate={isActive && !reduceMotion} />
+              <CheckBadge order={order} shouldAnimate={shouldAnimate} clock={clock} />
             ) : null}
           </View>
         );
       })}
-    </Animated.View>
+    </View>
   );
 }
 
-const placeholderTints = [
-  { backgroundColor: colors.lakeBlue },
-  { backgroundColor: colors.dustyCoral },
-  { backgroundColor: colors.latteGold },
-  { backgroundColor: colors.mossGreen },
-];
-
 const styles = StyleSheet.create({
   grid: {
-    flex: 1,
-    width: '100%',
+    ...StyleSheet.absoluteFillObject,
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: GUTTER,
     alignContent: 'flex-start',
   },
   tile: {
-    borderRadius: 8,
     overflow: 'hidden',
   },
   image: {
@@ -143,15 +146,15 @@ const styles = StyleSheet.create({
     height: '100%',
   },
   placeholder: {
-    opacity: 0.72,
+    backgroundColor: withAlpha(colors.cloudWhite, 0.06),
   },
   badge: {
     position: 'absolute',
-    right: 5,
-    bottom: 5,
-    width: 22,
-    height: 22,
-    borderRadius: 11,
+    right: 8,
+    bottom: 8,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
     backgroundColor: colors.black,
   },
   finalBadgeState: {
@@ -160,8 +163,8 @@ const styles = StyleSheet.create({
   },
   checkStem: {
     position: 'absolute',
-    left: 6,
-    top: 11,
+    left: 6.5,
+    top: 12,
     width: 6,
     height: 2.5,
     borderRadius: 2,
@@ -170,9 +173,9 @@ const styles = StyleSheet.create({
   },
   checkArm: {
     position: 'absolute',
-    left: 9,
-    top: 9,
-    width: 9,
+    left: 9.5,
+    top: 10,
+    width: 10,
     height: 2.5,
     borderRadius: 2,
     backgroundColor: colors.white,

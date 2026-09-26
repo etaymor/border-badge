@@ -1,22 +1,20 @@
-import { useEffect, type ReactNode } from 'react';
-import { StyleSheet } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { Image } from 'expo-image';
-import Animated, { interpolate, useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
 
-import { CountryRow, type CountryRowSlot } from '@components/photos/CountryRow';
-import { colors } from '@constants/colors';
+import { StampScatter, type StampScatterItem } from '@components/photos/StampScatter';
+import { colors, withAlpha } from '@constants/colors';
 
 import {
   DEFAULT_PERMISSION_BEAT_ASSETS,
   PERMISSION_BEAT_DEMO_COUNTRIES,
   type PermissionBeatAssets,
 } from './permissionBeatAssets';
-import { PERMISSION_SHELF_STAGGER, permissionBeatVisibleMs } from './permissionMotion';
-import { permissionPopLoop, usePermissionBeatFade } from './usePermissionBeatFade';
+import { PERMISSION_SHELF_STAGGER } from './permissionMotion';
+import { usePermissionBeatClock } from './usePermissionBeatFade';
 
-const AnimatedImage = Animated.createAnimatedComponent(Image);
-const ROW_COUNT = 3;
-const SLOTS_PER_ROW = 2;
+const SLOTS_PER_STAMP = 2;
+/** Fixed so the demo page looks the same every time the carousel shows it. */
+const DEMO_SCATTER_SEED = 7;
 
 interface PassportBeatProps {
   isActive: boolean;
@@ -25,67 +23,10 @@ interface PassportBeatProps {
   assets?: PermissionBeatAssets;
 }
 
-interface PassportTileProps {
-  code: string;
-  slotIndex: number;
-  sequenceIndex: number;
-  shouldAnimate: boolean;
-  assets: PermissionBeatAssets;
-}
-
-function shelfOrigin(rowIndex: number, slotIndex: number): { x: number; y: number } {
-  return {
-    x: -(32 + slotIndex * 56),
-    y: (1 - rowIndex) * 64,
-  };
-}
-
-function PassportTile({
-  code,
-  slotIndex,
-  sequenceIndex,
-  shouldAnimate,
-  assets,
-}: PassportTileProps) {
-  const progress = useSharedValue(shouldAnimate ? 0 : 1);
-  const source = assets.beat3?.[code]?.[slotIndex];
-  const rowIndex = Math.floor(sequenceIndex / SLOTS_PER_ROW);
-  const { x: originX, y: originY } = shelfOrigin(rowIndex, slotIndex);
-
-  useEffect(() => {
-    progress.value = shouldAnimate
-      ? permissionPopLoop(sequenceIndex, ROW_COUNT * SLOTS_PER_ROW, PERMISSION_SHELF_STAGGER)
-      : 1;
-  }, [progress, sequenceIndex, shouldAnimate]);
-
-  const animatedStyle = useAnimatedStyle(() => ({
-    opacity: progress.value,
-    transform: [
-      { translateX: interpolate(progress.value, [0, 1], [originX, 0]) },
-      { translateY: interpolate(progress.value, [0, 1], [originY, 0]) },
-      { scale: interpolate(progress.value, [0, 1], [0.6, 1]) },
-    ],
-  }));
-
-  return source ? (
-    <AnimatedImage
-      testID={`permission-beat3-image-${code}-${slotIndex}`}
-      source={source}
-      style={[styles.tile, animatedStyle]}
-      contentFit="cover"
-    />
-  ) : (
-    <Animated.View
-      testID={`permission-beat-placeholder-beat3-${code}-${slotIndex}`}
-      style={[styles.tile, styles.placeholder, placeholderTints[sequenceIndex % 4], animatedStyle]}
-    />
-  );
-}
-
-function createSlot(render: () => ReactNode): CountryRowSlot {
-  return render;
-}
-
+/**
+ * Beat 3: the demo countries pop onto the card as stamps with their photos
+ * tucked behind — the same `StampScatter` the live scan uses. No names.
+ */
 export default function PassportBeat({
   isActive,
   reduceMotion,
@@ -95,64 +36,56 @@ export default function PassportBeat({
   const normalizedHomeCountry = homeCountry?.trim().toUpperCase();
   const countries = PERMISSION_BEAT_DEMO_COUNTRIES.filter(
     ({ code }) => code !== normalizedHomeCountry
-  ).slice(0, ROW_COUNT);
-  const shouldAnimate = isActive && !reduceMotion;
-  const fadeStyle = usePermissionBeatFade(
-    shouldAnimate,
-    permissionBeatVisibleMs(ROW_COUNT * SLOTS_PER_ROW, PERMISSION_SHELF_STAGGER)
   );
+  const shouldAnimate = isActive && !reduceMotion;
+  const timing = { count: countries.length, stagger: PERMISSION_SHELF_STAGGER * 2 };
+  const clock = usePermissionBeatClock(shouldAnimate, timing);
+
+  const items: StampScatterItem[] = countries.map(({ code }, order) => ({
+    code,
+    drive: shouldAnimate ? { kind: 'loop', clock, order, timing } : { kind: 'settled' },
+    photos: Array.from({ length: SLOTS_PER_STAMP }, (_, slotIndex) => {
+      const source = assets.beat3?.[code]?.[slotIndex];
+      return source ? (
+        <Image
+          key={slotIndex}
+          testID={`permission-beat3-image-${code}-${slotIndex}`}
+          source={source}
+          style={styles.photo}
+          contentFit="cover"
+        />
+      ) : (
+        <View
+          key={slotIndex}
+          testID={`permission-beat-placeholder-beat3-${code}-${slotIndex}`}
+          style={[styles.photo, styles.placeholder]}
+        />
+      );
+    }),
+  }));
 
   return (
-    <Animated.View testID="permission-beat-3" style={[styles.rows, fadeStyle]} accessible={false}>
-      {countries.map(({ code, name }, rowIndex) => {
-        const slots = Array.from({ length: SLOTS_PER_ROW }, (_, slotIndex) =>
-          createSlot(() => (
-            <PassportTile
-              code={code}
-              slotIndex={slotIndex}
-              sequenceIndex={rowIndex * SLOTS_PER_ROW + slotIndex}
-              shouldAnimate={shouldAnimate}
-              assets={assets}
-            />
-          ))
-        );
-
-        return (
-          <CountryRow
-            key={code}
-            code={code}
-            name={name}
-            slots={slots}
-            entering={false}
-            reduceMotion={reduceMotion}
-          />
-        );
-      })}
-    </Animated.View>
+    // Stamps straight on the navy stage; the beat clock pops and fades them.
+    <View testID="permission-beat-3" style={styles.page} accessible={false}>
+      <StampScatter
+        items={items}
+        reduceMotion={reduceMotion}
+        capacity={Math.max(1, countries.length)}
+        seed={DEMO_SCATTER_SEED}
+      />
+    </View>
   );
 }
 
-const placeholderTints = [
-  { backgroundColor: colors.lakeBlue },
-  { backgroundColor: colors.dustyCoral },
-  { backgroundColor: colors.latteGold },
-  { backgroundColor: colors.mossGreen },
-];
-
 const styles = StyleSheet.create({
-  rows: {
-    flex: 1,
-    width: '100%',
-    justifyContent: 'center',
-    gap: 12,
-    paddingHorizontal: 16,
+  page: {
+    ...StyleSheet.absoluteFillObject,
   },
-  tile: {
+  photo: {
     width: '100%',
     height: '100%',
-    borderRadius: 10,
   },
   placeholder: {
-    opacity: 0.78,
+    backgroundColor: withAlpha(colors.midnightNavy, 0.12),
   },
 });

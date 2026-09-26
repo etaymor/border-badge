@@ -23,7 +23,7 @@ import { create } from 'zustand';
 
 import type { JobFailure, JobPhase, JobProgress, LibraryJobKind } from '@services/jobs/jobTypes';
 import type { ScanProgress } from '@services/photoImport';
-import type { CountryPreviewRow } from '@services/photoImport/scanPreviewPicker';
+import type { CountryPreviewRow, ReadingPreview } from '@services/photoImport/scanPreviewPicker';
 
 /** Where the banner should navigate when a finished job is tapped. */
 export interface JobResultRoute {
@@ -33,6 +33,8 @@ export interface JobResultRoute {
 
 export interface TripScanDetail {
   countryPreviews: readonly CountryPreviewRow[];
+  /** Rolling window of recently read photos for the live grid. Bounded. */
+  readingPreviews: readonly ReadingPreview[];
   isIncremental: boolean;
 }
 
@@ -47,6 +49,8 @@ export interface QuizBuildDetail {
   examined: number;
   /** Sticky scan discoveries for this build, bounded by the shared picker. */
   countryPreviews: readonly CountryPreviewRow[];
+  /** Rolling window of recently read photos for the live grid. Bounded. */
+  readingPreviews: readonly ReadingPreview[];
 }
 
 export interface LibraryJobSlice<P, D> {
@@ -80,11 +84,17 @@ const initialState: LibraryJobState = {
   jobs: {
     'trip-scan': {
       ...emptySlice,
-      detail: { countryPreviews: [], isIncremental: false },
+      detail: { countryPreviews: [], readingPreviews: [], isIncremental: false },
     },
     'quiz-build': {
       ...emptySlice,
-      detail: { step: 'scanning', pickUris: [], examined: 0, countryPreviews: [] },
+      detail: {
+        step: 'scanning',
+        pickUris: [],
+        examined: 0,
+        countryPreviews: [],
+        readingPreviews: [],
+      },
     },
   },
 };
@@ -121,11 +131,17 @@ function structuredCloneInitial(): LibraryJobState {
     jobs: {
       'trip-scan': {
         ...emptySlice,
-        detail: { countryPreviews: [], isIncremental: false },
+        detail: { countryPreviews: [], readingPreviews: [], isIncremental: false },
       },
       'quiz-build': {
         ...emptySlice,
-        detail: { step: 'scanning', pickUris: [], examined: 0, countryPreviews: [] },
+        detail: {
+          step: 'scanning',
+          pickUris: [],
+          examined: 0,
+          countryPreviews: [],
+          readingPreviews: [],
+        },
       },
     },
   };
@@ -146,6 +162,8 @@ export const selectScanFailure = (s: LibraryJobState) => s.jobs['trip-scan'].fai
 export const selectScanHasResult = (s: LibraryJobState) => s.jobs['trip-scan'].hasResult;
 export const selectScanCountryPreviews = (s: LibraryJobState) =>
   s.jobs['trip-scan'].detail.countryPreviews;
+export const selectScanReadingPreviews = (s: LibraryJobState) =>
+  s.jobs['trip-scan'].detail.readingPreviews;
 export const selectScanIsIncremental = (s: LibraryJobState) =>
   s.jobs['trip-scan'].detail.isIncremental;
 

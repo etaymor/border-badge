@@ -31,14 +31,9 @@ export const screenStyles = StyleSheet.create({
     width: 44,
   },
 
-  // Permission carousel: navy hero band matching the quiz door (back + title
-  // above the StageCard; cream sheet carries the pager/CTA below).
+  // Permission carousel and scan: the full-bleed navy stage (StageHero) with
+  // the cream sheet carrying the pager/CTA below.
   permissionStage: {
-    backgroundColor: colors.midnightNavy,
-  },
-  permissionHero: {
-    flex: 1,
-    minHeight: 280,
     backgroundColor: colors.midnightNavy,
   },
   permissionHeroHeader: {
@@ -53,13 +48,6 @@ export const screenStyles = StyleSheet.create({
     fontSize: 24,
     color: colors.warmCream,
     textAlign: 'center',
-  },
-  permissionHeroCardArea: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 24,
-    paddingBottom: 20,
   },
 
   // Idle state

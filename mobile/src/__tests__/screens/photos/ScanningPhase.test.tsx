@@ -118,7 +118,7 @@ describe('ScanningPhase country preview subscription', () => {
     expect(screen.getByText(SCAN_COPY.trips.stageTitle)).toBeTruthy();
     expect(screen.getByText(SCAN_COPY.shared.stageLines('trip-scan')[0])).toBeTruthy();
     expect(screen.getByText('12 of 100')).toBeTruthy();
-    expect(screen.getByTestId('stage-card')).toBeTruthy();
+    expect(screen.getByTestId('stage-fill')).toBeTruthy();
     expect(screen.getByTestId('photo-import-leave')).toBeTruthy();
     expect(screen.getByTestId('photo-import-stop')).toBeTruthy();
     expect(screen.queryByTestId('scanningHint')).toBeNull();

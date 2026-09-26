@@ -37,13 +37,16 @@
  * sheets - the parts that are purely about what the user sees.
  */
 
-import { ActivityIndicator, StatusBar, Text, View } from 'react-native';
+import { useMemo } from 'react';
+import { ActivityIndicator, StatusBar, StyleSheet, Text, View } from 'react-native';
 import { useIsFocused } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { PhotoPermissionCarousel } from '@components/photos/PhotoPermissionCarousel';
 import { PhotoPermissionRecoverySheet } from '@components/photos/PhotoPermissionRecoverySheet';
+import { RotatingStatusLine } from '@components/photos/RotatingStatusLine';
 import PermissionBeatVisual from '@components/photos/permissionBeats/PermissionBeatVisual';
+import { StageHero } from '@components/photos/StageHero';
 import { Button } from '@components/ui/Button';
 import { colors } from '@constants/colors';
 import { SCAN_COPY } from '@constants/scanCopy';
@@ -64,6 +67,9 @@ import { useQuizCreationFlow } from './creation/useQuizCreationFlow';
 import { introPoster } from './sampleAssets';
 
 type Props = RootStackScreenProps<'QuizCreation'>;
+
+const INTRO_FIRST_HOLD_MS = 4000;
+const INTRO_HOLD_MS = 3500;
 
 export function QuizCreationScreen({ navigation, route }: Props) {
   const entryPoint = route.params?.entryPoint ?? 'unknown';
@@ -91,6 +97,7 @@ export function QuizCreationScreen({ navigation, route }: Props) {
     handleOpenSettings,
     handleAllowMorePhotos,
   } = useQuizCreationFlow({ entryPoint, navigation });
+  const introLines = useMemo(() => SCAN_COPY.quiz.introLines(freshnessLine), [freshnessLine]);
 
   // Hero region per phase: real photos as soon as any are known, the bundled
   // intro poster for the confirm steps, a plain navy field for utility
@@ -112,22 +119,26 @@ export function QuizCreationScreen({ navigation, route }: Props) {
   const { lastPickUri } = build;
   let hero = neutralHero;
   if (phase === 'working') {
-    // Back lives in the hero's safe-area row, above the card — the same
-    // arrangement as the permission beats, so the control never covers a tile.
+    // The stage runs full bleed under the top bar, the same as the permission
+    // beats; the bar floats on the hero's scrim.
     hero = (
-      <View style={styles.permissionHero} testID="quiz-working-hero">
-        <QuizTopBar onClose={handleClose} icon="back" testID="quiz-creation-top-bar" />
+      <StageHero
+        titleless
+        testID="quiz-working-hero"
+        header={<QuizTopBar onClose={handleClose} icon="back" testID="quiz-creation-top-bar" />}
+      >
         <QuizWorkingStage build={build} reduceMotion={reduceMotion} isPaused={!isFocused} />
-      </View>
+      </StageHero>
     );
   } else if (phase === 'permission-request') {
-    // Back lives in the hero's safe-area row (via QuizTopBar), above the card —
-    // never overlaid on the StageCard tiles the way the absolute topBar would.
     hero = (
-      <View style={styles.permissionHero} testID="quiz-permission-hero">
-        <QuizTopBar onClose={handleClose} icon="back" testID="quiz-creation-top-bar" />
+      <StageHero
+        titleless
+        testID="quiz-permission-hero"
+        header={<QuizTopBar onClose={handleClose} icon="back" testID="quiz-creation-top-bar" />}
+      >
         <View
-          style={styles.permissionHeroCardArea}
+          style={StyleSheet.absoluteFill}
           accessibilityElementsHidden
           importantForAccessibility="no-hide-descendants"
         >
@@ -137,7 +148,7 @@ export function QuizCreationScreen({ navigation, route }: Props) {
             homeCountry={homeCountry}
           />
         </View>
-      </View>
+      </StageHero>
     );
   } else if (phase === 'intro') {
     hero = posterHero;
@@ -188,12 +199,14 @@ export function QuizCreationScreen({ navigation, route }: Props) {
         {phase === 'intro' && (
           <View style={styles.sheetContent} testID="quiz-intro-step">
             <Text style={styles.title}>{SCAN_COPY.quiz.introTitle}</Text>
-            <Text style={styles.body}>{SCAN_COPY.quiz.introBody}</Text>
-            {freshnessLine ? (
-              <Text style={styles.freshnessLine} testID="quiz-freshness-line">
-                {freshnessLine}
-              </Text>
-            ) : null}
+            <RotatingStatusLine
+              lines={introLines}
+              firstHoldMs={INTRO_FIRST_HOLD_MS}
+              holdMs={INTRO_HOLD_MS}
+              reduceMotion={reduceMotion}
+              textStyle={styles.introLine}
+              testID="quiz-intro-line"
+            />
             <Button title="Build My Challenge" onPress={startCreation} testID="quiz-build-start" />
           </View>
         )}

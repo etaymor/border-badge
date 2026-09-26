@@ -16,6 +16,7 @@ import {
   type PhotoPermissionPreheatChoice,
 } from '@components/photos/PhotoPermissionPreheatStack';
 import { PrivacyLockGlyph } from '@components/photos/PrivacyLockGlyph';
+import { RotatingStatusLine } from '@components/photos/RotatingStatusLine';
 import { Button } from '@components/ui/Button';
 import { colors, withAlpha } from '@constants/colors';
 import { SCAN_COPY, type PhotoPermissionCarouselDoor } from '@constants/scanCopy';
@@ -38,10 +39,11 @@ export interface PhotoPermissionCarouselProps {
 interface CarouselPage {
   step: PhotoPermissionCarouselStep;
   title: string;
-  subtitle: string;
 }
 
 const TOTAL_STEPS = 3;
+const FOOTER_FIRST_HOLD_MS = 4000;
+const FOOTER_HOLD_MS = 3000;
 const ACTION_BAND_HEIGHT = 164;
 const QUIZ_TALL_SCREEN_START = 667;
 const QUIZ_TALL_SCREEN_END = 956;
@@ -67,17 +69,14 @@ function buildPages(door: PhotoPermissionCarouselDoor): CarouselPage[] {
     {
       step: 1,
       title: SCAN_COPY.permission.carousel.beat1Title,
-      subtitle: SCAN_COPY.permission.carousel.beat1Subtitle,
     },
     {
       step: 2,
       title: SCAN_COPY.permission.carousel.beat2Title,
-      subtitle: SCAN_COPY.permission.carousel.beat2Subtitle,
     },
     {
       step: 3,
       title: SCAN_COPY.permission.carousel.beat3Title(door),
-      subtitle: SCAN_COPY.permission.carousel.beat3Subtitle(door),
     },
   ];
 }
@@ -101,6 +100,7 @@ export function PhotoPermissionCarousel({
   const reportedStepRef = useRef<PhotoPermissionCarouselStep>(step);
   const announcedStepRef = useRef<PhotoPermissionCarouselStep>(step);
   const pages = useMemo(() => buildPages(door), [door]);
+  const footerLines = useMemo(() => SCAN_COPY.permission.carousel.footerLines(door), [door]);
   const viewabilityConfig = useMemo(() => ({ viewAreaCoveragePercentThreshold: 50 }), []);
   const bottomInset = getPhotoPermissionCarouselBottomInset(windowHeight, door);
   const handleLayout = useStableCallback((event: LayoutChangeEvent) => {
@@ -170,7 +170,6 @@ export function PhotoPermissionCarousel({
       testID={`photo-permission-carousel-page-${item.step}`}
     >
       <Text style={styles.title}>{item.title}</Text>
-      <Text style={styles.subtitle}>{item.subtitle}</Text>
     </View>
   );
 
@@ -245,7 +244,14 @@ export function PhotoPermissionCarousel({
         testID="photo-permission-carousel-footer"
       >
         <PrivacyLockGlyph testID="photo-permission-carousel-lock" />
-        <Text style={styles.footerText}>{SCAN_COPY.permission.carousel.footerNotice}</Text>
+        <RotatingStatusLine
+          lines={footerLines}
+          firstHoldMs={FOOTER_FIRST_HOLD_MS}
+          holdMs={FOOTER_HOLD_MS}
+          reduceMotion={reduceMotion}
+          textStyle={styles.footerText}
+          testID="photo-permission-carousel-footer-line"
+        />
       </View>
     </View>
   );
@@ -273,13 +279,6 @@ const styles = StyleSheet.create({
     fontFamily: fonts.playfair.bold,
     fontSize: 26,
     color: colors.midnightNavy,
-    textAlign: 'center',
-  },
-  subtitle: {
-    fontFamily: fonts.openSans.regular,
-    fontSize: 15,
-    lineHeight: 22,
-    color: colors.stormGray,
     textAlign: 'center',
   },
   dots: {

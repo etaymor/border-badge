@@ -43,19 +43,6 @@ export const styles = StyleSheet.create({
     // Keep centered content clear of the sheet's rounded overlap.
     paddingBottom: 24,
   },
-  permissionHero: {
-    flex: 1,
-    minHeight: 280,
-    backgroundColor: colors.midnightNavy,
-  },
-  // Card sits below the safe-area back row so the control never overlays tiles.
-  permissionHeroCardArea: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 24,
-    paddingBottom: 20,
-  },
   heroFooter: {
     ...StyleSheet.absoluteFillObject,
     justifyContent: 'flex-end',
@@ -109,16 +96,17 @@ export const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: -4,
   },
-  freshnessLine: {
-    fontFamily: fonts.body.semiBold,
-    fontSize: 13,
-    lineHeight: 19,
-    color: withAlpha(colors.midnightNavy, 0.6),
+  introLine: {
+    fontFamily: fonts.body.regular,
+    fontSize: 16,
+    lineHeight: 24,
+    color: colors.textSecondary,
     textAlign: 'center',
   },
   slotStageHost: {
-    flex: 1,
+    ...StyleSheet.absoluteFillObject,
     justifyContent: 'center',
+    paddingHorizontal: 24,
   },
   slotGrid: {
     flexDirection: 'row',
@@ -134,13 +122,12 @@ export const styles = StyleSheet.create({
     flex: 1,
     borderRadius: 12,
     overflow: 'hidden',
-    backgroundColor: colors.paperBeige,
+    backgroundColor: withAlpha(colors.cloudWhite, 0.06),
     borderWidth: 1,
-    borderColor: withAlpha(colors.stormGray, 0.18),
+    borderColor: withAlpha(colors.cloudWhite, 0.12),
   },
   slotPlaceholder: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: colors.paperBeige,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -148,7 +135,7 @@ export const styles = StyleSheet.create({
     width: 28,
     height: 28,
     borderWidth: 1.5,
-    borderColor: withAlpha(colors.stormGray, 0.4),
+    borderColor: withAlpha(colors.cloudWhite, 0.3),
     borderRadius: 6,
     overflow: 'hidden',
   },
@@ -159,7 +146,7 @@ export const styles = StyleSheet.create({
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: withAlpha(colors.stormGray, 0.4),
+    backgroundColor: withAlpha(colors.cloudWhite, 0.3),
   },
   slotMarkPeak: {
     position: 'absolute',
@@ -172,11 +159,11 @@ export const styles = StyleSheet.create({
     borderBottomWidth: 11,
     borderLeftColor: colors.transparent,
     borderRightColor: colors.transparent,
-    borderBottomColor: withAlpha(colors.stormGray, 0.35),
+    borderBottomColor: withAlpha(colors.cloudWhite, 0.25),
   },
   slotPhotoLayer: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: colors.warmCream,
+    backgroundColor: colors.midnightNavy,
   },
   slotPhotoPending: {
     opacity: 0.55,

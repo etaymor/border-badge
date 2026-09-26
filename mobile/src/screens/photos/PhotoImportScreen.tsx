@@ -7,13 +7,14 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Linking, StatusBar, Text, View } from 'react-native';
+import { ActivityIndicator, Linking, StatusBar, StyleSheet, Text, View } from 'react-native';
 import { FlashList, ListRenderItem } from '@shopify/flash-list';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { PhotoPermissionCarousel } from '@components/photos/PhotoPermissionCarousel';
 import { PhotoPermissionRecoverySheet } from '@components/photos/PhotoPermissionRecoverySheet';
 import PermissionBeatVisual from '@components/photos/permissionBeats/PermissionBeatVisual';
+import { StageHero } from '@components/photos/StageHero';
 import { SatisfactionModal } from '@components/review';
 import { GlassBackButton, GlassIconButton } from '@components/ui';
 import type { TripCandidateDisplay, LocationClusterDisplay } from '@services/photoImport';
@@ -655,19 +656,20 @@ export function PhotoImportScreen({ navigation, route }: Props) {
       {isPermissionPreheat ? (
         <>
           <StatusBar barStyle="light-content" />
-          <View
-            style={[styles.permissionHero, { paddingTop: insets.top }]}
+          <StageHero
             testID="photo-import-permission-hero"
+            header={
+              <View style={[styles.permissionHeroHeader, { paddingTop: insets.top }]}>
+                <GlassBackButton variant="dark" onPress={() => handleBackNavigation('goBack')} />
+                <Text style={styles.permissionHeroTitle}>
+                  {SCAN_COPY.permission.carousel.tripsHeaderTitle}
+                </Text>
+                <View style={styles.headerSpacer} />
+              </View>
+            }
           >
-            <View style={styles.permissionHeroHeader}>
-              <GlassBackButton variant="dark" onPress={() => handleBackNavigation('goBack')} />
-              <Text style={styles.permissionHeroTitle}>
-                {SCAN_COPY.permission.carousel.tripsHeaderTitle}
-              </Text>
-              <View style={styles.headerSpacer} />
-            </View>
             <View
-              style={styles.permissionHeroCardArea}
+              style={StyleSheet.absoluteFill}
               accessibilityElementsHidden
               importantForAccessibility="no-hide-descendants"
             >
@@ -677,7 +679,7 @@ export function PhotoImportScreen({ navigation, route }: Props) {
                 homeCountry={homeCountryCode}
               />
             </View>
-          </View>
+          </StageHero>
           <View
             style={[styles.permissionCarouselContainer, { paddingBottom: insets.bottom + 12 }]}
             testID="photo-import-permission-preheat"

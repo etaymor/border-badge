@@ -23,6 +23,7 @@ const build = (step: BuildView['step']): BuildView => ({
   step,
   pickUris: [],
   countryPreviews: [{ code: 'PT', name: 'Portugal', previews: [] }],
+  readingPreviews: [],
   lastPickUri: null,
   uploading: step === 'building',
   uploadedCount: 0,
@@ -50,7 +51,7 @@ describe('QuizWorkingStage country arrival handover', () => {
       expect.objectContaining({ isComplete: true, isPaused: false })
     );
     expect(screen.getByTestId('quiz-slot-empty-0')).toBeTruthy();
-    expect(screen.getByTestId('stage-card')).toBeTruthy();
+    expect(screen.getByTestId('quiz-build-content-region')).toBeTruthy();
   });
 });
 
