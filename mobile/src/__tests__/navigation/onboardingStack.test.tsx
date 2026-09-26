@@ -58,9 +58,10 @@ jest.mock('react-native-screen-transitions/blank-stack', () => {
 });
 
 // authStore is a real zustand store; drive the selector deterministically.
+const mockAuthState = { needsPostSignupFlow: false };
 jest.mock('@stores/authStore', () => ({
   useAuthStore: (selector: (s: { needsPostSignupFlow: boolean }) => unknown) =>
-    selector({ needsPostSignupFlow: false }),
+    selector(mockAuthState),
 }));
 
 import { OnboardingNavigator } from '@navigation/OnboardingNavigator';
@@ -102,7 +103,6 @@ describe('OnboardingNavigator — freeze/detach configuration (U2)', () => {
     // The forward-only flow's key screens are all registered.
     expect(names).toEqual(
       expect.arrayContaining([
-        'WelcomeCarousel',
         'OnboardingSlider',
         'Motivation',
         'HomeCountry',
@@ -121,10 +121,26 @@ describe('OnboardingNavigator — freeze/detach configuration (U2)', () => {
     );
   });
 
-  it('sets the initial route to WelcomeCarousel when not in post-signup flow', () => {
+  it('starts new users on the animated intro slider', () => {
     const root = renderNavigator();
     const navProps = getNavigatorProps(root);
-    expect(navProps.initialRouteName).toBe('WelcomeCarousel');
+    expect(navProps.initialRouteName).toBe('OnboardingSlider');
+  });
+
+  it('starts the post-signup flow at EmotionalHook', () => {
+    mockAuthState.needsPostSignupFlow = true;
+    try {
+      const root = renderNavigator();
+      expect(getNavigatorProps(root).initialRouteName).toBe('EmotionalHook');
+    } finally {
+      mockAuthState.needsPostSignupFlow = false;
+    }
+  });
+
+  it('no longer registers the old video welcome screen (folded into the slider)', () => {
+    const root = renderNavigator();
+    const names = getScreens(root).map((s) => s.props.name);
+    expect(names).not.toContain('WelcomeCarousel');
   });
 
   it('enables detachPreviousScreen so buried screens actually freeze', () => {
@@ -162,8 +178,8 @@ describe('OnboardingNavigator — freeze/detach configuration (U2)', () => {
     const root = renderNavigator();
     const screens = getScreens(root);
 
+    // OnboardingSlider is the initial route, so it has no incoming transition.
     const screensWithPresets = [
-      'OnboardingSlider',
       'Motivation',
       'HomeCountry',
       'ContinentIntro',

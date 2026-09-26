@@ -351,7 +351,7 @@ For each data type collected, Apple asks three questions:
 
 ### PostHog Onboarding Funnel
 
-The app fires onboarding **step** events (`view_onboarding_welcome`, `view_onboarding_slider`, … through `view_onboarding_account`) from each onboarding screen. The **conversion** event `complete_onboarding` must be fired in code when a user finishes sign-up; then the funnel is built in the PostHog UI.
+The app fires onboarding **step** events (`view_onboarding_slider`, … through `view_onboarding_account`) from each onboarding screen, plus `view_onboarding_slide` (`index` 1-4) for each beat of the intro. `view_onboarding_welcome` was retired when the video welcome screen was folded into the intro (PR #132); older data still has it. The **conversion** event `complete_onboarding` must be fired in code when a user finishes sign-up; then the funnel is built in the PostHog UI.
 
 **Production environment (events only send when `EXPO_PUBLIC_APP_ENV=production`):**
 
@@ -371,12 +371,13 @@ Funnels are defined in PostHog, not in the repo. With events firing in productio
 
 1. In PostHog: **Insights** → **New insight** → **Funnel**.
 2. Add steps in order, for example:
-   - Step 1: Event `view_onboarding_welcome`
-   - Step 2: Event `view_onboarding_slider`
-   - Step 3: Event `view_onboarding_motivation`
+   - Step 1: Event `view_onboarding_slider` (top of the funnel; the intro)
+   - Step 2: Event `view_onboarding_motivation`
    - (add more steps as needed, or use a shortened funnel)
    - Final step: Event `complete_onboarding` (conversion)
 3. Optionally filter by property (e.g. app version) or “Production”.
+   For drop-off inside the intro, add a separate funnel of `view_onboarding_slide`
+   steps filtered by `index` = 1, 2, 3, 4.
 4. Save the insight and add to a dashboard if desired.
 
 ### Operations

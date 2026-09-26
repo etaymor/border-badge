@@ -40,34 +40,6 @@ const TRANSITION_SPEC_BOUNCY = {
 // ============ INTERPOLATORS ============
 
 /**
- * Parallax Slide Interpolator
- * WelcomeCarousel → OnboardingSlider
- *
- * Incoming screen slides in while the previous screen slides out at
- * a slower rate (parallax effect), creating depth perception.
- */
-export const parallaxSlideInterpolator = ({
-  progress,
-  layouts: { screen },
-}: ScreenInterpolationProps) => {
-  'worklet';
-
-  // Incoming slides from right at full speed
-  const translateX = interpolate(progress, [0, 1, 2], [screen.width, 0, -screen.width * 0.5]);
-
-  // Previous screen slides left at slower pace (parallax)
-  const scale = interpolate(progress, [0, 1, 2], [1, 1, 0.92]);
-  const opacity = interpolate(progress, [0, 1, 2], [1, 1, 0.6]);
-
-  return {
-    contentStyle: {
-      transform: [{ translateX }, { scale }],
-      opacity,
-    },
-  };
-};
-
-/**
  * Zoom Reveal Interpolator
  * OnboardingSlider → Motivation
  *
@@ -245,14 +217,6 @@ export const onboardingSlideInterpolator = ({
 };
 
 // ============ PRESETS ============
-
-/** WelcomeCarousel → OnboardingSlider: Parallax slide with video cross-dissolve feel */
-export const ParallaxSlidePreset: BlankStackNavigationOptions = {
-  screenStyleInterpolator: parallaxSlideInterpolator,
-  transitionSpec: TRANSITION_SPEC_DEFAULT,
-  gestureEnabled: true,
-  gestureDirection: 'horizontal',
-};
 
 /** OnboardingSlider → Motivation: Zoom-out reveal with 3D card stack feel */
 export const ZoomRevealPreset: BlankStackNavigationOptions = {

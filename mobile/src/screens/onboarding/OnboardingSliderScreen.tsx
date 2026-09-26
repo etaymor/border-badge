@@ -1,375 +1,304 @@
-import { Ionicons } from '@expo/vector-icons';
-import { useVideoPlayer, VideoView } from 'expo-video';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { FlatListProps } from 'react-native';
+import { useIsFocused } from '@react-navigation/native';
+import * as Haptics from 'expo-haptics';
+import { Image } from 'expo-image';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  Animated,
-  FlatList,
-  Image,
+  AccessibilityInfo,
+  Animated as RNAnimated,
   StyleSheet,
   TouchableOpacity,
   View,
+  useWindowDimensions,
+  type FlatList,
   type ListRenderItem,
-  type ViewToken,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import Animated, {
+  runOnJS,
+  useAnimatedScrollHandler,
+  useSharedValue,
+} from 'react-native-reanimated';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import IntroBeatPage from '@components/onboarding/introBeats/IntroBeatPage';
+import {
+  INTRO_BEATS,
+  introAnnouncement,
+  type IntroBeatCopy,
+} from '@components/onboarding/introBeats/introBeats';
+import IntroCta from '@components/onboarding/introBeats/IntroCta';
+import IntroPageDots from '@components/onboarding/introBeats/IntroPageDots';
+import { useSplashDone } from '@components/splash/splashGate';
 import { Text } from '@components/ui';
 import { colors } from '@constants/colors';
-import { useResponsive } from '@hooks/useResponsive';
+import { useReducedMotion } from '@hooks/useReducedMotion';
 import { useScreenEntrance } from '@hooks/useScreenEntrance';
+import { useStableCallback } from '@hooks/useStableCallback';
 import type { OnboardingStackScreenProps } from '@navigation/types';
-import { Analytics } from '@services/analytics';
+import { Analytics, type OnboardingIntroSlideVia } from '@services/analytics';
 
 /* eslint-disable @typescript-eslint/no-require-imports */
 const atlasLogo = require('../../../assets/atlasi-logo.png');
-
-const SLIDES = [
-  {
-    id: '1',
-    video: require('../../../assets/onboarding-videos/onboarding1-share.mp4'),
-    headline: 'From scroll to story',
-    subtext:
-      "Share any post from TikTok or Instagram directly to Atlasi. We'll extract the location and save the inspiration to your map instantly.",
-  },
-  {
-    id: '2',
-    video: require('../../../assets/onboarding-videos/onboarding3-trips.mp4'),
-    headline: 'Your memories, mapped',
-    subtext:
-      'Atlasi intelligently scans your photo library to reconstruct your past adventures into a beautiful, chronological travelogue.',
-  },
-  {
-    id: '3',
-    video: require('../../../assets/onboarding-videos/onboarding2-country-track.mp4'),
-    headline: 'Your global archive',
-    subtext:
-      "A signature gallery of where you've been and a curated bucket list for where the world takes you next.",
-  },
-];
 /* eslint-enable @typescript-eslint/no-require-imports */
 
-interface Slide {
-  id: string;
-  video: number;
-  headline: string;
-  subtext: string;
-}
-
-// Video dimensions (820x1280 aspect ratio)
-const VIDEO_WIDTH = 820;
-const VIDEO_HEIGHT = 1280;
-
-// Responsive layout configuration per screen size
-interface LayoutConfig {
-  framePadding: number;
-  textMarginTop: number;
-  textPaddingHorizontal: number;
-  paginationMarginTop: number;
-  reservedHeight: number;
-  borderRadius: number;
-  videoBorderRadius: number;
-}
-
-const LAYOUT_CONFIGS: Record<'small' | 'medium' | 'large', Omit<LayoutConfig, 'reservedHeight'>> = {
-  small: {
-    framePadding: 8,
-    textMarginTop: 12,
-    textPaddingHorizontal: 24,
-    paginationMarginTop: 8,
-    borderRadius: 20,
-    videoBorderRadius: 12,
-  },
-  medium: {
-    framePadding: 10,
-    textMarginTop: 16,
-    textPaddingHorizontal: 32,
-    paginationMarginTop: 12,
-    borderRadius: 20,
-    videoBorderRadius: 12,
-  },
-  large: {
-    framePadding: 10,
-    textMarginTop: 20,
-    textPaddingHorizontal: 40,
-    paginationMarginTop: 14,
-    borderRadius: 20,
-    videoBorderRadius: 12,
-  },
-};
-
-function getLayoutConfig(
-  screenSize: 'small' | 'medium' | 'large',
-  screenWidth: number,
-  screenHeight: number
-) {
-  const config = LAYOUT_CONFIGS[screenSize];
-
-  // Reserve space for: header (~52), headline+subtext (~120), pagination (~30), bottom button area (~100)
-  // Reserve space for header, text, pagination dots, and bottom button
-  const reservedHeight = screenSize === 'small' ? 340 : screenSize === 'medium' ? 320 : 300;
-
-  // Available height for the video frame
-  const availableHeight = screenHeight - reservedHeight;
-
-  // Derive frame dimensions from available height, scaled down to fit with text/dots/button
-  const frameHeight = availableHeight * 0.75;
-  let frameWidth = frameHeight * (VIDEO_WIDTH / VIDEO_HEIGHT);
-
-  // Clamp frame width so it doesn't exceed screen width minus minimum margins
-  const maxFrameWidth = screenWidth - 40;
-  if (frameWidth > maxFrameWidth) {
-    frameWidth = maxFrameWidth;
-  }
-
-  // Video fills the frame minus padding
-  const videoWidth = frameWidth - config.framePadding * 2;
-  const videoHeight = frameHeight - config.framePadding * 2;
-
-  return {
-    ...config,
-    reservedHeight,
-    videoWidth,
-    videoHeight,
-    frameWidth,
-    frameHeight,
-  };
-}
+const HEADER_HEIGHT = 52;
+/** Kicker + two-line headline + up to three lines of subtext. */
+const TEXT_HEIGHT = 158;
+/** Dots (8) + gap (20) + CTA (56) + top padding (8), excluding the bottom inset. */
+const BOTTOM_BAND = 92;
+const MIN_HERO_HEIGHT = 260;
+const MAX_HERO_ASPECT = 1.3;
+/** The cream sheet rises over the navy hero by this much (as in the photo flow). */
+const SHEET_OVERLAP = 28;
+const LAST_INDEX = INTRO_BEATS.length - 1;
 
 type Props = OnboardingStackScreenProps<'OnboardingSlider'>;
 
+/**
+ * The new-user intro: four animated beats that tell the Atlasi story (find the
+ * places you forgot, save from Instagram/TikTok, collect the world, Guess
+ * Where), then hand off to Motivation with `replace`, which unmounts
+ * everything here. Layout follows the photo onboarding: a full-bleed navy hero
+ * with a cream sheet rising over it for the copy and the CTA.
+ *
+ * Performance contract (see useIntroBeatClock): only the settled beat
+ * animates, only while this screen is focused and the splash has gone; pages
+ * two or more away render no visual at all. No timers, no per-frame setState.
+ *
+ * Page tracking: `nearestIndex` follows the scroll position (set from the UI
+ * thread only when the rounded page changes) and drives mounting and the CTA
+ * action. `activeIndex` is the settled page and drives playback and analytics;
+ * swipes and animated Continue taps both reach it through `settle`, only once
+ * the scroll has landed, so an outgoing beat keeps its final frame while it
+ * slides away.
+ */
 export function OnboardingSliderScreen({ navigation }: Props) {
-  const { screenWidth, screenHeight, screenSize } = useResponsive();
-  const { getAnimatedStyle, getButtonStyle } = useScreenEntrance({ elementCount: 2 });
-
-  // Get responsive layout configuration
-  const layout = useMemo(
-    () => getLayoutConfig(screenSize, screenWidth, screenHeight),
-    [screenSize, screenWidth, screenHeight]
-  );
-
-  // Slide height: just enough for video frame + headline + subtext + dots + spacing
-  const slideHeight = layout.frameHeight + 160;
+  const { width: pageWidth, height: windowHeight } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  const reduceMotion = useReducedMotion();
+  const isFocused = useIsFocused();
+  const splashDone = useSplashDone();
+  const canPlay = isFocused && splashDone;
 
   const [activeIndex, setActiveIndex] = useState(0);
-  const flatListRef = useRef<FlatList<Slide>>(null);
+  const [nearestIndex, setNearestIndex] = useState(0);
+  const scrollX = useSharedValue(0);
+  const nearestOnUi = useSharedValue(0);
+  /** Page an animated Continue tap is scrolling to, or -1. Read by the scroll worklet. */
+  const tapTarget = useSharedValue(-1);
+  const pendingTapRef = useRef<number | null>(null);
+  /** Mirrors `activeIndex` synchronously, so two settles in one batch see each other. */
+  const settledRef = useRef(0);
+  const listRef = useRef<FlatList<IntroBeatCopy>>(null);
+  const reportedRef = useRef<Set<number>>(new Set());
+  const announcedRef = useRef(0);
 
-  // Track screen view
+  const { getAnimatedStyle, getButtonStyle, startAnimation } = useScreenEntrance({
+    elementCount: 3,
+    autoStart: false,
+  });
+
+  const bottomPadding = Math.max(insets.bottom, 16) + 8;
+  const heroHeight = Math.round(
+    Math.min(
+      pageWidth * MAX_HERO_ASPECT,
+      Math.max(
+        MIN_HERO_HEIGHT,
+        windowHeight - insets.top - HEADER_HEIGHT - TEXT_HEIGHT - BOTTOM_BAND - bottomPadding
+      )
+    )
+  );
+
+  const reportSlide = useStableCallback((index: number, via: OnboardingIntroSlideVia) => {
+    if (reportedRef.current.has(index)) return;
+    reportedRef.current.add(index);
+    Analytics.viewOnboardingSlide({ index: index + 1, beat: INTRO_BEATS[index].key, via });
+  });
+
   useEffect(() => {
     Analytics.viewOnboardingSlider();
   }, []);
 
-  // One player per slide — avoids replace() which causes stale-frame flashes.
-  // Only the active slide's player is playing; the others stay paused and buffered.
-  const playerConfig = useCallback(
-    (p: { loop: boolean; muted: boolean; audioMixingMode: string }) => {
-      p.loop = true;
-      p.muted = true;
-      p.audioMixingMode = 'mixWithOthers';
-    },
-    []
-  );
-  const player0 = useVideoPlayer(SLIDES[0].video, playerConfig);
-  const player1 = useVideoPlayer(SLIDES[1].video, playerConfig);
-  const player2 = useVideoPlayer(SLIDES[2].video, playerConfig);
-  const players = useMemo(() => [player0, player1, player2], [player0, player1, player2]);
-
-  // Play only the active slide's player, pause the rest
+  // Hold the entrance (and the first slide view) until the splash dissolves.
   useEffect(() => {
-    players.forEach((p, i) => {
-      try {
-        if (i === activeIndex) {
-          p.play();
-        } else {
-          p.pause();
-        }
-      } catch {
-        // Native player may be released
-      }
-    });
-  }, [activeIndex, players]);
+    if (!splashDone) return;
+    startAnimation();
+    reportSlide(0, 'initial');
+  }, [reportSlide, splashDone, startAnimation]);
 
-  // Pause all players when screen loses focus, resume active on focus
   useEffect(() => {
-    const unsubscribeFocus = navigation.addListener('focus', () => {
-      try {
-        players[activeIndex]?.play();
-      } catch {
-        // Native player may be released
-      }
-    });
-    const unsubscribeBlur = navigation.addListener('blur', () => {
-      players.forEach((p) => {
-        try {
-          p.pause();
-        } catch {
-          // Native player may be released
-        }
-      });
-    });
-    return () => {
-      unsubscribeFocus();
-      unsubscribeBlur();
-    };
-  }, [navigation, players, activeIndex]);
+    if (announcedRef.current === activeIndex) return;
+    announcedRef.current = activeIndex;
+    AccessibilityInfo.announceForAccessibility(
+      introAnnouncement(activeIndex, INTRO_BEATS.length, INTRO_BEATS[activeIndex].headline)
+    );
+  }, [activeIndex]);
 
-  const onViewableItemsChanged = useCallback(
-    ({ viewableItems }: { viewableItems: ViewToken<Slide>[] }) => {
-      if (viewableItems.length > 0 && viewableItems[0].index !== null) {
-        setActiveIndex(viewableItems[0].index);
-      }
+  const settle = useStableCallback((rawIndex: number, via: OnboardingIntroSlideVia) => {
+    const index = Math.max(0, Math.min(LAST_INDEX, rawIndex));
+    const from = settledRef.current;
+    if (index === from) return;
+    // A fast double flick cancels the first deceleration, so only one settle
+    // fires; the beats it passed through were still dragged into view.
+    const step = index > from ? 1 : -1;
+    for (let skipped = from + step; skipped !== index; skipped += step) {
+      reportSlide(skipped, via);
+    }
+    settledRef.current = index;
+    setActiveIndex(index);
+    setNearestIndex(index);
+    if (via === 'swipe') Haptics.selectionAsync().catch(() => {});
+    reportSlide(index, via);
+  });
+
+  const handleSettle = useStableCallback((rawIndex: number) => {
+    const via = pendingTapRef.current === rawIndex ? 'tap' : 'swipe';
+    pendingTapRef.current = null;
+    tapTarget.value = -1;
+    settle(rawIndex, via);
+  });
+
+  const scrollHandler = useAnimatedScrollHandler(
+    {
+      onScroll: (event) => {
+        const x = event.contentOffset.x;
+        scrollX.value = x;
+        const nearest = Math.round(x / pageWidth);
+        if (nearest !== nearestOnUi.value) {
+          nearestOnUi.value = nearest;
+          runOnJS(setNearestIndex)(Math.max(0, Math.min(LAST_INDEX, nearest)));
+        }
+        // An animated Continue tap settles when it lands, not when it starts,
+        // without depending on a momentum-end event for programmatic scrolls.
+        if (tapTarget.value >= 0 && Math.abs(x - tapTarget.value * pageWidth) < 1) {
+          const target = tapTarget.value;
+          tapTarget.value = -1;
+          runOnJS(handleSettle)(target);
+        }
+      },
+      onEndDrag: (event) => {
+        // Released exactly on a page: no momentum phase, so no momentum end.
+        const x = event.contentOffset.x;
+        const page = Math.round(x / pageWidth);
+        if (Math.abs(x - page * pageWidth) < 1) runOnJS(handleSettle)(page);
+      },
+      onMomentumEnd: (event) => {
+        runOnJS(handleSettle)(Math.round(event.contentOffset.x / pageWidth));
+      },
     },
-    []
+    [pageWidth, handleSettle]
   );
 
-  const viewabilityConfig = useRef({
-    viewAreaCoveragePercentThreshold: 50,
-  }).current;
+  const goToNext = useStableCallback(() => {
+    // Continue from where the pager is headed: a pending tap's target, else the
+    // page nearest the current scroll position.
+    const next = (pendingTapRef.current ?? nearestIndex) + 1;
+    if (next > LAST_INDEX) return;
+    if (reduceMotion) {
+      listRef.current?.scrollToIndex({ index: next, animated: false });
+      settle(next, 'tap');
+      return;
+    }
+    pendingTapRef.current = next;
+    tapTarget.value = next;
+    listRef.current?.scrollToIndex({ index: next, animated: true });
+  });
 
-  const handleStartJourney = () => {
-    navigation.replace('Motivation');
-  };
+  const handleCta = useStableCallback(() => {
+    // Branch on what the label shows (it follows the scroll), not on the
+    // settled page, so a tap during the last deceleration still finishes.
+    if ((pendingTapRef.current ?? nearestIndex) === LAST_INDEX) {
+      navigation.replace('Motivation');
+    } else {
+      goToNext();
+    }
+  });
 
-  const handleLogin = () => {
+  const handleLogin = useStableCallback(() => {
     Analytics.skipToLogin('OnboardingSlider');
     navigation.navigate('Auth', { screen: 'Login' });
-  };
+  });
 
-  const goToNext = () => {
-    if (activeIndex < SLIDES.length - 1) {
-      flatListRef.current?.scrollToIndex({
-        index: activeIndex + 1,
-        animated: true,
-      });
-    }
-  };
-
-  const handleScrollToIndexFailed = useCallback(
-    (info: { index: number; highestMeasuredFrameIndex: number; averageItemLength: number }) => {
-      // Wait for items to render, then retry
-      setTimeout(() => {
-        flatListRef.current?.scrollToIndex({
-          index: info.index,
-          animated: true,
-        });
-      }, 100);
-    },
-    []
+  const getItemLayout = useCallback(
+    (_data: ArrayLike<IntroBeatCopy> | null | undefined, index: number) => ({
+      length: pageWidth,
+      offset: pageWidth * index,
+      index,
+    }),
+    [pageWidth]
   );
 
-  const renderSlide: ListRenderItem<Slide> = ({ item, index }) => (
-    <View
-      style={[styles.slide, { width: screenWidth, height: slideHeight }]}
-      testID={`carousel-slide-${item.id}`}
-    >
-      <View style={styles.slideContent}>
-        {/* Video frame - simplified, no shadow layer */}
-        <View
-          style={[
-            styles.videoFrame,
-            {
-              width: layout.frameWidth,
-              height: layout.frameHeight,
-              padding: layout.framePadding,
-              borderRadius: layout.borderRadius,
-            },
-          ]}
-        >
-          <View style={[styles.video, { borderRadius: layout.videoBorderRadius }]}>
-            <VideoView
-              player={players[index]}
-              style={StyleSheet.absoluteFill}
-              contentFit="contain"
-              nativeControls={false}
-            />
-          </View>
-        </View>
-
-        {/* Text below video */}
-        <View
-          style={[
-            styles.textContainer,
-            {
-              marginTop: layout.textMarginTop,
-              paddingHorizontal: layout.textPaddingHorizontal,
-            },
-          ]}
-        >
-          <Text variant="title" style={styles.headline}>
-            {item.headline}
-          </Text>
-          <Text variant="body" style={styles.subtext}>
-            {item.subtext}
-          </Text>
-        </View>
-
-        {/* Pagination dots */}
-        <View style={[styles.pagination, { marginTop: layout.paginationMarginTop }]}>
-          {SLIDES.map((_, dotIndex) => (
-            <View
-              key={dotIndex}
-              style={[styles.dot, dotIndex === activeIndex && styles.dotActive]}
-            />
-          ))}
-        </View>
-      </View>
-    </View>
+  const renderPage: ListRenderItem<IntroBeatCopy> = ({ item, index }) => (
+    <IntroBeatPage
+      beat={item}
+      index={index}
+      pageWidth={pageWidth}
+      heroHeight={heroHeight}
+      textHeight={TEXT_HEIGHT}
+      scrollX={scrollX}
+      isActive={index === activeIndex}
+      canPlay={canPlay}
+      reduceMotion={reduceMotion}
+      showVisual={Math.abs(index - activeIndex) <= 1 || Math.abs(index - nearestIndex) <= 1}
+    />
   );
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-      {/* Header with logo and login */}
-      <Animated.View style={[styles.header, getAnimatedStyle(0)]}>
-        <Image source={atlasLogo} style={styles.logo} resizeMode="contain" />
+    <View style={[styles.container, { paddingTop: insets.top }]}>
+      <RNAnimated.View style={[styles.header, getAnimatedStyle(0)]}>
+        <Image source={atlasLogo} style={styles.logo} contentFit="contain" />
         <TouchableOpacity
           onPress={handleLogin}
           style={styles.loginButton}
+          accessibilityRole="button"
+          accessibilityLabel="Log in to your account"
           testID="carousel-login-button"
         >
           <Text variant="label" style={styles.loginText}>
             Login
           </Text>
         </TouchableOpacity>
-      </Animated.View>
+      </RNAnimated.View>
 
-      {/* Carousel */}
-      <FlatList
-        ref={flatListRef}
-        data={SLIDES}
-        renderItem={renderSlide}
-        keyExtractor={(item) => item.id}
-        horizontal
-        pagingEnabled
-        showsHorizontalScrollIndicator={false}
-        onViewableItemsChanged={onViewableItemsChanged}
-        viewabilityConfig={viewabilityConfig}
-        bounces={false}
-        contentContainerStyle={styles.carouselContent}
-        onScrollToIndexFailed={
-          handleScrollToIndexFailed as FlatListProps<Slide>['onScrollToIndexFailed']
-        }
-        extraData={activeIndex}
-      />
+      <View style={styles.body}>
+        {/* Fixed backdrop: navy hero, cream sheet rising over it. Pages scroll above. */}
+        <View style={[styles.hero, { height: heroHeight + SHEET_OVERLAP }]} />
+        <View style={[styles.sheet, { top: heroHeight }]} />
 
-      {/* Bottom section: button only - fixed position */}
-      <View style={styles.bottomSection}>
-        {/* Next / Start my journey button */}
-        <Animated.View style={getButtonStyle(1)}>
-          <TouchableOpacity
-            style={styles.ctaButton}
-            onPress={activeIndex === SLIDES.length - 1 ? handleStartJourney : goToNext}
-            testID="start-journey-button"
-          >
-            <Text variant="label" style={styles.ctaButtonText}>
-              {activeIndex === SLIDES.length - 1 ? 'Start my journey' : 'Continue'}
-            </Text>
-            {activeIndex < SLIDES.length - 1 && (
-              <Ionicons name="arrow-forward" size={20} color={colors.midnightNavy} />
-            )}
-          </TouchableOpacity>
-        </Animated.View>
+        <RNAnimated.View style={[styles.pager, getAnimatedStyle(1)]}>
+          <Animated.FlatList
+            ref={listRef}
+            data={INTRO_BEATS}
+            renderItem={renderPage}
+            keyExtractor={(item) => item.key}
+            horizontal
+            pagingEnabled
+            bounces={false}
+            showsHorizontalScrollIndicator={false}
+            onScroll={scrollHandler}
+            scrollEventThrottle={16}
+            getItemLayout={getItemLayout}
+            initialNumToRender={INTRO_BEATS.length}
+            extraData={{ activeIndex, nearestIndex, canPlay, reduceMotion, heroHeight }}
+            testID="intro-pager"
+          />
+        </RNAnimated.View>
+
+        <View style={[styles.bottom, { paddingBottom: bottomPadding }]}>
+          <IntroPageDots count={INTRO_BEATS.length} scrollX={scrollX} pageWidth={pageWidth} />
+          <RNAnimated.View style={getButtonStyle(2)}>
+            <IntroCta
+              scrollX={scrollX}
+              pageWidth={pageWidth}
+              count={INTRO_BEATS.length}
+              isLast={activeIndex === LAST_INDEX}
+              showsFinalLabel={nearestIndex === LAST_INDEX}
+              reduceMotion={reduceMotion}
+              onPress={handleCta}
+            />
+          </RNAnimated.View>
+        </View>
       </View>
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -379,115 +308,51 @@ const styles = StyleSheet.create({
     backgroundColor: colors.warmCream,
   },
   header: {
+    height: HEADER_HEIGHT,
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingTop: 8,
-    paddingBottom: 4,
   },
   logo: {
-    width: 140,
-    height: 40,
+    width: 128,
+    height: 36,
   },
   loginButton: {
     position: 'absolute',
-    right: 20,
-    paddingVertical: 8,
-    paddingHorizontal: 16,
+    right: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
   },
   loginText: {
     color: colors.midnightNavy,
   },
-  carouselContent: {
-    alignItems: 'flex-start',
-  },
-  slide: {
-    alignItems: 'center',
-    justifyContent: 'flex-start',
-  },
-  slideContent: {
-    alignItems: 'center',
-    paddingTop: 16,
-  },
-  videoFrame: {
-    backgroundColor: colors.paperBeige,
-    shadowColor: colors.shadow,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.12,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  video: {
+  body: {
     flex: 1,
-    overflow: 'hidden',
   },
-  textContainer: {
-    alignItems: 'center',
-  },
-  headline: {
-    color: colors.midnightNavy,
-    textAlign: 'center',
-    fontSize: 28,
-    fontWeight: '700',
-    letterSpacing: -0.56, // -2% tracking
-    marginBottom: 8,
-  },
-  subtext: {
-    color: colors.midnightNavy,
-    textAlign: 'center',
-    fontSize: 15,
-    fontWeight: '400',
-    opacity: 0.7,
-    lineHeight: 22,
-  },
-  bottomSection: {
+  hero: {
     position: 'absolute',
-    bottom: 0,
+    top: 0,
     left: 0,
     right: 0,
-    paddingHorizontal: 24,
-    paddingVertical: 20,
-    paddingBottom: 40,
-    alignItems: 'center',
-  },
-  pagination: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 8,
-  },
-  dot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: colors.stormGray,
-    opacity: 0.4,
-  },
-  dotActive: {
     backgroundColor: colors.midnightNavy,
-    opacity: 1,
-    width: 24,
   },
-  ctaButton: {
-    backgroundColor: colors.sunsetGold,
-    flexDirection: 'row',
+  sheet: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderTopLeftRadius: SHEET_OVERLAP,
+    borderTopRightRadius: SHEET_OVERLAP,
+    borderCurve: 'continuous',
+    backgroundColor: colors.warmCream,
+  },
+  pager: {
+    flex: 1,
+  },
+  bottom: {
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 16,
-    paddingHorizontal: 56,
-    borderRadius: 9999,
-    gap: 8,
-    minWidth: 260,
-    shadowColor: colors.shadow,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  ctaButtonText: {
-    fontSize: 16,
-    color: colors.midnightNavy,
-    fontWeight: '600',
+    gap: 20,
+    paddingTop: 8,
   },
 });

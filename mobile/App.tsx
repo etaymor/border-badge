@@ -32,7 +32,7 @@ import { useRef, useState } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
-import { AnimatedSplash } from '@components/splash';
+import { AnimatedSplash, markSplashDone } from '@components/splash';
 import { ResponsiveProvider } from '@contexts/ResponsiveContext';
 import { useAppStateTracking } from '@hooks/useAppStateTracking';
 import { useAuthSession } from '@hooks/useAuthSession';
@@ -162,6 +162,8 @@ export default function App() {
 
   // Handle splash animation complete
   const handleSplashComplete = useCallback(() => {
+    // Backstop: the splash marks the gate when its fade starts.
+    markSplashDone();
     setShowSplash(false);
   }, []);
 

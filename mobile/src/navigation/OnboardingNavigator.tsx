@@ -17,10 +17,8 @@ import { PaywallScreen } from '@screens/onboarding/PaywallScreen';
 import { ProgressSummaryScreen } from '@screens/onboarding/ProgressSummaryScreen';
 // LAUNCH_SIMPLIFICATION: Tracking preference hidden - all users get full_atlas (227 countries)
 // import TrackingPreferenceScreen from '@screens/onboarding/TrackingPreferenceScreen';
-import { WelcomeCarouselScreen } from '@screens/onboarding/WelcomeCarouselScreen';
 import {
   SlideWithScalePreset,
-  ParallaxSlidePreset,
   ZoomRevealPreset,
   SlideWithLeadPreset,
   ContinentZoomPreset,
@@ -37,7 +35,6 @@ const Stack = createBlankStackNavigator<OnboardingStackParamList>();
  * OnboardingNavigator with unique per-screen transitions
  *
  * Each transition is designed to reinforce the emotional narrative:
- * - WelcomeCarousel → OnboardingSlider: Parallax slide (beginning the journey)
  * - OnboardingSlider → Motivation: Zoom reveal (step back and reflect)
  * - Motivation → HomeCountry: Lead motion (pin leading to map)
  * - HomeCountry → TrackingPreference: Default slide (continuation)
@@ -77,17 +74,10 @@ export function OnboardingNavigator() {
         // preset changes; this only affects lifecycle (freeze), not motion.
         detachPreviousScreen: true,
       }}
-      initialRouteName={needsPostSignupFlow ? 'EmotionalHook' : 'WelcomeCarousel'}
+      initialRouteName={needsPostSignupFlow ? 'EmotionalHook' : 'OnboardingSlider'}
     >
-      {/* First screen - no incoming transition needed */}
-      <Stack.Screen name="WelcomeCarousel" component={WelcomeCarouselScreen} />
-
-      {/* WelcomeCarousel → OnboardingSlider: Parallax slide with depth */}
-      <Stack.Screen
-        name="OnboardingSlider"
-        component={OnboardingSliderScreen}
-        options={ParallaxSlidePreset}
-      />
+      {/* First screen - the animated intro; no incoming transition needed */}
+      <Stack.Screen name="OnboardingSlider" component={OnboardingSliderScreen} />
 
       {/* OnboardingSlider → Motivation: Zoom-out reveal */}
       <Stack.Screen name="Motivation" component={MotivationScreen} options={ZoomRevealPreset} />

@@ -87,7 +87,7 @@ function IntroVideoBackground({
     pausedRef.current = paused;
   }, [paused]);
 
-  // Release the decoder on blur, restore on focus (mirrors WelcomeCarouselScreen).
+  // Release the decoder on blur, restore on focus (mirrors ContinentIntroScreen).
   useEffect(() => {
     const unsubscribeFocus = navigation.addListener('focus', () => {
       try {

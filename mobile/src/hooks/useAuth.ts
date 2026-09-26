@@ -47,7 +47,7 @@ export function useSignUpWithPassword() {
       // onAuthStateChange fires and triggers a RootNavigator re-render.
       // Without this, onAuthStateChange sets the session before onSuccess
       // can set the flag, causing a brief flash to Main before returning
-      // to onboarding (which then remounts at WelcomeCarousel).
+      // to onboarding (which then remounts at OnboardingSlider).
       setNeedsPostSignupFlow(true);
 
       const { data, error } = await supabase.auth.signUp({

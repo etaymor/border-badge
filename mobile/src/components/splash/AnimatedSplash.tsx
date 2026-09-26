@@ -7,6 +7,8 @@ import { useVideoPlayer, VideoView } from 'expo-video';
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { Animated, StyleSheet } from 'react-native';
 
+import { markSplashDone } from './splashGate';
+
 /* eslint-disable @typescript-eslint/no-require-imports */
 const splashVideo = require('../../../assets/country-images/wonders-world/Atlantis2.mp4');
 /* eslint-enable @typescript-eslint/no-require-imports */
@@ -70,6 +72,8 @@ function AnimatedSplashComponent({
       hasStartedFadeOut.current = true;
       // Wait a moment to let user see the splash, then fade out
       const timeout = setTimeout(() => {
+        // Let screens underneath start their entrance as the splash dissolves.
+        markSplashDone();
         Animated.timing(fadeAnim, {
           toValue: 0,
           duration: 500,
