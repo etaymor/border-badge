@@ -63,6 +63,13 @@ type Props = OnboardingStackScreenProps<'OnboardingSlider'>;
  * Performance contract (see useIntroBeatClock): only the settled beat
  * animates, only while this screen is focused and the splash has gone; pages
  * two or more away render no visual at all. No timers, no per-frame setState.
+ *
+ * Page tracking: `nearestIndex` follows the scroll position (set from the UI
+ * thread only when the rounded page changes) and drives mounting and the CTA
+ * action. `activeIndex` is the settled page and drives playback and analytics;
+ * swipes and animated Continue taps both reach it through `settle`, only once
+ * the scroll has landed, so an outgoing beat keeps its final frame while it
+ * slides away.
  */
 export function OnboardingSliderScreen({ navigation }: Props) {
   const { width: pageWidth, height: windowHeight } = useWindowDimensions();
@@ -73,7 +80,14 @@ export function OnboardingSliderScreen({ navigation }: Props) {
   const canPlay = isFocused && splashDone;
 
   const [activeIndex, setActiveIndex] = useState(0);
+  const [nearestIndex, setNearestIndex] = useState(0);
   const scrollX = useSharedValue(0);
+  const nearestOnUi = useSharedValue(0);
+  /** Page an animated Continue tap is scrolling to, or -1. Read by the scroll worklet. */
+  const tapTarget = useSharedValue(-1);
+  const pendingTapRef = useRef<number | null>(null);
+  /** Mirrors `activeIndex` synchronously, so two settles in one batch see each other. */
+  const settledRef = useRef(0);
   const listRef = useRef<FlatList<IntroBeatCopy>>(null);
   const reportedRef = useRef<Set<number>>(new Set());
   const announcedRef = useRef(0);
@@ -119,18 +133,53 @@ export function OnboardingSliderScreen({ navigation }: Props) {
     );
   }, [activeIndex]);
 
-  const handleSettle = useStableCallback((rawIndex: number) => {
+  const settle = useStableCallback((rawIndex: number, via: OnboardingIntroSlideVia) => {
     const index = Math.max(0, Math.min(LAST_INDEX, rawIndex));
-    if (index === activeIndex) return;
+    const from = settledRef.current;
+    if (index === from) return;
+    // A fast double flick cancels the first deceleration, so only one settle
+    // fires; the beats it passed through were still dragged into view.
+    const step = index > from ? 1 : -1;
+    for (let skipped = from + step; skipped !== index; skipped += step) {
+      reportSlide(skipped, via);
+    }
+    settledRef.current = index;
     setActiveIndex(index);
-    Haptics.selectionAsync().catch(() => {});
-    reportSlide(index, 'swipe');
+    setNearestIndex(index);
+    if (via === 'swipe') Haptics.selectionAsync().catch(() => {});
+    reportSlide(index, via);
+  });
+
+  const handleSettle = useStableCallback((rawIndex: number) => {
+    const via = pendingTapRef.current === rawIndex ? 'tap' : 'swipe';
+    pendingTapRef.current = null;
+    tapTarget.value = -1;
+    settle(rawIndex, via);
   });
 
   const scrollHandler = useAnimatedScrollHandler(
     {
       onScroll: (event) => {
-        scrollX.value = event.contentOffset.x;
+        const x = event.contentOffset.x;
+        scrollX.value = x;
+        const nearest = Math.round(x / pageWidth);
+        if (nearest !== nearestOnUi.value) {
+          nearestOnUi.value = nearest;
+          runOnJS(setNearestIndex)(Math.max(0, Math.min(LAST_INDEX, nearest)));
+        }
+        // An animated Continue tap settles when it lands, not when it starts,
+        // without depending on a momentum-end event for programmatic scrolls.
+        if (tapTarget.value >= 0 && Math.abs(x - tapTarget.value * pageWidth) < 1) {
+          const target = tapTarget.value;
+          tapTarget.value = -1;
+          runOnJS(handleSettle)(target);
+        }
+      },
+      onEndDrag: (event) => {
+        // Released exactly on a page: no momentum phase, so no momentum end.
+        const x = event.contentOffset.x;
+        const page = Math.round(x / pageWidth);
+        if (Math.abs(x - page * pageWidth) < 1) runOnJS(handleSettle)(page);
       },
       onMomentumEnd: (event) => {
         runOnJS(handleSettle)(Math.round(event.contentOffset.x / pageWidth));
@@ -140,15 +189,24 @@ export function OnboardingSliderScreen({ navigation }: Props) {
   );
 
   const goToNext = useStableCallback(() => {
-    const next = activeIndex + 1;
+    // Continue from where the pager is headed: a pending tap's target, else the
+    // page nearest the current scroll position.
+    const next = (pendingTapRef.current ?? nearestIndex) + 1;
     if (next > LAST_INDEX) return;
-    setActiveIndex(next);
-    reportSlide(next, 'tap');
-    listRef.current?.scrollToIndex({ index: next, animated: !reduceMotion });
+    if (reduceMotion) {
+      listRef.current?.scrollToIndex({ index: next, animated: false });
+      settle(next, 'tap');
+      return;
+    }
+    pendingTapRef.current = next;
+    tapTarget.value = next;
+    listRef.current?.scrollToIndex({ index: next, animated: true });
   });
 
   const handleCta = useStableCallback(() => {
-    if (activeIndex === LAST_INDEX) {
+    // Branch on what the label shows (it follows the scroll), not on the
+    // settled page, so a tap during the last deceleration still finishes.
+    if ((pendingTapRef.current ?? nearestIndex) === LAST_INDEX) {
       navigation.replace('Motivation');
     } else {
       goToNext();
@@ -180,7 +238,7 @@ export function OnboardingSliderScreen({ navigation }: Props) {
       isActive={index === activeIndex}
       canPlay={canPlay}
       reduceMotion={reduceMotion}
-      showVisual={Math.abs(index - activeIndex) <= 1}
+      showVisual={Math.abs(index - activeIndex) <= 1 || Math.abs(index - nearestIndex) <= 1}
     />
   );
 
@@ -220,7 +278,7 @@ export function OnboardingSliderScreen({ navigation }: Props) {
             scrollEventThrottle={16}
             getItemLayout={getItemLayout}
             initialNumToRender={INTRO_BEATS.length}
-            extraData={{ activeIndex, canPlay, reduceMotion, heroHeight }}
+            extraData={{ activeIndex, nearestIndex, canPlay, reduceMotion, heroHeight }}
             testID="intro-pager"
           />
         </RNAnimated.View>
@@ -233,6 +291,7 @@ export function OnboardingSliderScreen({ navigation }: Props) {
               pageWidth={pageWidth}
               count={INTRO_BEATS.length}
               isLast={activeIndex === LAST_INDEX}
+              showsFinalLabel={nearestIndex === LAST_INDEX}
               reduceMotion={reduceMotion}
               onPress={handleCta}
             />

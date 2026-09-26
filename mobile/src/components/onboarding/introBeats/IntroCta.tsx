@@ -29,8 +29,10 @@ interface IntroCtaProps {
   scrollX: SharedValue<number>;
   pageWidth: number;
   count: number;
-  /** The settled page is the last one. */
+  /** The settled page is the last one (drives the bloom). */
   isLast: boolean;
+  /** The page nearest the scroll position is the last one (drives the spoken label). */
+  showsFinalLabel: boolean;
   reduceMotion: boolean;
   onPress: () => void;
 }
@@ -44,6 +46,7 @@ export default function IntroCta({
   pageWidth,
   count,
   isLast,
+  showsFinalLabel,
   reduceMotion,
   onPress,
 }: IntroCtaProps) {
@@ -97,7 +100,7 @@ export default function IntroCta({
         onPress={onPress}
         activeOpacity={0.85}
         accessibilityRole="button"
-        accessibilityLabel={isLast ? FINAL_LABEL : CONTINUE_LABEL}
+        accessibilityLabel={showsFinalLabel ? FINAL_LABEL : CONTINUE_LABEL}
         testID="start-journey-button"
       >
         <View

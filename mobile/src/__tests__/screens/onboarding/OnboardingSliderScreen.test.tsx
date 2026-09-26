@@ -9,7 +9,7 @@
 
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import type { ReactTestInstance } from 'react-test-renderer';
-import { AccessibilityInfo } from 'react-native';
+import { AccessibilityInfo, FlatList } from 'react-native';
 import * as Haptics from 'expo-haptics';
 
 import { __resetSplashGateForTests, markSplashDone } from '@components/splash/splashGate';
@@ -45,6 +45,11 @@ jest.mock('@react-navigation/native', () => ({
   useIsFocused: () => mockIsFocused,
 }));
 
+let mockReduceMotion = false;
+jest.mock('@hooks/useReducedMotion', () => ({
+  useReducedMotion: () => mockReduceMotion,
+}));
+
 jest.mock('@services/analytics', () => ({
   Analytics: {
     viewOnboardingSlider: jest.fn(),
@@ -71,11 +76,28 @@ function pager(): ReactTestInstance {
   return screen.UNSAFE_getByProps({ testID: 'intro-pager' });
 }
 
-function settleOn(index: number) {
-  const pageWidth = (pager().props.getItemLayout(null, 1) as { length: number }).length;
+function pageWidth(): number {
+  return (pager().props.getItemLayout(null, 1) as { length: number }).length;
+}
+
+/** A scroll frame at `page` page-widths (fractions allowed), as the UI thread reports it. */
+function scrollTo(page: number) {
+  const x = page * pageWidth();
   act(() => {
-    pager().props.onScroll.onMomentumEnd({ contentOffset: { x: index * pageWidth, y: 0 } });
+    pager().props.onScroll.onScroll({ contentOffset: { x, y: 0 } });
   });
+}
+
+function settleOn(index: number) {
+  const x = index * pageWidth();
+  act(() => {
+    pager().props.onScroll.onScroll({ contentOffset: { x, y: 0 } });
+    pager().props.onScroll.onMomentumEnd({ contentOffset: { x, y: 0 } });
+  });
+}
+
+function slideViews(): { index: number; beat: string; via: string }[] {
+  return (Analytics.viewOnboardingSlide as jest.Mock).mock.calls.map(([props]) => props);
 }
 
 function mountedBeats() {
@@ -89,6 +111,7 @@ describe('OnboardingSliderScreen', () => {
     jest.clearAllMocks();
     for (const key of Object.keys(mockBeatProps)) delete mockBeatProps[key];
     mockIsFocused = true;
+    mockReduceMotion = false;
     __resetSplashGateForTests();
     markSplashDone();
   });
@@ -143,9 +166,10 @@ describe('OnboardingSliderScreen', () => {
     });
   });
 
-  it('Continue advances one page and tracks via tap', () => {
+  it('Continue advances one page and tracks via tap once the scroll lands', () => {
     renderScreen();
     fireEvent.press(screen.getByTestId('start-journey-button'));
+    scrollTo(1);
 
     expect(mockBeatProps.share.isActive).toBe(true);
     expect(Analytics.viewOnboardingSlide).toHaveBeenLastCalledWith({
@@ -153,6 +177,92 @@ describe('OnboardingSliderScreen', () => {
       beat: 'share',
       via: 'tap',
     });
+  });
+
+  it('Continue keeps the outgoing beat on its final frame while it slides away', () => {
+    renderScreen();
+    fireEvent.press(screen.getByTestId('start-journey-button'));
+    scrollTo(0.3);
+    scrollTo(0.7);
+
+    // Mid-slide: the outgoing beat must not reset to its empty pose, and the
+    // incoming beat must not start its entrance off screen.
+    expect(mockBeatProps.trips.isActive).toBe(true);
+    expect(mockBeatProps.share.isActive).toBe(false);
+
+    scrollTo(1);
+    expect(mockBeatProps.trips.isActive).toBe(false);
+    expect(mockBeatProps.share.isActive).toBe(true);
+  });
+
+  it('a tap that lands, then its momentum end, reports and buzzes nothing twice', () => {
+    renderScreen();
+    fireEvent.press(screen.getByTestId('start-journey-button'));
+    settleOn(1);
+    expect(slideViews().filter((v) => v.beat === 'share')).toEqual([
+      { index: 2, beat: 'share', via: 'tap' },
+    ]);
+    expect(Haptics.selectionAsync).not.toHaveBeenCalled();
+  });
+
+  it('two quick Continue taps advance two pages', () => {
+    const scrollToIndex = jest.spyOn(FlatList.prototype, 'scrollToIndex');
+    renderScreen();
+    fireEvent.press(screen.getByTestId('start-journey-button'));
+    fireEvent.press(screen.getByTestId('start-journey-button'));
+    expect(scrollToIndex.mock.calls.map(([params]) => params.index)).toEqual([1, 2]);
+    settleOn(2);
+    expect(mockBeatProps.passport.isActive).toBe(true);
+    expect(slideViews().map((v) => v.beat)).toEqual(['trips', 'share', 'passport']);
+    scrollToIndex.mockRestore();
+  });
+
+  it('under Reduce Motion, Continue jumps and activates the next beat at once', () => {
+    mockReduceMotion = true;
+    renderScreen();
+    fireEvent.press(screen.getByTestId('start-journey-button'));
+    expect(mockBeatProps.share.isActive).toBe(true);
+    expect(Analytics.viewOnboardingSlide).toHaveBeenLastCalledWith({
+      index: 2,
+      beat: 'share',
+      via: 'tap',
+    });
+  });
+
+  it('a double flick (one momentum end) mounts the page being dragged in and reports the skipped beat', () => {
+    renderScreen();
+    scrollTo(0.8);
+    // Second flick interrupts the first deceleration: page 3 slides into view
+    // before anything has settled.
+    scrollTo(1.6);
+    expect(mountedBeats()).toContain('passport');
+
+    settleOn(2);
+    expect(mockBeatProps.passport.isActive).toBe(true);
+    expect(slideViews().map((v) => [v.beat, v.via])).toEqual([
+      ['trips', 'initial'],
+      ['share', 'swipe'],
+      ['passport', 'swipe'],
+    ]);
+  });
+
+  it('a drag released exactly on a page boundary still settles', () => {
+    renderScreen();
+    scrollTo(1);
+    act(() => {
+      pager().props.onScroll.onEndDrag({ contentOffset: { x: pageWidth(), y: 0 } });
+    });
+    expect(mockBeatProps.share.isActive).toBe(true);
+  });
+
+  it('a CTA tap while the last page is still decelerating goes to Motivation', () => {
+    const navigation = renderScreen();
+    settleOn(2);
+    scrollTo(2.7);
+    const cta = screen.getByTestId('start-journey-button');
+    expect(cta.props.accessibilityLabel).toBe('Start my journey');
+    fireEvent.press(cta);
+    expect(navigation.replace).toHaveBeenCalledWith('Motivation');
   });
 
   it('a swipe settle activates the beat, fires a selection haptic, and tracks via swipe', () => {
