@@ -23,12 +23,12 @@ export interface PhotoWithLocation {
    */
   width?: number;
   height?: number;
-}
-
-// Country discovered during photo scanning
-export interface DiscoveredCountry {
-  code: string;
-  name: string;
+  /** Favorite state surfaced from PhotoKit for metadata-only preview ranking. */
+  isFavorite?: boolean;
+  /** Derived from the PhotoKit screenshot media subtype. */
+  isScreenshot?: boolean;
+  /** True when the asset is iCloud-offloaded and unavailable without download. */
+  isNetworkAsset?: boolean;
 }
 
 // Progress reporting during scan
@@ -39,8 +39,6 @@ export interface ScanProgress {
   percentage: number;
   /** Number of photos found with GPS data (only populated during scanning phase) */
   gpsPhotoCount?: number;
-  /** Countries discovered so far during scanning (for live discovery feed) */
-  discoveredCountries?: DiscoveredCountry[];
 }
 
 // Location cluster from geohash grouping

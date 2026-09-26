@@ -1,15 +1,27 @@
 import * as MediaLibrary from 'expo-media-library';
 
+import { Analytics } from '@services/analytics';
+
 import {
   extractPhotosWithLocation,
+  presentLimitedPhotoPicker,
+  presentLimitedPhotoPickerOrOpenSettings,
   requestPhotoPermissions,
   SCAN_CONFIG,
 } from '../../../services/photoImport/photoImportService';
 import { PermissionDeniedError, ScanCancelledError } from '../../../services/photoImport/errors';
 
+jest.mock('@services/analytics', () => ({
+  Analytics: {
+    photoPermissionSoftAskShown: jest.fn(),
+    photoPermissionOsResult: jest.fn(),
+  },
+}));
+
 // Mock expo-media-library
 jest.mock('expo-media-library', () => ({
   requestPermissionsAsync: jest.fn(),
+  presentPermissionsPickerAsync: jest.fn(),
   getAssetsAsync: jest.fn(),
   getAssetInfoAsync: jest.fn(),
   MediaType: { photo: 'photo' },
@@ -54,6 +66,8 @@ describe('photoImportService', () => {
       expect(result.granted).toBe(true);
       expect(result.limited).toBe(false);
       expect(mockedMediaLibrary.requestPermissionsAsync).toHaveBeenCalledTimes(1);
+      expect(Analytics.photoPermissionSoftAskShown).not.toHaveBeenCalled();
+      expect(Analytics.photoPermissionOsResult).not.toHaveBeenCalled();
     });
 
     it('returns granted false when permission is denied', async () => {
@@ -68,6 +82,9 @@ describe('photoImportService', () => {
       const result = await requestPhotoPermissions();
 
       expect(result.granted).toBe(false);
+      expect(result.limited).toBe(false);
+      expect(mockedMediaLibrary.requestPermissionsAsync).toHaveBeenCalledTimes(1);
+      expect(Analytics.photoPermissionOsResult).not.toHaveBeenCalled();
     });
 
     it('returns limited true for limited permission', async () => {
@@ -83,6 +100,36 @@ describe('photoImportService', () => {
 
       expect(result.granted).toBe(true);
       expect(result.limited).toBe(true);
+      expect(mockedMediaLibrary.requestPermissionsAsync).toHaveBeenCalledTimes(1);
+      expect(Analytics.photoPermissionOsResult).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('presentLimitedPhotoPicker', () => {
+    it('calls presentPermissionsPickerAsync', async () => {
+      mockedMediaLibrary.presentPermissionsPickerAsync.mockResolvedValue(undefined);
+
+      await presentLimitedPhotoPicker();
+
+      expect(mockedMediaLibrary.presentPermissionsPickerAsync).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('presentLimitedPhotoPickerOrOpenSettings', () => {
+    it('returns picker when the limited picker succeeds', async () => {
+      mockedMediaLibrary.presentPermissionsPickerAsync.mockResolvedValue(undefined);
+      const openSettings = jest.fn();
+
+      await expect(presentLimitedPhotoPickerOrOpenSettings(openSettings)).resolves.toBe('picker');
+      expect(openSettings).not.toHaveBeenCalled();
+    });
+
+    it('opens Settings when the limited picker throws', async () => {
+      mockedMediaLibrary.presentPermissionsPickerAsync.mockRejectedValue(new Error('unavailable'));
+      const openSettings = jest.fn();
+
+      await expect(presentLimitedPhotoPickerOrOpenSettings(openSettings)).resolves.toBe('settings');
+      expect(openSettings).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -138,6 +185,7 @@ describe('photoImportService', () => {
             width: 1920,
             height: 1080,
             duration: 0,
+            mediaSubtypes: ['screenshot'],
           },
           {
             id: 'photo-2',
@@ -171,6 +219,8 @@ describe('photoImportService', () => {
           latitude: 35.6762,
           longitude: 139.6503,
         },
+        isFavorite: true,
+        isNetworkAsset: true,
       });
 
       // Return asset info without location for second photo
@@ -194,6 +244,16 @@ describe('photoImportService', () => {
       expect(photos[0].id).toBe('photo-1');
       expect(photos[0].location.latitude).toBe(35.6762);
       expect(photos[0].location.longitude).toBe(139.6503);
+      expect(photos[0]).toEqual(
+        expect.objectContaining({
+          isFavorite: true,
+          isScreenshot: true,
+          isNetworkAsset: true,
+        })
+      );
+      expect(mockedMediaLibrary.getAssetInfoAsync).toHaveBeenCalledWith('photo-1', {
+        shouldDownloadFromNetwork: false,
+      });
     });
 
     it('calls progress callback during scan', async () => {

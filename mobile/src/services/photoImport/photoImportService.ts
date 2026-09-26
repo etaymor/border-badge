@@ -6,6 +6,7 @@
  */
 
 import * as MediaLibrary from 'expo-media-library';
+import { Linking } from 'react-native';
 
 import { PermissionDeniedError, ScanCancelledError } from './errors';
 import type { PhotoWithLocation, ScanProgress } from './types';
@@ -46,6 +47,22 @@ export async function requestPhotoPermissions(): Promise<{
  */
 export async function presentLimitedPhotoPicker(): Promise<void> {
   await MediaLibrary.presentPermissionsPickerAsync();
+}
+
+/**
+ * Prefer the in-app limited picker; open Settings if the picker API throws
+ * (unsupported platform, not limited, or native failure).
+ */
+export async function presentLimitedPhotoPickerOrOpenSettings(
+  openSettings: () => void | Promise<void> = () => Linking.openSettings()
+): Promise<'picker' | 'settings'> {
+  try {
+    await presentLimitedPhotoPicker();
+    return 'picker';
+  } catch {
+    await openSettings();
+    return 'settings';
+  }
 }
 
 /**
@@ -138,6 +155,9 @@ export async function extractPhotosWithLocation(
             // second decode of every representative photo later.
             width: asset.width > 0 ? asset.width : undefined,
             height: asset.height > 0 ? asset.height : undefined,
+            isFavorite: info.isFavorite === true,
+            isScreenshot: asset.mediaSubtypes?.includes('screenshot') === true,
+            isNetworkAsset: info.isNetworkAsset === true,
           };
         }
         return null;

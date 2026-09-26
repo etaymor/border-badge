@@ -65,7 +65,11 @@ const MIN_ALTITUDE_SAMPLES = 3;
  * match plus no deliberate-capture subtype is evidence of a re-save; real
  * camera output lands on sensor dimensions, not these.
  */
-const SOCIAL_SAVE_DIMENSIONS = new Set(['1080x1350', '1080x1920', '1080x1080']);
+export const SOCIAL_SAVE_DIMENSIONS: ReadonlySet<string> = new Set([
+  '1080x1350',
+  '1080x1920',
+  '1080x1080',
+]);
 
 /**
  * Solar elevation in degrees at a moment and place, from the standard low

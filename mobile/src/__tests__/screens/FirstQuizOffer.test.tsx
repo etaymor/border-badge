@@ -105,11 +105,19 @@ describe('FirstQuizOfferScreen (post-paywall new-user offer)', () => {
     expect(Analytics.firstQuizOfferAccepted).toHaveBeenCalledWith({ hasInitialImport: false });
   });
 
-  it('warns that the camera roll gets scanned first when nothing is imported', async () => {
+  it('warns that the library gets scanned first when nothing is imported', async () => {
     mockGetLastImportTime.mockResolvedValue(null);
     renderOffer();
 
-    expect(await screen.findByTestId('first-quiz-offer-sync-note')).toBeTruthy();
+    const note = await screen.findByTestId('first-quiz-offer-sync-note');
+    expect(note).toBeTruthy();
+    expect(screen.getByText(/scan your library/i)).toBeTruthy();
+    expect(
+      screen.getByText(/Nothing is uploaded until you save a place or share a challenge/i)
+    ).toBeTruthy();
+    expect(screen.queryByText(/camera roll/i)).toBeNull();
+    expect(screen.queryByText(/stay on your phone/i)).toBeNull();
+    expect(screen.queryByText(/never upload/i)).toBeNull();
   });
 
   it('omits the scan note once photos have been imported', async () => {

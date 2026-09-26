@@ -1,45 +1,50 @@
 /**
- * IdlePhase first-run copy.
+ * IdlePhase on the shared stage.
  *
- * One scan feeds two features, and entry points promise both (PhotoSyncCard
- * on the passport home says "Unlock trips and Guess Where"). These assertions
- * exist so the shared explanation cannot drift back to a trips-only story, and
- * so the privacy bullet keeps naming both upload triggers.
+ * A first run holds the passport beat and offers one magnitude line. A return
+ * visit holds the reading grid and names the last scan. The privacy block is
+ * gone: the carousel already made that case.
  */
 
 import { render, screen } from '../../utils/testUtils';
 import { IdlePhase } from '@screens/photos/components/IdlePhase';
+import { SCAN_COPY } from '@constants/scanCopy';
 
-function renderIdle(lastImportTime: number | null) {
+function renderIdle(lastImportTime: number | null, cachedPhotoCount?: number) {
   return render(
     <IdlePhase
       autoStart={undefined}
       lastImportTime={lastImportTime}
-      homeCountryName="United States"
+      homeCountry="US"
       onStartScan={jest.fn()}
+      onLeave={jest.fn()}
+      cachedPhotoCount={cachedPhotoCount}
     />
   );
 }
 
-describe('IdlePhase first-run copy', () => {
-  it('names both payoffs of the one scan', () => {
-    renderIdle(null);
+describe('IdlePhase', () => {
+  it('holds the passport beat and omits the privacy notice on a first run', () => {
+    renderIdle(null, 53_000);
 
-    expect(screen.getByText(/builds trips/i)).toBeTruthy();
-    expect(screen.getByText(/Guess Where/i)).toBeTruthy();
+    expect(screen.getByTestId('permission-beat-3')).toBeTruthy();
+    expect(screen.getByText(SCAN_COPY.trips.idleTitleFirst)).toBeTruthy();
+    expect(screen.getByText('About 53,000 photos · several minutes')).toBeTruthy();
+    expect(screen.getByText(SCAN_COPY.trips.idleCtaFirst)).toBeTruthy();
+    expect(screen.getByTestId('photo-import-lock-footer')).toBeTruthy();
+    expect(screen.queryByTestId('photo-import-privacy')).toBeNull();
+    expect(screen.queryByText(SCAN_COPY.trips.idleBodyFirst)).toBeNull();
   });
 
-  it('names both upload triggers in the privacy notice', () => {
-    renderIdle(null);
+  it('holds the stamp page and names the last scan on a return visit', () => {
+    renderIdle(Date.now() - (3 * 24 + 1) * 60 * 60 * 1000);
 
-    expect(screen.getByText('Your photos stay private')).toBeTruthy();
-    expect(screen.getByText(/save a place or share a challenge/i)).toBeTruthy();
-    expect(screen.getByText(/entirely on your device/i)).toBeTruthy();
-  });
-
-  it('drops the privacy notice once the library has been scanned', () => {
-    renderIdle(1_700_000_000_000);
-
-    expect(screen.queryByText('Your photos stay private')).toBeNull();
+    expect(screen.getByTestId('permission-beat-3')).toBeTruthy();
+    expect(screen.getAllByText(SCAN_COPY.trips.idleTitleReturning)).toHaveLength(2);
+    expect(screen.getByText('Last scanned 3 days ago')).toBeTruthy();
+    expect(screen.getByTestId('photo-import-refresh')).toBeTruthy();
+    expect(screen.queryByTestId('photo-import-privacy')).toBeNull();
+    expect(screen.queryByTestId('photo-import-lock-footer')).toBeNull();
+    expect(screen.queryByText(SCAN_COPY.trips.idleBodyReturning)).toBeNull();
   });
 });

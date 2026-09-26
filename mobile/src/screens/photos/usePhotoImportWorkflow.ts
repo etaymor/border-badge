@@ -6,6 +6,13 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import type {
+  PhotoPermissionCarouselChangeVia,
+  PhotoPermissionCarouselStep,
+} from '@components/photos/PhotoPermissionCarousel';
+import type { PhotoPermissionPreheatChoice } from '@components/photos/PhotoPermissionPreheatStack';
+import { Analytics } from '@services/analytics';
+import { usePhotoPermissionStatus } from '@hooks/usePhotoPermissions';
 import { useOnboardingStore, selectHomeCountry } from '@stores/onboardingStore';
 import { isAlertScanFailure } from '@services/photoImport/photoScanTypes';
 import { useLibraryJobStore } from '@stores/libraryJobStore';
@@ -50,6 +57,76 @@ export function usePhotoImportWorkflow({
 }: UsePhotoImportWorkflowOptions): PhotoImportWorkflowResult {
   const homeCountry = useOnboardingStore(selectHomeCountry);
   const subscriptionStatus = useSubscriptionStore((s) => s.status);
+  const {
+    status: photoPermissionStatus,
+    isLoading: photoPermissionLoading,
+    requestPermission,
+  } = usePhotoPermissionStatus();
+  const [permissionUi, setPermissionUi] = useState<'none' | 'preheat' | 'recovery'>('none');
+  const [permissionCarouselStep, setPermissionCarouselStep] =
+    useState<PhotoPermissionCarouselStep>(1);
+  const pendingScanAfterGrantRef = useRef(false);
+  const permissionStepRef = useRef<PhotoPermissionCarouselStep>(1);
+  const reportedPermissionStepsRef = useRef<Set<PhotoPermissionCarouselStep>>(new Set());
+  const permissionRequestInFlightRef = useRef(false);
+  const permissionOsRequestedRef = useRef(false);
+  const permissionSoftAskShownRef = useRef(false);
+  const permissionReady =
+    !photoPermissionLoading &&
+    (photoPermissionStatus === 'granted' || photoPermissionStatus === 'limited') &&
+    permissionUi === 'none';
+
+  const trackPermissionSoftAsk = useCallback(() => {
+    if (permissionSoftAskShownRef.current) return;
+    permissionSoftAskShownRef.current = true;
+    Analytics.photoPermissionSoftAskShown({ door: 'trips' });
+  }, []);
+
+  useEffect(() => {
+    if (photoPermissionLoading) return;
+    if (
+      (photoPermissionStatus === 'granted' || photoPermissionStatus === 'limited') &&
+      permissionUi === 'recovery'
+    ) {
+      setPermissionUi('none');
+      return;
+    }
+    if (!autoStart || permissionUi !== 'none') return;
+    if (photoPermissionStatus === 'undetermined') {
+      setPermissionUi('preheat');
+      trackPermissionSoftAsk();
+      return;
+    }
+    if (photoPermissionStatus === 'denied') {
+      setPermissionUi('recovery');
+    }
+  }, [
+    autoStart,
+    photoPermissionLoading,
+    photoPermissionStatus,
+    permissionUi,
+    trackPermissionSoftAsk,
+  ]);
+
+  useEffect(() => {
+    if (permissionUi !== 'preheat') return;
+
+    permissionStepRef.current = 1;
+    reportedPermissionStepsRef.current = new Set([1]);
+    permissionOsRequestedRef.current = false;
+    setPermissionCarouselStep(1);
+    Analytics.photoPermissionCarouselStep({ door: 'trips', step: 1, via: 'initial' });
+
+    return () => {
+      permissionSoftAskShownRef.current = false;
+      if (!permissionOsRequestedRef.current) {
+        Analytics.photoPermissionCarouselLeft({
+          door: 'trips',
+          step: permissionStepRef.current,
+        });
+      }
+    };
+  }, [permissionUi]);
 
   // ==========================================================================
   // Core State
@@ -242,6 +319,17 @@ export function usePhotoImportWorkflow({
 
   const startScan = useCallback(
     async (forceRefresh = false) => {
+      if (photoPermissionStatus === 'undetermined') {
+        pendingScanAfterGrantRef.current = true;
+        setPermissionUi('preheat');
+        trackPermissionSoftAsk();
+        return;
+      }
+      if (photoPermissionStatus === 'denied') {
+        setPermissionUi('recovery');
+        return;
+      }
+
       setScanFailure(null);
       setPhase('scanning');
       const outcome = await startScanInternal(forceRefresh);
@@ -258,8 +346,73 @@ export function usePhotoImportWorkflow({
         }
       }
     },
-    [startScanInternal]
+    [startScanInternal, photoPermissionStatus, trackPermissionSoftAsk]
   );
+
+  const handlePermissionCarouselBeatChange = useCallback(
+    (step: PhotoPermissionCarouselStep, via: PhotoPermissionCarouselChangeVia) => {
+      permissionStepRef.current = step;
+      setPermissionCarouselStep(step);
+      if (reportedPermissionStepsRef.current.has(step)) return;
+      reportedPermissionStepsRef.current.add(step);
+      Analytics.photoPermissionCarouselStep({ door: 'trips', step, via });
+    },
+    []
+  );
+
+  const handlePermissionPreheatChoice = useCallback(
+    async (choice: PhotoPermissionPreheatChoice) => {
+      if (choice !== 'full-access') {
+        setPermissionUi('recovery');
+        return;
+      }
+
+      if (permissionRequestInFlightRef.current) return;
+      permissionRequestInFlightRef.current = true;
+      permissionOsRequestedRef.current = true;
+      try {
+        const result = await requestPermission();
+        Analytics.photoPermissionOsResult({ door: 'trips', status: result });
+        if (result === 'granted' || result === 'limited') {
+          setPermissionUi('none');
+          // A carousel grant is the consent. Routes that did not arrive with
+          // autoStart still start the scan here, so idle never appears as a
+          // second pitch. autoStart routes keep using useAutoStartWorkflow
+          // once permission is ready, unless a manual scan was already pending.
+          const startFromCarousel = pendingScanAfterGrantRef.current || !autoStart;
+          pendingScanAfterGrantRef.current = false;
+          if (startFromCarousel) {
+            setScanFailure(null);
+            setPhase('scanning');
+            const outcome = await startScanInternal(false);
+            if (!outcome.success) {
+              setPhase('idle');
+              if (outcome.reason) {
+                setScanFailure({
+                  reason: outcome.reason,
+                  title: outcome.title,
+                  message: outcome.message,
+                });
+              }
+            }
+          }
+          return;
+        }
+        if (result === 'denied') {
+          setPermissionUi('recovery');
+        }
+      } catch {
+        // Keep the carousel or recovery sheet available for another attempt.
+      } finally {
+        permissionRequestInFlightRef.current = false;
+      }
+    },
+    [autoStart, requestPermission, startScanInternal]
+  );
+
+  const dismissPermissionRecovery = useCallback(() => {
+    setPermissionUi('none');
+  }, []);
 
   // Mirror service-side scan failures into the screen's local scanFailure state.
   // Legacy reasons (no-photos, no-trips, home-country, scan-error) drop the
@@ -546,6 +699,7 @@ export function usePhotoImportWorkflow({
   // ==========================================================================
   useAutoStartWorkflow({
     autoStart,
+    permissionReady,
     filterCountryCode,
     tripId,
     skipToSuggestions,
@@ -613,6 +767,11 @@ export function usePhotoImportWorkflow({
     dismissedClusterIdsInternal,
     scanFailure,
     clearScanFailure,
+    permissionUi,
+    permissionCarouselStep,
+    handlePermissionCarouselBeatChange,
+    handlePermissionPreheatChoice,
+    dismissPermissionRecovery,
     uploadStates,
     getUploadState,
     uploadingClusterIds,

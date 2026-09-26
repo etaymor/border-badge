@@ -52,6 +52,7 @@
  */
 
 export type ScanJobKind = 'trip-scan' | 'quiz-build';
+export type PhotoPermissionCarouselDoor = 'trips' | 'quiz';
 
 /** Sub-step of a quiz build, mirroring `QuizCreationProgress['step']`. */
 export type QuizWorkingStep = 'scanning' | 'checking' | 'building';
@@ -59,20 +60,6 @@ export type QuizWorkingStep = 'scanning' | 'checking' | 'building';
 // ---------------------------------------------------------------------------
 // Shared
 // ---------------------------------------------------------------------------
-
-const privacyTitle = 'Your photos stay private';
-
-/**
- * Device-first, deliberately. The strongest claim leads, so the home-country
- * qualifier reads as detail rather than as a limitation to parse.
- */
-function privacyBullets(homeCountryName?: string | null): string[] {
-  return [
-    'The scan runs entirely on your device',
-    `Only location data from photos taken outside ${homeCountryName ?? 'your home country'} is read`,
-    'Nothing is uploaded until you save a place or share a challenge',
-  ];
-}
 
 /**
  * The two purpose lines. Both name both payoffs — that symmetry is what makes
@@ -113,27 +100,48 @@ function persistenceParagraphWhileLeased(kind: ScanJobKind): string {
 }
 
 /**
- * Magnitude, stated ONCE and up front — where it is context rather than a
- * wait. Returns '' for an unknown total: rendering nothing beats guessing.
+ * Magnitude, stated once and up front. Empty when the count is unknown.
+ * Eight words at the large-library bucket, counting the middot as a separator.
  */
-function scaleLine(total: number | null | undefined, isFirstScan: boolean): string {
+function scaleAndDurationLine(total: number | null | undefined): string {
   if (!total || total <= 0) return '';
-  const count = total.toLocaleString();
-  return isFirstScan
-    ? `About ${count} photos to look through. The first pass is the long one — after this we only look at what's new.`
-    : `Only the ${count} photos added since your last check.`;
+  const pace =
+    total < 5_000 ? 'under a minute' : total < 20_000 ? 'a few minutes' : 'several minutes';
+  return `About ${total.toLocaleString()} photos · ${pace}`;
 }
 
 /**
- * Duration in buckets, never a countdown. The classification step's per-batch
- * latency makes a smooth ETA impossible, and an ETA that slips is worse than
- * none at all.
+ * One line under the stage card, rotated. Quiz-only claims stay off the trips
+ * door. The leave line swaps only while a continued-processing lease is held.
+ * Line 5 is the locked "picks up where it left off" claim trimmed to ten words.
  */
-function durationLine(total: number | null | undefined): string {
-  if (!total || total <= 0) return '';
-  if (total < 5_000) return 'Usually under a minute.';
-  if (total < 20_000) return 'Usually a few minutes.';
-  return 'A library this size takes several minutes.';
+const stageLineReading = 'Reading where each photo was taken';
+const stageLineOnDevice = 'Everything stays on your device';
+const stageLineSameScan = 'The same scan builds your trips';
+const stageLineKeepsGoing = 'Keeps going while you use the app';
+const stageLinePicksUp = 'Picks up where it left off next time';
+const stageLineQuizUpload = 'Only photos your challenge uses are ever uploaded';
+const stageLineWhileLeased = 'It keeps going a while after you leave';
+
+function stageLines(kind: ScanJobKind, options?: { leased?: boolean }): readonly string[] {
+  const persistence = options?.leased ? stageLineWhileLeased : stageLineKeepsGoing;
+  switch (kind) {
+    case 'trip-scan':
+      return [stageLineReading, stageLineOnDevice, persistence, stageLinePicksUp];
+    case 'quiz-build':
+      return [
+        stageLineReading,
+        stageLineOnDevice,
+        stageLineSameScan,
+        persistence,
+        stageLinePicksUp,
+        stageLineQuizUpload,
+      ];
+    default: {
+      const _exhaustive: never = kind;
+      return _exhaustive;
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -141,6 +149,7 @@ function durationLine(total: number | null | undefined): string {
 // ---------------------------------------------------------------------------
 
 const trips = {
+  stageTitle: 'Finding Your Trips',
   idleTitleFirst: 'Ready to scan',
   /**
    * Was "Import Travel Photos" — the last survivor of the "import" vocabulary,
@@ -152,6 +161,9 @@ const trips = {
     'Check for new photos since your last scan, or refresh to re-scan your entire library.',
   idleCtaFirst: 'Start Scan',
   idleCtaReturning: 'Check for New Photos',
+  lastScannedLine(when: string): string {
+    return `Last scanned ${when}`;
+  },
 
   scanningTitle(phase: string | undefined, isIncremental: boolean): string {
     if (phase === 'geocoding') return 'Working Out Where They Were Taken';
@@ -167,9 +179,8 @@ const trips = {
   },
 
   /**
-   * The name, not the flag. `DiscoveredCountry.name` already exists and was
-   * being discarded: VoiceOver announces regional-indicator pairs
-   * inconsistently, so a bare flag reads as a truncated sentence.
+   * The country name, not its flag. VoiceOver announces regional-indicator
+   * pairs inconsistently, so a bare flag reads as a truncated sentence.
    */
   discovery(countryName: string): string {
     return `Found photos from ${countryName}`;
@@ -187,7 +198,14 @@ const quiz = {
   permissionCta: 'Allow Photo Access',
 
   introTitle: 'New Challenge',
-  introBody: '5-10 photos from your trips. Play once to set the score, then share.',
+  /**
+   * The intro's one line under the title, rotated: what a challenge is, how
+   * it is played, then the library freshness line when there is one.
+   */
+  introLines(freshnessLine?: string | null): readonly string[] {
+    const lines = ['5-10 photos from your trips', 'Play once to set the score, then share'];
+    return freshnessLine ? [...lines, freshnessLine] : lines;
+  },
 
   workingTitle: 'Building Your Challenge',
 
@@ -222,15 +240,64 @@ const quiz = {
   leaveCta: 'Leave It Running',
   stopCta: 'Stop',
 
-  freshnessNeverSynced:
-    'First we scan your library. It runs on your device, and the same scan builds your trips, too.',
-  freshnessStale: 'First we check your library for new photos. Usually quick.',
-  freshnessSyncing: 'Your library is syncing right now — we will use the freshest photos.',
-  freshnessReady(syncedAgo: string | null, cachedPhotoCount: number): string {
-    const when = syncedAgo ? ` — ${syncedAgo}` : '';
-    const count = cachedPhotoCount > 0 ? ` — ${cachedPhotoCount.toLocaleString()} photos` : '';
-    return `Your photo library is ready${when}${count}. No scan needed.`;
+  freshnessStale: 'Checking for new photos.',
+  freshnessSyncing: 'Your library is syncing.',
+  freshnessReady(cachedPhotoCount: number): string {
+    if (cachedPhotoCount > 0) {
+      return `Library ready · ${cachedPhotoCount.toLocaleString()} photos`;
+    }
+    return 'Library ready';
   },
+} as const;
+
+// ---------------------------------------------------------------------------
+// Permission recovery (denied / limited)
+// ---------------------------------------------------------------------------
+
+const permissionCarousel = {
+  beat1Title: 'Find your trips in your photos',
+  beat2Title: 'Your phone does the reading',
+  beat2Pills: ['Bøur', 'Faroe Islands', 'Location data only'] as const,
+  beat3Title(door: PhotoPermissionCarouselDoor): string {
+    return door === 'trips' ? 'Every trip lands in your passport' : 'Your photos become challenges';
+  },
+  continueCta: 'Continue',
+  footerNotice: 'The scan runs on your device · Full Access finds more trips',
+  /**
+   * The beats carry a title only; everything the subtitles used to say
+   * rotates through the lock footer, one short line at a time.
+   */
+  footerLines(door: PhotoPermissionCarouselDoor): readonly string[] {
+    return [
+      'The scan runs on your device',
+      'We read only where each photo was taken',
+      'Location data only',
+      door === 'trips' ? 'Your trips also unlock Guess Where' : 'The same scan builds your trips',
+      'Full Access finds more trips',
+    ];
+  },
+  tripsHeaderTitle: 'Find Your Trips',
+  stepAnnouncement(step: number, total: number, title: string): string {
+    return `Step ${step} of ${total}. ${title}`;
+  },
+} as const;
+
+const permission = {
+  recoveryTitleDenied: 'Photo Access Needed',
+  recoveryTitleLimited: 'Full Access Works Best',
+  recoveryBodyDenied: 'Full Access finds trips across your library. The scan runs on your device.',
+  recoveryBodyLimited:
+    'A limited selection can miss trips. Full Access finds them. The scan runs on your device.',
+  recoveryPrivacyReportTip:
+    "You can inspect network activity in Apple's App Privacy Report (Settings → Privacy & Security → App Privacy Report).",
+  recoveryOpenSettingsCta: 'Open Settings',
+  recoveryAllowMorePhotosCta: 'Allow More Photos',
+  recoveryContinueLimitedCta: 'Continue With Selected Photos',
+  recoveryRetryCta: 'Try Again',
+  preheatSelectPhotos: 'Select Photos',
+  preheatAllowFullAccess: 'Allow Full Access',
+  preheatDontAllow: "Don't Allow",
+  carousel: permissionCarousel,
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -282,8 +349,6 @@ const banner = {
 
 export const SCAN_COPY = {
   shared: {
-    privacyTitle,
-    privacyBullets,
     purposeTrips,
     purposeQuiz,
     leaveHint,
@@ -291,10 +356,11 @@ export const SCAN_COPY = {
     persistenceParagraph,
     leaveHintWhileLeased,
     persistenceParagraphWhileLeased,
-    scaleLine,
-    durationLine,
+    scaleAndDurationLine,
+    stageLines,
   },
   trips,
   quiz,
   banner,
+  permission,
 } as const;

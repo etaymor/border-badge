@@ -10,6 +10,10 @@ import { isProduction } from '@config/env';
 import type { QuizEntryPoint, QuizShareSource } from '@navigation/types';
 import { stableHashOrNull } from '@utils/stableHash';
 
+export type PhotoPermissionDoor = 'quiz' | 'trips' | 'profile' | 'other';
+export type PhotoPermissionOsStatus = 'granted' | 'limited' | 'denied' | 'undetermined';
+export type PhotoPermissionCarouselVia = 'initial' | 'tap' | 'swipe';
+
 let posthog: PostHog | null = null;
 let isInitialized = false;
 
@@ -925,6 +929,35 @@ export const Analytics = {
     track('quiz_photo_permission_result', {
       status: props.status,
       entry_point: props.entryPoint,
+    }),
+
+  photoPermissionSoftAskShown: (props: { door: PhotoPermissionDoor }) =>
+    track('photo_permission_soft_ask_shown', { door: props.door }),
+
+  photoPermissionCarouselStep: (props: {
+    door: PhotoPermissionDoor;
+    step: number;
+    via: PhotoPermissionCarouselVia;
+  }) =>
+    track('photo_permission_carousel_step', {
+      door: props.door,
+      step: props.step,
+      via: props.via,
+    }),
+
+  photoPermissionCarouselLeft: (props: { door: PhotoPermissionDoor; step: number }) =>
+    track('photo_permission_carousel_left', {
+      door: props.door,
+      step: props.step,
+    }),
+
+  photoPermissionOsResult: (props: {
+    door: PhotoPermissionDoor;
+    status: PhotoPermissionOsStatus;
+  }) =>
+    track('photo_permission_os_result', {
+      door: props.door,
+      status: props.status,
     }),
 
   /**

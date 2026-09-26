@@ -44,6 +44,23 @@ person. Join on a resource id instead.
    props never breaks a `jest.fn()` mock; adding a name it does not have
    surfaces as "undefined is not a function".
 
+## Photo permission carousel (PostHog, mobile only)
+
+| Event                            | When                                                                | Properties                                          |
+| -------------------------------- | ------------------------------------------------------------------- | --------------------------------------------------- |
+| `photo_permission_carousel_step` | a permission-carousel beat is first shown during one carousel mount | `door`, `step`, `via` (`initial` / `tap` / `swipe`) |
+| `photo_permission_carousel_left` | the carousel unmounts before any OS permission request              | `door`, `step` (the last visible step)              |
+
+`photo_permission_carousel_step` is deduplicated once per beat per carousel
+mount: revisiting a beat by swiping back does not emit it again. The initial
+beat uses `via: 'initial'`; later first visits report whether they were reached
+by a Continue tap or a swipe.
+
+`photo_permission_os_result` emits once per actual OS permission request at the
+door that made the request. The scan service does not emit a second result when
+it performs its permission check, so trip and quiz scans do not create duplicate
+or cross-door results.
+
 ## The Guess Where funnel
 
 The one loop that spans all three tools. `quiz_id` is the join key throughout.

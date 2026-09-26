@@ -211,3 +211,59 @@ describe('useAutoStartWorkflow dispatch owner bracket (R1/KTD13)', () => {
     expect(endFetchOwner).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('useAutoStartWorkflow permissionReady gate', () => {
+  it('does not start when permissionReady is false', async () => {
+    const { beginFetchOwner, startScan } = setup({ permissionReady: false });
+    await flush();
+
+    expect(startScan).not.toHaveBeenCalled();
+    expect(beginFetchOwner).not.toHaveBeenCalled();
+  });
+
+  it('starts after permissionReady becomes true', async () => {
+    const beginFetchOwner = jest.fn();
+    const endFetchOwner = jest.fn();
+    const startScan = jest.fn(async () => undefined);
+    const options = {
+      autoStart: true,
+      permissionReady: false,
+      filterCountryCode: undefined,
+      homeCountry: 'US',
+      subscriptionStatus: 'active',
+      isPremium: true,
+      canImportPhotos: true,
+      currentCandidateIdRef: { current: null as string | null },
+      startScan,
+      handlePremiumGate: jest.fn(),
+      fetchSuggestions: jest.fn(async () => undefined),
+      beginFetchOwner,
+      endFetchOwner,
+      setClusterLookup: jest.fn(),
+      setClusterDisplays: jest.fn(),
+      photoLookupRef: { current: new Map() },
+      clusterLookupRef: { current: new Map() },
+      clusterDisplaysRef: { current: new Map() },
+      setTripCandidates: jest.fn(),
+      setLastImportTimeState: jest.fn(),
+      setIsIncremental: jest.fn(),
+      setSelectedCandidate: jest.fn(),
+      setSelectedTripId: jest.fn(),
+      setPhase: jest.fn(),
+      unmountedRef: { current: false },
+      mergeAutoDismissedClusterIds: jest.fn(),
+    } as unknown as Parameters<typeof useAutoStartWorkflow>[0];
+
+    const { rerender } = renderHook(
+      ({ permissionReady }: { permissionReady: boolean }) =>
+        useAutoStartWorkflow({ ...options, permissionReady }),
+      { initialProps: { permissionReady: false } }
+    );
+    await flush();
+    expect(startScan).not.toHaveBeenCalled();
+
+    rerender({ permissionReady: true });
+    await flush();
+    expect(startScan).toHaveBeenCalled();
+  });
+});

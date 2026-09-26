@@ -86,8 +86,8 @@ export function FirstQuizOfferScreen(_props: Props) {
           </Text>
           {!importStateLoading && !hasInitialImport ? (
             <Text variant="body" style={styles.syncNote} testID="first-quiz-offer-sync-note">
-              First we&apos;ll scan your camera roll - it builds your trips, too. Photos stay on
-              your phone.
+              First we&apos;ll scan your library — it builds your trips, too. The scan runs on your
+              device. Nothing is uploaded until you save a place or share a challenge.
             </Text>
           ) : null}
         </Animated.View>
@@ -102,7 +102,7 @@ export function FirstQuizOfferScreen(_props: Props) {
             disabled={isFinishing}
             accessibilityRole="button"
             accessibilityLabel="Make my first challenge"
-            accessibilityHint="Build a Guess Where challenge from your camera roll"
+            accessibilityHint="Build a Guess Where challenge from your photo library"
             testID="first-quiz-offer-accept"
           >
             <Text style={styles.acceptButtonText}>Make my first challenge</Text>

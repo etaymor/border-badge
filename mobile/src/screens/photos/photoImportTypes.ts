@@ -3,6 +3,11 @@
  */
 
 import type { SelectedPlace } from '@components/places';
+import type {
+  PhotoPermissionCarouselChangeVia,
+  PhotoPermissionCarouselStep,
+} from '@components/photos/PhotoPermissionCarousel';
+import type { PhotoPermissionPreheatChoice } from '@components/photos/PhotoPermissionPreheatStack';
 import type { ClusterUploadState } from '@hooks/useMultiClusterUpload';
 import type { SuggestionDispatchState } from '@hooks/usePhotoImport';
 import type {
@@ -77,6 +82,15 @@ export interface PhotoImportWorkflowResult {
   scanFailure: { reason: ScanFailureReason; title: string; message: string } | null;
   /** Clear the scan failure after showing alert */
   clearScanFailure: () => void;
+  /** Soft-ask / recovery overlay while Photos access is unresolved */
+  permissionUi: 'none' | 'preheat' | 'recovery';
+  permissionCarouselStep: PhotoPermissionCarouselStep;
+  handlePermissionCarouselBeatChange: (
+    step: PhotoPermissionCarouselStep,
+    via: PhotoPermissionCarouselChangeVia
+  ) => void;
+  handlePermissionPreheatChoice: (choice: PhotoPermissionPreheatChoice) => void;
+  dismissPermissionRecovery: () => void;
 
   /**
    * True while ANY dispatch owner has an unsettled suggestion fetch (R1/KTD13):
