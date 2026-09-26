@@ -5,11 +5,24 @@
 
 import appConfig, { PHOTO_LIBRARY_USAGE_DESCRIPTION } from '../../../app.config';
 
+function mediaLibraryConfig(): { photosPermission: string; savePhotosPermission?: string } | null {
+  for (const plugin of appConfig.expo.plugins) {
+    if (!Array.isArray(plugin) || plugin[0] !== 'expo-media-library') continue;
+    const config = plugin[1];
+    if (
+      config &&
+      typeof config === 'object' &&
+      'photosPermission' in config &&
+      typeof config.photosPermission === 'string'
+    ) {
+      return config;
+    }
+  }
+  return null;
+}
+
 describe('photo library usage description', () => {
-  const mediaLibraryPlugin = appConfig.expo.plugins.find(
-    (plugin): plugin is [string, { photosPermission: string }] =>
-      Array.isArray(plugin) && plugin[0] === 'expo-media-library'
-  );
+  const pluginConfig = mediaLibraryConfig();
 
   it('exports one shared string that names trips and Guess Where', () => {
     expect(PHOTO_LIBRARY_USAGE_DESCRIPTION).toMatch(/travel trips/i);
@@ -22,8 +35,8 @@ describe('photo library usage description', () => {
   });
 
   it('keeps infoPlist and expo-media-library photosPermission identical', () => {
-    expect(mediaLibraryPlugin).toBeDefined();
-    const pluginPermission = mediaLibraryPlugin![1].photosPermission;
+    expect(pluginConfig).toBeDefined();
+    const pluginPermission = pluginConfig?.photosPermission;
     const plistPermission = appConfig.expo.ios.infoPlist.NSPhotoLibraryUsageDescription;
 
     expect(plistPermission).toBe(PHOTO_LIBRARY_USAGE_DESCRIPTION);
@@ -32,7 +45,7 @@ describe('photo library usage description', () => {
   });
 
   it('leaves save-to-library permission thin (not full-library preheat scope)', () => {
-    expect(mediaLibraryPlugin![1]).toMatchObject({
+    expect(pluginConfig).toMatchObject({
       savePhotosPermission: 'Allow Atlasi to save photos.',
     });
   });

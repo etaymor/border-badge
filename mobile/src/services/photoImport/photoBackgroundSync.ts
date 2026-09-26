@@ -37,6 +37,7 @@ import {
   _setBackgroundSyncFlag,
 } from '@services/jobs/jobRuntimeState';
 import type { LibraryJobKind } from '@services/jobs/jobTypes';
+import type { PhotoWithLocation, ScanProgress } from './types';
 
 // Lazy imports to avoid circular dependency
 let _extractPhotosWithLocation: typeof import('./photoImportService').extractPhotosWithLocation;
@@ -75,6 +76,28 @@ const BACKGROUND_SYNC_INTERVAL_MS = 60 * 60 * 1000;
 export interface RefreshProgress {
   current: number;
   total: number;
+}
+
+export type RefreshBatchHandler = (photos: readonly PhotoWithLocation[]) => void;
+
+export function createRefreshProgressBridge(
+  onProgress: ((progress: RefreshProgress) => void) | undefined,
+  onBatch?: RefreshBatchHandler
+): {
+  handleProgress: (progress: ScanProgress) => void;
+  handleBatch: (photos: PhotoWithLocation[]) => void;
+} {
+  return {
+    handleProgress: (progress) => {
+      onProgress?.({
+        current: progress.current,
+        total: progress.total,
+      });
+    },
+    handleBatch: (photos) => {
+      onBatch?.(photos);
+    },
+  };
 }
 
 /**
@@ -120,15 +143,18 @@ async function setLastBackgroundSyncTime(timestamp: number): Promise<void> {
  */
 async function runExtractLoop(
   onProgress: ((progress: RefreshProgress) => void) | undefined,
-  signal: AbortSignal
+  signal: AbortSignal,
+  onBatch?: RefreshBatchHandler
 ): Promise<{ newPhotos: number }> {
   const { extractPhotosWithLocation, photoToCachedPhoto } = await getBackgroundSyncDeps();
 
   const lastImportTime = await getLastImportTime();
+  const progressBridge = createRefreshProgressBridge(onProgress, onBatch);
   const newPhotos = await extractPhotosWithLocation(
-    (progress) => onProgress?.({ current: progress.current, total: progress.total }),
+    progressBridge.handleProgress,
     signal,
-    lastImportTime ? new Date(lastImportTime) : undefined
+    lastImportTime ? new Date(lastImportTime) : undefined,
+    onBatch ? progressBridge.handleBatch : undefined
   );
 
   if (signal.aborted) return { newPhotos: 0 };
@@ -184,6 +210,7 @@ export async function ensureFreshLibrary(
     maxStalenessMs?: number;
     source?: SyncSource;
     onProgress?: (progress: RefreshProgress) => void;
+    onBatch?: RefreshBatchHandler;
     signal?: AbortSignal;
     /**
      * The calling job's own kind, when this refresh runs from inside a
@@ -199,6 +226,7 @@ export async function ensureFreshLibrary(
     maxStalenessMs = LIBRARY_FRESHNESS_MS,
     source = 'manual',
     onProgress,
+    onBatch,
     signal,
     excludeKind,
   } = options;
@@ -232,7 +260,7 @@ export async function ensureFreshLibrary(
 
   try {
     await recordSyncAttempt(source);
-    const { newPhotos } = await runExtractLoop(onProgress, lock.controller.signal);
+    const { newPhotos } = await runExtractLoop(onProgress, lock.controller.signal, onBatch);
     if (!lock.controller.signal.aborted) {
       await recordSyncSuccess(source, newPhotos);
     }

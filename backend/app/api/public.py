@@ -42,6 +42,7 @@ from app.core.media import (
 from app.core.quiz_image import card_etag, decode_card_photo, render_challenge_card
 from app.core.seo import (
     LANDING_FAQS,
+    LANDING_GUIDE_SLUGS,
     build_landing_seo,
     build_landing_structured_data,
     build_list_seo,
@@ -264,6 +265,8 @@ async def landing_page(request: Request) -> HTMLResponse:
     log_landing_viewed()
 
     seo = build_landing_seo(settings.base_url)
+    registry = get_registry()
+    guide_posts = [registry.by_slug[slug] for slug in LANDING_GUIDE_SLUGS]
 
     response = templates.TemplateResponse(
         request=request,
@@ -271,14 +274,11 @@ async def landing_page(request: Request) -> HTMLResponse:
         context={
             "app_store_url": settings.app_store_url,
             "google_analytics_id": settings.google_analytics_id,
-            "og_title": seo.og_title,
-            "og_description": seo.og_description,
-            "og_image": seo.og_image,
-            "og_url": seo.canonical_url,
-            "canonical_url": seo.canonical_url,
+            **seo_context(seo),
             "has_hero": True,
             "current_year": get_current_year(),
             "faqs": LANDING_FAQS,
+            "guide_posts": guide_posts,
             "structured_data": build_landing_structured_data(
                 settings.base_url, settings.app_store_url
             ),
@@ -426,11 +426,7 @@ async def view_public_list(
             ),
             "app_store_url": settings.app_store_url,
             "google_analytics_id": settings.google_analytics_id,
-            "og_title": seo.og_title,
-            "og_description": seo.og_description,
-            "og_url": seo.canonical_url,
-            "og_image": seo.og_image,
-            "canonical_url": seo.canonical_url,
+            **seo_context(seo),
             "has_hero": True,
             "current_year": get_current_year(),
         },
@@ -566,11 +562,7 @@ async def view_public_trip(
             ),
             "app_store_url": settings.app_store_url,
             "google_analytics_id": settings.google_analytics_id,
-            "og_title": seo.og_title,
-            "og_description": seo.og_description,
-            "og_url": seo.canonical_url,
-            "og_image": seo.og_image,
-            "canonical_url": seo.canonical_url,
+            **seo_context(seo),
             "has_hero": True,
             "current_year": get_current_year(),
         },

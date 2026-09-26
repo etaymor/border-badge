@@ -7,22 +7,26 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Linking, Text, View } from 'react-native';
+import { ActivityIndicator, Linking, StatusBar, StyleSheet, Text, View } from 'react-native';
 import { FlashList, ListRenderItem } from '@shopify/flash-list';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { PhotoPermissionPreheat } from '@components/photos/PhotoPermissionPreheat';
+import { PhotoPermissionCarousel } from '@components/photos/PhotoPermissionCarousel';
 import { PhotoPermissionRecoverySheet } from '@components/photos/PhotoPermissionRecoverySheet';
+import PermissionBeatVisual from '@components/photos/permissionBeats/PermissionBeatVisual';
+import { StageHero } from '@components/photos/StageHero';
 import { SatisfactionModal } from '@components/review';
 import { GlassBackButton, GlassIconButton } from '@components/ui';
 import type { TripCandidateDisplay, LocationClusterDisplay } from '@services/photoImport';
 import type { MergedSuggestion } from './photoImportTypes';
 import { useCountryByCode } from '@hooks/useCountries';
 import { useReviewRequest } from '@hooks/useReviewRequest';
+import { useReducedMotion } from '@hooks/useReducedMotion';
 import { useTrip } from '@hooks/useTrips';
 import { colors } from '@constants/colors';
+import { SCAN_COPY } from '@constants/scanCopy';
 import type { PassportStackScreenProps, RootStackParamList } from '@navigation/types';
-import { useNavigation } from '@react-navigation/native';
+import { useIsFocused, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import {
   ManualPlaceSearch,
@@ -223,6 +227,8 @@ export function useLowSignalSeeding({
 
 export function PhotoImportScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
+  const reduceMotion = useReducedMotion();
+  const isFocused = useIsFocused();
   /**
    * Library size, for the magnitude and duration lines on the idle screen.
    * Read once on mount: it only has to be roughly right, and a wrong-by-a-few
@@ -253,7 +259,6 @@ export function PhotoImportScreen({ navigation, route }: Props) {
 
   // Home country for privacy notice
   const homeCountryCode = useOnboardingStore(selectHomeCountry);
-  const { data: homeCountryData } = useCountryByCode(homeCountryCode);
 
   // Gallery state with cluster context and photo IDs for selection
   const [previewGallery, setPreviewGallery] = useState<{
@@ -307,6 +312,8 @@ export function PhotoImportScreen({ navigation, route }: Props) {
     scanFailure,
     clearScanFailure,
     permissionUi,
+    permissionCarouselStep,
+    handlePermissionCarouselBeatChange,
     handlePermissionPreheatChoice,
     getUploadState,
     uploadingClusterIds,
@@ -633,117 +640,177 @@ export function PhotoImportScreen({ navigation, route }: Props) {
     ]
   );
 
+  const isPermissionPreheat = phase === 'idle' && permissionUi === 'preheat';
+  const isScanStage = phase === 'scanning' && !scanFailure;
+  const isIdleStage = phase === 'idle' && permissionUi === 'none';
+
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
-      {/* Header */}
-      <View style={styles.header}>
-        <GlassBackButton
-          onPress={() => {
-            if (phase === 'suggestions' && !skipToSuggestions) {
-              handleBackNavigation('candidates');
-            } else {
-              handleBackNavigation('goBack');
+    <View
+      style={[
+        styles.container,
+        isPermissionPreheat || isScanStage || isIdleStage
+          ? styles.permissionStage
+          : { paddingTop: insets.top },
+      ]}
+    >
+      {isPermissionPreheat ? (
+        <>
+          <StatusBar barStyle="light-content" />
+          <StageHero
+            testID="photo-import-permission-hero"
+            header={
+              <View style={[styles.permissionHeroHeader, { paddingTop: insets.top }]}>
+                <GlassBackButton variant="dark" onPress={() => handleBackNavigation('goBack')} />
+                <Text style={styles.permissionHeroTitle}>
+                  {SCAN_COPY.permission.carousel.tripsHeaderTitle}
+                </Text>
+                <View style={styles.headerSpacer} />
+              </View>
             }
-          }}
-        />
-        <Text style={styles.headerTitle}>
-          {phase === 'suggestions'
-            ? 'Trip Suggestions'
-            : phase === 'scanning'
-              ? 'Scanning Photos'
-              : phase === 'candidates'
-                ? 'We Found Trips'
-                : 'Import Photos'}
-        </Text>
-        {phase === 'suggestions' && candidatesForCountry.length > 1 ? (
-          <GlassIconButton
-            icon="swap-horizontal-outline"
-            onPress={() => setShowTripSwitcher(true)}
-            accessibilityLabel="Switch photo trip"
-          />
-        ) : (
-          <View style={styles.headerSpacer} />
-        )}
-      </View>
-
-      {/* Loading State */}
-      {phase === 'loading' && (
-        <View style={styles.idleContainer}>
-          <ActivityIndicator size="large" color={colors.sunsetGold} />
-          <Text style={styles.idleTitle}>Loading suggestions...</Text>
-        </View>
-      )}
-
-      {/* Idle State — preheat / recovery gate OS ask before autoStart or scan */}
-      {phase === 'idle' && permissionUi === 'preheat' && (
-        <View style={styles.idleContainer} testID="photo-import-permission-preheat">
-          <PhotoPermissionPreheat onChoose={handlePermissionPreheatChoice} />
-        </View>
-      )}
-      {phase === 'idle' && permissionUi === 'recovery' && (
-        <View style={styles.idleContainer} testID="photo-import-permission-recovery-idle">
-          <PhotoPermissionRecoverySheet
-            variant="denied"
-            onOpenSettings={() => {
-              Linking.openURL('app-settings:').catch(() => undefined);
-            }}
-            onRetry={() => {
-              void handlePermissionPreheatChoice('full-access');
-            }}
-          />
-        </View>
-      )}
-      {phase === 'idle' && permissionUi === 'none' && (
-        <IdlePhase
-          autoStart={autoStart}
-          lastImportTime={lastImportTime}
-          homeCountryName={homeCountryData?.name}
-          onStartScan={startScan}
-          cachedPhotoCount={cachedPhotoCount}
-        />
-      )}
-
-      {/* Scanning State (also renders the failed-state branch with Retry) */}
-      {phase === 'scanning' && (
+          >
+            <View
+              style={StyleSheet.absoluteFill}
+              accessibilityElementsHidden
+              importantForAccessibility="no-hide-descendants"
+            >
+              <PermissionBeatVisual
+                step={permissionCarouselStep}
+                reduceMotion={reduceMotion}
+                homeCountry={homeCountryCode}
+              />
+            </View>
+          </StageHero>
+          <View
+            style={[styles.permissionCarouselContainer, { paddingBottom: insets.bottom + 12 }]}
+            testID="photo-import-permission-preheat"
+          >
+            <PhotoPermissionCarousel
+              door="trips"
+              step={permissionCarouselStep}
+              onBeatChange={handlePermissionCarouselBeatChange}
+              onChoose={handlePermissionPreheatChoice}
+            />
+          </View>
+        </>
+      ) : isScanStage ? (
         <ScanningPhase
           scanProgress={scanProgress}
           isIncremental={isIncremental}
+          isPaused={!isFocused}
           onCancelScan={handleCancelScan}
-          scanFailure={scanFailure}
+          onLeave={() => handleBackNavigation('goBack')}
           onRetryScan={() => startScan(false)}
         />
-      )}
-
-      {/* Candidates List */}
-      {phase === 'candidates' && (
-        <View style={styles.listContainer}>
-          <FlashList
-            data={tripCandidates}
-            renderItem={renderCandidateItem}
-            contentContainerStyle={styles.listContent}
-            keyExtractor={(item) => item.id}
-          />
-        </View>
-      )}
-
-      {/* Suggestions List */}
-      {phase === 'suggestions' && selectedCandidate && (
-        <SuggestionsPhase
-          selectedCandidate={selectedCandidate}
-          selectedTripName={selectedTripName}
-          selectedCountryName={selectedCountryName}
-          isPremium={isPremium}
-          canImportPhotos={canImportPhotos}
-          isExemptTrip={isExemptTrip}
-          fetchingSuggestions={fetchingSuggestions}
-          isPaused={suggestionDispatch.isPaused}
-          preparingRetryCount={bulkRetryPreparingCount}
-          clusterItems={clusterItems}
-          renderClusterItem={renderClusterItem}
-          onUpgrade={() => rootNavigation.navigate('PaywallModal', { feature: 'photoImport' })}
-          onRetryAllFailed={handleRetryAllClusters}
-          onClustersViewed={markClustersViewed}
+      ) : isIdleStage ? (
+        <IdlePhase
+          autoStart={autoStart}
+          lastImportTime={lastImportTime}
+          homeCountry={homeCountryCode}
+          onStartScan={startScan}
+          onLeave={() => handleBackNavigation('goBack')}
+          cachedPhotoCount={cachedPhotoCount}
         />
+      ) : (
+        <>
+          {/* Header */}
+          <View style={styles.header}>
+            <GlassBackButton
+              onPress={() => {
+                if (phase === 'suggestions' && !skipToSuggestions) {
+                  handleBackNavigation('candidates');
+                } else {
+                  handleBackNavigation('goBack');
+                }
+              }}
+            />
+            <Text style={styles.headerTitle}>
+              {phase === 'suggestions'
+                ? 'Trip Suggestions'
+                : phase === 'scanning'
+                  ? 'Scanning Photos'
+                  : phase === 'candidates'
+                    ? 'We Found Trips'
+                    : SCAN_COPY.permission.carousel.tripsHeaderTitle}
+            </Text>
+            {phase === 'suggestions' && candidatesForCountry.length > 1 ? (
+              <GlassIconButton
+                icon="swap-horizontal-outline"
+                onPress={() => setShowTripSwitcher(true)}
+                accessibilityLabel="Switch photo trip"
+              />
+            ) : (
+              <View style={styles.headerSpacer} />
+            )}
+          </View>
+
+          {/* Loading State */}
+          {phase === 'loading' && (
+            <View style={styles.idleContainer}>
+              <ActivityIndicator size="large" color={colors.sunsetGold} />
+              <Text style={styles.idleTitle}>Loading suggestions...</Text>
+            </View>
+          )}
+
+          {/* Idle State — recovery / ready after permission */}
+          {phase === 'idle' && permissionUi === 'recovery' && (
+            <View style={styles.idleContainer} testID="photo-import-permission-recovery-idle">
+              <PhotoPermissionRecoverySheet
+                variant="denied"
+                onOpenSettings={() => {
+                  Linking.openURL('app-settings:').catch(() => undefined);
+                }}
+                onRetry={() => {
+                  void handlePermissionPreheatChoice('full-access');
+                }}
+              />
+            </View>
+          )}
+
+          {/* Scanning State (also renders the failed-state branch with Retry) */}
+          {phase === 'scanning' && (
+            <ScanningPhase
+              scanProgress={scanProgress}
+              isIncremental={isIncremental}
+              isPaused={!isFocused}
+              onCancelScan={handleCancelScan}
+              onLeave={() => handleBackNavigation('goBack')}
+              scanFailure={scanFailure}
+              onRetryScan={() => startScan(false)}
+            />
+          )}
+
+          {/* Candidates List */}
+          {phase === 'candidates' && (
+            <View style={styles.listContainer}>
+              <FlashList
+                data={tripCandidates}
+                renderItem={renderCandidateItem}
+                contentContainerStyle={styles.listContent}
+                keyExtractor={(item) => item.id}
+              />
+            </View>
+          )}
+
+          {/* Suggestions List */}
+          {phase === 'suggestions' && selectedCandidate && (
+            <SuggestionsPhase
+              selectedCandidate={selectedCandidate}
+              selectedTripName={selectedTripName}
+              selectedCountryName={selectedCountryName}
+              isPremium={isPremium}
+              canImportPhotos={canImportPhotos}
+              isExemptTrip={isExemptTrip}
+              fetchingSuggestions={fetchingSuggestions}
+              isPaused={suggestionDispatch.isPaused}
+              preparingRetryCount={bulkRetryPreparingCount}
+              clusterItems={clusterItems}
+              renderClusterItem={renderClusterItem}
+              onUpgrade={() => rootNavigation.navigate('PaywallModal', { feature: 'photoImport' })}
+              onRetryAllFailed={handleRetryAllClusters}
+              onClustersViewed={markClustersViewed}
+            />
+          )}
+        </>
       )}
 
       {/* Photo Gallery Overlay with Selection */}

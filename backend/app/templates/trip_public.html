@@ -1,9 +1,6 @@
 {% extends "base.html" %}
 {% import "_share_page.html" as share_page_macros %}
 
-{% block title %}{{ share.title }} - Atlasi{% endblock %}
-{% block description %}{{ share.title }}{% if share.country_name %} in {{ share.country_name }}{% endif %} - A trip shared on Atlasi{% endblock %}
-
 {% block header_nav %}
 <nav class="header-nav share-nav">
   <div class="nav-links">

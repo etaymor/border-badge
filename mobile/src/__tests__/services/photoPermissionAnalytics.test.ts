@@ -34,6 +34,26 @@ describe('photo permission funnel analytics', () => {
     });
   });
 
+  it('sends scalar carousel step properties with event-shaped names', () => {
+    Analytics.photoPermissionCarouselStep({ door: 'quiz', step: 2, via: 'swipe' });
+
+    expect(consoleLogSpy).toHaveBeenCalledWith(
+      '[Analytics] Track:',
+      'photo_permission_carousel_step',
+      { door: 'quiz', step: 2, via: 'swipe' }
+    );
+  });
+
+  it('sends the last step when the carousel is left', () => {
+    Analytics.photoPermissionCarouselLeft({ door: 'trips', step: 3 });
+
+    expect(consoleLogSpy).toHaveBeenCalledWith(
+      '[Analytics] Track:',
+      'photo_permission_carousel_left',
+      { door: 'trips', step: 3 }
+    );
+  });
+
   it('accepts every door and status value', () => {
     const doors = ['quiz', 'trips', 'profile', 'other'] as const;
     const statuses = ['granted', 'limited', 'denied', 'undetermined'] as const;

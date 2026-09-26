@@ -21,6 +21,7 @@
 
 import { SCAN_COPY } from '@constants/scanCopy';
 import { Analytics } from '@services/analytics';
+import { getAllCountries } from '@services/countriesDb';
 import { getCountryName } from '@utils/countries';
 
 import type { JobFailure, JobRunContext } from '@services/jobs/jobTypes';
@@ -44,8 +45,17 @@ import {
 import { applyPersistedSplits, applySavedPhotoFilter } from './photoClusteringDisplay';
 import { getAllSavedPhotoIds, getClusterSplitsForParents } from './photoCacheDbSuggestions';
 import { extractPhotosWithLocation } from './photoImportService';
+import {
+  appendReadingPreviews,
+  pickScanPreviews,
+  type ReadingPreviewBatchItem,
+  type ScanPreviewBatchItem,
+} from './scanPreviewPicker';
+
+/** The live grid refreshes at most this often; batches can land faster. */
+const READING_PREVIEW_MIN_INTERVAL_MS = 300;
 import { maybeRunTaggingPass } from './photoTaggingService';
-import type { CachedPhoto, DiscoveredCountry, PhotoWithLocation, ScanProgress } from './types';
+import type { CachedPhoto, PhotoWithLocation, ScanProgress } from './types';
 import type { PhotoScanResult, PhotoScanStartOptions } from './photoScanTypes';
 
 /** Batch size for incremental cache commits during scanning. */
@@ -66,7 +76,12 @@ export async function runScanPass(
   opts: PhotoScanStartOptions
 ): Promise<ScanPassOutcome> {
   const scanStartTime = Date.now();
-  const detail: TripScanDetail = { discoveredCountries: [], isIncremental: false };
+  const detail: TripScanDetail = {
+    countryPreviews: [],
+    readingPreviews: [],
+    isIncremental: false,
+  };
+  let lastReadingPreviewAt = 0;
 
   try {
     Analytics.photoImportScanStarted();
@@ -79,14 +94,19 @@ export async function runScanPass(
       await clearPhotoCache();
     }
 
+    // Prefer the countries reference (same source as the quiz path) so Hermes
+    // builds without Intl.DisplayNames still get human names instead of ISO codes.
+    const countries = await getAllCountries();
+    const countryNames = new Map(
+      countries.map((country) => [country.code, country.name ?? getCountryName(country.code)])
+    );
+
     detail.isIncremental = doIncremental;
     ctx.emit(null, { ...detail });
 
     let allCachedPhotos: CachedPhoto[] = [];
     let newPhotos: PhotoWithLocation[] = [];
 
-    const discoveredCountryCodes = new Set<string>();
-    const discoveredCountries: DiscoveredCountry[] = [];
     let pendingCachePhotos: PhotoWithLocation[] = [];
     const photoCountryCodes = new Map<string, string | null>();
     const cachePromises: Promise<void>[] = [];
@@ -95,21 +115,42 @@ export async function runScanPass(
     const handleBatch = (batchPhotos: PhotoWithLocation[]) => {
       if (ctx.signal.aborted) return;
 
-      let countriesChanged = false;
+      const previewItems: ScanPreviewBatchItem[] = [];
+      const readingItems: ReadingPreviewBatchItem[] = [];
       for (const photo of batchPhotos) {
         const code = iso1A2Code([photo.location.longitude, photo.location.latitude], {
           level: 'territory',
         });
         photoCountryCodes.set(photo.id, code ?? null);
-        if (code && !discoveredCountryCodes.has(code)) {
-          discoveredCountryCodes.add(code);
-          discoveredCountries.push({ code, name: getCountryName(code) });
-          countriesChanged = true;
+        readingItems.push({ code: code ?? null, photo });
+        if (code) {
+          previewItems.push({
+            code,
+            name: countryNames.get(code) ?? getCountryName(code),
+            photo,
+          });
         }
       }
 
-      if (countriesChanged) {
-        detail.discoveredCountries = discoveredCountries.slice(-10);
+      const previewResult = pickScanPreviews(detail.countryPreviews, previewItems, {
+        homeCountry: opts.homeCountry ?? '',
+      });
+      let detailChanged = previewResult.changed;
+      if (previewResult.changed) {
+        detail.countryPreviews = previewResult.countryPreviews;
+      }
+      const now = Date.now();
+      if (now - lastReadingPreviewAt >= READING_PREVIEW_MIN_INTERVAL_MS) {
+        const readingResult = appendReadingPreviews(detail.readingPreviews, readingItems, {
+          homeCountry: opts.homeCountry ?? '',
+        });
+        if (readingResult.changed) {
+          detail.readingPreviews = readingResult.readingPreviews;
+          lastReadingPreviewAt = now;
+          detailChanged = true;
+        }
+      }
+      if (detailChanged) {
         ctx.emit(lastProgress, { ...detail });
       }
 
@@ -129,13 +170,8 @@ export async function runScanPass(
 
     const onProgress = (progress: ScanProgress) => {
       if (ctx.signal.aborted) return;
-      const next: ScanProgress = {
-        ...progress,
-        discoveredCountries:
-          discoveredCountries.length > 0 ? discoveredCountries.slice(-10) : undefined,
-      };
-      lastProgress = next;
-      ctx.emit(next, { ...detail });
+      lastProgress = progress;
+      ctx.emit(progress);
     };
 
     if (doIncremental) {

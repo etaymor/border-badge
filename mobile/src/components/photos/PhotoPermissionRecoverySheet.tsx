@@ -1,4 +1,5 @@
-import { StyleSheet, Text, View } from 'react-native';
+import { useState } from 'react';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Button } from '@components/ui/Button';
 import { colors, withAlpha } from '@constants/colors';
@@ -28,12 +29,24 @@ export function PhotoPermissionRecoverySheet({
   const body = variant === 'denied' ? copy.recoveryBodyDenied : copy.recoveryBodyLimited;
   const limitedPrimaryIsPicker = variant === 'limited' && Boolean(onAllowMorePhotos);
 
+  const [whyOpen, setWhyOpen] = useState(false);
+
   return (
     <View style={styles.container} testID={testID}>
       <Text style={styles.title}>{title}</Text>
       <Text style={styles.body}>{body}</Text>
-      <Text style={styles.tip}>{copy.recoveryPrivacyReportTip}</Text>
-      {limitedPrimaryIsPicker ? (
+      <Pressable
+        onPress={() => setWhyOpen((open) => !open)}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: whyOpen }}
+        hitSlop={8}
+        style={styles.disclosure}
+        testID="photo-permission-recovery-why"
+      >
+        <Text style={styles.disclosureLabel}>Why is this safe?</Text>
+      </Pressable>
+      {whyOpen ? <Text style={styles.tip}>{copy.recoveryPrivacyReportTip}</Text> : null}
+      {limitedPrimaryIsPicker && onAllowMorePhotos ? (
         <Button title={copy.recoveryAllowMorePhotosCta} onPress={onAllowMorePhotos} />
       ) : null}
       <Button
@@ -78,6 +91,17 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 19,
     color: withAlpha(colors.midnightNavy, 0.55),
+    textAlign: 'center',
+  },
+  disclosure: {
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  disclosureLabel: {
+    fontFamily: fonts.body.semiBold,
+    fontSize: 14,
+    color: colors.stormGray,
     textAlign: 'center',
   },
 });

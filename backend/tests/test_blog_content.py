@@ -14,6 +14,7 @@ import pytest
 
 import app as app_package
 from app.core.blog import CONTENT_DIR, build_registry, load_post
+from app.core.seo import LANDING_GUIDE_SLUGS
 from app.schemas.blog import BLOG_CATEGORIES, MAX_META_DESCRIPTION
 
 POST_FILES = sorted(p for p in CONTENT_DIR.glob("*.md") if p.stem != "README")
@@ -88,6 +89,12 @@ def test_slugs_are_unique() -> None:
     assert len(slugs) == len(set(slugs))
 
 
+def test_landing_guide_slugs_exist_in_registry() -> None:
+    registry = build_registry(strict=True, include_drafts=True)
+    missing = [slug for slug in LANDING_GUIDE_SLUGS if slug not in registry.by_slug]
+    assert not missing, f"LANDING_GUIDE_SLUGS missing from registry: {missing}"
+
+
 def test_every_internal_blog_link_resolves() -> None:
     """The highest-value test here: hand-authored cross-links rot the moment a
     slug changes, and a dead internal link is invisible until a crawler finds
@@ -126,6 +133,35 @@ def test_rendered_content_is_csp_clean() -> None:
             assert not re.match(r"<\s*script", tag, re.IGNORECASE), post.slug
 
 
+def test_roundups_rank_atlasi_first() -> None:
+    """Comparison posts that number Atlasi against competitors should lead
+    with Atlasi. The scratch-off roundup is the exception: Atlasi is not a
+    scratch-off map, so it is not ranked there."""
+    ranked = (
+        "best-apps-to-track-countries-visited.md",
+        "best-travel-tracking-apps-2026.md",
+        "best-apps-for-travel-lists.md",
+        "best-travel-journal-apps.md",
+        "best-polarsteps-alternatives.md",
+        "best-been-app-alternatives.md",
+        "best-apps-that-track-countries-from-photos.md",
+    )
+    for name in ranked:
+        text = (CONTENT_DIR / name).read_text(encoding="utf-8")
+        assert "## 1. Atlasi" in text, name
+        assert "not our #1 pick" not in text, name
+
+
+def test_posts_are_dated_september_2026() -> None:
+    """Visible bylines come from `published`. An older published date plus a
+    newer `updated` still shows the old month on the page."""
+    for path in POST_FILES:
+        text = path.read_text(encoding="utf-8")
+        assert "published: 2026-09-15" in text, path.name
+        assert "updated: 2026-09-15" in text, path.name
+        assert "verified July 2026" not in text, path.name
+
+
 def test_compiled_css_includes_blog_rules() -> None:
     """Guards the easiest step to forget.
 
@@ -141,3 +177,5 @@ def test_compiled_css_includes_blog_rules() -> None:
         compiled = (STATIC_DIR / "css" / name).read_text(encoding="utf-8")
         assert ".article-body" in compiled, f"{name} is stale; run npm run css:build"
         assert ".blog-card" in compiled, f"{name} is stale; run npm run css:build"
+        assert ".post-cta-layout" in compiled, f"{name} is stale; run npm run css:build"
+        assert ".post-cta--mid" in compiled, f"{name} is stale; run npm run css:build"

@@ -13,10 +13,9 @@
  * slice says. That is why leaving mid-build no longer destroys it, and why
  * coming back reattaches to a partly-filled grid instead of restarting.
  *
- * Every phase shares one layout shell: a hero region up top (the most recent
- * find during the build, the intro poster before it, a plain navy field for
- * the utility states) over a warm-cream sheet that carries the copy and
- * actions.
+ * Every phase shares one layout shell: a navy hero up top (the stage card
+ * during the build, the intro poster before it, a plain navy field for the
+ * utility states) over a warm-cream sheet that carries the copy and actions.
  *
  * Owns every state of the creation flow:
  * - intro (freshness-aware confirm) and resume-draft confirm (pre-flighted
@@ -38,31 +37,46 @@
  * sheets - the parts that are purely about what the user sees.
  */
 
-import { ActivityIndicator, StatusBar, Text, View } from 'react-native';
+import { useMemo } from 'react';
+import { ActivityIndicator, StatusBar, StyleSheet, Text, View } from 'react-native';
+import { useIsFocused } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { PhotoPermissionPreheat } from '@components/photos/PhotoPermissionPreheat';
+import { PhotoPermissionCarousel } from '@components/photos/PhotoPermissionCarousel';
 import { PhotoPermissionRecoverySheet } from '@components/photos/PhotoPermissionRecoverySheet';
+import { RotatingStatusLine } from '@components/photos/RotatingStatusLine';
+import PermissionBeatVisual from '@components/photos/permissionBeats/PermissionBeatVisual';
+import { StageHero } from '@components/photos/StageHero';
 import { Button } from '@components/ui/Button';
 import { colors } from '@constants/colors';
 import { SCAN_COPY } from '@constants/scanCopy';
 import { useReducedMotion } from '@hooks/useReducedMotion';
 import type { RootStackScreenProps } from '@navigation/types';
+import { selectHomeCountry, useOnboardingStore } from '@stores/onboardingStore';
 
 import { PhotoHero } from './components/PhotoHero';
 import { QuizTopBar } from './components/QuizTopBar';
-import { BuildProgressSheet } from './creation/BuildProgressSheet';
-import { thinLibraryReason } from './creation/quizCreationCopy';
+import { BuildProgressSheet, QuizWorkingStage } from './creation/BuildProgressSheet';
+import {
+  THIN_LIBRARY_BODY,
+  THIN_LIBRARY_TITLE,
+  thinLibraryReason,
+} from './creation/quizCreationCopy';
 import { styles } from './creation/quizCreationStyles';
 import { useQuizCreationFlow } from './creation/useQuizCreationFlow';
 import { introPoster } from './sampleAssets';
 
 type Props = RootStackScreenProps<'QuizCreation'>;
 
+const INTRO_FIRST_HOLD_MS = 4000;
+const INTRO_HOLD_MS = 3500;
+
 export function QuizCreationScreen({ navigation, route }: Props) {
   const entryPoint = route.params?.entryPoint ?? 'unknown';
   const insets = useSafeAreaInsets();
   const reduceMotion = useReducedMotion();
+  const isFocused = useIsFocused();
+  const homeCountry = useOnboardingStore(selectHomeCountry);
 
   const {
     phase,
@@ -70,12 +84,12 @@ export function QuizCreationScreen({ navigation, route }: Props) {
     limitedAccess,
     freshnessLine,
     isFirstScan,
-    scaleLine,
-    durationLine,
     draftHeroUri,
     draftUploadCounts,
     build,
+    permissionCarouselStep,
     startCreation,
+    handlePermissionCarouselBeatChange,
     handlePreheatChoice,
     handleCancel,
     handleBack,
@@ -83,6 +97,7 @@ export function QuizCreationScreen({ navigation, route }: Props) {
     handleOpenSettings,
     handleAllowMorePhotos,
   } = useQuizCreationFlow({ entryPoint, navigation });
+  const introLines = useMemo(() => SCAN_COPY.quiz.introLines(freshnessLine), [freshnessLine]);
 
   // Hero region per phase: real photos as soon as any are known, the bundled
   // intro poster for the confirm steps, a plain navy field for utility
@@ -104,19 +119,38 @@ export function QuizCreationScreen({ navigation, route }: Props) {
   const { lastPickUri } = build;
   let hero = neutralHero;
   if (phase === 'working') {
-    hero = lastPickUri ? (
-      <PhotoHero
-        source={lastPickUri}
-        scrim="bottom"
-        style={styles.heroFill}
+    // The stage runs full bleed under the top bar, the same as the permission
+    // beats; the bar floats on the hero's scrim.
+    hero = (
+      <StageHero
+        titleless
         testID="quiz-working-hero"
-      />
-    ) : (
-      <View style={[styles.heroNeutral, { paddingTop: insets.top }]} testID="quiz-hero-empty">
-        <Text style={styles.heroEyebrow}>Guess Where</Text>
-      </View>
+        header={<QuizTopBar onClose={handleClose} icon="back" testID="quiz-creation-top-bar" />}
+      >
+        <QuizWorkingStage build={build} reduceMotion={reduceMotion} isPaused={!isFocused} />
+      </StageHero>
     );
-  } else if (phase === 'intro' || phase === 'permission-request') {
+  } else if (phase === 'permission-request') {
+    hero = (
+      <StageHero
+        titleless
+        testID="quiz-permission-hero"
+        header={<QuizTopBar onClose={handleClose} icon="back" testID="quiz-creation-top-bar" />}
+      >
+        <View
+          style={StyleSheet.absoluteFill}
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+        >
+          <PermissionBeatVisual
+            step={permissionCarouselStep}
+            reduceMotion={reduceMotion}
+            homeCountry={homeCountry}
+          />
+        </View>
+      </StageHero>
+    );
+  } else if (phase === 'intro') {
     hero = posterHero;
   } else if (phase === 'resume-draft') {
     hero = draftHeroUri ? (
@@ -155,30 +189,24 @@ export function QuizCreationScreen({ navigation, route }: Props) {
     <View style={styles.stage}>
       <StatusBar barStyle="light-content" />
       <View style={styles.heroRegion}>{hero}</View>
-      <View style={styles.topBar} pointerEvents="box-none">
-        <QuizTopBar onClose={handleClose} icon="back" testID="quiz-creation-top-bar" />
-      </View>
+      {phase !== 'permission-request' && phase !== 'working' ? (
+        <View style={styles.topBar} pointerEvents="box-none">
+          <QuizTopBar onClose={handleClose} icon="back" testID="quiz-creation-top-bar" />
+        </View>
+      ) : null}
 
       <View style={[styles.sheet, { paddingBottom: insets.bottom + 20 }]}>
         {phase === 'intro' && (
           <View style={styles.sheetContent} testID="quiz-intro-step">
             <Text style={styles.title}>{SCAN_COPY.quiz.introTitle}</Text>
-            <Text style={styles.body}>{SCAN_COPY.quiz.introBody}</Text>
-            <Text style={styles.freshnessLine} testID="quiz-freshness-line">
-              {freshnessLine}
-            </Text>
-            {/* Magnitude appears ONCE, here, where it is context rather than a
-                wait. A first scan is the only run that needs both lines. */}
-            {isFirstScan && scaleLine ? (
-              <Text style={styles.freshnessDetail} testID="quiz-scale-line">
-                {scaleLine}
-              </Text>
-            ) : null}
-            {isFirstScan && durationLine ? (
-              <Text style={styles.freshnessDetail} testID="quiz-duration-line">
-                {durationLine}
-              </Text>
-            ) : null}
+            <RotatingStatusLine
+              lines={introLines}
+              firstHoldMs={INTRO_FIRST_HOLD_MS}
+              holdMs={INTRO_HOLD_MS}
+              reduceMotion={reduceMotion}
+              textStyle={styles.introLine}
+              testID="quiz-intro-line"
+            />
             <Button title="Build My Challenge" onPress={startCreation} testID="quiz-build-start" />
           </View>
         )}
@@ -202,13 +230,24 @@ export function QuizCreationScreen({ navigation, route }: Props) {
             style={[styles.sheetContent, styles.permissionSheetContent]}
             testID="quiz-permission-request"
           >
-            <PhotoPermissionPreheat onChoose={handlePreheatChoice} />
+            <PhotoPermissionCarousel
+              door="quiz"
+              step={permissionCarouselStep}
+              onBeatChange={handlePermissionCarouselBeatChange}
+              onChoose={handlePreheatChoice}
+            />
           </View>
         )}
 
         {phase === 'permission-denied' && (
           <View style={styles.sheetContent} testID="quiz-permission-denied">
-            <PhotoPermissionRecoverySheet variant="denied" onOpenSettings={handleOpenSettings} />
+            <PhotoPermissionRecoverySheet
+              variant="denied"
+              onOpenSettings={handleOpenSettings}
+              onRetry={() => {
+                void handlePreheatChoice('full-access');
+              }}
+            />
           </View>
         )}
 
@@ -216,7 +255,6 @@ export function QuizCreationScreen({ navigation, route }: Props) {
           <BuildProgressSheet
             build={build}
             isFirstScan={isFirstScan}
-            durationLine={durationLine}
             reduceMotion={reduceMotion}
             onLeave={handleBack}
             onStop={handleCancel}
@@ -235,10 +273,8 @@ export function QuizCreationScreen({ navigation, route }: Props) {
             </View>
           ) : (
             <View style={styles.sheetContent} testID="quiz-thin-library">
-              <Text style={styles.title}>Not Enough Photos Yet</Text>
-              <Text style={styles.body}>
-                A challenge needs 5 photos that are geotagged, outdoors, and people-free.
-              </Text>
+              <Text style={styles.title}>{THIN_LIBRARY_TITLE}</Text>
+              <Text style={styles.body}>{THIN_LIBRARY_BODY}</Text>
               <Text style={styles.hint} testID="quiz-thin-reason">
                 {thinLibraryReason(outcome)}
               </Text>

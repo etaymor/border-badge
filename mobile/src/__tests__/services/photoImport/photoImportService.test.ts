@@ -67,10 +67,7 @@ describe('photoImportService', () => {
       expect(result.limited).toBe(false);
       expect(mockedMediaLibrary.requestPermissionsAsync).toHaveBeenCalledTimes(1);
       expect(Analytics.photoPermissionSoftAskShown).not.toHaveBeenCalled();
-      expect(Analytics.photoPermissionOsResult).toHaveBeenCalledWith({
-        door: 'trips',
-        status: 'granted',
-      });
+      expect(Analytics.photoPermissionOsResult).not.toHaveBeenCalled();
     });
 
     it('returns granted false when permission is denied', async () => {
@@ -85,10 +82,9 @@ describe('photoImportService', () => {
       const result = await requestPhotoPermissions();
 
       expect(result.granted).toBe(false);
-      expect(Analytics.photoPermissionOsResult).toHaveBeenCalledWith({
-        door: 'trips',
-        status: 'denied',
-      });
+      expect(result.limited).toBe(false);
+      expect(mockedMediaLibrary.requestPermissionsAsync).toHaveBeenCalledTimes(1);
+      expect(Analytics.photoPermissionOsResult).not.toHaveBeenCalled();
     });
 
     it('returns limited true for limited permission', async () => {
@@ -104,10 +100,8 @@ describe('photoImportService', () => {
 
       expect(result.granted).toBe(true);
       expect(result.limited).toBe(true);
-      expect(Analytics.photoPermissionOsResult).toHaveBeenCalledWith({
-        door: 'trips',
-        status: 'limited',
-      });
+      expect(mockedMediaLibrary.requestPermissionsAsync).toHaveBeenCalledTimes(1);
+      expect(Analytics.photoPermissionOsResult).not.toHaveBeenCalled();
     });
   });
 
@@ -191,6 +185,7 @@ describe('photoImportService', () => {
             width: 1920,
             height: 1080,
             duration: 0,
+            mediaSubtypes: ['screenshot'],
           },
           {
             id: 'photo-2',
@@ -224,6 +219,8 @@ describe('photoImportService', () => {
           latitude: 35.6762,
           longitude: 139.6503,
         },
+        isFavorite: true,
+        isNetworkAsset: true,
       });
 
       // Return asset info without location for second photo
@@ -247,6 +244,16 @@ describe('photoImportService', () => {
       expect(photos[0].id).toBe('photo-1');
       expect(photos[0].location.latitude).toBe(35.6762);
       expect(photos[0].location.longitude).toBe(139.6503);
+      expect(photos[0]).toEqual(
+        expect.objectContaining({
+          isFavorite: true,
+          isScreenshot: true,
+          isNetworkAsset: true,
+        })
+      );
+      expect(mockedMediaLibrary.getAssetInfoAsync).toHaveBeenCalledWith('photo-1', {
+        shouldDownloadFromNetwork: false,
+      });
     });
 
     it('calls progress callback during scan', async () => {
