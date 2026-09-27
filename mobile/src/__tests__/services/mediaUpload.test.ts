@@ -26,6 +26,7 @@ import {
   resizeImageForUpload,
   uploadMediaFile,
   RESIZE_MAX_DIMENSION,
+  RESIZE_NATIVE_TIMEOUT_MS,
   type LocalFile,
 } from '../../services/mediaUpload';
 import { api } from '../../services/api';
@@ -157,6 +158,41 @@ describe('resizeImageForUpload', () => {
 
     expect(mockManipulate).not.toHaveBeenCalled();
     expect(result).toBe(input);
+  });
+
+  // An iCloud-evicted source can leave these native calls pending forever
+  // (no callback of either kind), which stalled photo-import uploads on
+  // "Uploading 1 of 1..." before any request was sent.
+  describe('stalled native calls', () => {
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    it('falls back to the original when the dimension probe never calls back', async () => {
+      jest.useFakeTimers({ doNotFake: ['setImmediate'] });
+      mockGetSize.mockImplementation(() => {});
+
+      const input = makeFile();
+      const pending = resizeImageForUpload(input);
+      jest.advanceTimersByTime(RESIZE_NATIVE_TIMEOUT_MS);
+
+      await expect(pending).resolves.toBe(input);
+      expect(mockManipulate).not.toHaveBeenCalled();
+    });
+
+    it('falls back to the original when the manipulator never settles', async () => {
+      jest.useFakeTimers({ doNotFake: ['setImmediate'] });
+      setSourceDimensions(4000, 3000);
+      mockManipulate.mockImplementation(() => new Promise(() => {}));
+
+      const input = makeFile();
+      const pending = resizeImageForUpload(input);
+      // Let the probe resolve so the manipulator call (and its timer) starts.
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      jest.advanceTimersByTime(RESIZE_NATIVE_TIMEOUT_MS);
+
+      await expect(pending).resolves.toBe(input);
+    });
   });
 });
 

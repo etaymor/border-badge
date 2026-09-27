@@ -33,6 +33,7 @@ import { Analytics } from '@services/analytics';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { logger } from '@utils/logger';
+import { withNativeTimeout } from '@utils/withNativeTimeout';
 
 import { CoverSuggestionStrip } from './CoverSuggestionStrip';
 
@@ -40,20 +41,9 @@ import { CoverSuggestionStrip } from './CoverSuggestionStrip';
  * Bound on the native calls a suggested cover goes through (asset re-resolve,
  * resize). An iCloud-evicted original can leave either pending forever; the
  * caller falls back to the URI/file it already had rather than hanging the
- * form. Same idiom as `withNativeTimeout` in visionPhoto.ts.
+ * form.
  */
 const NATIVE_STEP_TIMEOUT_MS = 15_000;
-
-function withNativeTimeout<T>(work: Promise<T>, label: string): Promise<T> {
-  let timer: ReturnType<typeof setTimeout>;
-  const watchdog = new Promise<never>((_resolve, reject) => {
-    timer = setTimeout(
-      () => reject(new Error(`${label} timed out after ${NATIVE_STEP_TIMEOUT_MS}ms`)),
-      NATIVE_STEP_TIMEOUT_MS
-    );
-  });
-  return Promise.race([work, watchdog]).finally(() => clearTimeout(timer)) as Promise<T>;
-}
 
 function mimeTypeForName(name: string): string {
   const ext = name.split('.').pop()?.toLowerCase();
@@ -275,7 +265,11 @@ export function CoverImagePicker({
         // the streaming upload. Bounded: an evicted original can hang forever.
         let uri = photo.uri;
         try {
-          const fresh = await withNativeTimeout(resolveLoadableUri(photo.id), 'resolveLoadableUri');
+          const fresh = await withNativeTimeout(
+            resolveLoadableUri(photo.id),
+            'resolveLoadableUri',
+            NATIVE_STEP_TIMEOUT_MS
+          );
           if (fresh) uri = fresh;
         } catch {
           // Keep the scan-time URI; the upload may still succeed with it.
@@ -296,7 +290,11 @@ export function CoverImagePicker({
         // upload. Falls back to the original on failure OR timeout.
         let file = original;
         try {
-          file = await withNativeTimeout(resizeImageForUpload(original), 'resizeImageForUpload');
+          file = await withNativeTimeout(
+            resizeImageForUpload(original),
+            'resizeImageForUpload',
+            NATIVE_STEP_TIMEOUT_MS
+          );
         } catch (err) {
           logger.warn('Cover suggestion resize failed, uploading original:', err);
         }

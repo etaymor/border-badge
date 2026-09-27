@@ -15,6 +15,7 @@ import {
   computeQualityScores,
   isNearDuplicatePair,
 } from '@services/photoSignals';
+import { withNativeTimeout } from '@utils/withNativeTimeout';
 
 import { haversine } from './photoClustering';
 import { getIntentTagsForIds, getTagsForIds } from './photoTagDb';
@@ -42,24 +43,6 @@ const MAX_VISION_BASE64_LENGTH = 200_000; // Matches backend 200,000 char limit
  */
 export const VISION_IMAGE_TIMEOUT_MS = 10000;
 
-/**
- * Reject if `work` hasn't settled within `VISION_IMAGE_TIMEOUT_MS`.
- *
- * A rejection rather than a null so it lands in the existing `catch` and is
- * reported through the one failure path. The abandoned promise is left to
- * settle whenever the native layer gets to it; nothing reads it.
- */
-function withNativeTimeout<T>(work: Promise<T>, label: string): Promise<T> {
-  let timer: ReturnType<typeof setTimeout>;
-  const watchdog = new Promise<never>((_resolve, reject) => {
-    timer = setTimeout(
-      () => reject(new Error(`${label} timed out after ${VISION_IMAGE_TIMEOUT_MS}ms`)),
-      VISION_IMAGE_TIMEOUT_MS
-    );
-  });
-  return Promise.race([work, watchdog]).finally(() => clearTimeout(timer)) as Promise<T>;
-}
-
 function getImageDimensions(photoUri: string): Promise<{ width: number; height: number }> {
   return withNativeTimeout(
     new Promise<{ width: number; height: number }>((resolve, reject) => {
@@ -69,7 +52,8 @@ function getImageDimensions(photoUri: string): Promise<{ width: number; height: 
         () => reject(new Error('Failed to get image size'))
       );
     }),
-    'Image.getSize'
+    'Image.getSize',
+    VISION_IMAGE_TIMEOUT_MS
   );
 }
 
@@ -274,7 +258,8 @@ export async function prepareVisionImage(
         compress: VISION_JPEG_QUALITY,
         base64: true,
       }),
-      'manipulateAsync'
+      'manipulateAsync',
+      VISION_IMAGE_TIMEOUT_MS
     );
     const base64 = result.base64 ?? null;
     if (base64 && base64.length > MAX_VISION_BASE64_LENGTH) {

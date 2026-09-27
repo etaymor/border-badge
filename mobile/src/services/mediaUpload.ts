@@ -12,6 +12,8 @@ import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import { Image } from 'react-native';
 import { fetch as expoFetch } from 'expo/fetch';
 
+import { withNativeTimeout } from '@utils/withNativeTimeout';
+
 import { api } from './api';
 
 // Constants
@@ -28,6 +30,13 @@ export const RESIZE_MAX_DIMENSION = 2048;
 
 /** JPEG compression quality applied when resizing (matches the picker's quality: 0.8). */
 const RESIZE_JPEG_QUALITY = 0.8;
+
+/**
+ * Bound on each native resize step (dimension probe, re-encode), in ms. Over an
+ * iCloud-evicted source either can hang without calling back; timing out falls
+ * back to uploading the original rather than stalling the upload.
+ */
+export const RESIZE_NATIVE_TIMEOUT_MS = 10_000;
 
 // Types
 export interface LocalFile {
@@ -150,7 +159,11 @@ export async function resizeImageForUpload<
   T extends { uri: string; name: string; type: string; size?: number },
 >(file: T): Promise<T> {
   try {
-    const { width, height } = await getImageDimensions(file.uri);
+    const { width, height } = await withNativeTimeout(
+      getImageDimensions(file.uri),
+      'Image.getSize',
+      RESIZE_NATIVE_TIMEOUT_MS
+    );
     const longEdge = Math.max(width, height);
 
     // Pass through untouched when already within the bound.
@@ -164,10 +177,14 @@ export async function resizeImageForUpload<
         ? { resize: { width: RESIZE_MAX_DIMENSION } }
         : { resize: { height: RESIZE_MAX_DIMENSION } };
 
-    const result = await manipulateAsync(file.uri, [resizeAction], {
-      format: SaveFormat.JPEG,
-      compress: RESIZE_JPEG_QUALITY,
-    });
+    const result = await withNativeTimeout(
+      manipulateAsync(file.uri, [resizeAction], {
+        format: SaveFormat.JPEG,
+        compress: RESIZE_JPEG_QUALITY,
+      }),
+      'manipulateAsync',
+      RESIZE_NATIVE_TIMEOUT_MS
+    );
 
     // Recompute size from the resized file; fall back to the original size if unavailable.
     let size = file.size;

@@ -150,11 +150,14 @@ export function useEntryCreation({
         );
 
         // Upload photos first
-        const { mediaIds, failedCount } = await uploadPhotos(
+        const { mediaIds, failedCount, cancelled } = await uploadPhotos(
           suggestion.cluster_id,
           photosToUpload,
           selectedTripId
         );
+
+        // User cancelled mid-upload: create nothing; `finally` clears the flags.
+        if (cancelled) return;
 
         // Build place input for entry creation
         const placeInput: PlaceInput = {
@@ -429,6 +432,8 @@ export function useEntryCreation({
         let failedCount = 0;
         if (cluster && clusterId) {
           const uploadResult = await uploadPhotos(clusterId, photosToUpload, tripIdToUse);
+          // User cancelled mid-upload: create nothing and keep the modal open.
+          if (uploadResult.cancelled) return undefined;
           mediaIds = uploadResult.mediaIds;
           failedCount = uploadResult.failedCount;
         }
