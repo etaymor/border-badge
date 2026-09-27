@@ -1,6 +1,6 @@
 /* ==============================================
    Atlasi Public Pages - Compiled CSS
-   Generated: 2026-09-27T03:16:05.741Z
+   Generated: 2026-09-27T17:09:18.525Z
    DO NOT EDIT - This file is auto-generated from src/
    ============================================== */
 
@@ -477,6 +477,7 @@ body.has-hero .header .cta-button {
 .footer {
   text-align: center;
   font-size: 0.85rem;
+  background: var(--color-midnight-navy);
 }
 
 .footer-content {
@@ -485,9 +486,37 @@ body.has-hero .header .cta-button {
 }
 
 .footer-cta {
-  background: var(--color-midnight-navy);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: var(--spacing-xl);
   padding: var(--spacing-xl) var(--spacing-lg);
-  text-align: center;
+}
+
+.footer-cta-body {
+  text-align: left;
+}
+
+.footer-cta .cta-button {
+  padding: 10px 24px;
+  font-size: 0.95rem;
+}
+
+.footer-stamp {
+  flex-shrink: 0;
+  transform: rotate(-4deg);
+  transition: transform 0.2s ease;
+}
+
+.footer-stamp:hover {
+  transform: rotate(0deg) scale(1.04);
+}
+
+.footer-stamp img {
+  display: block;
+  width: 88px;
+  height: 88px;
+  filter: drop-shadow(0 6px 14px rgba(0, 0, 0, 0.35));
 }
 
 .footer-tagline {
@@ -503,7 +532,7 @@ body.has-hero .header .cta-button {
   align-items: center;
   gap: var(--spacing-sm);
   padding: var(--spacing-lg) var(--spacing-lg);
-  background: var(--color-cloud-white);
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .footer-logo {
@@ -519,7 +548,7 @@ body.has-hero .header .cta-button {
 }
 
 .footer-link {
-  color: var(--color-midnight-navy);
+  color: var(--color-cloud-white);
   text-decoration: none;
   font-size: 0.85rem;
   opacity: 0.7;
@@ -532,8 +561,8 @@ body.has-hero .header .cta-button {
 }
 
 .footer-bottom {
-  background: #11202d;
   padding: var(--spacing-md) var(--spacing-lg);
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .footer-copyright {
@@ -4407,6 +4436,12 @@ body:has(#quiz-root) .header {
    ============================================== */
 
 @media (max-width: 480px) {
+  /* Five links don't fit beside the logo at phone width; stack them. */
+  .footer-main {
+    flex-direction: column;
+    gap: var(--spacing-sm);
+  }
+
   .landing-hero h1 {
     font-size: 1.875rem;
   }
