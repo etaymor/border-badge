@@ -14,13 +14,8 @@ jest.mock('expo-image-manipulator', () => ({
   SaveFormat: { JPEG: 'jpeg' },
 }));
 
-// Provide a controllable Image.getSize for source-dimension probing.
-const mockGetSize = jest.fn();
-jest.mock('react-native', () => ({
-  Image: { getSize: (...args: unknown[]) => mockGetSize(...args) },
-}));
-
 import * as ImageManipulator from 'expo-image-manipulator';
+import { Image } from 'react-native';
 
 import {
   resizeImageForUpload,
@@ -32,6 +27,10 @@ import {
 import { api } from '../../services/api';
 
 const mockManipulate = ImageManipulator.manipulateAsync as jest.Mock;
+// Spy on Image.getSize rather than stubbing the whole `react-native` module: a
+// stub without `Platform` crashes expo-modules-core when it loads in a worker
+// that has already run other suites.
+const mockGetSize = jest.spyOn(Image, 'getSize');
 const mockApiPost = api.post as jest.Mock;
 
 // Helper: make Image.getSize resolve with the given dimensions.
@@ -147,11 +146,9 @@ describe('resizeImageForUpload', () => {
   });
 
   it('falls back to the original file when source dimensions cannot be read', async () => {
-    mockGetSize.mockImplementation(
-      (_uri: string, _onSuccess: unknown, onError: (e: Error) => void) => {
-        onError(new Error('cannot read size'));
-      }
-    );
+    mockGetSize.mockImplementation((_uri, _onSuccess, onError) => {
+      onError?.(new Error('cannot read size'));
+    });
 
     const input = makeFile();
     const result = await resizeImageForUpload(input);
