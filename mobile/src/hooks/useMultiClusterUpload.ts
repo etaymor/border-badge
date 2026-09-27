@@ -10,6 +10,7 @@ import * as MediaLibrary from 'expo-media-library';
 import { useUploadMedia, MAX_PHOTOS_PER_ENTRY } from './useMedia';
 import type { LocalFile } from './useMedia';
 import type { PhotoWithLocation } from '@services/photoImport';
+import { withNativeTimeout } from '@utils/withNativeTimeout';
 
 /** State for a single cluster's photo upload progress */
 export interface ClusterUploadState {
@@ -26,7 +27,19 @@ export interface ClusterUploadState {
 export interface UploadPhotosResult {
   mediaIds: string[];
   failedCount: number;
+  /** True when the upload was cancelled; callers must not create an entry. */
+  cancelled: boolean;
 }
+
+/**
+ * Bound on resolving a `ph://` asset with `shouldDownloadFromNetwork`, in ms.
+ * Generous because it legitimately downloads iCloud-only originals, but an
+ * evicted asset can also leave the call pending forever with no callback.
+ */
+export const ASSET_DOWNLOAD_TIMEOUT_MS = 60_000;
+
+/** Bound on local file steps (cache copy, stat), which can hang the same way. */
+const FILE_STEP_TIMEOUT_MS = 15_000;
 
 const initialClusterState: ClusterUploadState = {
   isUploading: false,
@@ -104,11 +117,15 @@ async function convertPhotoUri(
   // Get asset info - can fail if permissions change or asset is deleted
   let assetInfo;
   try {
-    assetInfo = await MediaLibrary.getAssetInfoAsync(assetId, {
-      shouldDownloadFromNetwork: true,
-    });
+    assetInfo = await withNativeTimeout(
+      MediaLibrary.getAssetInfoAsync(assetId, { shouldDownloadFromNetwork: true }),
+      'getAssetInfoAsync',
+      ASSET_DOWNLOAD_TIMEOUT_MS,
+      signal
+    );
   } catch (error) {
-    console.error('[MultiClusterUpload] Failed to get asset info:', error);
+    if (signal.aborted) return null;
+    console.warn('[MultiClusterUpload] Failed to get asset info:', error);
     return null;
   }
 
@@ -121,7 +138,12 @@ async function convertPhotoUri(
   }
 
   try {
-    await FileSystem.copyAsync({ from: sourceUri, to: targetUri });
+    await withNativeTimeout(
+      FileSystem.copyAsync({ from: sourceUri, to: targetUri }),
+      'copyAsync',
+      FILE_STEP_TIMEOUT_MS,
+      signal
+    );
 
     // Check abort immediately after copy - file exists at targetUri now
     if (signal.aborted) {
@@ -133,7 +155,12 @@ async function convertPhotoUri(
       return null;
     }
 
-    const info = await FileSystem.getInfoAsync(targetUri);
+    const info = await withNativeTimeout(
+      FileSystem.getInfoAsync(targetUri),
+      'getInfoAsync',
+      FILE_STEP_TIMEOUT_MS,
+      signal
+    );
     if (!info.exists || info.size === 0) {
       console.error('[MultiClusterUpload] Copied file is empty or missing');
       try {
@@ -150,7 +177,9 @@ async function convertPhotoUri(
       type: getMimeType(photo.filename),
     };
   } catch (error) {
-    console.error('[MultiClusterUpload] Failed to prepare photo:', error);
+    if (!signal.aborted) {
+      console.warn('[MultiClusterUpload] Failed to prepare photo:', error);
+    }
     // Clean up any partial file that may have been created
     try {
       await FileSystem.deleteAsync(targetUri, { idempotent: true });
@@ -206,7 +235,7 @@ export function useMultiClusterUpload() {
 
       if (photosToUpload.length === 0) {
         console.log('[MultiClusterUpload] No photos to upload for cluster', clusterId);
-        return { mediaIds: [], failedCount: 0 };
+        return { mediaIds: [], failedCount: 0, cancelled: false };
       }
 
       // Create abort controller for this cluster
@@ -280,20 +309,27 @@ export function useMultiClusterUpload() {
               continue;
             }
 
-            const result = await uploadMedia.mutateAsync({
-              tripId,
-              file: localFile,
-              onProgress: (progress) => {
-                if (!signal.aborted) {
-                  const overallProgress =
-                    ((i + progress.percentage / 100) / photosToUpload.length) * 100;
-                  updateClusterState(clusterId, (prev) => ({
-                    ...prev,
-                    overallProgress,
-                  }));
-                }
-              },
-            });
+            // Raced against the signal only: the mutation carries its own network
+            // timeouts, but Cancel must not wait on it.
+            const result = await withNativeTimeout(
+              uploadMedia.mutateAsync({
+                tripId,
+                file: localFile,
+                onProgress: (progress) => {
+                  if (!signal.aborted) {
+                    const overallProgress =
+                      ((i + progress.percentage / 100) / photosToUpload.length) * 100;
+                    updateClusterState(clusterId, (prev) => ({
+                      ...prev,
+                      overallProgress,
+                    }));
+                  }
+                },
+              }),
+              'uploadMedia',
+              null,
+              signal
+            );
 
             mediaIds.push(result.id);
             updateClusterState(clusterId, (prev) => ({
@@ -301,6 +337,7 @@ export function useMultiClusterUpload() {
               uploadedMediaIds: [...prev.uploadedMediaIds, result.id],
             }));
           } catch (error) {
+            if (signal.aborted) break;
             console.error('[MultiClusterUpload] Failed to upload photo:', error);
             failedCount++;
             updateClusterState(clusterId, (prev) => ({ ...prev, failedCount }));
@@ -316,14 +353,16 @@ export function useMultiClusterUpload() {
         abortControllersRef.current.delete(clusterId);
       }
 
-      // Final state update
-      updateClusterState(clusterId, (prev) => ({
-        ...prev,
-        isUploading: false,
-        overallProgress: 100,
-      }));
+      const cancelled = signal.aborted;
 
-      return { mediaIds, failedCount };
+      // Final state update; a cancelled upload keeps its 'Upload cancelled' state.
+      updateClusterState(clusterId, (prev) =>
+        cancelled
+          ? { ...prev, isUploading: false }
+          : { ...prev, isUploading: false, overallProgress: 100 }
+      );
+
+      return { mediaIds, failedCount, cancelled };
     },
     [uploadMedia, updateClusterState]
   );
