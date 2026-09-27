@@ -56,7 +56,7 @@ MAX_META_DESCRIPTION = 160
 MAX_HEADLINE = 110
 
 DEFAULT_OG_IMAGE_PATH = "/static/images/screens/og-image.png"
-ORGANIZATION_LOGO_PATH = "/static/images/atlasi-logo.png"
+ORGANIZATION_LOGO_PATH = "/static/images/atlasi-navy-logo.png"
 
 # Substituted with settings.app_store_url when a post is rendered, so the content
 # files never carry an environment-specific or storefront-specific URL.

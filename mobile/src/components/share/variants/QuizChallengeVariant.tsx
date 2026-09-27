@@ -5,7 +5,7 @@ import { Text } from '@components/ui';
 import { colors, withAlpha } from '@constants/colors';
 import { fonts } from '@constants/typography';
 
-import atlasLogo from '../../../../assets/atlasi-logo.png';
+import atlasLogo from '../../../../assets/atlasi-navy-logo.png';
 import { CARD_HEIGHT, CARD_WIDTH } from '../constants';
 import type { QuizChallengeContext } from '../types';
 
@@ -162,8 +162,8 @@ const styles = StyleSheet.create({
     paddingTop: 18,
   },
   footerLogo: {
-    width: 100,
-    height: 30,
+    width: 70,
+    height: 18,
   },
   tagline: {
     fontFamily: fonts.oswald.medium,

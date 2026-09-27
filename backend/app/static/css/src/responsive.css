@@ -226,6 +226,12 @@
    ============================================== */
 
 @media (max-width: 480px) {
+  /* Five links don't fit beside the logo at phone width; stack them. */
+  .footer-main {
+    flex-direction: column;
+    gap: var(--spacing-sm);
+  }
+
   .landing-hero h1 {
     font-size: 1.875rem;
   }

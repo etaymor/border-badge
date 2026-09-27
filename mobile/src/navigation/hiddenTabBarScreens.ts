@@ -7,6 +7,7 @@ export const HIDDEN_TAB_BAR_SCREENS = [
   'TripForm',
   'ListCreate',
   'ListEdit',
+  'TripLists',
   'EntryForm',
   'PhotoTrips',
   'PhotoImport',

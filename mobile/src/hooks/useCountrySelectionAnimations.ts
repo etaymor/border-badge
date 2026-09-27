@@ -20,7 +20,6 @@ export interface CountrySelectionAnimationRefs extends CelebrationAnimationRefs 
   searchOpacity: Animated.Value;
   searchTranslate: Animated.Value;
   buttonOpacity: Animated.Value;
-  backButtonOpacity: Animated.Value;
   dropdownOpacity: Animated.Value;
   dropdownTranslate: Animated.Value;
   // Location pin animations (HomeCountry only)
@@ -31,7 +30,6 @@ export interface CountrySelectionAnimationRefs extends CelebrationAnimationRefs 
 
 export interface UseCountrySelectionAnimationsOptions {
   hasLocationPin?: boolean;
-  hasBackButton?: boolean;
   celebrationHoldDuration?: number;
 }
 
@@ -44,7 +42,7 @@ export interface UseCountrySelectionAnimationsReturn {
 export function useCountrySelectionAnimations(
   options: UseCountrySelectionAnimationsOptions = {}
 ): UseCountrySelectionAnimationsReturn {
-  const { hasLocationPin = false, hasBackButton = false, celebrationHoldDuration = 600 } = options;
+  const { hasLocationPin = false, celebrationHoldDuration = 600 } = options;
 
   // Check for reduced motion preference (WCAG 2.1 Level AA)
   const reduceMotion = useReducedMotion();
@@ -65,7 +63,6 @@ export function useCountrySelectionAnimations(
   const searchOpacity = useRef(new Animated.Value(0)).current;
   const searchTranslate = useRef(new Animated.Value(20)).current;
   const buttonOpacity = useRef(new Animated.Value(0)).current;
-  const backButtonOpacity = useRef(new Animated.Value(0)).current;
   const dropdownOpacity = useRef(new Animated.Value(0)).current;
   const dropdownTranslate = useRef(new Animated.Value(-10)).current;
 
@@ -91,7 +88,6 @@ export function useCountrySelectionAnimations(
   useEffect(() => {
     // If reduce motion is enabled, skip animations and set all values to final state
     if (reduceMotion) {
-      if (hasBackButton) backButtonOpacity.setValue(1);
       titleOpacity.setValue(1);
       titleTranslate.setValue(0);
       searchOpacity.setValue(1);
@@ -105,17 +101,6 @@ export function useCountrySelectionAnimations(
     }
 
     const entranceSequence: Animated.CompositeAnimation[] = [];
-
-    // Back button fade in (if present)
-    if (hasBackButton) {
-      entranceSequence.push(
-        Animated.timing(backButtonOpacity, {
-          toValue: 1,
-          duration: 200,
-          useNativeDriver: true,
-        })
-      );
-    }
 
     // Title fade in + translate
     entranceSequence.push(
@@ -211,7 +196,6 @@ export function useCountrySelectionAnimations(
       pinBounce.setValue(0);
     };
   }, [
-    hasBackButton,
     hasLocationPin,
     reduceMotion,
     titleOpacity,
@@ -219,7 +203,6 @@ export function useCountrySelectionAnimations(
     searchOpacity,
     searchTranslate,
     buttonOpacity,
-    backButtonOpacity,
     pinOpacity,
     pinScale,
     pinBounce,
@@ -376,7 +359,6 @@ export function useCountrySelectionAnimations(
       searchOpacity,
       searchTranslate,
       buttonOpacity,
-      backButtonOpacity,
       dropdownOpacity,
       dropdownTranslate,
       pinOpacity,

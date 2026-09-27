@@ -13,7 +13,9 @@
  *       actually shrinks and buried screens freeze (freezeOnBlur alone never
  *       engaged without it).
  *     - `freezeOnBlur: true` is preserved.
- *     - No transition preset is removed or altered (motion is unchanged).
+ *     - Every screen uses the single OnboardingPushPreset via `screenOptions`
+ *       (see onboardingFixedHeaderMotion.test.tsx for why it never scales,
+ *       moves screens vertically or fades them).
  *
  * The global blank-stack mock discards `options`, so this file installs a local
  * mock that captures the JSX props of the navigator element tree. This is fast
@@ -64,7 +66,18 @@ jest.mock('@stores/authStore', () => ({
     selector(mockAuthState),
 }));
 
+jest.mock('@services/analytics', () => ({
+  Analytics: { skipToLogin: jest.fn() },
+}));
+
+import { fireEvent, render, screen } from '@testing-library/react-native';
+import { StyleSheet, Text } from 'react-native';
+
+import { colors } from '@constants/colors';
+
 import { OnboardingNavigator } from '@navigation/OnboardingNavigator';
+import { OnboardingPushPreset } from '@navigation/interpolators';
+import { Analytics } from '@services/analytics';
 
 type RenderedNode = {
   type: unknown;
@@ -171,30 +184,98 @@ describe('OnboardingNavigator — freeze/detach configuration (U2)', () => {
     expect(names).toContain('ContinentIntro');
   });
 
-  it('does not remove or alter any transition preset (motion unchanged)', () => {
-    // Screens that carry a per-screen transition preset must STILL carry a
-    // non-empty options object. The U2 change only touched lifecycle (freeze),
-    // never motion, so these presets must survive untouched.
+  it('applies the single onboarding push to every screen via screenOptions', () => {
+    // Supersedes the old per-screen preset contract: the fixed shared header
+    // requires one consistent push, so it lives on the navigator's
+    // screenOptions and no screen overrides it.
     const root = renderNavigator();
-    const screens = getScreens(root);
+    const screenOptions = getNavigatorProps(root).screenOptions as Record<string, unknown>;
+    expect(screenOptions.screenStyleInterpolator).toBe(
+      OnboardingPushPreset.screenStyleInterpolator
+    );
+    expect(screenOptions.transitionSpec).toBe(OnboardingPushPreset.transitionSpec);
 
-    // OnboardingSlider is the initial route, so it has no incoming transition.
-    const screensWithPresets = [
-      'Motivation',
-      'HomeCountry',
-      'ContinentIntro',
-      'ProgressSummary',
-      'NameEntry',
-      'AccountCreation',
-    ];
-
-    for (const name of screensWithPresets) {
-      const screen = screens.find((s) => s.props.name === name);
-      expect(screen).toBeDefined();
-      const options = screen?.props.options as Record<string, unknown> | undefined;
-      // Each preset screen keeps a populated options object (its transition).
-      expect(options).toBeDefined();
-      expect(Object.keys(options ?? {}).length).toBeGreaterThan(0);
+    for (const screen of getScreens(root)) {
+      const options = screen.props.options as Record<string, unknown> | undefined;
+      expect([screen.props.name, options?.screenStyleInterpolator]).toEqual([
+        screen.props.name,
+        undefined,
+      ]);
     }
+  });
+});
+
+describe('OnboardingNavigator — one shared header above the stack', () => {
+  // Bug: every screen rendered its own header, so it slid with the screen on
+  // push/pop. The navigator's `layout` wraps the whole stack (it sits OUTSIDE
+  // the per-screen transition containers), so a header rendered there stays
+  // put while only screen content animates.
+  type LayoutFn = (props: {
+    state: { index: number; routes: { key: string; name: string; params?: object }[] };
+    navigation: { goBack: jest.Mock; navigate: jest.Mock };
+    descriptors: Record<string, unknown>;
+    children: React.ReactNode;
+  }) => React.ReactElement;
+
+  function renderLayout(routes: { name: string; params?: object }[]) {
+    const root = renderNavigator();
+    const layout = getNavigatorProps(root).layout as LayoutFn | undefined;
+    expect(typeof layout).toBe('function');
+    const navigation = { goBack: jest.fn(), navigate: jest.fn() };
+    const state = {
+      index: routes.length - 1,
+      routes: routes.map((r, i) => ({ key: `${r.name}-${i}`, ...r })),
+    };
+    render(
+      layout!({
+        state,
+        navigation,
+        descriptors: {},
+        children: <Text testID="stack-content">stack</Text>,
+      })
+    );
+    return navigation;
+  }
+
+  it('renders the stack plus a single shared header for the focused route', () => {
+    renderLayout([{ name: 'OnboardingSlider' }, { name: 'Motivation' }]);
+    expect(screen.getByTestId('stack-content')).toBeTruthy();
+    expect(screen.getAllByTestId('onboarding-header')).toHaveLength(1);
+    expect(screen.getByTestId('onboarding-header-login')).toBeTruthy();
+    expect(screen.queryByTestId('onboarding-header-back')).toBeNull();
+  });
+
+  it('follows the focused route: back without Login on ProgressSummary', () => {
+    renderLayout([
+      { name: 'OnboardingSlider' },
+      { name: 'AntarcticaPrompt' },
+      { name: 'ProgressSummary' },
+    ]);
+    expect(screen.getByTestId('onboarding-header-back')).toBeTruthy();
+    expect(screen.queryByTestId('onboarding-header-login')).toBeNull();
+  });
+
+  it('back pops the onboarding stack', () => {
+    const navigation = renderLayout([{ name: 'Motivation' }, { name: 'HomeCountry' }]);
+    fireEvent.press(screen.getByTestId('onboarding-header-back'));
+    expect(navigation.goBack).toHaveBeenCalledTimes(1);
+  });
+
+  it('Login tracks the source route and opens the Auth stack', () => {
+    const navigation = renderLayout([
+      { name: 'DreamDestination' },
+      { name: 'ContinentIntro', params: { region: 'Oceania', regionIndex: 4 } },
+    ]);
+    fireEvent.press(screen.getByTestId('onboarding-header-login'));
+    expect(Analytics.skipToLogin).toHaveBeenCalledWith('ContinentIntro_Oceania');
+    expect(navigation.navigate).toHaveBeenCalledWith('Auth', { screen: 'Login' });
+  });
+
+  it('paints the stack background cream, never the white root background', () => {
+    // With detachPreviousScreen the screen beneath the top is detached during
+    // push/pop, so whatever sits behind the stack shows through there.
+    renderLayout([{ name: 'Motivation' }, { name: 'HomeCountry' }]);
+    const style = StyleSheet.flatten(screen.getByTestId('onboarding-stack-layout').props.style);
+    expect(style.backgroundColor).toBe(colors.warmCream);
   });
 });

@@ -12,7 +12,7 @@ import { requestTrackingPermissionsAsync } from 'expo-tracking-transparency';
 import { Settings } from 'react-native-fbsdk-next';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { OnboardingHookHeader } from '@components/onboarding/OnboardingHookHeader';
+import { OnboardingHeaderSpacer } from '@components/onboarding/OnboardingHeader';
 import { Text } from '@components/ui';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
@@ -53,14 +53,10 @@ export function EmotionalHookScreen({ navigation }: Props) {
     navigation.navigate('FunctionalHook');
   };
 
-  const handleLogin = () => {
-    Analytics.skipToLogin('EmotionalHook');
-    navigation.navigate('Auth', { screen: 'Login' });
-  };
-
   return (
     <SafeAreaView style={styles.container}>
-      <OnboardingHookHeader onLogin={session ? undefined : handleLogin} />
+      {/* Space for the shared onboarding header (rendered by the stack) */}
+      <OnboardingHeaderSpacer />
 
       {/* Image behind text and button - uncropped, visible in lower portion */}
       <Animated.View style={[styles.imageContainer, getAnimatedStyle(2)]}>

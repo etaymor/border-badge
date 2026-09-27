@@ -3,7 +3,6 @@ import { BlurView } from 'expo-blur';
 import { useEffect, useRef, useState } from 'react';
 import {
   Animated,
-  Image,
   KeyboardAvoidingView,
   Linking,
   Platform,
@@ -15,6 +14,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { OnboardingHeaderSpacer } from '@components/onboarding/OnboardingHeader';
 import { Text } from '@components/ui';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
@@ -30,10 +30,6 @@ import { Analytics } from '@services/analytics';
 import { useAuthStore } from '@stores/authStore';
 import { useOnboardingStore, selectDisplayName } from '@stores/onboardingStore';
 import { validateEmail } from '@utils/emailValidation';
-
-/* eslint-disable @typescript-eslint/no-require-imports */
-const atlasLogo = require('../../../assets/atlasi-logo.png');
-/* eslint-enable @typescript-eslint/no-require-imports */
 
 type Props = OnboardingStackScreenProps<'AccountCreation'>;
 
@@ -155,12 +151,8 @@ export function AccountCreationScreen({ navigation }: Props) {
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Header with logo */}
-      <View style={styles.headerRow}>
-        <View style={styles.backButtonPlaceholder} />
-        <Image source={atlasLogo} style={styles.logo} resizeMode="contain" />
-        <View style={styles.backButtonPlaceholder} />
-      </View>
+      {/* Space for the shared onboarding header (rendered by the stack) */}
+      <OnboardingHeaderSpacer />
 
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -399,21 +391,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.warmCream,
-  },
-  headerRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingTop: 8,
-    paddingBottom: 4,
-  },
-  logo: {
-    width: 140,
-    height: 40,
-  },
-  backButtonPlaceholder: {
-    width: 140,
   },
   keyboardView: {
     flex: 1,

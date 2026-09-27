@@ -1,10 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useEffect, useRef } from 'react';
-import { Animated, Image, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { Animated, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import atlasLogo from '../../../assets/atlasi-logo.png';
+import { OnboardingHeaderSpacer } from '@components/onboarding/OnboardingHeader';
 import { Chip, Text } from '@components/ui';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
@@ -97,22 +97,10 @@ export function MotivationScreen({ navigation }: Props) {
     navigation.navigate('HomeCountry');
   };
 
-  const handleLogin = () => {
-    Analytics.skipToLogin('Motivation');
-    navigation.navigate('Auth', { screen: 'Login' });
-  };
-
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      {/* Header with logo and login */}
-      <View style={styles.headerRow}>
-        <Image source={atlasLogo} style={styles.logo} resizeMode="contain" />
-        <TouchableOpacity onPress={handleLogin} style={styles.loginButton}>
-          <Text variant="label" style={styles.loginText}>
-            Login
-          </Text>
-        </TouchableOpacity>
-      </View>
+      {/* Space for the shared onboarding header (rendered by the stack) */}
+      <OnboardingHeaderSpacer />
 
       <ScrollView
         style={styles.scrollContainer}
@@ -182,27 +170,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.warmCream,
-  },
-  headerRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingTop: 8,
-    paddingBottom: 4,
-  },
-  logo: {
-    width: 140,
-    height: 40,
-  },
-  loginButton: {
-    position: 'absolute',
-    right: 20,
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-  },
-  loginText: {
-    color: colors.midnightNavy,
   },
   scrollContainer: {
     flex: 1,

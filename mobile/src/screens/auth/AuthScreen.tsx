@@ -29,7 +29,7 @@ import { useAuthStore } from '@stores/authStore';
 import { validateEmail } from '@utils/emailValidation';
 
 /* eslint-disable @typescript-eslint/no-require-imports */
-const atlasLogo = require('../../../assets/atlasi-logo.png');
+const atlasLogo = require('../../../assets/atlasi-navy-logo.png');
 /* eslint-enable @typescript-eslint/no-require-imports */
 
 type Props = AuthStackScreenProps<'Login'>;
@@ -491,8 +491,8 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   logo: {
-    width: 180,
-    height: 52,
+    width: 118,
+    height: 30,
   },
   spacer: {
     flex: 1,

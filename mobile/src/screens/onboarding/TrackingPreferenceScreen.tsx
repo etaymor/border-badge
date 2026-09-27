@@ -3,7 +3,6 @@ import * as Haptics from 'expo-haptics';
 import React, { memo, useCallback, useEffect, useRef } from 'react';
 import {
   Animated,
-  Image,
   Keyboard,
   Pressable,
   ScrollView,
@@ -13,11 +12,11 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { GlassBackButton, Text } from '@components/ui';
+import { OnboardingHeaderSpacer } from '@components/onboarding/OnboardingHeader';
+import { Text } from '@components/ui';
 import { useReducedMotion } from '@hooks/useReducedMotion';
 import { useResponsive } from '@hooks/useResponsive';
 import { useScreenEntrance } from '@hooks/useScreenEntrance';
-import atlasLogo from '../../../assets/atlasi-logo.png';
 import { colors } from '@constants/colors';
 import {
   TRACKING_PRESET_ORDER,
@@ -123,19 +122,9 @@ function TrackingPreferenceScreen({ navigation }: Props) {
     Analytics.viewOnboardingTracking();
   }, []);
 
-  const handleBack = useCallback(() => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    navigation.goBack();
-  }, [navigation]);
-
   const handleNext = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     navigation.navigate('DreamDestination');
-  }, [navigation]);
-
-  const handleLogin = useCallback(() => {
-    Analytics.skipToLogin('TrackingPreference');
-    navigation.navigate('Auth', { screen: 'Login' });
   }, [navigation]);
 
   const handleSelectPreset = useCallback(
@@ -147,18 +136,8 @@ function TrackingPreferenceScreen({ navigation }: Props) {
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      {/* Header with back button, logo and login */}
-      <View style={styles.headerRow}>
-        <View style={styles.backButtonContainer}>
-          <GlassBackButton onPress={handleBack} size="small" />
-        </View>
-        <Image source={atlasLogo} style={styles.logo} resizeMode="contain" />
-        <TouchableOpacity onPress={handleLogin} style={styles.loginButton}>
-          <Text variant="label" style={styles.loginText}>
-            Login
-          </Text>
-        </TouchableOpacity>
-      </View>
+      {/* Space for the shared onboarding header (rendered by the stack) */}
+      <OnboardingHeaderSpacer />
 
       <View style={styles.content}>
         {/* Title - Text component handles responsive sizing */}
@@ -212,31 +191,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.warmCream,
-  },
-  headerRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingTop: 8,
-    paddingBottom: 4,
-  },
-  logo: {
-    width: 140,
-    height: 40,
-  },
-  backButtonContainer: {
-    position: 'absolute',
-    left: 20,
-  },
-  loginButton: {
-    position: 'absolute',
-    right: 20,
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-  },
-  loginText: {
-    color: colors.midnightNavy,
   },
   content: {
     flex: 1,

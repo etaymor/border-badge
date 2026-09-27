@@ -2,17 +2,11 @@
 import * as Haptics from 'expo-haptics';
 import { Image as ExpoImage } from 'expo-image';
 import { useEffect, useRef } from 'react';
-import {
-  Animated,
-  Image,
-  ImageSourcePropType,
-  StyleSheet,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import { Animated, ImageSourcePropType, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { GlassBackButton, Text } from '@components/ui';
+import { OnboardingHeaderSpacer } from '@components/onboarding/OnboardingHeader';
+import { Text } from '@components/ui';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { useReducedMotion } from '@hooks/useReducedMotion';
@@ -23,7 +17,6 @@ import { Analytics } from '@services/analytics';
 import { useOnboardingStore } from '@stores/onboardingStore';
 
 const antarcticaImage: ImageSourcePropType = require('../../../assets/country-images/continents/Antarctica.png');
-const atlasLogo = require('../../../assets/atlasi-logo.png');
 
 type Props = OnboardingStackScreenProps<'AntarcticaPrompt'>;
 
@@ -78,23 +71,14 @@ export function AntarcticaPromptScreen({ navigation }: Props) {
     navigation.navigate('ProgressSummary');
   };
 
-  const handleLogin = () => {
-    Analytics.skipToLogin('AntarcticaPrompt');
-    navigation.navigate('Auth', { screen: 'Login' });
-  };
-
   return (
     <View style={styles.container}>
       <SafeAreaView style={styles.safeArea}>
-        {/* Header with title */}
+        {/* Space for the shared onboarding header (rendered by the stack) */}
+        <OnboardingHeaderSpacer />
+
+        {/* Title */}
         <Animated.View style={[styles.header, getAnimatedStyle(0)]}>
-          <View style={styles.navBar}>
-            <GlassBackButton onPress={() => navigation.goBack()} />
-            <Image source={atlasLogo} style={styles.logo} resizeMode="contain" />
-            <TouchableOpacity onPress={handleLogin} style={styles.loginButton}>
-              <Text style={styles.loginText}>Login</Text>
-            </TouchableOpacity>
-          </View>
           <Text variant="title" style={[styles.title, isLargeScreen && styles.titleLarge]}>
             Been to Antarctica?
           </Text>
@@ -142,24 +126,6 @@ const styles = StyleSheet.create({
   },
   header: {
     paddingHorizontal: 16,
-  },
-  navBar: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  logo: {
-    width: 140,
-    height: 40,
-  },
-  loginButton: {
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-  },
-  loginText: {
-    fontSize: 16,
-    fontFamily: fonts.openSans.semiBold,
-    color: colors.midnightNavy,
   },
   title: {
     color: colors.midnightNavy,

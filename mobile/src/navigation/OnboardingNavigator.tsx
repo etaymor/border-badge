@@ -1,3 +1,4 @@
+import type { ComponentProps } from 'react';
 import { createBlankStackNavigator } from 'react-native-screen-transitions/blank-stack';
 
 import { useAuthStore } from '@stores/authStore';
@@ -17,45 +18,55 @@ import { PaywallScreen } from '@screens/onboarding/PaywallScreen';
 import { ProgressSummaryScreen } from '@screens/onboarding/ProgressSummaryScreen';
 // LAUNCH_SIMPLIFICATION: Tracking preference hidden - all users get full_atlas (227 countries)
 // import TrackingPreferenceScreen from '@screens/onboarding/TrackingPreferenceScreen';
-import {
-  SlideWithScalePreset,
-  ZoomRevealPreset,
-  SlideWithLeadPreset,
-  ContinentZoomPreset,
-  DramaticRevealPreset,
-  CollectPreset,
-  OnboardingSlidePreset,
-} from './interpolators';
+import { OnboardingPushPreset } from './interpolators';
 
+import { OnboardingStackLayout } from './OnboardingStackLayout';
 import type { OnboardingStackParamList } from './types';
 
 const Stack = createBlankStackNavigator<OnboardingStackParamList>();
 
+type StackLayoutProps = Parameters<
+  NonNullable<ComponentProps<typeof Stack.Navigator>['layout']>
+>[0];
+
+// Module-level so the navigator's `layout` keeps a stable identity. It renders
+// the one shared onboarding header above the stack (see OnboardingStackLayout).
+function renderStackLayout({ state, navigation, children }: StackLayoutProps) {
+  return (
+    <OnboardingStackLayout state={state} navigation={navigation}>
+      {children}
+    </OnboardingStackLayout>
+  );
+}
+
 /**
- * OnboardingNavigator with unique per-screen transitions
+ * OnboardingNavigator
  *
- * Each transition is designed to reinforce the emotional narrative:
- * - OnboardingSlider → Motivation: Zoom reveal (step back and reflect)
- * - Motivation → HomeCountry: Lead motion (pin leading to map)
- * - HomeCountry → TrackingPreference: Default slide (continuation)
- * - TrackingPreference → DreamDestination: Default slide (continuation)
- * - DreamDestination → ContinentIntro: Continent zoom (explore the map)
- * - ContinentIntro → ContinentCountryGrid: Default slide (into details)
- * - ContinentCountryGrid cycles: Default slide (progress through regions)
- * - AntarcticaPrompt → ProgressSummary: Dramatic reveal (celebration moment)
- * - ProgressSummary → NameEntry: Collect animation (making it official)
- * - NameEntry → AccountCreation: Default slide (sealing the deal)
- * - AccountCreation → EmotionalHook → FunctionalHook → Paywall → FirstQuizOffer
- *   (post-signup flow; the offer screen finishes it)
+ * Every screen uses the same push (OnboardingPushPreset): the new screen
+ * slides in from the right, fully opaque, on one snappy spring for the whole
+ * flow. Because `detachPreviousScreen` detaches the screen beneath the top one,
+ * the underlayer isn't live during push/pop: there is nothing to dim (a dim
+ * overlay only tinted the bare background grey), and the stack background
+ * shows through instead, so OnboardingStackLayout paints it cream. Screens never scale, move
+ * vertically or fade, because the shared onboarding header (rendered once by
+ * `layout`, see OnboardingStackLayout) stays fixed above the stack while only
+ * screen content moves (see interpolators/onboarding.ts).
+ *
+ * Flow: OnboardingSlider → Motivation → HomeCountry → DreamDestination →
+ * ContinentIntro (→ ContinentCountryGrid, per region) → AntarcticaPrompt →
+ * ProgressSummary → NameEntry → AccountCreation → EmotionalHook →
+ * FunctionalHook → Paywall → FirstQuizOffer (post-signup flow; the offer
+ * screen finishes it)
  */
 export function OnboardingNavigator() {
   const needsPostSignupFlow = useAuthStore((s) => s.needsPostSignupFlow);
 
   return (
     <Stack.Navigator
+      layout={renderStackLayout}
       screenOptions={{
-        // Default transition for screens without specific overrides
-        ...OnboardingSlidePreset,
+        // The one onboarding push for every screen (no per-screen overrides)
+        ...OnboardingPushPreset,
         // Suspend off-screen onboarding screens from re-rendering. Requires
         // enableFreeze() at app root (see App.tsx). With ~14 onboarding screens
         // (including 6 country grids and several video screens), this prevents
@@ -76,55 +87,33 @@ export function OnboardingNavigator() {
       }}
       initialRouteName={needsPostSignupFlow ? 'EmotionalHook' : 'OnboardingSlider'}
     >
-      {/* First screen - the animated intro; no incoming transition needed */}
+      {/* First screen - the animated intro */}
       <Stack.Screen name="OnboardingSlider" component={OnboardingSliderScreen} />
 
-      {/* OnboardingSlider → Motivation: Zoom-out reveal */}
-      <Stack.Screen name="Motivation" component={MotivationScreen} options={ZoomRevealPreset} />
+      <Stack.Screen name="Motivation" component={MotivationScreen} />
 
-      {/* Motivation → HomeCountry: Slide with pin leading motion */}
-      <Stack.Screen
-        name="HomeCountry"
-        component={HomeCountryScreen}
-        options={SlideWithLeadPreset}
-      />
+      <Stack.Screen name="HomeCountry" component={HomeCountryScreen} />
 
       {/* LAUNCH_SIMPLIFICATION: Tracking preference hidden - all users get full_atlas (227 countries) */}
       {/* <Stack.Screen name="TrackingPreference" component={TrackingPreferenceScreen} /> */}
 
-      {/* DreamDestination: Default onboarding slide */}
       <Stack.Screen name="DreamDestination" component={DreamDestinationScreen} />
 
-      {/* DreamDestination → ContinentIntro: Continent zoom effect */}
-      <Stack.Screen
-        name="ContinentIntro"
-        component={ContinentIntroScreen}
-        options={ContinentZoomPreset}
-      />
+      {/* One instance per region; the "No" answer pushes the next region */}
+      <Stack.Screen name="ContinentIntro" component={ContinentIntroScreen} />
 
-      {/* ContinentCountryGrid: Default slide for cycling through regions */}
+      {/* Country grid for the region the user said "Yes" to */}
       <Stack.Screen name="ContinentCountryGrid" component={ContinentCountryGridScreen} />
 
-      {/* AntarcticaPrompt: Default slide */}
       <Stack.Screen name="AntarcticaPrompt" component={AntarcticaPromptScreen} />
 
-      {/* AntarcticaPrompt → ProgressSummary: Dramatic reveal */}
-      <Stack.Screen
-        name="ProgressSummary"
-        component={ProgressSummaryScreen}
-        options={DramaticRevealPreset}
-      />
+      <Stack.Screen name="ProgressSummary" component={ProgressSummaryScreen} />
 
-      {/* ProgressSummary → NameEntry: Stamps collecting into passport */}
-      <Stack.Screen name="NameEntry" component={NameEntryScreen} options={CollectPreset} />
+      <Stack.Screen name="NameEntry" component={NameEntryScreen} />
 
-      {/* NameEntry → AccountCreation: Create account before paywall so
-          RevenueCat purchases attach to the Supabase UUID */}
-      <Stack.Screen
-        name="AccountCreation"
-        component={AccountCreationScreen}
-        options={SlideWithScalePreset}
-      />
+      {/* Create account before paywall so RevenueCat purchases attach to the
+          Supabase UUID */}
+      <Stack.Screen name="AccountCreation" component={AccountCreationScreen} />
 
       {/* AccountCreation → EmotionalHook: Value proposition (memories) */}
       <Stack.Screen name="EmotionalHook" component={EmotionalHookScreen} />

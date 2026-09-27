@@ -1,6 +1,7 @@
 import { useIsFocused } from '@react-navigation/native';
 import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
+import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   AccessibilityInfo,
@@ -37,7 +38,7 @@ import type { OnboardingStackScreenProps } from '@navigation/types';
 import { Analytics, type OnboardingIntroSlideVia } from '@services/analytics';
 
 /* eslint-disable @typescript-eslint/no-require-imports */
-const atlasLogo = require('../../../assets/atlasi-logo.png');
+const atlasLogo = require('../../../assets/atlasi-white-logo.png');
 /* eslint-enable @typescript-eslint/no-require-imports */
 
 const HEADER_HEIGHT = 52;
@@ -244,6 +245,8 @@ export function OnboardingSliderScreen({ navigation }: Props) {
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
+      {/* Only while focused, so Login pushed on top keeps its own status bar. */}
+      {isFocused ? <StatusBar style="light" /> : null}
       <RNAnimated.View style={[styles.header, getAnimatedStyle(0)]}>
         <Image source={atlasLogo} style={styles.logo} contentFit="contain" />
         <TouchableOpacity
@@ -305,7 +308,7 @@ export function OnboardingSliderScreen({ navigation }: Props) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.warmCream,
+    backgroundColor: colors.midnightNavy,
   },
   header: {
     height: HEADER_HEIGHT,
@@ -315,8 +318,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
   },
   logo: {
-    width: 128,
-    height: 36,
+    width: 86,
+    height: 22,
   },
   loginButton: {
     position: 'absolute',
@@ -325,7 +328,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   loginText: {
-    color: colors.midnightNavy,
+    color: colors.cloudWhite,
   },
   body: {
     flex: 1,
