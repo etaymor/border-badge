@@ -3,7 +3,6 @@ import { BlurView } from 'expo-blur';
 import { useEffect, useState } from 'react';
 import {
   Animated,
-  Image,
   Keyboard,
   KeyboardAvoidingView,
   Platform,
@@ -14,6 +13,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { OnboardingHeaderSpacer } from '@components/onboarding/OnboardingHeader';
 import { Text } from '@components/ui';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
@@ -22,10 +22,6 @@ import type { OnboardingStackScreenProps } from '@navigation/types';
 import { Analytics } from '@services/analytics';
 import { useOnboardingStore, selectDisplayName } from '@stores/onboardingStore';
 import { validateDisplayName } from '@utils/displayNameValidation';
-
-/* eslint-disable @typescript-eslint/no-require-imports */
-const atlasLogo = require('../../../assets/atlasi-navy-logo.png');
-/* eslint-enable @typescript-eslint/no-require-imports */
 
 type Props = OnboardingStackScreenProps<'NameEntry'>;
 
@@ -68,10 +64,8 @@ export function NameEntryScreen({ navigation }: Props) {
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.keyboardView}
       >
-        {/* Header with logo */}
-        <View style={styles.headerRow}>
-          <Image source={atlasLogo} style={styles.logo} resizeMode="contain" />
-        </View>
+        {/* Space for the shared onboarding header (rendered by the stack) */}
+        <OnboardingHeaderSpacer />
 
         <View style={styles.content}>
           {/* Title */}
@@ -157,18 +151,6 @@ const styles = StyleSheet.create({
   },
   keyboardView: {
     flex: 1,
-  },
-  headerRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingTop: 8,
-    paddingBottom: 4,
-  },
-  logo: {
-    width: 94,
-    height: 24,
   },
   content: {
     flex: 1,

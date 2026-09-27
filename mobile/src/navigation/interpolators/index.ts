@@ -15,17 +15,4 @@ export { sharedCountryInterpolator, SharedCountryPreset } from './sharedCountry'
 
 export { sharedTripInterpolator, SharedTripPreset } from './sharedTrip';
 
-export {
-  zoomRevealInterpolator,
-  slideWithLeadInterpolator,
-  continentZoomInterpolator,
-  dramaticRevealInterpolator,
-  collectInterpolator,
-  onboardingSlideInterpolator,
-  ZoomRevealPreset,
-  SlideWithLeadPreset,
-  ContinentZoomPreset,
-  DramaticRevealPreset,
-  CollectPreset,
-  OnboardingSlidePreset,
-} from './onboarding';
+export { onboardingPushInterpolator, OnboardingPushPreset } from './onboarding';

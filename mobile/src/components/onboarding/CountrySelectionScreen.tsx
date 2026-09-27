@@ -6,7 +6,6 @@ import { useFocusEffect } from '@react-navigation/native';
 import {
   Animated,
   FlatList,
-  Image,
   Keyboard,
   Modal,
   StyleSheet,
@@ -16,11 +15,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { GlassBackButton, Text, StampCard } from '@components/ui';
-
-/* eslint-disable @typescript-eslint/no-require-imports */
-const atlasLogo = require('../../../assets/atlasi-navy-logo.png');
-/* eslint-enable @typescript-eslint/no-require-imports */
+import { Text, StampCard } from '@components/ui';
 import { colors } from '@constants/colors';
 import { liquidGlass, GLASS_CONFIG } from '@constants/glass';
 import { fonts } from '@constants/typography';
@@ -29,6 +24,7 @@ import { useCountrySelectionAnimations } from '@hooks/useCountrySelectionAnimati
 import { getFlagEmoji } from '@utils/flags';
 
 import CelebrationOverlay from './CelebrationOverlay';
+import { OnboardingHeaderSpacer } from './OnboardingHeader';
 
 export interface CountrySelectionConfig {
   // Appearance
@@ -41,7 +37,6 @@ export interface CountrySelectionConfig {
 
   // Visual elements
   heroElement?: 'locationPin';
-  showBackButton?: boolean;
   /** Country codes for stamp-based quick selectors (e.g., ['US', 'DE', 'BR']) */
   stampSuggestions?: string[];
 
@@ -51,8 +46,6 @@ export interface CountrySelectionConfig {
 
   // Navigation
   onNavigateNext: () => void;
-  onNavigateBack?: () => void;
-  onNavigateLogin: () => void;
 
   // Test ID prefix
   testIdPrefix: string;
@@ -69,13 +62,10 @@ export default function CountrySelectionScreen({ config }: CountrySelectionScree
     subtitle,
     celebrationType,
     heroElement,
-    showBackButton = false,
     stampSuggestions,
     onCountrySelect,
     getCurrentSelection,
     onNavigateNext,
-    onNavigateBack,
-    onNavigateLogin,
     testIdPrefix,
   } = config;
 
@@ -92,7 +82,6 @@ export default function CountrySelectionScreen({ config }: CountrySelectionScree
 
   const { refs, animateDropdown, playCelebration } = useCountrySelectionAnimations({
     hasLocationPin: heroElement === 'locationPin',
-    hasBackButton: showBackButton,
     celebrationHoldDuration: 600, // Faster transition to next step
   });
 
@@ -158,14 +147,6 @@ export default function CountrySelectionScreen({ config }: CountrySelectionScree
     handleNavigateNext();
   };
 
-  const handleBack = () => {
-    onNavigateBack?.();
-  };
-
-  const handleLogin = () => {
-    onNavigateLogin();
-  };
-
   const handleStampPress = (countryCode: string) => {
     if (!countries) return;
 
@@ -210,24 +191,8 @@ export default function CountrySelectionScreen({ config }: CountrySelectionScree
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor }]} edges={['top']}>
-      {/* Header with logo and login */}
-      <View style={styles.headerRow}>
-        {/* Back button - left side */}
-        {showBackButton && (
-          <Animated.View style={[styles.backButtonContainer, { opacity: refs.backButtonOpacity }]}>
-            <GlassBackButton onPress={handleBack} />
-          </Animated.View>
-        )}
-
-        <Image source={atlasLogo} style={styles.logo} resizeMode="contain" />
-
-        {/* Login button - right side */}
-        <TouchableOpacity onPress={handleLogin} style={styles.loginButton}>
-          <Text variant="label" style={styles.loginText}>
-            Login
-          </Text>
-        </TouchableOpacity>
-      </View>
+      {/* Space for the shared onboarding header (rendered by the stack) */}
+      <OnboardingHeaderSpacer />
 
       <View style={styles.content}>
         {/* Title - Text component handles responsive sizing */}
@@ -451,31 +416,6 @@ export default function CountrySelectionScreen({ config }: CountrySelectionScree
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-  },
-  headerRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingTop: 8,
-    paddingBottom: 4,
-  },
-  backButtonContainer: {
-    position: 'absolute',
-    left: 20,
-  },
-  logo: {
-    width: 94,
-    height: 24,
-  },
-  loginButton: {
-    position: 'absolute',
-    right: 20,
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-  },
-  loginText: {
-    color: colors.midnightNavy,
   },
   content: {
     flex: 1,

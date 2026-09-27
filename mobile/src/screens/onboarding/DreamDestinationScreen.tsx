@@ -38,17 +38,11 @@ export function DreamDestinationScreen({ navigation }: Props) {
     title: 'Where do you want to go?',
     subtitle: "What's one country on your bucket list?",
     celebrationType: 'dream',
-    showBackButton: true,
     stampSuggestions: ['JP', 'ZA', 'AR', 'FR', 'IT'],
     onCountrySelect: handleCountrySelect,
     getCurrentSelection: () => dreamDestination,
     onNavigateNext: () =>
       navigation.navigate('ContinentIntro', { region: REGIONS[0], regionIndex: 0 }),
-    onNavigateBack: () => navigation.goBack(),
-    onNavigateLogin: () => {
-      Analytics.skipToLogin('DreamDestination');
-      navigation.navigate('Auth', { screen: 'Login' });
-    },
     testIdPrefix: 'dream-destination',
   };
 

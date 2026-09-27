@@ -2,14 +2,13 @@ import { useEffect } from 'react';
 import { Animated, Image, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { OnboardingHookHeader } from '@components/onboarding/OnboardingHookHeader';
+import { OnboardingHeaderSpacer } from '@components/onboarding/OnboardingHeader';
 import { Text } from '@components/ui';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { useScreenEntrance } from '@hooks/useScreenEntrance';
 import type { OnboardingStackScreenProps } from '@navigation/types';
 import { Analytics } from '@services/analytics';
-import { useAuthStore } from '@stores/authStore';
 
 /* eslint-disable @typescript-eslint/no-require-imports */
 const socialImage = require('../../../assets/onboarding-videos/social-exported-list.jpg');
@@ -19,7 +18,6 @@ type Props = OnboardingStackScreenProps<'FunctionalHook'>;
 
 export function FunctionalHookScreen({ navigation }: Props) {
   const { getAnimatedStyle, getButtonStyle } = useScreenEntrance({ elementCount: 4 });
-  const session = useAuthStore((s) => s.session);
 
   useEffect(() => {
     Analytics.viewOnboardingFunctionalHook();
@@ -29,17 +27,10 @@ export function FunctionalHookScreen({ navigation }: Props) {
     navigation.navigate('Paywall');
   };
 
-  const handleLogin = () => {
-    Analytics.skipToLogin('FunctionalHook');
-    navigation.navigate('Auth', { screen: 'Login' });
-  };
-
   return (
     <SafeAreaView style={styles.container}>
-      <OnboardingHookHeader
-        onBack={() => navigation.goBack()}
-        onLogin={session ? undefined : handleLogin}
-      />
+      {/* Space for the shared onboarding header (rendered by the stack) */}
+      <OnboardingHeaderSpacer />
 
       <View style={styles.content}>
         {/* Title */}

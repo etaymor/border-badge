@@ -1,17 +1,14 @@
 import * as Haptics from 'expo-haptics';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { useEffect, useRef } from 'react';
-import { Animated, Image, Keyboard, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { Animated, Keyboard, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { GlassBackButton, Text } from '@components/ui';
+import { OnboardingHeaderSpacer } from '@components/onboarding/OnboardingHeader';
+import { Text } from '@components/ui';
 import { useReducedMotion } from '@hooks/useReducedMotion';
 import { useResponsive } from '@hooks/useResponsive';
 import { useScreenEntrance } from '@hooks/useScreenEntrance';
-
-/* eslint-disable @typescript-eslint/no-require-imports */
-const atlasLogo = require('../../../assets/atlasi-navy-logo.png');
-/* eslint-enable @typescript-eslint/no-require-imports */
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { REGIONS } from '@constants/regions';
@@ -39,7 +36,6 @@ export function ContinentIntroScreen({ navigation, route }: Props) {
   const { isSmallScreen, isLargeScreen } = useResponsive();
   const reduceMotion = useReducedMotion();
 
-  const canGoBack = navigation.canGoBack();
   const continentVideo = getContinentVideo(region);
   const playerSource = continentVideo ?? DEFAULT_CONTINENT_VIDEO;
   const hasVideoSource = Boolean(playerSource);
@@ -145,29 +141,14 @@ export function ContinentIntroScreen({ navigation, route }: Props) {
     }
   };
 
-  const handleLogin = () => {
-    Analytics.skipToLogin(`ContinentIntro_${region}`);
-    navigation.navigate('Auth', { screen: 'Login' });
-  };
-
   return (
     <View style={[styles.container, { backgroundColor }]}>
       <SafeAreaView style={styles.safeArea}>
-        {/* Header with title */}
+        {/* Space for the shared onboarding header (rendered by the stack) */}
+        <OnboardingHeaderSpacer />
+
+        {/* Title */}
         <Animated.View style={[styles.header, getAnimatedStyle(0)]}>
-          <View style={styles.navBar}>
-            <View style={styles.backButtonContainer}>
-              {canGoBack ? (
-                <GlassBackButton onPress={() => navigation.goBack()} />
-              ) : (
-                <View style={styles.backButtonPlaceholder} />
-              )}
-            </View>
-            <Image source={atlasLogo} style={styles.logo} resizeMode="contain" />
-            <TouchableOpacity onPress={handleLogin} style={styles.loginButton}>
-              <Text style={styles.loginText}>Login</Text>
-            </TouchableOpacity>
-          </View>
           <Text variant="title" style={[styles.title, isLargeScreen && styles.titleLarge]}>
             Visited {region}?
           </Text>
@@ -218,35 +199,6 @@ const styles = StyleSheet.create({
   },
   header: {
     paddingHorizontal: 16,
-  },
-  navBar: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    position: 'relative',
-  },
-  backButtonContainer: {
-    position: 'absolute',
-    left: 0,
-  },
-  backButtonPlaceholder: {
-    width: 44,
-    height: 44,
-  },
-  logo: {
-    width: 94,
-    height: 24,
-  },
-  loginButton: {
-    position: 'absolute',
-    right: 0,
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-  },
-  loginText: {
-    fontSize: 16,
-    fontFamily: fonts.openSans.semiBold,
-    color: colors.midnightNavy,
   },
   title: {
     color: colors.midnightNavy,

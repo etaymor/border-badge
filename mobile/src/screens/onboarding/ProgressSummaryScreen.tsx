@@ -4,7 +4,6 @@ import { Image as ExpoImage } from 'expo-image';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
-  Image,
   ScrollView,
   StyleSheet,
   TouchableOpacity,
@@ -13,8 +12,9 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { OnboardingHeaderSpacer } from '@components/onboarding/OnboardingHeader';
 import { OnboardingShareOverlay, type OnboardingShareContext } from '@components/share';
-import { GlassBackButton, Text } from '@components/ui';
+import { Text } from '@components/ui';
 import { colors } from '@constants/colors';
 import {
   CONTINENT_TOTALS,
@@ -38,10 +38,6 @@ import {
 import { getTravelStatus } from '@utils/travelTier';
 
 import { getStampImage } from '../../assets/stampImages';
-
-/* eslint-disable @typescript-eslint/no-require-imports */
-const atlasLogo = require('../../../assets/atlasi-navy-logo.png');
-/* eslint-enable @typescript-eslint/no-require-imports */
 
 type Props = OnboardingStackScreenProps<'ProgressSummary'>;
 
@@ -275,19 +271,16 @@ export function ProgressSummaryScreen({ navigation }: Props) {
   return (
     <View style={styles.container}>
       <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
+        {/* Space for the shared onboarding header (rendered by the stack).
+            Kept outside the ScrollView so content never scrolls under it. */}
+        <OnboardingHeaderSpacer />
+
         <View style={styles.content}>
           <ScrollView
             contentContainerStyle={styles.scrollContent}
             showsVerticalScrollIndicator={false}
             bounces={true}
           >
-            {/* Header with back button and logo */}
-            <Animated.View style={[styles.headerRow, getAnimatedStyle(0)]}>
-              <GlassBackButton onPress={() => navigation.goBack()} />
-              <Image source={atlasLogo} style={styles.logo} resizeMode="contain" />
-              <View style={styles.headerSpacer} />
-            </Animated.View>
-
             {/* Title */}
             <Animated.View style={[styles.header, getAnimatedStyle(1)]}>
               <Text style={styles.headerTitle}>Look at you go!</Text>
@@ -404,22 +397,6 @@ const styles = StyleSheet.create({
   scrollContent: {
     flexGrow: 1,
     paddingBottom: 160, // Extra padding to account for gradient fade
-  },
-  // Header with logo
-  headerRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingTop: 8,
-    paddingBottom: 4,
-  },
-  headerSpacer: {
-    width: 40, // Match GlassBackButton width to keep logo centered
-  },
-  logo: {
-    width: 94,
-    height: 24,
   },
   // Header
   header: {

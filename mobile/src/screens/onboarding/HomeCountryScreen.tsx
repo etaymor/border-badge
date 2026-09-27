@@ -43,18 +43,12 @@ export function HomeCountryScreen({ navigation }: Props) {
     backgroundColor: colors.warmCream,
     title: 'What country do you live in?',
     celebrationType: 'home',
-    showBackButton: true,
-    onNavigateBack: () => navigation.goBack(),
     stampSuggestions: ['US', 'DE', 'BR', 'GB', 'AE'],
     onCountrySelect: handleCountrySelect,
     getCurrentSelection: () => homeCountry,
     // LAUNCH_SIMPLIFICATION: Skip TrackingPreference, go directly to DreamDestination
     // TODO: Restore to 'TrackingPreference' when re-enabling tracking preference selection
     onNavigateNext: () => navigation.navigate('DreamDestination'),
-    onNavigateLogin: () => {
-      Analytics.skipToLogin('HomeCountry');
-      navigation.navigate('Auth', { screen: 'Login' });
-    },
     testIdPrefix: 'home-country',
   };
 
