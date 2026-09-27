@@ -32,7 +32,7 @@ import { useOnboardingStore, selectDisplayName } from '@stores/onboardingStore';
 import { validateEmail } from '@utils/emailValidation';
 
 /* eslint-disable @typescript-eslint/no-require-imports */
-const atlasLogo = require('../../../assets/atlasi-logo.png');
+const atlasLogo = require('../../../assets/atlasi-navy-logo.png');
 /* eslint-enable @typescript-eslint/no-require-imports */
 
 type Props = OnboardingStackScreenProps<'AccountCreation'>;
@@ -409,8 +409,8 @@ const styles = StyleSheet.create({
     paddingBottom: 4,
   },
   logo: {
-    width: 140,
-    height: 40,
+    width: 94,
+    height: 24,
   },
   backButtonPlaceholder: {
     width: 140,

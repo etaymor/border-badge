@@ -5,7 +5,7 @@ import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 
 /* eslint-disable @typescript-eslint/no-require-imports */
-const atlasLogo = require('../../../assets/atlasi-logo.png');
+const atlasLogo = require('../../../assets/atlasi-navy-logo.png');
 /* eslint-enable @typescript-eslint/no-require-imports */
 
 interface OnboardingHookHeaderProps {
@@ -48,7 +48,7 @@ const styles = StyleSheet.create({
     color: colors.midnightNavy,
   },
   logo: {
-    width: 140,
-    height: 40,
+    width: 94,
+    height: 24,
   },
 });

@@ -8,7 +8,7 @@ import { useCountryByCode } from '@hooks/useCountries';
 import { classifyTraveler, type TravelerClassificationResponse } from '@services/api';
 
 import { getCountryImage } from '../../../assets/countryImages';
-import atlasLogo from '../../../../assets/atlasi-logo.png';
+import atlasLogo from '../../../../assets/atlasi-navy-logo.png';
 import { CARD_HEIGHT, CARD_WIDTH } from '../constants';
 import type { VariantProps } from '../types';
 
@@ -240,8 +240,8 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   logo: {
-    width: 80,
-    height: 24,
+    width: 56,
+    height: 14,
   },
   tagline: {
     fontFamily: fonts.oswald.medium,

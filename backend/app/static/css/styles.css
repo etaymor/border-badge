@@ -1,6 +1,6 @@
 /* ==============================================
    Atlasi Public Pages - Compiled CSS
-   Generated: 2026-09-16T02:36:55.340Z
+   Generated: 2026-09-27T03:16:05.741Z
    DO NOT EDIT - This file is auto-generated from src/
    ============================================== */
 
@@ -299,7 +299,7 @@ img {
 }
 
 .logo-image {
-  height: 32px;
+  height: 22px;
   width: auto;
   transition: var(--transition-base);
 }
@@ -507,7 +507,7 @@ body.has-hero .header .cta-button {
 }
 
 .footer-logo {
-  height: 28px;
+  height: 20px;
   width: auto;
 }
 
@@ -553,7 +553,7 @@ body.has-hero .header .cta-button {
 }
 
 .footer-simple-logo .logo-image {
-  height: 32px;
+  height: 22px;
   filter: brightness(0) invert(1);
 }
 

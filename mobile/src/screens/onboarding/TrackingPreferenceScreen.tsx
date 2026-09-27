@@ -17,7 +17,7 @@ import { GlassBackButton, Text } from '@components/ui';
 import { useReducedMotion } from '@hooks/useReducedMotion';
 import { useResponsive } from '@hooks/useResponsive';
 import { useScreenEntrance } from '@hooks/useScreenEntrance';
-import atlasLogo from '../../../assets/atlasi-logo.png';
+import atlasLogo from '../../../assets/atlasi-navy-logo.png';
 import { colors } from '@constants/colors';
 import {
   TRACKING_PRESET_ORDER,
@@ -222,8 +222,8 @@ const styles = StyleSheet.create({
     paddingBottom: 4,
   },
   logo: {
-    width: 140,
-    height: 40,
+    width: 94,
+    height: 24,
   },
   backButtonContainer: {
     position: 'absolute',

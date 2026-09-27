@@ -4,7 +4,7 @@ import { useEffect, useRef } from 'react';
 import { Animated, Image, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import atlasLogo from '../../../assets/atlasi-logo.png';
+import atlasLogo from '../../../assets/atlasi-navy-logo.png';
 import { Chip, Text } from '@components/ui';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
@@ -192,8 +192,8 @@ const styles = StyleSheet.create({
     paddingBottom: 4,
   },
   logo: {
-    width: 140,
-    height: 40,
+    width: 94,
+    height: 24,
   },
   loginButton: {
     position: 'absolute',

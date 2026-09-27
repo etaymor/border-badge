@@ -23,7 +23,7 @@ import { Analytics } from '@services/analytics';
 import { useOnboardingStore } from '@stores/onboardingStore';
 
 const antarcticaImage: ImageSourcePropType = require('../../../assets/country-images/continents/Antarctica.png');
-const atlasLogo = require('../../../assets/atlasi-logo.png');
+const atlasLogo = require('../../../assets/atlasi-navy-logo.png');
 
 type Props = OnboardingStackScreenProps<'AntarcticaPrompt'>;
 
@@ -149,8 +149,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   logo: {
-    width: 140,
-    height: 40,
+    width: 94,
+    height: 24,
   },
   loginButton: {
     paddingVertical: 8,

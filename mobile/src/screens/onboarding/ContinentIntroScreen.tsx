@@ -10,7 +10,7 @@ import { useResponsive } from '@hooks/useResponsive';
 import { useScreenEntrance } from '@hooks/useScreenEntrance';
 
 /* eslint-disable @typescript-eslint/no-require-imports */
-const atlasLogo = require('../../../assets/atlasi-logo.png');
+const atlasLogo = require('../../../assets/atlasi-navy-logo.png');
 /* eslint-enable @typescript-eslint/no-require-imports */
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
@@ -234,8 +234,8 @@ const styles = StyleSheet.create({
     height: 44,
   },
   logo: {
-    width: 140,
-    height: 40,
+    width: 94,
+    height: 24,
   },
   loginButton: {
     position: 'absolute',

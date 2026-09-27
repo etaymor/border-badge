@@ -19,7 +19,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { GlassBackButton, Text, StampCard } from '@components/ui';
 
 /* eslint-disable @typescript-eslint/no-require-imports */
-const atlasLogo = require('../../../assets/atlasi-logo.png');
+const atlasLogo = require('../../../assets/atlasi-navy-logo.png');
 /* eslint-enable @typescript-eslint/no-require-imports */
 import { colors } from '@constants/colors';
 import { liquidGlass, GLASS_CONFIG } from '@constants/glass';
@@ -465,8 +465,8 @@ const styles = StyleSheet.create({
     left: 20,
   },
   logo: {
-    width: 140,
-    height: 40,
+    width: 94,
+    height: 24,
   },
   loginButton: {
     position: 'absolute',

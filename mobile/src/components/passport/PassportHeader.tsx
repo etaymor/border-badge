@@ -1,7 +1,7 @@
 import React from 'react';
 import { Image, Platform, StyleSheet, View } from 'react-native';
 import { GlassIconButton } from '@components/ui';
-import atlasLogo from '../../../assets/atlasi-logo.png';
+import atlasLogo from '../../../assets/atlasi-navy-logo.png';
 
 interface PassportHeaderProps {
   onProfilePress: () => void;
@@ -53,7 +53,7 @@ const styles = StyleSheet.create({
     width: 44,
   },
   headerLogo: {
-    width: 140,
-    height: 40,
+    width: 94,
+    height: 24,
   },
 });

@@ -20,7 +20,8 @@ import { fonts } from '@constants/typography';
 import type { MilestoneContext } from '@utils/milestones';
 import { getCountryImage } from '../../assets/countryImages';
 import { getStampImage } from '../../assets/stampImages';
-import atlasLogo from '../../../assets/atlasi-logo.png';
+import atlasLogo from '../../../assets/atlasi-navy-logo.png';
+import atlasLogoWhite from '../../../assets/atlasi-white-logo.png';
 
 // Card dimensions: 9:16 aspect ratio optimized for Instagram Stories (1080x1920)
 // Using 1080 as base width ensures high-quality exports for social sharing
@@ -262,7 +263,7 @@ const PhotoModeContent = memo(function PhotoModeContent({
       </View>
 
       {/* Watermark */}
-      <Image source={atlasLogo} style={styles.watermarkPhotoMode} resizeMode="contain" />
+      <Image source={atlasLogoWhite} style={styles.watermarkPhotoMode} resizeMode="contain" />
     </>
   );
 });
@@ -425,8 +426,8 @@ const styles = StyleSheet.create({
     position: 'absolute',
     bottom: 54 * SCALE,
     right: 32 * SCALE,
-    width: 120 * SCALE,
-    height: 36 * SCALE,
+    width: 86 * SCALE,
+    height: 22 * SCALE,
     opacity: 1,
   },
 
@@ -476,8 +477,8 @@ const styles = StyleSheet.create({
     position: 'absolute',
     bottom: 32 * SCALE,
     right: 24 * SCALE,
-    width: 120 * SCALE,
-    height: 36 * SCALE,
+    width: 86 * SCALE,
+    height: 22 * SCALE,
     opacity: 0.9,
   },
 });

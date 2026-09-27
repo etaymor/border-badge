@@ -7,7 +7,7 @@ import { estimateTravelerPercentile } from '@constants/countryRarity';
 import { fonts } from '@constants/typography';
 
 import { getStampImage } from '../../../assets/stampImages';
-import atlasLogo from '../../../../assets/atlasi-logo.png';
+import atlasLogo from '../../../../assets/atlasi-navy-logo.png';
 import { CARD_HEIGHT, CARD_WIDTH } from '../constants';
 import type { VariantProps } from '../types';
 
@@ -254,8 +254,8 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   footerLogoNatural: {
-    width: 100,
-    height: 30,
+    width: 70,
+    height: 18,
   },
   statsTaglineOswald: {
     fontFamily: fonts.oswald.medium,

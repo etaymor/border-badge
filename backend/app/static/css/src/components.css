@@ -31,7 +31,7 @@
 }
 
 .logo-image {
-  height: 32px;
+  height: 22px;
   width: auto;
   transition: var(--transition-base);
 }
@@ -239,7 +239,7 @@ body.has-hero .header .cta-button {
 }
 
 .footer-logo {
-  height: 28px;
+  height: 20px;
   width: auto;
 }
 
@@ -285,7 +285,7 @@ body.has-hero .header .cta-button {
 }
 
 .footer-simple-logo .logo-image {
-  height: 32px;
+  height: 22px;
   filter: brightness(0) invert(1);
 }
 

@@ -40,7 +40,7 @@ import { getTravelStatus } from '@utils/travelTier';
 import { getStampImage } from '../../assets/stampImages';
 
 /* eslint-disable @typescript-eslint/no-require-imports */
-const atlasLogo = require('../../../assets/atlasi-logo.png');
+const atlasLogo = require('../../../assets/atlasi-navy-logo.png');
 /* eslint-enable @typescript-eslint/no-require-imports */
 
 type Props = OnboardingStackScreenProps<'ProgressSummary'>;
@@ -418,8 +418,8 @@ const styles = StyleSheet.create({
     width: 40, // Match GlassBackButton width to keep logo centered
   },
   logo: {
-    width: 140,
-    height: 40,
+    width: 94,
+    height: 24,
   },
   // Header
   header: {
