@@ -49,7 +49,7 @@ export function getFocusedLeafRouteName(
  * Hides tab bar during creation/editing flows for better focus (Apple HIG pattern).
  * Recursively checks nested navigators (e.g. TripForm inside TripsNavigator inside PassportNavigator).
  */
-function getTabBarStyle(route: RouteProp<MainTabParamList, keyof MainTabParamList>) {
+export function getTabBarStyle(route: RouteProp<MainTabParamList, keyof MainTabParamList>) {
   // Start with the immediate child of the Tab
   const routeName = getFocusedRouteNameFromRoute(route);
 
