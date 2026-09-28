@@ -111,13 +111,27 @@ class ClusterProcessingMixin:
         """
         self.last_capacity_failed_cluster_count = 0
         self.last_venue_probe_results = {}
+        # Background tasks the body starts and joins only later (the venue
+        # probe). If a phase raises or the request is cancelled before the
+        # join, cancel them here so no paid call outlives the request.
+        owned_tasks: list[asyncio.Task[Any]] = []
         with request_metrics(), places_request_scope():
-            return await self._find_places_for_clusters(clusters, vision_results_task)
+            try:
+                return await self._find_places_for_clusters(
+                    clusters, vision_results_task, owned_tasks
+                )
+            finally:
+                unjoined = [t for t in owned_tasks if not t.done()]
+                for task in unjoined:
+                    task.cancel()
+                if unjoined:
+                    await asyncio.gather(*unjoined, return_exceptions=True)
 
     async def _find_places_for_clusters(
         self,
         clusters: list[dict[str, Any]],
         vision_results_task: asyncio.Task[dict[str, VisionResult]] | None = None,
+        owned_tasks: list[asyncio.Task[Any]] | None = None,
     ) -> tuple[list[dict[str, Any]], int]:
         """
         Find place suggestions for photo clusters.
@@ -397,6 +411,8 @@ class ClusterProcessingMixin:
                 },
             )
         )
+        if owned_tasks is not None:  # cancelled by the caller if never joined
+            owned_tasks.append(venue_probe_task)
 
         # Per-cluster diagnostic trace accumulator (KTD2). Built only when the
         # flag is on; mutated across the four passes and emitted once at the end.

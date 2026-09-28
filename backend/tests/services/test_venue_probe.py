@@ -276,3 +276,91 @@ class TestVenueProbeClusterFlow:
         assert failed == 0
         assert results[0]["places"]
         assert matcher.last_venue_probe_results == {"cluster-1": []}
+
+
+# ---------------------------------------------------------------------------
+# Lifecycle: an aborted request must not orphan the probe task
+# ---------------------------------------------------------------------------
+
+
+class TestVenueProbeTaskLifecycle:
+    @pytest.mark.parametrize(
+        "error", [RateLimitError("quota"), asyncio.CancelledError()]
+    )
+    @pytest.mark.asyncio
+    async def test_phase_failure_cancels_in_flight_probe(
+        self, settings, monkeypatch, error
+    ) -> None:
+        """A phase raising (or the request being cancelled) after the probe
+        task starts must cancel it, not leave paid calls running unowned."""
+        matcher = PlaceMatcher(http_client=AsyncMock())
+        _wire_flow(
+            matcher,
+            monkeypatch,
+            _attraction_world(),
+            DensityLevel.DENSE,
+            ratings={"pyramid": {"rating": 4.6, "userRatingCount": 900}},
+        )
+        started = asyncio.Event()
+        outcome: list[str] = []
+
+        async def blocked_probe(latitude, longitude):
+            started.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                outcome.append("cancelled")
+                raise
+            outcome.append("completed")
+            return []
+
+        monkeypatch.setattr(matcher, "_execute_venue_probe", blocked_probe)
+
+        real_enrich = matcher._enrich_place_ratings
+
+        async def enrich_after_probe_starts(place_ids):
+            await started.wait()
+            return await real_enrich(place_ids)
+
+        monkeypatch.setattr(matcher, "_enrich_place_ratings", enrich_after_probe_starts)
+
+        real_rank = matcher._rank_by_distance
+        rank_calls = 0
+
+        def rank_then_fail(*args, **kwargs):
+            nonlocal rank_calls
+            rank_calls += 1
+            if rank_calls > 1:  # the post-enrichment re-rank
+                raise error
+            return real_rank(*args, **kwargs)
+
+        monkeypatch.setattr(matcher, "_rank_by_distance", rank_then_fail)
+
+        with pytest.raises(type(error)):
+            await matcher.find_places_for_clusters([_cluster()])
+
+        assert started.is_set()
+        assert outcome == ["cancelled"]
+
+
+# ---------------------------------------------------------------------------
+# Request-budget gate (U8)
+# ---------------------------------------------------------------------------
+
+
+class TestVenueProbeBudgetGate:
+    @pytest.mark.asyncio
+    async def test_spent_budget_skips_the_google_call(self, settings) -> None:
+        matcher = PlaceMatcher(http_client=AsyncMock())
+        matcher._execute_venue_probe = AsyncMock(return_value=[_louvre()])
+
+        result = await matcher._venue_probes_for_clusters(
+            [(_cluster(), _attraction_world(), 15)],
+            semaphore=asyncio.Semaphore(1),
+            remaining_budget=lambda: 0,
+            retry_budget=5.0,
+            cluster_timeout=5.0,
+        )
+
+        assert result == {"cluster-1": []}
+        matcher._execute_venue_probe.assert_not_called()
