@@ -131,6 +131,7 @@ describe('photoCacheDbSuggestions — B2 neighbor-cell lookup (KTD9)', () => {
               location_key: cachedKey,
               suggestions_json: JSON.stringify(samePlace),
               cached_at: Date.now(),
+              suggestion_version: suggestions.SUGGESTION_CACHE_VERSION,
             },
           ];
         }
@@ -172,6 +173,7 @@ describe('photoCacheDbSuggestions — B2 neighbor-cell lookup (KTD9)', () => {
               location_key: farNeighbor,
               suggestions_json: JSON.stringify(otherVenuePlaces),
               cached_at: Date.now(),
+              suggestion_version: suggestions.SUGGESTION_CACHE_VERSION,
             },
           ];
         }
@@ -201,6 +203,7 @@ describe('photoCacheDbSuggestions — B2 neighbor-cell lookup (KTD9)', () => {
               location_key: farNeighbor,
               suggestions_json: JSON.stringify(otherVenuePlaces),
               cached_at: Date.now(),
+              suggestion_version: suggestions.SUGGESTION_CACHE_VERSION,
             },
           ];
         }
@@ -248,12 +251,18 @@ describe('photoCacheDbSuggestions — B2 neighbor-cell lookup (KTD9)', () => {
     mockDb.getAllAsync.mockImplementation(async (sql: string, params: string[]) => {
       if (sql.includes('cluster_id IN')) return [];
       if (sql.includes('location_key IN')) {
-        const rows: { location_key: string; suggestions_json: string; cached_at: number }[] = [];
+        const rows: {
+          location_key: string;
+          suggestions_json: string;
+          cached_at: number;
+          suggestion_version: number;
+        }[] = [];
         if (params.includes(nearKey)) {
           rows.push({
             location_key: nearKey,
             suggestions_json: JSON.stringify(nearPlaces),
             cached_at: Date.now() - 10000, // older
+            suggestion_version: suggestions.SUGGESTION_CACHE_VERSION,
           });
         }
         if (params.includes(farKey)) {
@@ -261,6 +270,7 @@ describe('photoCacheDbSuggestions — B2 neighbor-cell lookup (KTD9)', () => {
             location_key: farKey,
             suggestions_json: JSON.stringify(otherPlaces),
             cached_at: Date.now(), // newer (but farther — distance wins over recency)
+            suggestion_version: suggestions.SUGGESTION_CACHE_VERSION,
           });
         }
         return rows;
@@ -289,12 +299,18 @@ describe('photoCacheDbSuggestions — B2 neighbor-cell lookup (KTD9)', () => {
     mockDb.getAllAsync.mockImplementation(async (sql: string, params: string[]) => {
       if (sql.includes('cluster_id IN')) return [];
       if (sql.includes('location_key IN')) {
-        const rows: { location_key: string; suggestions_json: string; cached_at: number }[] = [];
+        const rows: {
+          location_key: string;
+          suggestions_json: string;
+          cached_at: number;
+          suggestion_version: number;
+        }[] = [];
         if (params.includes(k1)) {
           rows.push({
             location_key: k1,
             suggestions_json: JSON.stringify(oldPlaces),
             cached_at: 1000,
+            suggestion_version: suggestions.SUGGESTION_CACHE_VERSION,
           });
         }
         if (params.includes(k2)) {
@@ -302,6 +318,7 @@ describe('photoCacheDbSuggestions — B2 neighbor-cell lookup (KTD9)', () => {
             location_key: k2,
             suggestions_json: JSON.stringify(newPlaces),
             cached_at: 9999999999999,
+            suggestion_version: suggestions.SUGGESTION_CACHE_VERSION,
           });
         }
         return rows;
@@ -333,6 +350,7 @@ describe('photoCacheDbSuggestions — B2 neighbor-cell lookup (KTD9)', () => {
               location_key: ourKey,
               suggestions_json: JSON.stringify(samePlace),
               cached_at: Date.now(),
+              suggestion_version: suggestions.SUGGESTION_CACHE_VERSION,
             },
           ];
         }
@@ -367,5 +385,259 @@ describe('photoCacheDbSuggestions — B2 neighbor-cell lookup (KTD9)', () => {
     expect(result.size).toBe(0);
     // No location/neighbor query for a bare id-only caller.
     expect(locationQueried).toBe(false);
+  });
+});
+
+/**
+ * U11 / KTD7 / R10: suggestion-cache versioning.
+ *
+ * The backend venue roll-up changes which places a cluster should show. Rows
+ * cached before that change hold the old, scattered suggestions and never expire
+ * (non-empty rows have no TTL), so a user who already scanned would keep seeing
+ * them. Each row is stamped with SUGGESTION_CACHE_VERSION; a non-empty row from
+ * any other version reads as a miss, and the caller refetches it.
+ */
+describe('photoCacheDbSuggestions — suggestion cache version (U11/KTD7)', () => {
+  let mockDb: {
+    execAsync: jest.Mock;
+    runAsync: jest.Mock;
+    getAllAsync: jest.Mock;
+    getFirstAsync: jest.Mock;
+    closeAsync: jest.Mock;
+    withTransactionAsync: jest.Mock;
+  };
+  let photoCacheDb: typeof import('../../../services/photoImport/photoCacheDb');
+  let suggestions: typeof import('../../../services/photoImport/photoCacheDbSuggestions');
+
+  const HOUR_MS = 60 * 60 * 1000;
+
+  beforeEach(() => {
+    jest.resetModules();
+    jest.resetAllMocks();
+
+    mockDb = {
+      execAsync: jest.fn().mockResolvedValue(undefined),
+      runAsync: jest.fn().mockResolvedValue(undefined),
+      getAllAsync: jest.fn().mockResolvedValue([]),
+      getFirstAsync: jest.fn().mockResolvedValue(null),
+      closeAsync: jest.fn().mockResolvedValue(undefined),
+      withTransactionAsync: jest.fn().mockImplementation(async (callback) => {
+        await callback();
+      }),
+    };
+
+    jest.doMock('expo-sqlite', () => ({
+      openDatabaseAsync: jest.fn().mockResolvedValue(mockDb),
+    }));
+
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    photoCacheDb = require('../../../services/photoImport/photoCacheDb');
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    suggestions = require('../../../services/photoImport/photoCacheDbSuggestions');
+  });
+
+  afterEach(async () => {
+    try {
+      await photoCacheDb.closeDb();
+    } catch {
+      // ignore
+    }
+  });
+
+  /** Route every suggestions read (id, exact cell, neighbor) to the given rows. */
+  function serveRows(rows: Array<Record<string, unknown>>) {
+    mockDb.getAllAsync.mockImplementation(async (sql: string) => {
+      if (sql.includes('FROM cached_place_suggestions')) return rows;
+      return [];
+    });
+  }
+
+  it('exposes a positive integer version constant', () => {
+    expect(Number.isInteger(suggestions.SUGGESTION_CACHE_VERSION)).toBe(true);
+    expect(suggestions.SUGGESTION_CACHE_VERSION).toBeGreaterThan(0);
+  });
+
+  it('ignores a pre-existing non-empty row with no version, so the cluster is refetched', async () => {
+    serveRows([
+      {
+        cluster_id: 'old-scan',
+        location_key: 'xn76urx',
+        suggestions_json: JSON.stringify(samePlace),
+        cached_at: Date.now() - HOUR_MS,
+        suggestion_version: null,
+      },
+    ]);
+
+    const result = await suggestions.getCachedSuggestions([
+      { id: 'old-scan', locationKey: 'xn76urx' },
+    ]);
+
+    // Absent from the map == cache miss; usePlaceSuggestions dispatches it.
+    expect(result.has('old-scan')).toBe(false);
+  });
+
+  it('ignores a non-empty row stamped with an older version', async () => {
+    serveRows([
+      {
+        cluster_id: 'older',
+        suggestions_json: JSON.stringify(samePlace),
+        cached_at: Date.now(),
+        suggestion_version: suggestions.SUGGESTION_CACHE_VERSION - 1,
+      },
+    ]);
+
+    const result = await suggestions.getCachedSuggestions(['older']);
+
+    expect(result.has('older')).toBe(false);
+  });
+
+  it('serves a non-empty row stamped with the current version, at any age', async () => {
+    serveRows([
+      {
+        cluster_id: 'fresh',
+        suggestions_json: JSON.stringify(samePlace),
+        cached_at: Date.now() - 30 * 24 * HOUR_MS,
+        suggestion_version: suggestions.SUGGESTION_CACHE_VERSION,
+      },
+    ]);
+
+    const result = await suggestions.getCachedSuggestions(['fresh']);
+
+    expect(result.get('fresh')).toEqual(samePlace);
+  });
+
+  it('selects the version column on every lookup tier', async () => {
+    serveRows([]);
+    await suggestions.getCachedSuggestions([
+      { id: 'c1', locationKey: 'xn76urx', centroid: { latitude: 35, longitude: 139 } },
+    ]);
+
+    const reads = mockDb.getAllAsync.mock.calls
+      .map((call: unknown[]) => String(call[0]))
+      .filter((sql: string) => sql.includes('FROM cached_place_suggestions'));
+    // Tier 1 (id), Tier 2 (exact cell), Tier 3 (neighbors).
+    expect(reads).toHaveLength(3);
+    for (const sql of reads) expect(sql).toContain('suggestion_version');
+  });
+
+  it('stamps the current version on every write', async () => {
+    await suggestions.cacheSuggestions([
+      { cluster_id: 'a', location_key: 'xn76urx', places: samePlace },
+      { cluster_id: 'b', places: [] },
+    ]);
+
+    const insert = mockDb.runAsync.mock.calls.find((call: unknown[]) =>
+      String(call[0]).startsWith('INSERT OR REPLACE INTO cached_place_suggestions')
+    );
+    expect(insert).toBeDefined();
+    expect(String(insert![0])).toContain('suggestion_version');
+    expect(insert![1]).toEqual([
+      'a',
+      JSON.stringify(samePlace),
+      expect.any(Number),
+      'xn76urx',
+      suggestions.SUGGESTION_CACHE_VERSION,
+      'b',
+      '[]',
+      expect.any(Number),
+      null,
+      suggestions.SUGGESTION_CACHE_VERSION,
+    ]);
+  });
+
+  describe('empty-result rows keep their 24h TTL, whatever their version', () => {
+    it('serves an unversioned empty row inside 24h (no-nearby-places stays cached)', async () => {
+      serveRows([
+        {
+          cluster_id: 'empty-recent',
+          suggestions_json: '[]',
+          cached_at: Date.now() - HOUR_MS,
+          suggestion_version: null,
+        },
+      ]);
+
+      const result = await suggestions.getCachedSuggestions(['empty-recent']);
+
+      expect(result.get('empty-recent')).toEqual([]);
+    });
+
+    it('drops an unversioned empty row past 24h', async () => {
+      serveRows([
+        {
+          cluster_id: 'empty-old',
+          suggestions_json: '[]',
+          cached_at: Date.now() - 25 * HOUR_MS,
+          suggestion_version: null,
+        },
+      ]);
+
+      const result = await suggestions.getCachedSuggestions(['empty-old']);
+
+      expect(result.has('empty-old')).toBe(false);
+    });
+
+    it('drops a current-version empty row past 24h', async () => {
+      serveRows([
+        {
+          cluster_id: 'empty-old-current',
+          suggestions_json: '[]',
+          cached_at: Date.now() - 25 * HOUR_MS,
+          suggestion_version: suggestions.SUGGESTION_CACHE_VERSION,
+        },
+      ]);
+
+      const result = await suggestions.getCachedSuggestions(['empty-old-current']);
+
+      expect(result.has('empty-old-current')).toBe(false);
+    });
+  });
+
+  it('leaves confirmed, hidden, and split clusters processed after the bump', async () => {
+    mockDb.getAllAsync.mockImplementation(async (sql: string) => {
+      if (sql.includes('FROM cached_place_suggestions')) {
+        return [
+          {
+            cluster_id: 'confirmed-1',
+            suggestions_json: JSON.stringify(samePlace),
+            cached_at: Date.now(),
+            suggestion_version: null,
+          },
+        ];
+      }
+      if (sql.includes('FROM processed_clusters')) {
+        // The query itself excludes 'split'; the rows it returns are the
+        // confirmed and hidden clusters.
+        return [{ cluster_id: 'confirmed-1' }, { cluster_id: 'hidden-1' }];
+      }
+      if (sql.includes('FROM cluster_splits')) {
+        return [
+          {
+            sub_cluster_id: 'split-1-a',
+            parent_cluster_id: 'split-1',
+            photo_ids: JSON.stringify(['p1']),
+            created_at: Date.now(),
+          },
+        ];
+      }
+      return [];
+    });
+
+    // Opening the DB runs the migration; the read discards the stale row.
+    const cached = await suggestions.getCachedSuggestions(['confirmed-1']);
+    expect(cached.has('confirmed-1')).toBe(false);
+
+    const processed = await suggestions.getProcessedClusterIds();
+    expect([...processed].sort()).toEqual(['confirmed-1', 'hidden-1']);
+    const splits = await suggestions.getClusterSplitsForParents(['split-1']);
+    expect(splits.get('split-1')).toHaveLength(1);
+
+    // Nothing in the migration or the read wrote to the processed-state tables.
+    const writes = [
+      ...mockDb.execAsync.mock.calls.map((call: unknown[]) => String(call[0])),
+      ...mockDb.runAsync.mock.calls.map((call: unknown[]) => String(call[0])),
+    ].filter((sql) => /\b(DELETE|UPDATE|DROP|ALTER)\b/i.test(sql));
+    for (const sql of writes) {
+      expect(sql).not.toMatch(/processed_clusters|cluster_splits|saved_cluster_photos/);
+    }
   });
 });

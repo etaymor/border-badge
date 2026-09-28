@@ -220,7 +220,8 @@ async function initSchema(conn: SQLite.SQLiteDatabase): Promise<void> {
       cluster_id TEXT PRIMARY KEY NOT NULL,
       suggestions_json TEXT NOT NULL,
       cached_at INTEGER NOT NULL,
-      location_key TEXT
+      location_key TEXT,
+      suggestion_version INTEGER
     );
 
     CREATE TABLE IF NOT EXISTS cached_trip_segments (
@@ -306,6 +307,12 @@ async function initSchema(conn: SQLite.SQLiteDatabase): Promise<void> {
   await conn.execAsync(
     'CREATE INDEX IF NOT EXISTS idx_cached_suggestions_location ON cached_place_suggestions(location_key);'
   );
+
+  // U11/KTD7. Stamps each suggestions row with the SUGGESTION_CACHE_VERSION it
+  // was written under, so a matcher change can retire stale non-empty rows at
+  // read time. Nullable: rows written before this migration read as NULL and
+  // count as stale (see photoCacheDbSuggestions.ts).
+  await addColumnIfMissing(conn, 'cached_place_suggestions', 'suggestion_version', 'INTEGER');
 
   // preview_asset_ids lets a failed thumbnail re-resolve a fresh URI from
   // MediaLibrary. Nullable so pre-existing rows read as [] (retry unavailable
