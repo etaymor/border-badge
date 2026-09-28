@@ -4584,14 +4584,14 @@
   },
   {
     "id": "paris-cafe-marly-no-hints-real",
-    "_note": "U4 live capture, no vision, no scene hints, no sign text: the café has no positive evidence, so the parent comes first and Café Marly stays in the top 3 (R6). Red on main (top = Le Café Marly).",
+    "_note": "U4 live capture, no vision, no scene hints, no sign text. None of the candidates is museum/landmark/attraction family, so production never runs the venue probe here (user decision 2026-09-27) and the roll-up cannot see the Louvre: Le Café Marly stays first. Originally expected the Louvre with the café in the top 3; changed with U7 so the row matches what production does.",
     "cluster": {
       "centroid": {
         "latitude": 48.86143,
         "longitude": 2.33552
       }
     },
-    "expected_place_id": "ChIJD3uTd9hx5kcR1IQvGfr8dbk",
+    "expected_place_id": "ChIJw4rTzyVu5kcRabdrxQ12FOk",
     "vision_results": [],
     "places": [
       {
@@ -5042,9 +5042,6 @@
           }
         }
       }
-    ],
-    "expected_in_top3": [
-      "ChIJw4rTzyVu5kcRabdrxQ12FOk"
     ]
   },
   {

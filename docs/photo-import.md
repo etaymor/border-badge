@@ -455,7 +455,24 @@ Captured against live Google with the production tiered-search code (rating-bear
 - **Density of interior clusters: mostly SPARSE.** Mona Lisa room SPARSE (0 at 15m), Winged Victory SPARSE, Richelieu/Carrousel SPARSE, Venus de Milo MEDIUM, Pyramid/Cour Napoléon DENSE (6 at 15m). Café Marly SPARSE, Arts Décoratifs SPARSE, Tuileries MEDIUM, Eiffel base DENSE (10 at 15m). Indoors, the 15m probe usually finds nothing, so a DENSE/MEDIUM-only venue-probe trigger would miss most Louvre-interior clusters.
 - **Dominance.** The strongest non-parent finalists are the Louvre Pyramid (85,693 reviews: only 4.4x below the museum) and the Tuileries Garden (119,618). Exhibits are small: Mona Lisa 412, departments 23–152, Victoire de Samothrace 45. The distinct institution, the Musée des Arts Décoratifs, has 10,083.
 
-`scripts/eval_place_matcher.py --two-pass` (KTD5, `scripts/eval_two_pass.py`) replays these rows the way production ranks them: a rating-blind first pass, top-3 finalists, ratings restored for those only, re-rank and backfill, then the roll-up step, which is the only reader of a row's `probe_places`. On `main`, the four real Louvre-interior rows, the real no-hint Café Marly row, and the two matching hand-shaped rows fail. `tests/scripts/test_eval_two_pass.py` pins that set exactly (`KNOWN_TWO_PASS_FAILURES`).
+`scripts/eval_place_matcher.py --two-pass` (KTD5, `scripts/eval_two_pass.py`) replays these rows the way production ranks them: a rating-blind first pass, top-3 finalists, ratings restored for those only, re-rank and backfill, then the roll-up step, which is the only reader of a row's `probe_places`, and only when production's `should_probe_venue` would have fired for the row. Before U7, the four real Louvre-interior rows and the two hand-shaped museum/café rows failed (`PRE_ROLLUP_FAILURES` in `tests/scripts/test_eval_two_pass.py`); after U7 `KNOWN_TWO_PASS_FAILURES` is empty. The real no-hint Café Marly row now expects Le Café Marly: none of its candidates is museum/landmark/attraction family, so production never probes it and cannot see the Louvre (user decision, 2026-09-27).
+
+### Venue roll-up defaults (U7, 2026-09-27)
+
+`app/services/place_matcher/venue_rollup.py` (KTD4) promotes a venue-probe place to `places[0]` after re-rank and backfill. Production and the `--two-pass` eval call the same function.
+
+| Knob | Default | Why | Rollback / no-op |
+| --- | --- | --- | --- |
+| `PLACES_ROLLUP_MIN_PARENT_REVIEWS` | 2000 | Keeps a 300-review village church from absorbing its square. Also the review count at which a museum finalist counts as a distinct institution (Arts Décoratifs, 10,083). | `0` turns the roll-up off (output identical to pre-U7) |
+| `PLACES_ROLLUP_DOMINANCE_RATIO` | 10 | Passes a café with no evidence (300k vs 12k = 25x). Blocks a 60k park next to a 300k museum (5x). Every real exhibit clears it by 900x or more. | raise it (max 1000) to require stronger dominance |
+| `PLACES_ROLLUP_MAX_DISTANCE_M` | 250 | Containment when the centroid is outside the parent's viewport. The Louvre viewport already covers every captured interior point. 250m excludes a museum 330m away across a garden. | `0` leaves only the viewport test |
+
+Two fixed guards live in `constants.py`:
+
+- **Viewport waiver.** When the centroid is inside the parent's viewport and the top finalist is an exhibit or landmark (tourist attraction, gallery, sculpture, cultural or historical landmark, monument), the ratio drops to `VENUE_ROLLUP_WAIVER_MIN_RATIO` = 2. The live Louvre Pyramid (85,693 reviews) is only 4.4x below the Louvre (378,404), so it needs the waiver.
+- **Eiffel guard.** The waiver never lets a parent win with less than 2x the finalist's reviews, and it never applies to a park or garden parent. At the Eiffel base the probe also returns Champ de Mars (225,645 reviews, 0.46x the Tower), whose viewport covers the base. Either guard alone keeps the Tower first. A park still absorbs a 27-review statue inside it, because that clears the full 10x ratio.
+
+Never rolled up: a museum finalist with 2000+ reviews, a theater or place of worship, and a food, drink, lodging or retail finalist that has evidence (a `food` scene hint, a vision category or business name matching it, or a strong sign-text match). A café that loses first place stays in slot 2. The roll-up is skipped when a strong vision name match locked the cluster. With `PLACES_DIAGNOSTICS=true`, each probed cluster's trace carries `venue_rollup: {reason, parent_place_id}`.
 
 ### Diagnostics
 

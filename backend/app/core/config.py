@@ -398,6 +398,36 @@ class Settings(BaseSettings):
             "live evidence (85-255m away)."
         ),
     )
+    places_rollup_max_distance_m: int = Field(
+        default=250,
+        ge=0,
+        le=1000,
+        description=(
+            "Venue-rollup U7 (KTD4): a venue-probe place contains a cluster "
+            "when the centroid is inside its viewport OR within this many "
+            "meters of its point. 0 leaves only the viewport test."
+        ),
+    )
+    places_rollup_min_parent_reviews: int = Field(
+        default=2000,
+        ge=0,
+        description=(
+            "Venue-rollup U7 (KTD4): minimum userRatingCount for a probe place "
+            "to become the parent, and the review count at which a museum "
+            "finalist counts as a distinct institution. Rollback: 0 turns the "
+            "roll-up off (output identical to pre-U7)."
+        ),
+    )
+    places_rollup_dominance_ratio: float = Field(
+        default=10.0,
+        ge=1.0,
+        le=1000.0,
+        description=(
+            "Venue-rollup U7 (KTD4): the parent needs this many times the top "
+            "finalist's reviews. Waived (down to a 2x floor) for an exhibit "
+            "or landmark-family finalist inside a non-park parent's viewport."
+        ),
+    )
 
     # Travel photo quiz — vision eligibility gate (U2). The quiz is a free,
     # shareable surface (farmable across signups), so classification spend is

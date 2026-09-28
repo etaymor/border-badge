@@ -38,6 +38,7 @@ from .rate_limit import (
     retry_budget_scope,
 )
 from .utils import name_match_strength, name_matches_candidate
+from .venue_rollup import apply_venue_rollup, rollup_thresholds
 
 logger = logging.getLogger(__name__)
 
@@ -929,6 +930,7 @@ class ClusterProcessingMixin:
         # Never raises (every failure degrades to []); see _venue_probe.
         venue_probe_map: dict[str, list[dict]] = await venue_probe_task
         self.last_venue_probe_results = venue_probe_map
+        rollup_settings = rollup_thresholds(self._settings)
 
         successful = []
 
@@ -1001,6 +1003,24 @@ class ClusterProcessingMixin:
                         "gate; returning un-gated finalists"
                     )
                 suggestions = reranked or finalists
+
+            # KTD4 roll-up (U7): the only reader of the venue-probe map.
+            if cluster_id in venue_probe_map:
+                live = {**enriched_ratings, **backfill_ratings}
+                suggestions, rollup_decision = apply_venue_rollup(
+                    suggestions,
+                    venue_probe_map[cluster_id],
+                    centroid=cluster["centroid"],
+                    place_facts={
+                        p["id"]: _with_live_ratings(p, live)
+                        for p in per_cluster_merged.get(cluster_id, [])
+                    },
+                    thresholds=rollup_settings,
+                    vision_result=vision_result,
+                    name_match_locked=cluster_id in name_match_locked_clusters,
+                )  # U9 passes scene_hints / sign_text here
+                if diagnostics and cluster_id in traces:
+                    traces[cluster_id]["venue_rollup"] = rollup_decision.as_trace()
 
             logger.debug(
                 f"Cluster {cluster_id}: returning {len(suggestions)} suggestions"

@@ -203,6 +203,10 @@ class TestVenueProbeClusterFlow:
             "victoire": {"rating": 4.8, "userRatingCount": 45},
         }
 
+        # The U7 roll-up is set to its no-op value: this pins the probe's own
+        # isolation, not the roll-up (tests/services/test_venue_rollup.py).
+        settings.places_rollup_min_parent_reviews = 0
+
         async def run(flag: bool) -> tuple[list[dict], list[tuple[float, float]]]:
             settings.places_venue_probe = flag
             matcher = PlaceMatcher(http_client=AsyncMock())

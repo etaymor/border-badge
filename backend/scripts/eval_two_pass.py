@@ -14,14 +14,17 @@ production never does. Production (``_matcher_cluster_processing``):
    tail places first, then un-gated filler.
 
 This module mirrors that flow against a row's ``places`` world, then hands the
-result to :func:`simulate_venue_rollup`, the single roll-up call site.
+result to :func:`simulate_venue_rollup`, the single roll-up call site, which
+runs production's KTD4 roll-up (``app.services.place_matcher.venue_rollup``).
 
 Row fields read here (all optional except the legacy ones):
 
 - ``probe_places``: raw Google places a POPULARITY venue probe returns for the
   cluster (KTD3). Read ONLY by the roll-up step: never in the first pass, the
   enrichment re-rank, or the backfill (KTD3 isolation), so rows without a
-  roll-up rank byte-identically to production.
+  roll-up rank byte-identically to production. Like production, the roll-up
+  sees them only when production's trigger (``should_probe_venue`` over the
+  row's ``places`` and ``scene_hints``) would have fired the probe.
 - ``scene_hints``: ``[{"label": <vocab>, "weight": 0..1}]`` on-device scene
   labels (KTD6). Vocabulary: :data:`SCENE_HINT_VOCABULARY`.
 - ``sign_text``: up to :data:`MAX_SIGN_TEXT` short signage strings (KTD6).
@@ -43,8 +46,13 @@ from typing import Any
 
 from app.services.photo_vision import VisionResult
 from app.services.place_matcher import PlaceMatcher
+from app.services.place_matcher._venue_probe import should_probe_venue
 from app.services.place_matcher.constants import MAX_SUGGESTIONS_PER_CLUSTER
 from app.services.place_matcher.utils import name_match_strength
+from app.services.place_matcher.venue_rollup import (
+    apply_venue_rollup,
+    rollup_thresholds,
+)
 
 RATING_FIELDS = ("rating", "userRatingCount")
 
@@ -92,13 +100,17 @@ class RollupContext:
 
     cluster: dict[str, Any]
     vision_result: VisionResult | None
-    # Raw venue-probe places (KTD3). Only the roll-up reads these.
+    # Raw venue-probe places (KTD3). Only the roll-up reads these. Empty when
+    # production's trigger would not have probed this cluster.
     probe_places: list[dict[str, Any]]
     scene_hints: list[dict[str, Any]]
     sign_text: list[str]
     # True when production would skip enrichment (top finalist STRONG-matched
     # vision signage).
     name_match_locked: bool
+    # place_id -> the row's rated raw place (the enriched facts production
+    # hands the roll-up).
+    place_facts: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
 def simulate_venue_rollup(
@@ -106,15 +118,23 @@ def simulate_venue_rollup(
     suggestions: list[dict[str, Any]],
     context: RollupContext,
 ) -> list[dict[str, Any]]:
-    """Single roll-up call site of the two-pass simulation (KTD4).
+    """Single roll-up call site of the two-pass simulation (KTD4, U7).
 
-    A no-op until the roll-up module lands: U7 wires
-    ``app.services.place_matcher.venue_rollup`` in HERE, so the eval exercises
-    the same pure function production calls. It is the only place in this
-    module that may read ``context.probe_places``.
+    Runs the same pure function production calls, with the matcher's settings.
+    It is the only place in this module that reads ``context.probe_places``.
     """
-    del matcher, context
-    return suggestions
+    places, _decision = apply_venue_rollup(
+        suggestions,
+        context.probe_places,
+        centroid=context.cluster["centroid"],
+        place_facts=context.place_facts,
+        thresholds=rollup_thresholds(matcher._settings),
+        vision_result=context.vision_result,
+        scene_hints=context.scene_hints,
+        sign_text=context.sign_text,
+        name_match_locked=context.name_match_locked,
+    )
+    return places
 
 
 def _strip_ratings(place: dict[str, Any]) -> dict[str, Any]:
@@ -173,13 +193,18 @@ def rank_two_pass(
             reranked = _backfill(matcher, reranked, first_pass, enriched)
         suggestions = reranked or finalists
 
+    scene_hints = parse_scene_hints(sample.get("scene_hints"))
+    # Production probes only clusters its trigger selects (U6); mirror it so the
+    # roll-up never sees a parent production would not have fetched.
+    probed = should_probe_venue(world, scene_hints)
     context = RollupContext(
         cluster=cluster,
         vision_result=vision_result,
-        probe_places=list(sample.get("probe_places") or []),
-        scene_hints=parse_scene_hints(sample.get("scene_hints")),
+        probe_places=list(sample.get("probe_places") or []) if probed else [],
+        scene_hints=scene_hints,
         sign_text=parse_sign_text(sample.get("sign_text")),
         name_match_locked=locked,
+        place_facts=raw_by_id,
     )
     return simulate_venue_rollup(matcher, suggestions, context)
 
