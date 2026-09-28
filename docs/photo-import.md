@@ -474,6 +474,21 @@ Two fixed guards live in `constants.py`:
 
 Never rolled up: a museum finalist with 2000+ reviews, a theater or place of worship, and a food, drink, lodging or retail finalist that has evidence (a `food` scene hint, a vision category or business name matching it, or a strong sign-text match). A café that loses first place stays in slot 2. The roll-up is skipped when a strong vision name match locked the cluster. With `PLACES_DIAGNOSTICS=true`, each probed cluster's trace carries `venue_rollup: {reason, parent_place_id}`.
 
+### containingPlaces tie-breaker (U8, 2026-09-27)
+
+U4 found Google's `containingPlaces` populated for Louvre exhibits and empty for the Pyramid and Le Café Marly, so it settles only what KTD4 cannot; it never detects a parent (KTD9). Logic lives in `venue_rollup.py` (`containment_fetch_target`, the `containing_place_ids` argument) and the fetch in `_containing_places.py`.
+
+- **Rule.** When the top finalist's `containingPlaces` names a probe place, that place wins without the containment test, the sub-POI type test or the dominance ratio. Every other guard still applies: parent type and `PLACES_ROLLUP_MIN_PARENT_REVIEWS`, the name-match lock, R6 evidence for food/drink/lodging/retail, the distinct-institution museum, never-rollable types. One fixed floor (`CONTAINMENT_MIN_RATIO` = 1): the container needs at least the finalist's review count, so Champ de Mars never absorbs the Eiffel Tower. A containing place that is not in the probe results, or no field, leaves U7 output unchanged.
+- **When it is fetched.** Only for a probed cluster with non-empty probe results, only for its top finalist, and only when KTD4 stopped at `no_qualifying_parent` or `finalist_not_sub_poi` while a probe place exists that would pass every other guard. A cluster KTD4 already rolled up, an evidence-kept café, a church, or a cluster with no major probe place never fetches. All such top finalists in a request go out in one batched pass after assembly, under the request budget and the cluster timeout.
+- **Cost.** One Place Details call with field mask `id,containingPlaces`, billed as **Place Details Pro** (the field is a Pro field; the rating enrichment stays on its own Enterprise mask). The answer is stored in `cached_google_place.details` under `containingPlaces` (an empty answer as `[]`), merged onto the rating row. Rows written before U8 lack the key and refetch once, then serve from cache. No migration.
+- **Failure.** A non-200, transport error, rate limit or timeout returns no answer and is not cached; the cluster keeps its U7 result.
+- **Diagnostics.** A roll-up decided by the tie-breaker records `venue_rollup: {reason: "rolled_up", parent_place_id, containing_places: true}`.
+- **Eval.** A `--two-pass` row may carry `containingPlaces` on a place; the eval reads it under the same fetch rule instead of calling Google. No sample row carries it today.
+
+| Knob | Default | Rollback / no-op |
+| --- | --- | --- |
+| `PLACES_ROLLUP_CONTAINING_PLACES` | `true` | `false`: no containingPlaces calls, output identical to U7 |
+
 ### Scene hints (U9, 2026-09-27)
 
 Each cluster may carry `scene_hints: [{label, weight}]` (KTD6), derived for free from the Apple Vision labels the photo tagger already stores in `photo_ml_tags.labels_json`. `mobile/src/services/photoImport/sceneHints.ts` owns the identifier mapping and every threshold, so they retune over the air. It is computed in the per-batch prepare step next to vision prep, and it is sent even when the prep breaker is open or every photo is offloaded, as long as tag rows exist. The key is omitted when a cluster has no hints.

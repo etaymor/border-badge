@@ -428,6 +428,16 @@ class Settings(BaseSettings):
             "or landmark-family finalist inside a non-park parent's viewport."
         ),
     )
+    places_rollup_containing_places: bool = Field(
+        default=True,
+        description=(
+            "Venue-rollup U8 (KTD9): when KTD4 cannot settle a probed cluster, "
+            "fetch Google containingPlaces (Place Details Pro, cached in "
+            "cached_google_place) for the TOP finalist only; if it names a "
+            "probe parent, the parent wins without the dominance ratio. "
+            "Rollback: false (output identical to U7, no extra calls)."
+        ),
+    )
 
     # Travel photo quiz — vision eligibility gate (U2). The quiz is a free,
     # shareable surface (farmable across signups), so classification spend is

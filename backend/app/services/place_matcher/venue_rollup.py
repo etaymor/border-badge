@@ -28,30 +28,48 @@ of these hold:
 The parent goes to ``places[0]``; the remaining slots keep the best finalists
 in order, so a displaced café stays in slot 2. Nothing here does I/O: the eval
 harness (``scripts/eval_two_pass.py``) calls the same function production does.
+
+**containingPlaces tie-breaker (U8, KTD9).** When Google's ``containingPlaces``
+for the top finalist names a probe parent, containment and sub-POI-likeness
+hold outright and the dominance ratio is waived; the other guards (parent
+minimum reviews, name-match lock, R6 evidence, distinct institution,
+never-rollable types) still apply, plus a floor: the container must have at
+least as many reviews as the finalist, so Champ de Mars never absorbs the
+Eiffel Tower. A containing place that is not a probe parent, or no field at all,
+leaves KTD4 exactly as it was. :func:`containment_fetch_target` says when the
+paid lookup could change the outcome at all.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
 from app.services.photo_vision import VisionResult
-from app.services.photo_vision.constants import VISION_TO_PLACE_TYPES
 
-from ._venue_probe import _guarded, _hint_label
+from ._venue_facts import (
+    KIND_GATED,
+    KIND_OTHER,
+    KIND_SUB_POI,
+    distance_m,
+    finalist_kind,
+    has_evidence,
+    inside_viewport,
+    is_museum,
+    key_types,
+    parent_suggestion,
+    review_count,
+)
+from ._venue_probe import _guarded
 from .constants import (
     MAX_SUGGESTIONS_PER_CLUSTER,
-    TYPE_TO_CATEGORY,
-    VENUE_ROLLUP_EVIDENCE_GATED_TYPES,
     VENUE_ROLLUP_NON_ROLLABLE_TYPES,
     VENUE_ROLLUP_PARENT_TYPES,
     VENUE_ROLLUP_PARK_TYPES,
-    VENUE_ROLLUP_SUB_POI_TYPES,
     VENUE_ROLLUP_WAIVER_MIN_RATIO,
     VENUE_ROLLUP_WAIVER_TYPES,
 )
-from .utils import haversine, name_match_strength, sanitize_address, sanitize_place_name
 
 # Settings fallbacks for a stand-in that does not carry well-typed values;
 # they equal the Settings defaults.
@@ -71,9 +89,9 @@ REASON_DISTINCT = "distinct_institution"
 REASON_UNRATED = "finalist_unrated"
 REASON_NO_PARENT = "no_qualifying_parent"
 
-_KIND_SUB_POI = "sub_poi"
-_KIND_GATED = "evidence_gated"
-_KIND_OTHER = "other"
+# U8: a container named by containingPlaces must have at least this many times
+# the finalist's reviews (1.0 = at least as many).
+CONTAINMENT_MIN_RATIO = 1.0
 
 
 @dataclass(frozen=True)
@@ -95,13 +113,20 @@ class RollupDecision:
 
     reason: str
     parent_place_id: str | None = None
+    via_containing_places: bool = False
 
     @property
     def rolled_up(self) -> bool:
         return self.reason == REASON_ROLLED_UP
 
     def as_trace(self) -> dict[str, Any]:
-        return {"reason": self.reason, "parent_place_id": self.parent_place_id}
+        trace: dict[str, Any] = {
+            "reason": self.reason,
+            "parent_place_id": self.parent_place_id,
+        }
+        if self.via_containing_places:
+            trace["containing_places"] = True
+        return trace
 
 
 def rollup_thresholds(settings: Any) -> RollupThresholds:
@@ -129,121 +154,6 @@ def rollup_thresholds(settings: Any) -> RollupThresholds:
 
 
 # ---------------------------------------------------------------------------
-# Place facts
-# ---------------------------------------------------------------------------
-
-
-def _all_types(place: Mapping[str, Any]) -> set[str]:
-    types = set(place.get("types") or ())
-    primary = place.get("primaryType")
-    if primary:
-        types.add(primary)
-    return types
-
-
-def _key_types(place: Mapping[str, Any]) -> set[str]:
-    """The types that say what a place IS: its primaryType, else all types."""
-    primary = place.get("primaryType")
-    return {primary} if primary else set(place.get("types") or ())
-
-
-def _review_count(place: Mapping[str, Any]) -> int | None:
-    count = place.get("userRatingCount")
-    if isinstance(count, bool) or not isinstance(count, int | float):
-        return None
-    return int(count)
-
-
-def _finalist_kind(place: Mapping[str, Any]) -> str:
-    key = _key_types(place)
-    if key & VENUE_ROLLUP_NON_ROLLABLE_TYPES:
-        return _KIND_OTHER
-    if key & VENUE_ROLLUP_SUB_POI_TYPES:
-        return _KIND_SUB_POI
-    if _all_types(place) & VENUE_ROLLUP_EVIDENCE_GATED_TYPES:
-        return _KIND_GATED
-    return _KIND_OTHER
-
-
-def _is_museum(place: Mapping[str, Any]) -> bool:
-    return any(t == "museum" or t.endswith("_museum") for t in _all_types(place))
-
-
-def _has_evidence(
-    finalist: Mapping[str, Any],
-    name: str,
-    vision_result: VisionResult | None,
-    scene_hints: Sequence[Any] | None,
-    sign_text: Sequence[str] | None,
-) -> bool:
-    """Positive evidence that the photos are OF this food/drink/lodging/retail
-    place (R6): a food hint, a matching vision category or business name, or a
-    strong sign-text match to its name."""
-    types = _all_types(finalist)
-    is_food = bool(types & (VISION_TO_PLACE_TYPES["food"] | {"food"}))
-    if is_food and any(_hint_label(h) == "food" for h in scene_hints or ()):
-        return True
-    if vision_result is not None:
-        category_types = VISION_TO_PLACE_TYPES.get(vision_result.category, set())
-        if vision_result.confidence != "low" and types & category_types:
-            return True
-        if any(
-            name_match_strength(name, c) != "none"
-            for c in vision_result.business_name_candidates
-        ):
-            return True
-    return any(name_match_strength(name, t) == "strong" for t in sign_text or ())
-
-
-def _inside_viewport(place: Mapping[str, Any], lat: float, lng: float) -> bool:
-    viewport = place.get("viewport")
-    if not isinstance(viewport, Mapping):
-        return False
-    try:
-        low, high = viewport["low"], viewport["high"]
-        return (
-            low["latitude"] <= lat <= high["latitude"]
-            and low["longitude"] <= lng <= high["longitude"]
-        )
-    except (KeyError, TypeError):
-        return False
-
-
-def _distance_m(place: Mapping[str, Any], lat: float, lng: float) -> float | None:
-    location = place.get("location") or {}
-    try:
-        return haversine(lat, lng, location["latitude"], location["longitude"])
-    except (KeyError, TypeError):
-        return None
-
-
-def _parent_suggestion(
-    parent: Mapping[str, Any],
-    distance_m: float,
-    vision_result: VisionResult | None,
-) -> dict[str, Any]:
-    """The parent in exactly the shape ``_rank_by_distance`` returns."""
-    location = parent.get("location") or {}
-    primary_type = parent.get("primaryType", "point_of_interest")
-    raw_name = (parent.get("displayName") or {}).get("text", "") or "Unknown Place"
-    return {
-        "place_id": parent["id"],
-        "name": sanitize_place_name(raw_name),
-        "address": sanitize_address(parent.get("formattedAddress", "")),
-        "location": {
-            "latitude": location.get("latitude", 0),
-            "longitude": location.get("longitude", 0),
-        },
-        "category": TYPE_TO_CATEGORY.get(primary_type, "place"),
-        "distance_m": round(distance_m, 1),
-        "types": parent.get("types", []),
-        "vision_category": (
-            vision_result.category if vision_result is not None else None
-        ),
-    }
-
-
-# ---------------------------------------------------------------------------
 # The rule
 # ---------------------------------------------------------------------------
 
@@ -264,15 +174,15 @@ def _qualifying_parent(
     for place in probe_places:
         if place.get("id") in (None, top_id):
             continue
-        if not _key_types(place) & VENUE_ROLLUP_PARENT_TYPES:
+        if not key_types(place) & VENUE_ROLLUP_PARENT_TYPES:
             continue
-        count = _review_count(place)
+        count = review_count(place)
         if count is None or count < thresholds.min_parent_reviews:
             continue
-        distance = _distance_m(place, lat, lng)
+        distance = distance_m(place, lat, lng)
         if distance is None:
             continue
-        inside = _inside_viewport(place, lat, lng)
+        inside = inside_viewport(place, lat, lng)
         if not inside and distance > thresholds.max_distance_m:
             continue
         ratio = count / top_count if top_count > 0 else float("inf")
@@ -280,12 +190,40 @@ def _qualifying_parent(
         waived = (
             top_waivable
             and inside
-            and not _key_types(place) & VENUE_ROLLUP_PARK_TYPES
+            and not key_types(place) & VENUE_ROLLUP_PARK_TYPES
             and ratio >= VENUE_ROLLUP_WAIVER_MIN_RATIO
         )
         if (dominant or waived) and count > best_count:
             best, best_count = (place, distance), count
     return best
+
+
+def _containment_candidates(
+    probe_places: Sequence[Mapping[str, Any]],
+    *,
+    top_id: str,
+    top_count: int,
+    lat: float,
+    lng: float,
+    thresholds: RollupThresholds,
+) -> list[tuple[Mapping[str, Any], float]]:
+    """Probe places that WOULD be the parent if containingPlaces named them:
+    parent-typed, major, at least as reviewed as the finalist, locatable."""
+    found = []
+    for place in probe_places:
+        if place.get("id") in (None, top_id):
+            continue
+        if not key_types(place) & VENUE_ROLLUP_PARENT_TYPES:
+            continue
+        count = review_count(place)
+        if count is None or count < thresholds.min_parent_reviews:
+            continue
+        if count < CONTAINMENT_MIN_RATIO * top_count:
+            continue
+        distance = distance_m(place, lat, lng)
+        if distance is not None:
+            found.append((place, distance))
+    return found
 
 
 def apply_venue_rollup(
@@ -300,6 +238,7 @@ def apply_venue_rollup(
     sign_text: Sequence[str] | None = None,
     name_match_locked: bool = False,
     limit: int = MAX_SUGGESTIONS_PER_CLUSTER,
+    containing_place_ids: Collection[str] | None = None,
 ) -> tuple[list[dict[str, Any]], RollupDecision]:
     """Apply KTD4 to one cluster's final suggestions. Pure; never raises on
     malformed place data (a malformed parent is simply not a parent).
@@ -308,6 +247,9 @@ def apply_venue_rollup(
     ``probe_places`` are the cluster's raw venue-probe places (rated, with
     viewport). ``place_facts`` maps a suggestion's ``place_id`` to its raw,
     rated place dict (``primaryType``, ``types``, ``userRatingCount``).
+
+    ``containing_place_ids`` is the top finalist's Google ``containingPlaces``
+    (U8). ``None`` or empty behaves exactly as KTD4 alone.
 
     Returns the new suggestion list (a new list; inputs are not mutated) and
     the decision. When the rule does not fire, the list equals ``suggestions``.
@@ -328,27 +270,57 @@ def apply_venue_rollup(
 
     top = suggestions[0]
     facts = place_facts.get(top["place_id"]) or {"types": top.get("types") or []}
-    kind = _finalist_kind(facts)
-    if kind == _KIND_OTHER:
+    kind = finalist_kind(facts)
+    # U8: containingPlaces can stand in for sub-POI-likeness, never for a
+    # never-rollable type. Any exit a KTD4 run would take at NOT_SUB_POI keeps
+    # that reason, so an unmatched container leaves the decision identical.
+    may_contain = bool(containing_place_ids) and not (
+        key_types(facts) & VENUE_ROLLUP_NON_ROLLABLE_TYPES
+    )
+    if kind == KIND_OTHER and not may_contain:
         return keep(REASON_NOT_SUB_POI)
-    if kind == _KIND_GATED and _has_evidence(
+
+    def early(reason: str) -> tuple[list[dict[str, Any]], RollupDecision]:
+        return keep(REASON_NOT_SUB_POI if kind == KIND_OTHER else reason)
+
+    if kind == KIND_GATED and has_evidence(
         facts, top.get("name", ""), vision_result, scene_hints, sign_text
     ):
         return keep(REASON_EVIDENCE)
-    top_count = _review_count(facts)
+    top_count = review_count(facts)
     if top_count is None:
-        return keep(REASON_UNRATED)
-    if _is_museum(facts) and top_count >= thresholds.min_parent_reviews:
-        return keep(REASON_DISTINCT)
+        return early(REASON_UNRATED)
+    if is_museum(facts) and top_count >= thresholds.min_parent_reviews:
+        return early(REASON_DISTINCT)
 
     lat, lng = centroid["latitude"], centroid["longitude"]
+    if may_contain:
+        named = [
+            (place, distance)
+            for place, distance in _containment_candidates(
+                probe_places,
+                top_id=top["place_id"],
+                top_count=top_count,
+                lat=lat,
+                lng=lng,
+                thresholds=thresholds,
+            )
+            if place["id"] in (containing_place_ids or ())
+        ]
+        if named:
+            parent, distance = max(named, key=lambda pd: review_count(pd[0]) or 0)
+            return _promote(
+                suggestions, parent, distance, vision_result, limit, contained=True
+            )
+    if kind == KIND_OTHER:
+        return keep(REASON_NOT_SUB_POI)
+
     found = _qualifying_parent(
         probe_places,
         top_id=top["place_id"],
         top_count=top_count,
         top_waivable=(
-            kind == _KIND_SUB_POI
-            and bool(_key_types(facts) & VENUE_ROLLUP_WAIVER_TYPES)
+            kind == KIND_SUB_POI and bool(key_types(facts) & VENUE_ROLLUP_WAIVER_TYPES)
         ),
         lat=lat,
         lng=lng,
@@ -358,8 +330,64 @@ def apply_venue_rollup(
         return keep(REASON_NO_PARENT)
 
     parent, distance = found
+    return _promote(suggestions, parent, distance, vision_result, limit)
+
+
+def _promote(
+    suggestions: Sequence[dict[str, Any]],
+    parent: Mapping[str, Any],
+    distance: float,
+    vision_result: VisionResult | None,
+    limit: int,
+    *,
+    contained: bool = False,
+) -> tuple[list[dict[str, Any]], RollupDecision]:
     parent_id = parent["id"]
     existing = next((s for s in suggestions if s["place_id"] == parent_id), None)
-    promoted = existing or _parent_suggestion(parent, distance, vision_result)
+    promoted = existing or parent_suggestion(parent, distance, vision_result)
     rest = [s for s in suggestions if s["place_id"] != parent_id]
-    return [promoted, *rest][:limit], RollupDecision(REASON_ROLLED_UP, parent_id)
+    decision = RollupDecision(REASON_ROLLED_UP, parent_id, contained)
+    return [promoted, *rest][:limit], decision
+
+
+def containment_fetch_target(
+    suggestions: Sequence[Mapping[str, Any]],
+    probe_places: Sequence[Mapping[str, Any]],
+    decision: RollupDecision,
+    *,
+    place_facts: Mapping[str, Mapping[str, Any]],
+    thresholds: RollupThresholds,
+    centroid: Mapping[str, float] | None = None,
+) -> str | None:
+    """The top finalist's place id when its containingPlaces could change the
+    KTD4 outcome, else ``None`` (U8 cost rule: fetch only what can matter).
+
+    Only a KTD4 run that stopped at containment / dominance
+    (``no_qualifying_parent``) or at sub-POI-likeness (``finalist_not_sub_poi``)
+    can be overturned, and only when a probe place exists that would pass
+    every other guard if Google named it as the container.
+    """
+    if decision.reason not in (REASON_NO_PARENT, REASON_NOT_SUB_POI):
+        return None
+    if not suggestions or not probe_places:
+        return None
+    top_id = suggestions[0].get("place_id")
+    facts = place_facts.get(top_id) if top_id else None
+    if not facts or key_types(facts) & VENUE_ROLLUP_NON_ROLLABLE_TYPES:
+        return None
+    top_count = review_count(facts)
+    if top_count is None:
+        return None
+    if is_museum(facts) and top_count >= thresholds.min_parent_reviews:
+        return None
+    lat = (centroid or {}).get("latitude", 0.0)
+    lng = (centroid or {}).get("longitude", 0.0)
+    candidates = _containment_candidates(
+        probe_places,
+        top_id=top_id,
+        top_count=top_count,
+        lat=lat,
+        lng=lng,
+        thresholds=thresholds,
+    )
+    return top_id if candidates else None

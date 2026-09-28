@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import functools
 import json
 import logging
 from typing import Any
@@ -12,6 +13,7 @@ import httpx
 from app.services.photo_vision import VisionResult
 from app.services.photo_vision.constants import VISION_TO_PLACE_TYPES
 
+from ._containing_places import containing_places_enabled
 from ._matcher_search import (
     TieredSearchResult,
     places_request_scope,
@@ -38,7 +40,11 @@ from .rate_limit import (
     retry_budget_scope,
 )
 from .utils import name_match_strength, name_matches_candidate
-from .venue_rollup import apply_venue_rollup, rollup_thresholds
+from .venue_rollup import (
+    apply_venue_rollup,
+    containment_fetch_target,
+    rollup_thresholds,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -935,6 +941,8 @@ class ClusterProcessingMixin:
         venue_probe_map: dict[str, list[dict]] = await venue_probe_task
         self.last_venue_probe_results = venue_probe_map
         rollup_settings = rollup_thresholds(self._settings)
+        containment_on = containing_places_enabled(self._settings)
+        containment_pending: list[tuple[dict[str, Any], str, Any]] = []
 
         successful = []
 
@@ -1009,21 +1017,34 @@ class ClusterProcessingMixin:
                 suggestions = reranked or finalists
 
             # KTD4 roll-up (U7): the only reader of the venue-probe map.
+            containment_target = None
             if cluster_id in venue_probe_map:
                 live = {**enriched_ratings, **backfill_ratings}
-                suggestions, rollup_decision = apply_venue_rollup(
+                place_facts = {
+                    p["id"]: _with_live_ratings(p, live)
+                    for p in per_cluster_merged.get(cluster_id, [])
+                }
+                rollup_call = functools.partial(
+                    apply_venue_rollup,
                     suggestions,
                     venue_probe_map[cluster_id],
                     centroid=cluster["centroid"],
-                    place_facts={
-                        p["id"]: _with_live_ratings(p, live)
-                        for p in per_cluster_merged.get(cluster_id, [])
-                    },
+                    place_facts=place_facts,
                     thresholds=rollup_settings,
                     vision_result=vision_result,
                     name_match_locked=cluster_id in name_match_locked_clusters,
                     scene_hints=cluster.get("scene_hints"),
                 )
+                suggestions, rollup_decision = rollup_call()
+                if containment_on:  # U8: top finalist only, when it can matter
+                    containment_target = containment_fetch_target(
+                        rollup_call.args[0],
+                        venue_probe_map[cluster_id],
+                        rollup_decision,
+                        place_facts=place_facts,
+                        thresholds=rollup_settings,
+                        centroid=cluster["centroid"],
+                    )
                 if diagnostics and cluster_id in traces:
                     traces[cluster_id]["venue_rollup"] = rollup_decision.as_trace()
 
@@ -1038,6 +1059,10 @@ class ClusterProcessingMixin:
                     "places": suggestions,
                 }
             )
+            if containment_target is not None:
+                containment_pending.append(
+                    (successful[-1], containment_target, rollup_call)
+                )
 
             if diagnostics and cluster_id in traces:
                 self._finalize_cluster_trace(
@@ -1046,6 +1071,24 @@ class ClusterProcessingMixin:
                     enriched_ratings=enriched_ratings,
                     vision_result=vision_result,
                 )
+
+        # U8 (KTD9): one batched containingPlaces lookup for the top finalists
+        # KTD4 could not settle. Never raises; no answer keeps the U7 result.
+        if containment_pending and _remaining_budget() > 0:
+            with retry_budget_scope(retry_budget):
+                changed = await self._apply_containment_tiebreaks(
+                    containment_pending, timeout=cluster_timeout
+                )
+            for entry, decision in changed:
+                if diagnostics and entry["cluster_id"] in traces:
+                    trace = traces[entry["cluster_id"]]
+                    trace["venue_rollup"] = decision.as_trace()
+                    self._finalize_cluster_trace(
+                        trace=trace,
+                        suggestions=entry["places"],
+                        enriched_ratings=enriched_ratings,
+                        vision_result=vision_map.get(entry["cluster_id"]),
+                    )
 
         record_clusters(len(clusters), failed_count)
         self.last_capacity_failed_cluster_count = capacity_failed_count

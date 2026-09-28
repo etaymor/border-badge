@@ -28,6 +28,9 @@ Row fields read here (all optional except the legacy ones):
 - ``scene_hints``: ``[{"label": <vocab>, "weight": 0..1}]`` on-device scene
   labels (KTD6). Vocabulary: :data:`SCENE_HINT_VOCABULARY`.
 - ``sign_text``: up to :data:`MAX_SIGN_TEXT` short signage strings (KTD6).
+- ``containingPlaces`` on a row place: the Google field (U8, KTD9). Read only
+  when production would fetch it: for the top finalist, when KTD4 alone could
+  not settle a probed cluster (``containment_fetch_target``).
 - ``expected_in_top3``: extra place ids that must also appear in the top 3
   (e.g. the café kept as an option when the parent venue wins, R6).
 
@@ -46,11 +49,17 @@ from typing import Any
 
 from app.services.photo_vision import VisionResult
 from app.services.place_matcher import PlaceMatcher
+from app.services.place_matcher._containing_places import (
+    CONTAINING_PLACES_KEY,
+    containing_places_enabled,
+    parse_containing_ids,
+)
 from app.services.place_matcher._venue_probe import should_probe_venue
 from app.services.place_matcher.constants import MAX_SUGGESTIONS_PER_CLUSTER
 from app.services.place_matcher.utils import name_match_strength
 from app.services.place_matcher.venue_rollup import (
     apply_venue_rollup,
+    containment_fetch_target,
     rollup_thresholds,
 )
 
@@ -122,18 +131,46 @@ def simulate_venue_rollup(
 
     Runs the same pure function production calls, with the matcher's settings.
     It is the only place in this module that reads ``context.probe_places``.
+    The U8 containingPlaces tie-breaker runs under production's own fetch rule,
+    reading the top finalist's row field in place of the paid lookup.
     """
-    places, _decision = apply_venue_rollup(
-        suggestions,
-        context.probe_places,
-        centroid=context.cluster["centroid"],
-        place_facts=context.place_facts,
-        thresholds=rollup_thresholds(matcher._settings),
-        vision_result=context.vision_result,
-        scene_hints=context.scene_hints,
-        sign_text=context.sign_text,
-        name_match_locked=context.name_match_locked,
+    thresholds = rollup_thresholds(matcher._settings)
+
+    def run(**extra: Any):
+        return apply_venue_rollup(
+            suggestions,
+            context.probe_places,
+            centroid=context.cluster["centroid"],
+            place_facts=context.place_facts,
+            thresholds=thresholds,
+            vision_result=context.vision_result,
+            scene_hints=context.scene_hints,
+            sign_text=context.sign_text,
+            name_match_locked=context.name_match_locked,
+            **extra,
+        )
+
+    places, decision = run()
+    target = (
+        containment_fetch_target(
+            suggestions,
+            context.probe_places,
+            decision,
+            place_facts=context.place_facts,
+            thresholds=thresholds,
+            centroid=context.cluster["centroid"],
+        )
+        if containing_places_enabled(matcher._settings)
+        else None
     )
+    if target is not None:
+        ids = parse_containing_ids(
+            context.place_facts[target].get(CONTAINING_PLACES_KEY)
+        )
+        if ids:
+            contained, decision = run(containing_place_ids=ids)
+            if decision.rolled_up:
+                places = contained
     return places
 
 

@@ -166,6 +166,7 @@ class TestVenueRollupKnobs:
         assert s.places_rollup_max_distance_m == 250
         assert s.places_rollup_min_parent_reviews == 2000
         assert s.places_rollup_dominance_ratio == 10.0
+        assert s.places_rollup_containing_places is True
 
     def test_env_overrides(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("PLACES_ROLLUP_MAX_DISTANCE_M", "150")
