@@ -19,7 +19,7 @@ import pytest
 from app.schemas.photos import PhotoCluster
 from app.services.photo_vision import VisionResult
 from app.services.place_matcher import DensityLevel, PlaceMatcher
-from app.services.place_matcher._venue_facts import sign_text_sets_lock
+from app.services.place_matcher._venue_facts import has_evidence, sign_text_sets_lock
 from tests.services.venue_probe_support import (
     LOUVRE_LAT,
     _cluster,
@@ -299,3 +299,107 @@ class TestFlow:
                 monkeypatch, world, ratings, _signed_cluster(None)
             )
             assert dumped == today
+
+
+# ---------------------------------------------------------------------------
+# Generic one-word sign text (CAFE, HOTEL, MUSEE) is not a venue name
+# ---------------------------------------------------------------------------
+
+
+def _hotel_world() -> list[dict[str, Any]]:
+    """A bistro at the centroid and the Hotel du Louvre ~55m north."""
+    return [
+        _place("near", "Bistro du Coin", "restaurant", ["restaurant", "food"]),
+        _place(
+            "hotel",
+            "Hotel du Louvre",
+            "hotel",
+            ["hotel", "lodging"],
+            lat=LOUVRE_LAT + 0.0005,
+        ),
+    ]
+
+
+class TestGenericSignText:
+    """A lone generic word prefixes most names under the brand-prefix rule
+    ("CAFE" ⊑ "Cafe Mollien"), so it must never earn a strong sign match
+    unless it IS the place's whole name."""
+
+    def test_single_generic_word_never_locks(self) -> None:
+        mollien = _place("mollien", "Café Mollien", "cafe", ["cafe", "food"])
+        hotel = _place("hotel", "Hotel du Louvre", "hotel", ["hotel", "lodging"])
+        museum = _place(
+            "arts", "Musee des Arts Decoratifs", "museum", ["museum", "lodging"]
+        )
+        assert not sign_text_sets_lock(mollien, "Café Mollien", ["CAFE"])
+        assert not sign_text_sets_lock(hotel, "Hotel du Louvre", ["HOTEL"])
+        assert not sign_text_sets_lock(museum, "Musee des Arts Decoratifs", ["MUSEE"])
+
+    def test_single_word_sign_equal_to_the_whole_name_still_locks(self) -> None:
+        angelina = _place("angelina", "Angelina", "cafe", ["cafe", "food"])
+        assert sign_text_sets_lock(angelina, "Angelina", ["ANGELINA"])
+
+    def test_multi_token_sign_still_locks(self) -> None:
+        cafe = _place("marly", "Le Cafe Marly", "cafe", ["cafe", "food"])
+        assert sign_text_sets_lock(cafe, "Le Cafe Marly", ["CAFE MARLY"])
+
+    def test_generic_word_is_not_roll_up_evidence(self) -> None:
+        mollien = _place("mollien", "Café Mollien", "cafe", ["cafe", "food"])
+        assert not has_evidence(mollien, "Café Mollien", None, None, ["CAFE"])
+        assert has_evidence(mollien, "Café Mollien", None, None, ["CAFE MOLLIEN"])
+
+    def test_hotel_sign_earns_no_strong_bonus(self, settings) -> None:
+        matcher = PlaceMatcher(http_client=AsyncMock())
+
+        def ranked(cluster: dict[str, Any]) -> list[dict]:
+            return matcher._rank_by_distance(places=_hotel_world(), cluster=cluster)
+
+        baseline = ranked(_cluster())
+        assert baseline[0]["place_id"] == "near"
+        with_sign = ranked(_signed_cluster(["HOTEL"]))
+        assert [p["place_id"] for p in with_sign] == [p["place_id"] for p in baseline]
+        assert not sign_text_sets_lock(_hotel_world()[1], "Hotel du Louvre", ["HOTEL"])
+
+    def test_vision_business_name_keeps_plain_matching(self, settings) -> None:
+        # Only sign text is capped: a one-word vision business name still
+        # brand-prefix matches ("Angelina" ⊑ "Angelina Paris") as before.
+        world = [
+            _place("near", "Bistro du Coin", "restaurant", ["restaurant", "food"]),
+            _place(
+                "angelina",
+                "Angelina Paris",
+                "cafe",
+                ["cafe", "food"],
+                lat=LOUVRE_LAT + 0.0005,
+            ),
+        ]
+        matcher = PlaceMatcher(http_client=AsyncMock())
+        by_vision = matcher._rank_by_distance(
+            places=world,
+            cluster=_cluster(),
+            vision_result=VisionResult(category="food", detected_text=["Angelina"]),
+        )
+        assert by_vision[0]["place_id"] == "angelina"
+        by_sign = matcher._rank_by_distance(
+            places=world, cluster=_signed_cluster(["ANGELINA"])
+        )
+        assert by_sign[0]["place_id"] == "near"
+
+    @pytest.mark.asyncio
+    async def test_cafe_wayfinding_sign_inside_the_louvre_still_rolls_up(
+        self, settings, monkeypatch
+    ) -> None:
+        ids, enriched = await TestFlow()._run(
+            monkeypatch, _cafe_world(), _CAFE_RATINGS, _signed_cluster(["CAFE"])
+        )
+        assert ids[:2] == ["louvre", "marly"]
+        assert "marly" in enriched  # no lock: enrichment ran
+
+    @pytest.mark.asyncio
+    async def test_multi_token_cafe_sign_keeps_the_cafe_first(
+        self, settings, monkeypatch
+    ) -> None:
+        ids, _ = await TestFlow()._run(
+            monkeypatch, _cafe_world(), _CAFE_RATINGS, _signed_cluster(["CAFE MARLY"])
+        )
+        assert ids[0] == "marly"

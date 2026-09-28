@@ -19,11 +19,40 @@ from .constants import (
     VENUE_ROLLUP_NON_ROLLABLE_TYPES,
     VENUE_ROLLUP_SUB_POI_TYPES,
 )
-from .utils import haversine, name_match_strength, sanitize_address, sanitize_place_name
+from .utils import (
+    NameMatchStrength,
+    _normalize_name,
+    _significant_tokens,
+    haversine,
+    name_match_strength,
+    sanitize_address,
+    sanitize_place_name,
+)
 
 KIND_SUB_POI = "sub_poi"
 KIND_GATED = "evidence_gated"
 KIND_OTHER = "other"
+
+
+def sign_text_match_strength(place_name: str, sign_text: str) -> NameMatchStrength:
+    """:func:`name_match_strength` for on-device sign text, capped for lone words.
+
+    OCR reads wayfinding and generic signage ("CAFE", "HOTEL", "MUSEE"), and
+    under the brand-prefix rule a one-token line prefixes most names of that
+    kind. So a sign with fewer than two significant tokens is capped at
+    ``weak`` unless its token sequence IS the place's whole name ("ANGELINA"
+    vs "Angelina"). Vision business names keep plain ``name_match_strength``:
+    the classifier already drops generic words from them.
+    """
+    strength = name_match_strength(place_name, sign_text)
+    if strength != "strong":
+        return strength
+    sign_tokens = _significant_tokens(_normalize_name(sign_text))
+    if len(sign_tokens) >= 2:
+        return strength
+    if sign_tokens == _significant_tokens(_normalize_name(place_name)):
+        return strength
+    return "weak"
 
 
 def all_types(place: Mapping[str, Any]) -> set[str]:
@@ -71,7 +100,7 @@ def has_evidence(
 ) -> bool:
     """Positive evidence that the photos are OF this food/drink/lodging/retail
     place (R6): a food hint, a matching vision category or business name, or a
-    strong sign-text match to its name."""
+    strong sign-text match to its name (:func:`sign_text_match_strength`)."""
     types = all_types(finalist)
     is_food = bool(types & (VISION_TO_PLACE_TYPES["food"] | {"food"}))
     if is_food and any(_hint_label(h) == "food" for h in scene_hints or ()):
@@ -85,7 +114,7 @@ def has_evidence(
             for c in vision_result.business_name_candidates
         ):
             return True
-    return any(name_match_strength(name, t) == "strong" for t in sign_text or ())
+    return any(sign_text_match_strength(name, t) == "strong" for t in sign_text or ())
 
 
 def inside_viewport(place: Mapping[str, Any], lat: float, lng: float) -> bool:
@@ -141,15 +170,15 @@ def sign_text_sets_lock(
 ) -> bool:
     """KTD6: whether on-device sign text may set the name-match lock.
 
-    Only a STRONG match locks, and only when the matched top finalist is not
-    sub-POI-like (``finalist_kind``, KTD4's set). On a sub-POI finalist the
+    Only a STRONG match (:func:`sign_text_match_strength`) locks, and only when
+    the matched top finalist is not sub-POI-like (``finalist_kind``, KTD4's set). On a sub-POI finalist the
     match keeps just its ranking bonus, so a museum placard naming an exhibit
     can never block the roll-up to the museum. A food/drink/lodging/retail
     finalist may lock: a strong sign match is already R6 evidence for it.
     """
     if finalist_kind(finalist) == KIND_SUB_POI:
         return False
-    return any(name_match_strength(name, t) == "strong" for t in sign_text or ())
+    return any(sign_text_match_strength(name, t) == "strong" for t in sign_text or ())
 
 
 def name_match_locks(

@@ -3021,6 +3021,491 @@
     ]
   },
   {
+    "id": "paris-louvre-winged-victory-cafe-sign",
+    "_note": "Clone of paris-louvre-winged-victory-real with on-device sign_text ['CAFE'] (a generic wayfinding sign). A lone generic word must not strong-match Caf\u00e9 Mollien, set the name lock or block the roll-up: expected stays the Louvre.",
+    "cluster": {
+      "centroid": {
+        "latitude": 48.86009,
+        "longitude": 2.33485
+      }
+    },
+    "expected_place_id": "ChIJD3uTd9hx5kcR1IQvGfr8dbk",
+    "vision_results": [],
+    "sign_text": [
+      "CAFE"
+    ],
+    "places": [
+      {
+        "id": "ChIJaXlIRyZu5kcRFy5kDfFs-1E",
+        "displayName": {
+          "text": "luxury one bedroom apartment on Rue de Rivoli"
+        },
+        "formattedAddress": "75001 Paris, France",
+        "location": {
+          "latitude": 48.859840399999996,
+          "longitude": 2.3350001
+        },
+        "primaryType": "lodging",
+        "types": [
+          "lodging",
+          "point_of_interest",
+          "establishment"
+        ],
+        "businessStatus": "OPERATIONAL",
+        "rating": 0,
+        "userRatingCount": 0
+      },
+      {
+        "id": "ChIJkcv1okxv5kcRX3X5y2nJiqw",
+        "displayName": {
+          "text": "Mona Lisa"
+        },
+        "formattedAddress": "10 Quai Fran\u00e7ois Mitterrand, 75001 Paris, France",
+        "location": {
+          "latitude": 48.860120099999996,
+          "longitude": 2.3353159
+        },
+        "types": [
+          "cultural_landmark",
+          "point_of_interest",
+          "establishment"
+        ],
+        "businessStatus": "OPERATIONAL",
+        "rating": 4.4,
+        "userRatingCount": 412
+      },
+      {
+        "id": "ChIJizzQIiZu5kcRRkNiAgWz8ys",
+        "displayName": {
+          "text": "FURNISHED 2-ROOM APARTMENT - RUE SAINT-HONOR\u00c9 - PALAIS ROYAL"
+        },
+        "formattedAddress": "75001 Paris, France",
+        "location": {
+          "latitude": 48.860088399999995,
+          "longitude": 2.3342020999999997
+        },
+        "primaryType": "lodging",
+        "types": [
+          "lodging",
+          "point_of_interest",
+          "establishment"
+        ],
+        "businessStatus": "OPERATIONAL",
+        "rating": 0,
+        "userRatingCount": 0
+      },
+      {
+        "id": "ChIJU6l0ESZu5kcReX4mEjfmJnY",
+        "displayName": {
+          "text": "Caf\u00e9 Mollien"
+        },
+        "formattedAddress": "1er \u00e9tage, 75001 Paris, France",
+        "location": {
+          "latitude": 48.8606371,
+          "longitude": 2.3346306
+        },
+        "primaryType": "cafe",
+        "types": [
+          "cafe",
+          "fast_food_restaurant",
+          "sandwich_shop",
+          "coffee_shop",
+          "food_store",
+          "store",
+          "restaurant",
+          "food",
+          "point_of_interest",
+          "establishment"
+        ],
+        "businessStatus": "OPERATIONAL",
+        "rating": 3.2,
+        "userRatingCount": 434
+      },
+      {
+        "id": "ChIJ77yWZyZu5kcRjQgBo1LVP2M",
+        "displayName": {
+          "text": "166 Suite Roza - Superb apartment in Paris."
+        },
+        "formattedAddress": "75001 Paris, France",
+        "location": {
+          "latitude": 48.8602409,
+          "longitude": 2.3357699
+        },
+        "primaryType": "lodging",
+        "types": [
+          "lodging",
+          "point_of_interest",
+          "establishment"
+        ],
+        "businessStatus": "OPERATIONAL",
+        "rating": 0,
+        "userRatingCount": 0
+      },
+      {
+        "id": "ChIJBy2YWP5v5kcRpZeI4sHOjYI",
+        "displayName": {
+          "text": "D\u00e9partement des Arts de l\u2019Islam"
+        },
+        "formattedAddress": "10 Quai Fran\u00e7ois Mitterrand, 75001 Paris, France",
+        "location": {
+          "latitude": 48.8600414,
+          "longitude": 2.3358969000000003
+        },
+        "primaryType": "museum",
+        "types": [
+          "museum",
+          "point_of_interest",
+          "establishment"
+        ],
+        "businessStatus": "OPERATIONAL",
+        "rating": 4.7,
+        "userRatingCount": 32
+      },
+      {
+        "id": "ChIJFa9wbSZu5kcRD23CcMtMneQ",
+        "displayName": {
+          "text": "One bedroom apartment in front of Louvre"
+        },
+        "formattedAddress": "75001 Paris, France",
+        "location": {
+          "latitude": 48.8607788,
+          "longitude": 2.33515
+        },
+        "primaryType": "lodging",
+        "types": [
+          "lodging",
+          "point_of_interest",
+          "establishment"
+        ],
+        "businessStatus": "OPERATIONAL",
+        "rating": 0,
+        "userRatingCount": 0
+      }
+    ],
+    "probe_places": [
+      {
+        "id": "ChIJD3uTd9hx5kcR1IQvGfr8dbk",
+        "displayName": {
+          "text": "Louvre Museum"
+        },
+        "formattedAddress": "75001 Paris, France",
+        "location": {
+          "latitude": 48.8606111,
+          "longitude": 2.337644
+        },
+        "primaryType": "art_museum",
+        "types": [
+          "art_museum",
+          "tourist_attraction",
+          "museum",
+          "point_of_interest",
+          "establishment"
+        ],
+        "businessStatus": "OPERATIONAL",
+        "rating": 4.7,
+        "userRatingCount": 378404,
+        "viewport": {
+          "low": {
+            "latitude": 48.8595509697085,
+            "longitude": 2.3337294999999982
+          },
+          "high": {
+            "latitude": 48.8622489302915,
+            "longitude": 2.3398489000000016
+          }
+        }
+      },
+      {
+        "id": "ChIJQdQyeiZu5kcRUfQHfB-OCLA",
+        "displayName": {
+          "text": "Louvre Pyramid"
+        },
+        "formattedAddress": "75001 Paris, France",
+        "location": {
+          "latitude": 48.8610135,
+          "longitude": 2.3358583
+        },
+        "primaryType": "cultural_landmark",
+        "types": [
+          "cultural_landmark",
+          "tourist_attraction",
+          "point_of_interest",
+          "establishment"
+        ],
+        "businessStatus": "OPERATIONAL",
+        "rating": 4.7,
+        "userRatingCount": 85693,
+        "viewport": {
+          "low": {
+            "latitude": 48.859971769708494,
+            "longitude": 2.333454369708498
+          },
+          "high": {
+            "latitude": 48.86266973029149,
+            "longitude": 2.3361523302915015
+          }
+        }
+      },
+      {
+        "id": "ChIJ_QwlZC9u5kcRi6OALXVubvc",
+        "displayName": {
+          "text": "Mus\u00e9e des Arts D\u00e9coratifs"
+        },
+        "formattedAddress": "107 Rue de Rivoli, 75001 Paris, France",
+        "location": {
+          "latitude": 48.863114599999996,
+          "longitude": 2.3334945
+        },
+        "primaryType": "art_museum",
+        "types": [
+          "art_museum",
+          "tourist_attraction",
+          "museum",
+          "point_of_interest",
+          "establishment"
+        ],
+        "businessStatus": "OPERATIONAL",
+        "rating": 4.5,
+        "userRatingCount": 10083,
+        "viewport": {
+          "low": {
+            "latitude": 48.8618535697085,
+            "longitude": 2.332203669708498
+          },
+          "high": {
+            "latitude": 48.8645515302915,
+            "longitude": 2.3349016302915016
+          }
+        }
+      },
+      {
+        "id": "ChIJW7ySGCdu5kcRldwk22iNR0o",
+        "displayName": {
+          "text": "Pont des Arts"
+        },
+        "formattedAddress": "Pont des Arts, 75006 Paris, France",
+        "location": {
+          "latitude": 48.858342400000005,
+          "longitude": 2.3375084
+        },
+        "primaryType": "bridge",
+        "types": [
+          "bridge",
+          "tourist_attraction",
+          "transportation_service",
+          "point_of_interest",
+          "establishment"
+        ],
+        "businessStatus": "OPERATIONAL",
+        "rating": 4.6,
+        "userRatingCount": 17699,
+        "viewport": {
+          "low": {
+            "latitude": 48.8571160697085,
+            "longitude": 2.336222169708498
+          },
+          "high": {
+            "latitude": 48.859814030291496,
+            "longitude": 2.338920130291502
+          }
+        }
+      },
+      {
+        "id": "ChIJfbQSDMhx5kcRWl3PZPXbXSI",
+        "displayName": {
+          "text": "Fondation Cartier pour l'art contemporain"
+        },
+        "formattedAddress": "2 Pl. du Palais Royal, 75001 Paris, France",
+        "location": {
+          "latitude": 48.8623786,
+          "longitude": 2.3373494
+        },
+        "primaryType": "art_museum",
+        "types": [
+          "art_museum",
+          "museum",
+          "point_of_interest",
+          "establishment"
+        ],
+        "businessStatus": "CLOSED_TEMPORARILY",
+        "rating": 4.3,
+        "userRatingCount": 5171,
+        "viewport": {
+          "low": {
+            "latitude": 48.8611657697085,
+            "longitude": 2.3359224197084982
+          },
+          "high": {
+            "latitude": 48.86386373029149,
+            "longitude": 2.338620380291502
+          }
+        }
+      },
+      {
+        "id": "ChIJVdC_TS9u5kcR6VusBKX6B3Y",
+        "displayName": {
+          "text": "Arc de Triomphe du Carrousel"
+        },
+        "formattedAddress": "Pl. du Carrousel, 75001 Paris, France",
+        "location": {
+          "latitude": 48.861723000000005,
+          "longitude": 2.3329245999999997
+        },
+        "primaryType": "monument",
+        "types": [
+          "monument",
+          "point_of_interest",
+          "establishment"
+        ],
+        "businessStatus": "OPERATIONAL",
+        "rating": 4.7,
+        "userRatingCount": 2319,
+        "viewport": {
+          "low": {
+            "latitude": 48.8603504197085,
+            "longitude": 2.3318110197084985
+          },
+          "high": {
+            "latitude": 48.8630483802915,
+            "longitude": 2.3345089802915022
+          }
+        }
+      },
+      {
+        "id": "ChIJ13dd5Sdu5kcR3c5yXMEFHgM",
+        "displayName": {
+          "text": "\u00c9cole nationale sup\u00e9rieure des Beaux-Arts"
+        },
+        "formattedAddress": "14 Rue Bonaparte, 75006 Paris, France",
+        "location": {
+          "latitude": 48.8568603,
+          "longitude": 2.3332657
+        },
+        "primaryType": "educational_institution",
+        "types": [
+          "art_museum",
+          "university",
+          "museum",
+          "educational_institution",
+          "service",
+          "point_of_interest",
+          "establishment"
+        ],
+        "businessStatus": "OPERATIONAL",
+        "rating": 4.5,
+        "userRatingCount": 368,
+        "viewport": {
+          "low": {
+            "latitude": 48.8554605697085,
+            "longitude": 2.3321115197084987
+          },
+          "high": {
+            "latitude": 48.8581585302915,
+            "longitude": 2.3348094802915025
+          }
+        }
+      },
+      {
+        "id": "ChIJO6zDI1xv5kcRe_8fbTZrEHQ",
+        "displayName": {
+          "text": "Place Colette"
+        },
+        "formattedAddress": "Rue Saint-Honor\u00e9, 75001 Paris, France",
+        "location": {
+          "latitude": 48.8631896,
+          "longitude": 2.3363494
+        },
+        "primaryType": "historical_landmark",
+        "types": [
+          "historical_landmark",
+          "historical_place",
+          "point_of_interest",
+          "establishment"
+        ],
+        "businessStatus": "OPERATIONAL",
+        "rating": 4.7,
+        "userRatingCount": 203,
+        "viewport": {
+          "low": {
+            "latitude": 48.86174286970849,
+            "longitude": 2.334944769708499
+          },
+          "high": {
+            "latitude": 48.86444083029149,
+            "longitude": 2.3376427302915026
+          }
+        }
+      },
+      {
+        "id": "ChIJNzXxH5pv5kcR8-zHC1e9BtM",
+        "displayName": {
+          "text": "Maison Gainsbourg"
+        },
+        "formattedAddress": "14 Rue de Verneuil, 75007 Paris, France",
+        "location": {
+          "latitude": 48.857498,
+          "longitude": 2.3311509
+        },
+        "primaryType": "cultural_center",
+        "types": [
+          "cultural_center",
+          "gift_shop",
+          "museum",
+          "book_store",
+          "store",
+          "point_of_interest",
+          "establishment"
+        ],
+        "businessStatus": "OPERATIONAL",
+        "rating": 4.8,
+        "userRatingCount": 3394,
+        "viewport": {
+          "low": {
+            "latitude": 48.8560995697085,
+            "longitude": 2.329785219708498
+          },
+          "high": {
+            "latitude": 48.85879753029149,
+            "longitude": 2.332483180291501
+          }
+        }
+      },
+      {
+        "id": "ChIJB4uz6yhu5kcRwVTuFfgf7XY",
+        "displayName": {
+          "text": "Batobus - Station Louvre"
+        },
+        "formattedAddress": "Port du Louvre, 75001 Paris, France",
+        "location": {
+          "latitude": 48.8601874,
+          "longitude": 2.331657
+        },
+        "primaryType": "tour_agency",
+        "types": [
+          "tourist_attraction",
+          "tour_agency",
+          "travel_agency",
+          "service",
+          "point_of_interest",
+          "establishment"
+        ],
+        "businessStatus": "OPERATIONAL",
+        "rating": 4.4,
+        "userRatingCount": 729,
+        "viewport": {
+          "low": {
+            "latitude": 48.8590119197085,
+            "longitude": 2.330229269708498
+          },
+          "high": {
+            "latitude": 48.8617098802915,
+            "longitude": 2.332927230291501
+          }
+        }
+      }
+    ]
+  },
+  {
     "id": "paris-louvre-venus-de-milo-real",
     "_note": "U4 live capture, no vision. MEDIUM. Museum point 85m away but outside the 50m medium tier reached, probe-only. Top on main = a 23-review department (primaryType museum, below the parent review floor, so not a distinct institution). Red on main.",
     "cluster": {

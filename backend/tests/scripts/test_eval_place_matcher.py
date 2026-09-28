@@ -32,6 +32,7 @@ PROBE_ONLY_EXPECTED_ROWS = {
     "paris-louvre-mona-lisa-room-real",
     "paris-louvre-pyramid-real",
     "paris-louvre-winged-victory-real",
+    "paris-louvre-winged-victory-cafe-sign",
     "hand-museum-interior-no-vision",
     "hand-cafe-in-landmark-no-hints",
 }
