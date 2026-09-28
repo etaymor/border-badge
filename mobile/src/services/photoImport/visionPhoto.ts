@@ -21,6 +21,7 @@ import { haversine } from './photoClustering';
 import { getIntentTagsForIds, getTagsForIds } from './photoTagDb';
 import type { PhotoMlTag } from './photoTagDb';
 import type { LocationCluster, PhotoWithLocation } from './types';
+import type { PrepTelemetrySink } from './prepTelemetry';
 import type { VisionPrepBreaker } from './visionPrepBreaker';
 
 const VISION_MAX_DIMENSION = 768;
@@ -384,6 +385,8 @@ export interface VisionImagesOptions {
    * photo's timeout or success is recorded on it.
    */
   breaker?: VisionPrepBreaker;
+  /** The dispatch's preparation telemetry (U3/R4): skips and per-photo outcomes. */
+  telemetry?: PrepTelemetrySink;
 }
 
 /**
@@ -401,15 +404,19 @@ export async function getVisionImagesForCluster(
   maxPhotos: number = MAX_VISION_PHOTOS_PER_CLUSTER,
   options: VisionImagesOptions = {}
 ): Promise<string[]> {
-  const { breaker } = options;
+  const { breaker, telemetry } = options;
   if (breaker?.isOpen()) return [];
   // The URI check is free, so an all-iCloud cluster skips even the tag read.
-  if (!cluster.photos.some((photo) => isPhotoLocallyAvailable(photo))) return [];
+  if (!cluster.photos.some((photo) => isPhotoLocallyAvailable(photo))) {
+    telemetry?.recordSkippedOffloaded(cluster.photos.length);
+    return [];
+  }
 
   const tags = await loadTagRows(cluster);
   const localPhotos = cluster.photos.filter((photo) =>
     isPhotoLocallyAvailable(photo, tags?.get(photo.id))
   );
+  telemetry?.recordSkippedOffloaded(cluster.photos.length - localPhotos.length);
   if (localPhotos.length === 0) return [];
 
   // Quality is scored over the whole cluster (capture contexts need its full
@@ -431,6 +438,7 @@ export async function getVisionImagesForCluster(
       });
       if (timedOut) breaker?.recordTimeout();
       else if (base64) breaker?.recordSuccess();
+      telemetry?.recordPhotoOutcome({ produced: !!base64, timedOut });
       return base64;
     })
   );

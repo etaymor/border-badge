@@ -417,6 +417,36 @@ def _get_process_semaphore(limit: int) -> asyncio.Semaphore:
     return semaphore
 
 
+# A request this large arriving with no images at all is the client's vision
+# preparation failing (U3/R4), not a request that happens to be image-less.
+NO_IMAGE_WARNING_MIN_CLUSTERS = 3
+
+
+def _record_image_less_request(cluster_count: int) -> None:
+    """Record a request whose clusters carried no vision images (U3/R4).
+
+    ``clusters_with_images=0`` lands in the phase metrics so the silent drop is
+    visible, and a request of :data:`NO_IMAGE_WARNING_MIN_CLUSTERS` or more
+    clusters logs one warning. Counts only (R27).
+    """
+    # Deferred import: see the note at the ``record_vision`` call below.
+    from app.services.place_matcher.instrumentation import record_vision
+
+    record_vision(
+        clusters_with_images=0,
+        clusters_attempted=0,
+        clusters_classified=0,
+        images_attempted=0,
+        images_null=0,
+        total_ms=0.0,
+    )
+    if cluster_count >= NO_IMAGE_WARNING_MIN_CLUSTERS:
+        logger.warning(
+            "Vision: request of %d clusters carried no vision images",
+            cluster_count,
+        )
+
+
 async def classify_cluster_photos(
     clusters: list[dict],
 ) -> dict[str, VisionResult]:
@@ -429,6 +459,7 @@ async def classify_cluster_photos(
     vision_clusters = [c for c in clusters if c.get("vision_images_base64")]
 
     if not vision_clusters:
+        _record_image_less_request(len(clusters))
         return {}
 
     per_request_limit, process_limit = resolve_vision_concurrency()
@@ -547,6 +578,7 @@ async def classify_cluster_photos(
     from app.services.place_matcher.instrumentation import record_vision
 
     record_vision(
+        clusters_with_images=len(vision_clusters),
         clusters_attempted=len(vision_clusters),
         clusters_classified=len(vision_map),
         images_attempted=images_attempted,

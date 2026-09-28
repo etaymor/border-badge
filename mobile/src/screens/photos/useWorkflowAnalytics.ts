@@ -8,6 +8,7 @@ import { useCallback, useEffect, useRef } from 'react';
 
 import { AdEvents } from '@services/adEvents';
 import { Analytics } from '@services/analytics';
+import { getPrepTelemetry } from '@services/photoImport/prepTelemetry';
 import { suggestionDispatch } from '@services/photoImport/suggestionDispatch';
 import type { ClusterSuggestion } from '@services/photoImport';
 
@@ -286,6 +287,8 @@ export function useWorkflowAnalytics({
             retryAttempts: telemetry.retryAttempts,
             retryGenerations: telemetry.retryGenerations,
             maxRetryAttemptsPerGeneration: telemetry.maxRetryAttemptsPerGeneration,
+            // U3/R4: an abandoned import still reports its preparation cost.
+            prep: getPrepTelemetry(),
           });
         }
       }

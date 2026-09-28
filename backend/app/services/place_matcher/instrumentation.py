@@ -153,6 +153,11 @@ class RequestMetrics:
     vision_images_attempted: int = 0
     vision_images_null: int = 0
     vision_total_ms: float = 0.0
+    # U3/R4: clusters that arrived carrying at least one vision image. None
+    # means the classifier never ran for this request; 0 is a request whose
+    # every cluster came without images (the silent drop the Sept 2026 Paris
+    # import hit), which must be visible rather than indistinguishable.
+    vision_clusters_with_images: int | None = None
     # Why the null images were null (U12). Sums to vision_images_null.
     vision_null_reasons: dict[str, int] = field(
         default_factory=lambda: dict.fromkeys(VISION_NULL_REASONS, 0)
@@ -234,6 +239,7 @@ class RequestMetrics:
             },
             "vision": {
                 "clusters_attempted": vision_attempted,
+                "clusters_with_images": self.vision_clusters_with_images,
                 "clusters_classified": self.vision_clusters_classified,
                 "clusters_null": vision_null,
                 "null_rate": (
@@ -356,6 +362,7 @@ def record_clusters(cluster_count: int, failed_cluster_count: int) -> None:
 
 def record_vision(
     *,
+    clusters_with_images: int,
     clusters_attempted: int,
     clusters_classified: int,
     images_attempted: int,
@@ -372,6 +379,9 @@ def record_vision(
     metrics = _metrics_var.get()
     if metrics is None:
         return
+    metrics.vision_clusters_with_images = (
+        metrics.vision_clusters_with_images or 0
+    ) + clusters_with_images
     metrics.vision_clusters_attempted += clusters_attempted
     metrics.vision_clusters_classified += clusters_classified
     metrics.vision_images_attempted += images_attempted

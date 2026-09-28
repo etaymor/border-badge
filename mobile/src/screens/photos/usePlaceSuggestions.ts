@@ -38,6 +38,13 @@ import {
 } from '@services/photoImport';
 import { getVisionImagesForCluster } from '@services/photoImport/visionPhoto';
 import {
+  beginPrepTelemetryRun,
+  currentPrepTelemetry,
+  getPrepTelemetry,
+  measurePrepare,
+  type PrepTelemetrySink,
+} from '@services/photoImport/prepTelemetry';
+import {
   createVisionPrepBreaker,
   type VisionPrepBreaker,
 } from '@services/photoImport/visionPrepBreaker';
@@ -293,6 +300,7 @@ function isEntitlementStop(error: unknown): boolean {
 async function prepareVisionImagesBounded(
   clusters: LocationCluster[],
   breaker: VisionPrepBreaker,
+  telemetry: PrepTelemetrySink,
   maxConcurrency: number = VISION_PREP_CONCURRENCY
 ): Promise<string[][]> {
   if (clusters.length === 0) return [];
@@ -306,7 +314,10 @@ async function prepareVisionImagesBounded(
       const index = nextIndex++;
       if (index >= clusters.length) break;
       try {
-        results[index] = await getVisionImagesForCluster(clusters[index], undefined, { breaker });
+        results[index] = await getVisionImagesForCluster(clusters[index], undefined, {
+          breaker,
+          telemetry,
+        });
       } catch (error) {
         if (__DEV__) {
           console.warn('[PhotoImport] Vision preparation failed for cluster', error);
@@ -317,7 +328,10 @@ async function prepareVisionImagesBounded(
   }
 
   const workerCount = Math.min(Math.max(1, maxConcurrency), clusters.length);
-  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  await measurePrepare(telemetry, () =>
+    Promise.all(Array.from({ length: workerCount }, () => worker()))
+  );
+  if (breaker.isOpen()) telemetry.recordBreakerOpened();
 
   return results;
 }
@@ -337,6 +351,7 @@ async function prepareVisionImagesBounded(
  */
 function createVisionPrepareBatch(
   clustersById: Map<string, LocationCluster>,
+  telemetry: PrepTelemetrySink,
   onFirstBatchPrepared?: () => void
 ): (batch: PlaceSuggestionCluster[]) => Promise<PlaceSuggestionCluster[]> {
   let announced = false;
@@ -348,7 +363,7 @@ function createVisionPrepareBatch(
       : batch
           .map((payload) => clustersById.get(payload.id))
           .filter((c): c is LocationCluster => c !== undefined);
-    const visionImages = await prepareVisionImagesBounded(batchClusters, breaker);
+    const visionImages = await prepareVisionImagesBounded(batchClusters, breaker, telemetry);
     const imagesByClusterId = new Map(batchClusters.map((c, i) => [c.id, visionImages[i] ?? []]));
     const prepared = batch.map((payload) => {
       const images = imagesByClusterId.get(payload.id);
@@ -373,7 +388,11 @@ function createVisionPrepareBatch(
  */
 function createVisionPrepare(clusters: LocationCluster[]): () => Promise<PlaceSuggestionCluster[]> {
   return async () => {
-    const visionImages = await prepareVisionImagesBounded(clusters, createVisionPrepBreaker());
+    const visionImages = await prepareVisionImagesBounded(
+      clusters,
+      createVisionPrepBreaker(),
+      currentPrepTelemetry()
+    );
     return clusters.map((cluster, index) => mapClusterToApiPayload(cluster, visionImages[index]));
   };
 }
@@ -740,7 +759,8 @@ export function usePlaceSuggestions({
 
         const result = await suggestionDispatch.dispatch({
           clusters: uncachedClusters.map((c) => mapClusterToApiPayload(c, [])),
-          prepareBatch: createVisionPrepareBatch(clustersById),
+          // U3/R4: a fresh main dispatch starts a fresh preparation run.
+          prepareBatch: createVisionPrepareBatch(clustersById, beginPrepTelemetryRun()),
           tripId,
           // U10/R16/KTD11. The free import is charged on the FIRST SUCCESSFUL
           // BATCH, not at the end of the fetch: progressive results make a
@@ -859,6 +879,7 @@ export function usePlaceSuggestions({
           meanInFlightBatches: telemetry.meanInFlightBatches,
           wireBusyMs: telemetry.wireBusyMs,
           wireSpanMs: telemetry.wireSpanMs,
+          prep: getPrepTelemetry(),
         });
       } catch (error) {
         if (__DEV__) console.error('[PhotoImport] Suggestion error:', error);
@@ -1335,7 +1356,9 @@ export function usePlaceSuggestions({
       try {
         const result = await suggestionDispatch.dispatch({
           clusters: eligible.map((c) => mapClusterToApiPayload(c, [])),
-          prepareBatch: createVisionPrepareBatch(clustersById, () => setBulkRetryPreparingCount(0)),
+          prepareBatch: createVisionPrepareBatch(clustersById, currentPrepTelemetry(), () =>
+            setBulkRetryPreparingCount(0)
+          ),
           isRetry: true,
           tripId: activeTripIdRef.current,
           // A bulk retry is a repair of a run that already claimed the import,

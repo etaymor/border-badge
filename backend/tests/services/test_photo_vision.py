@@ -750,6 +750,81 @@ class TestVisionConcurrencyBounds:
         )
 
 
+class TestVisionImageCoverageRecording:
+    """Vision coverage is recorded even when a request carries no images (U3/R4).
+
+    The Sept 2026 Paris import sent every request with zero vision images and
+    the phase metrics said nothing: the classifier returned before recording.
+    """
+
+    NO_IMAGE_WARNING = "carried no vision images"
+
+    @staticmethod
+    def _clusters(count: int, with_images: int = 0) -> list[dict]:
+        return [
+            {
+                "id": f"cluster-{i}",
+                "vision_images_base64": ["img"] if i < with_images else [],
+            }
+            for i in range(count)
+        ]
+
+    def _no_image_warnings(self, caplog) -> list[logging.LogRecord]:
+        return [
+            record
+            for record in caplog.records
+            if record.levelno == logging.WARNING
+            and self.NO_IMAGE_WARNING in record.getMessage()
+        ]
+
+    @pytest.mark.asyncio
+    async def test_five_clusters_without_images_record_zero_and_warn_once(
+        self, caplog
+    ) -> None:
+        with request_metrics() as metrics, caplog.at_level(logging.WARNING):
+            result = await classify_cluster_photos(self._clusters(5))
+
+        assert result == {}
+        assert metrics.vision_clusters_with_images == 0
+        assert metrics.snapshot()["vision"]["clusters_with_images"] == 0
+        warnings = self._no_image_warnings(caplog)
+        assert len(warnings) == 1
+        # R27: counts only, never a cluster id.
+        assert "cluster-" not in warnings[0].getMessage()
+
+    @pytest.mark.asyncio
+    async def test_two_clusters_without_images_record_zero_but_do_not_warn(
+        self, caplog
+    ) -> None:
+        with request_metrics() as metrics, caplog.at_level(logging.WARNING):
+            await classify_cluster_photos(self._clusters(2))
+
+        assert metrics.vision_clusters_with_images == 0
+        assert self._no_image_warnings(caplog) == []
+
+    @pytest.mark.asyncio
+    async def test_records_how_many_clusters_carried_images(
+        self, monkeypatch, caplog
+    ) -> None:
+        async def fake_classify(_self, _image_base64: str):
+            return None
+
+        monkeypatch.setattr(PhotoClassifier, "classify", fake_classify)
+
+        with request_metrics() as metrics, caplog.at_level(logging.WARNING):
+            await classify_cluster_photos(self._clusters(5, with_images=2))
+
+        assert metrics.vision_clusters_with_images == 2
+        assert metrics.snapshot()["vision"]["clusters_with_images"] == 2
+        assert self._no_image_warnings(caplog) == []
+
+    def test_unrecorded_coverage_reads_as_null_not_zero(self) -> None:
+        """A request that never reached the classifier is not a zero-image one."""
+        with request_metrics() as metrics:
+            pass
+        assert metrics.snapshot()["vision"]["clusters_with_images"] is None
+
+
 class TestVisionNullOutcomeRecording:
     """A null classification is recorded, not silently swallowed (U12)."""
 

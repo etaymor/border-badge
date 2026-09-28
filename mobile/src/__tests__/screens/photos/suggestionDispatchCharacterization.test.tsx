@@ -30,6 +30,7 @@ import { usePlaceSuggestions } from '../../../screens/photos/usePlaceSuggestions
 import { suggestionDispatch } from '@services/photoImport/suggestionDispatch';
 import { CHUNK_SIZE, FIRST_CHUNK_SIZE, planSuggestionBatches } from '@hooks/usePhotoImport';
 import { api } from '@services/api';
+import { Analytics } from '@services/analytics';
 import { getVisionImagesForCluster } from '@services/photoImport/visionPhoto';
 import { manipulateAsync } from 'expo-image-manipulator';
 import {
@@ -661,6 +662,45 @@ describe('U1/U2: vision preparation does not stall the dispatch on offloaded pho
     });
 
     expect(postedClusters().map((c) => c.vision_images_base64?.length)).toEqual([3, 3]);
+  });
+
+  // U3/R4: the completed event carries the dispatch's preparation telemetry.
+  const lastCompletedProps = () =>
+    (Analytics.photoImportSuggestionsCompleted as jest.Mock).mock.calls.at(-1)?.[0];
+
+  it('reports 2 produced, 1 timed out and 4 offloaded skips on the completed event', async () => {
+    jest.useFakeTimers({ doNotFake: ['setImmediate'] });
+    const clusters = [
+      clusterWith('mixed-0', 0, 3, (p) => (p < 2 ? `file://ok-${p}.jpg` : 'file://stall-2.jpg')),
+      clusterWith('icloud-1', 1, 4, (p) => `ph://icloud-1-${p}`),
+    ];
+
+    await postsWithin(clusters, 0);
+
+    expect(lastCompletedProps().prep).toMatchObject({
+      visionImagesAttempted: 3,
+      visionImagesProduced: 2,
+      visionImagesTimedOut: 1,
+      visionPhotosSkippedOffloaded: 4,
+      breakerOpened: false,
+    });
+    expect(lastCompletedProps().prep.prepareMsTotal).toBeGreaterThanOrEqual(10_000);
+    expect(lastCompletedProps().prep.prepareMsMax).toBeGreaterThanOrEqual(10_000);
+  });
+
+  it('reports an opened breaker on the completed event', async () => {
+    jest.useFakeTimers({ doNotFake: ['setImmediate'] });
+    const clusters = Array.from({ length: FIRST_CHUNK_SIZE + CHUNK_SIZE }, (_, i) =>
+      clusterWith(`stall-${i}`, i, 3, (p) => `file://stall-${i}-${p}.jpg`)
+    );
+
+    await postsWithin(clusters, 0);
+
+    expect(lastCompletedProps().prep).toMatchObject({
+      breakerOpened: true,
+      visionImagesProduced: 0,
+    });
+    expect(lastCompletedProps().prep.visionImagesTimedOut).toBeGreaterThanOrEqual(3);
   });
 
   it('a fully local dispatch still attaches up to 3 images per cluster', async () => {

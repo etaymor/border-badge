@@ -56,6 +56,7 @@ jest.mock('@services/analytics', () => ({
 // Imported after the mocks so the real AdEvents picks them up.
 import { Analytics } from '@services/analytics';
 import { suggestionDispatch } from '@services/photoImport/suggestionDispatch';
+import { beginPrepTelemetryRun } from '@services/photoImport/prepTelemetry';
 import { useWorkflowAnalytics } from '../../../screens/photos/useWorkflowAnalytics';
 import type { TripCandidateDisplay } from '@services/photoImport';
 
@@ -189,10 +190,40 @@ describe('useWorkflowAnalytics - concurrency split at exit (U11/R18)', () => {
     for (const forbidden of [...CLUSTER_IDS, 'ChIJ', '35.6', '139.7', 'cand-1']) {
       expect(serialized).not.toContain(forbidden);
     }
-    // Every value is a plain aggregate.
-    for (const value of Object.values(exitedProps())) {
-      expect(typeof value).toBe('number');
+    // Every value is a plain aggregate: a count or rate, or (U3/R4) the
+    // preparation block, itself only counts and the breaker flag.
+    const { prep, ...rest } = exitedProps();
+    for (const value of [...Object.values(rest), ...Object.values(prep ?? {})]) {
+      expect(['number', 'boolean']).toContain(typeof value);
     }
+  });
+});
+
+describe('useWorkflowAnalytics - vision preparation telemetry at exit (U3/R4)', () => {
+  it('an abandoned import still reports the dispatch preparation counters', () => {
+    const prep = beginPrepTelemetryRun();
+    prep.recordPrepareMs(400);
+    prep.recordPrepareMs(10_000);
+    prep.recordPhotoOutcome({ produced: true, timedOut: false });
+    prep.recordPhotoOutcome({ produced: true, timedOut: false });
+    prep.recordPhotoOutcome({ produced: false, timedOut: true });
+    prep.recordSkippedOffloaded(4);
+    suggestionDispatch.claim(CLUSTER_IDS);
+
+    // The user leaves with every cluster unprocessed: nothing completed.
+    const { unmount } = setup();
+    unmount();
+
+    expect(exitedProps()).toMatchObject({ remainingClusters: 4 });
+    expect(exitedProps().prep).toEqual({
+      prepareMsTotal: 10_400,
+      prepareMsMax: 10_000,
+      visionImagesAttempted: 3,
+      visionImagesProduced: 2,
+      visionImagesTimedOut: 1,
+      visionPhotosSkippedOffloaded: 4,
+      breakerOpened: false,
+    });
   });
 });
 
