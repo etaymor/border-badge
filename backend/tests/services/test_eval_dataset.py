@@ -48,10 +48,20 @@ class TestEvalDatasetIntegrity:
         for sample in _load(path):
             expected = sample.get("expected_place_id")
             assert expected, f"{sample.get('id')}: missing expected_place_id"
-            place_ids = {p.get("id") for p in sample.get("places", [])}
+            # A major venue fetched only by the venue probe (e.g. the Louvre
+            # from an interior cluster) lives in probe_places, not places[].
+            place_ids = {
+                p.get("id")
+                for p in sample.get("places", []) + sample.get("probe_places", [])
+            }
             assert expected in place_ids, (
-                f"{sample['id']}: expected_place_id {expected!r} not in places[]"
+                f"{sample['id']}: expected_place_id {expected!r} not in "
+                "places[] or probe_places[]"
             )
+            for extra in sample.get("expected_in_top3", []):
+                assert extra in place_ids, (
+                    f"{sample['id']}: expected_in_top3 {extra!r} not in the world"
+                )
 
     def test_cluster_geometry_complete(self, path: Path) -> None:
         for sample in _load(path):
@@ -59,7 +69,7 @@ class TestEvalDatasetIntegrity:
             assert "latitude" in centroid and "longitude" in centroid, (
                 f"{sample['id']}: cluster.centroid must carry latitude/longitude"
             )
-            for place in sample.get("places", []):
+            for place in sample.get("places", []) + sample.get("probe_places", []):
                 assert place.get("displayName", {}).get("text"), (
                     f"{sample['id']}: place {place.get('id')} missing displayName.text"
                 )
