@@ -120,7 +120,8 @@ class RankingMixin:
 
         Args:
             places: Places from API response
-            cluster: Cluster with centroid and time data
+            cluster: Cluster with centroid and time data (and optional
+                on-device ``sign_text``, read as a name signal)
             time_hint: Optional time hint (food/attraction/nightlife/quick_stop)
             vision_result: Optional VisionResult from photo classification
 
@@ -131,9 +132,16 @@ class RankingMixin:
         cluster_lat = cluster["centroid"]["latitude"]
         cluster_lng = cluster["centroid"]["longitude"]
 
-        name_candidates: list[str] = (
-            vision_result.business_name_candidates if vision_result is not None else []
-        )
+        # KTD6 (U10): on-device sign text is a name signal like a vision
+        # business name. Same tiers: only a strong match earns the full bonus.
+        name_candidates: list[str] = [
+            *(
+                vision_result.business_name_candidates
+                if vision_result is not None
+                else []
+            ),
+            *(cluster.get("sign_text") or []),
+        ]
 
         def _best_name_match_strength(raw_name: str) -> str:
             """Best match tier across all detected name candidates."""

@@ -7,7 +7,8 @@ production never does. Production (``_matcher_cluster_processing``):
 1. ranks the rating-blind wide-search candidates (the wide field mask omits
    ``rating``/``userRatingCount``) on distance, vision, dwell and type priors;
 2. takes the top ``MAX_SUGGESTIONS_PER_CLUSTER`` finalists (skipping the rest of
-   the flow when the top finalist STRONG-matches vision signage: name lock);
+   the flow when the top finalist STRONG-matches vision signage, or on-device
+   sign text on a finalist that is not sub-POI-like (KTD6): name lock);
 3. restores live ratings for those finalists ONLY, re-applies the review gate,
    and re-ranks them;
 4. backfills a short list from the first-pass tail: gate-approved (enriched)
@@ -27,7 +28,8 @@ Row fields read here (all optional except the legacy ones):
   row's ``places`` and ``scene_hints``) would have fired the probe.
 - ``scene_hints``: ``[{"label": <vocab>, "weight": 0..1}]`` on-device scene
   labels (KTD6). Vocabulary: :data:`SCENE_HINT_VOCABULARY`.
-- ``sign_text``: up to :data:`MAX_SIGN_TEXT` short signage strings (KTD6).
+- ``sign_text``: up to :data:`MAX_SIGN_TEXT` short signage strings (KTD6):
+  a name signal in both ranking passes, the lock above, and roll-up evidence.
 - ``containingPlaces`` on a row place: the Google field (U8, KTD9). Read only
   when production would fetch it: for the top finalist, when KTD4 alone could
   not settle a probed cluster (``containment_fetch_target``).
@@ -54,6 +56,7 @@ from app.services.place_matcher._containing_places import (
     containing_places_enabled,
     parse_containing_ids,
 )
+from app.services.place_matcher._venue_facts import sign_text_sets_lock
 from app.services.place_matcher._venue_probe import should_probe_venue
 from app.services.place_matcher.constants import MAX_SUGGESTIONS_PER_CLUSTER
 from app.services.place_matcher.utils import name_match_strength
@@ -184,7 +187,9 @@ def rank_two_pass(
     vision_result: VisionResult | None,
 ) -> list[dict[str, Any]]:
     """Rank one row the way production's two-pass flow does. See module doc."""
-    cluster = sample["cluster"]
+    sign_text = parse_sign_text(sample.get("sign_text"))
+    # U10: production ranks with the cluster's sign text as a name signal.
+    cluster = {**sample["cluster"], "sign_text": sign_text or None}
     world: list[dict[str, Any]] = sample.get("places", [])
     raw_by_id = {p["id"]: p for p in world}
     time_hint = cluster.get("time_hint")
@@ -212,9 +217,16 @@ def rank_two_pass(
     name_candidates = (
         vision_result.business_name_candidates if vision_result is not None else []
     )
-    locked = bool(finalists) and any(
-        name_match_strength(finalists[0]["name"], c) == "strong"
-        for c in name_candidates
+    locked = bool(finalists) and (
+        any(
+            name_match_strength(finalists[0]["name"], c) == "strong"
+            for c in name_candidates
+        )
+        or sign_text_sets_lock(
+            raw_by_id.get(finalists[0]["place_id"], finalists[0]),
+            finalists[0]["name"],
+            sign_text,
+        )
     )
 
     if locked:
@@ -239,7 +251,7 @@ def rank_two_pass(
         vision_result=vision_result,
         probe_places=list(sample.get("probe_places") or []) if probed else [],
         scene_hints=scene_hints,
-        sign_text=parse_sign_text(sample.get("sign_text")),
+        sign_text=sign_text,
         name_match_locked=locked,
         place_facts=raw_by_id,
     )

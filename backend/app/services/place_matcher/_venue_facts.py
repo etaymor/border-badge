@@ -134,3 +134,19 @@ def parent_suggestion(
             vision_result.category if vision_result is not None else None
         ),
     }
+
+
+def sign_text_sets_lock(
+    finalist: Mapping[str, Any], name: str, sign_text: Sequence[str] | None
+) -> bool:
+    """KTD6: whether on-device sign text may set the name-match lock.
+
+    Only a STRONG match locks, and only when the matched top finalist is not
+    sub-POI-like (``finalist_kind``, KTD4's set). On a sub-POI finalist the
+    match keeps just its ranking bonus, so a museum placard naming an exhibit
+    can never block the roll-up to the museum. A food/drink/lodging/retail
+    finalist may lock: a strong sign match is already R6 evidence for it.
+    """
+    if finalist_kind(finalist) == KIND_SUB_POI:
+        return False
+    return any(name_match_strength(name, t) == "strong" for t in sign_text or ())

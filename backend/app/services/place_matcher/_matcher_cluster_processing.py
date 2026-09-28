@@ -19,6 +19,7 @@ from ._matcher_search import (
     places_request_scope,
     resolve_places_concurrency,
 )
+from ._venue_facts import sign_text_sets_lock
 from .constants import (
     MAX_CONCURRENT_PLACES_REQUESTS,
     MAX_SUGGESTIONS_PER_CLUSTER,
@@ -809,12 +810,22 @@ class ClusterProcessingMixin:
             # A weak (containment) match must NOT lock: its bonus is small enough
             # for enrichment to overturn, and locking would also skip the review
             # re-gate that filters zero-review listings.
-            if (
-                finalists
-                and vision_result is not None
-                and any(
-                    name_match_strength(finalists[0]["name"], c) == "strong"
-                    for c in vision_result.business_name_candidates
+            # KTD6 (U10): strong sign text may lock too, never on a sub-POI.
+            if finalists and (
+                (
+                    vision_result is not None
+                    and any(
+                        name_match_strength(finalists[0]["name"], c) == "strong"
+                        for c in vision_result.business_name_candidates
+                    )
+                )
+                or sign_text_sets_lock(
+                    next(
+                        (p for p in merged if p["id"] == finalists[0]["place_id"]),
+                        finalists[0],
+                    ),
+                    finalists[0]["name"],
+                    cluster.get("sign_text"),
                 )
             ):
                 name_match_locked_clusters.add(cluster_id)
@@ -1034,6 +1045,7 @@ class ClusterProcessingMixin:
                     vision_result=vision_result,
                     name_match_locked=cluster_id in name_match_locked_clusters,
                     scene_hints=cluster.get("scene_hints"),
+                    sign_text=cluster.get("sign_text"),  # U10: R6 evidence
                 )
                 suggestions, rollup_decision = rollup_call()
                 if containment_on:  # U8: top finalist only, when it can matter
