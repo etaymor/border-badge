@@ -19,7 +19,7 @@ from ._matcher_search import (
     places_request_scope,
     resolve_places_concurrency,
 )
-from ._venue_facts import sign_text_sets_lock
+from ._venue_facts import name_match_locks
 from .constants import (
     MAX_CONCURRENT_PLACES_REQUESTS,
     MAX_SUGGESTIONS_PER_CLUSTER,
@@ -811,22 +811,14 @@ class ClusterProcessingMixin:
             # for enrichment to overturn, and locking would also skip the review
             # re-gate that filters zero-review listings.
             # KTD6 (U10): strong sign text may lock too, never on a sub-POI.
-            if finalists and (
-                (
-                    vision_result is not None
-                    and any(
-                        name_match_strength(finalists[0]["name"], c) == "strong"
-                        for c in vision_result.business_name_candidates
-                    )
-                )
-                or sign_text_sets_lock(
-                    next(
-                        (p for p in merged if p["id"] == finalists[0]["place_id"]),
-                        finalists[0],
-                    ),
-                    finalists[0]["name"],
-                    cluster.get("sign_text"),
-                )
+            if finalists and name_match_locks(
+                next(
+                    (p for p in merged if p["id"] == finalists[0]["place_id"]),
+                    finalists[0],
+                ),
+                finalists[0]["name"],
+                vision_result,
+                cluster.get("sign_text"),
             ):
                 name_match_locked_clusters.add(cluster_id)
                 logger.debug(
@@ -954,6 +946,7 @@ class ClusterProcessingMixin:
         rollup_settings = rollup_thresholds(self._settings)
         containment_on = containing_places_enabled(self._settings)
         containment_pending: list[tuple[dict[str, Any], str, Any]] = []
+        live_ratings = {**enriched_ratings, **backfill_ratings}
 
         successful = []
 
@@ -1030,9 +1023,8 @@ class ClusterProcessingMixin:
             # KTD4 roll-up (U7): the only reader of the venue-probe map.
             containment_target = None
             if cluster_id in venue_probe_map:
-                live = {**enriched_ratings, **backfill_ratings}
                 place_facts = {
-                    p["id"]: _with_live_ratings(p, live)
+                    p["id"]: _with_live_ratings(p, live_ratings)
                     for p in per_cluster_merged.get(cluster_id, [])
                 }
                 rollup_call = functools.partial(
@@ -1047,10 +1039,11 @@ class ClusterProcessingMixin:
                     scene_hints=cluster.get("scene_hints"),
                     sign_text=cluster.get("sign_text"),  # U10: R6 evidence
                 )
+                pre_rollup_suggestions = suggestions
                 suggestions, rollup_decision = rollup_call()
                 if containment_on:  # U8: top finalist only, when it can matter
                     containment_target = containment_fetch_target(
-                        rollup_call.args[0],
+                        pre_rollup_suggestions,
                         venue_probe_map[cluster_id],
                         rollup_decision,
                         place_facts=place_facts,

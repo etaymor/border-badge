@@ -56,10 +56,9 @@ from app.services.place_matcher._containing_places import (
     containing_places_enabled,
     parse_containing_ids,
 )
-from app.services.place_matcher._venue_facts import sign_text_sets_lock
+from app.services.place_matcher._venue_facts import name_match_locks
 from app.services.place_matcher._venue_probe import should_probe_venue
 from app.services.place_matcher.constants import MAX_SUGGESTIONS_PER_CLUSTER
-from app.services.place_matcher.utils import name_match_strength
 from app.services.place_matcher.venue_rollup import (
     apply_venue_rollup,
     containment_fetch_target,
@@ -214,19 +213,11 @@ def rank_two_pass(
     )
     finalists = first_pass[:limit]
 
-    name_candidates = (
-        vision_result.business_name_candidates if vision_result is not None else []
-    )
-    locked = bool(finalists) and (
-        any(
-            name_match_strength(finalists[0]["name"], c) == "strong"
-            for c in name_candidates
-        )
-        or sign_text_sets_lock(
-            raw_by_id.get(finalists[0]["place_id"], finalists[0]),
-            finalists[0]["name"],
-            sign_text,
-        )
+    locked = bool(finalists) and name_match_locks(
+        raw_by_id.get(finalists[0]["place_id"], finalists[0]),
+        finalists[0]["name"],
+        vision_result,
+        sign_text,
     )
 
     if locked:

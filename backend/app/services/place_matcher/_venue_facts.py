@@ -150,3 +150,23 @@ def sign_text_sets_lock(
     if finalist_kind(finalist) == KIND_SUB_POI:
         return False
     return any(name_match_strength(name, t) == "strong" for t in sign_text or ())
+
+
+def name_match_locks(
+    finalist: Mapping[str, Any],
+    name: str,
+    vision_result: VisionResult | None,
+    sign_text: Sequence[str] | None,
+) -> bool:
+    """Whether the top finalist's name match locks the cluster's ranking.
+
+    A strong match to a vision-detected business name always locks; sign text
+    locks only under :func:`sign_text_sets_lock`. Shared by production and the
+    two-pass eval so the two cannot drift.
+    """
+    if vision_result is not None and any(
+        name_match_strength(name, c) == "strong"
+        for c in vision_result.business_name_candidates
+    ):
+        return True
+    return sign_text_sets_lock(finalist, name, sign_text)
