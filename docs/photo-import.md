@@ -128,7 +128,7 @@ with the gallery open behaves. Unmounting with it open (swipe-back) releases it.
 
 PlaceMatcher uses a mixin pattern for separation of concerns. When modifying matching behavior, identify the correct mixin file rather than editing `matcher.py` directly.
 
-- `matcher.py` - PlaceMatcher orchestrator (inherits SearchMixin, RankingMixin, ClusterProcessingMixin)
+- `matcher.py` - PlaceMatcher orchestrator (inherits ClusterProcessingMixin, ContainingPlacesMixin, VenueProbeMixin, SearchMixin, RankingMixin)
 - `_matcher_search.py` - Density-adaptive tiered radius search, Text Search API fallback, tourist relevance filter
 - `_matcher_ranking.py` - Vision-integrated scoring with 7 configurable weights (distance, reviews, rating, fame, dwell, vision, name-match)
 - `_matcher_cluster_processing.py` - Parallel cluster processing with vision result integration
