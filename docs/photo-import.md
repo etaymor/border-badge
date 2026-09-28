@@ -14,7 +14,9 @@ The photo import feature allows users to scan their device photo library and aut
 - `photoCacheDb.ts` - SQLite caching for incremental imports
 - `photoCacheDbSuggestions.ts` - Processed clusters, cached suggestions with TTL
 - `photoBackgroundSync.ts` - Silent background cache refresh on app foreground (1hr interval)
-- `visionPhoto.ts` - Select representative photos, resize to 768px, base64 encode for vision API
+- `visionPhoto.ts` - Select representative photos from the locally available ones, resize to 768px, base64 encode for vision API
+- `visionPrepBreaker.ts`, `prepTelemetry.ts` - Per-dispatch prep breaker and prep/coverage telemetry (see "Offloaded photos and the prep breaker")
+- `sceneHints.ts` - On-device scene hints and sign text sent with each cluster (see "Scene hints" and "Sign text")
 - `suggestionDispatch.ts` - Module-level singleton owning place-suggestion dispatch (see "Suggestion dispatch controller")
 - `types.ts`, `errors.ts`, `index.ts`
 
@@ -78,6 +80,30 @@ which **degrade instead of failing**:
   the serialized preparation tail is released instead of pinning every later
   batch behind the stalled one; the batch dispatches unprepared.
 
+**Offloaded photos and the prep breaker (U2, 2026-09-27).** The bounds above
+stop a stall from freezing the import, but on the Sept 2026 Paris trip every
+request still waited out 10s per iCloud-only photo and carried zero images. Two
+changes remove that wait:
+
+- **Local-only selection (KTD1).** `isPhotoLocallyAvailable` (`visionPhoto.ts`)
+  treats a photo as offloaded when its cached URI is `ph://` (the scan stores
+  `localUri ?? uri`, so `ph://` means PhotoKit had no local file) or its
+  `photo_ml_tags` row has status `no-local-image`. No schema change.
+  `getVisionImagesForCluster` selects representatives from the local photos
+  only, so the anchor becomes the closest *local* photo. A cluster with none
+  sends no images and matches on its coordinates.
+- **Per-dispatch breaker (KTD2).** `visionPrepBreaker.ts` opens after
+  `VISION_PREP_BREAKER_THRESHOLD` (3) consecutive per-photo timeouts; the rest
+  of that dispatch prepares nothing. A JS timeout does not cancel the native
+  task, so later attempts would queue behind the stuck ones. One breaker per
+  dispatch (`createVisionPrepareBatch`), and a fresh one for each manual split
+  or row retry, so a bad run never costs a later one its vision. It stays open
+  once opened and logs one `console.warn`. OTA-tunable; rollback: set the
+  threshold to `Number.POSITIVE_INFINITY`.
+
+Scene hints and sign text come from stored tag rows, not pixels, so they are
+still sent when the breaker is open or every photo is offloaded.
+
 **Gallery pause.** Opening the photo gallery calls `pause('gallery')`
 (`useGalleryDispatchPause`) — the decode for the photo the user just tapped
 would otherwise queue behind a steady stream of preparation work on Expo's
@@ -110,6 +136,9 @@ PlaceMatcher uses a mixin pattern for separation of concerns. When modifying mat
 - `persistent_cache.py` - Postgres/Supabase-backed persistent cache (L2); see "Persistent place cache" below
 - `constants.py` - Search radii, density thresholds, place type mappings, quality filters
 - `utils.py` - Haversine distance, coordinate utilities, name/address sanitization
+- `_venue_probe.py` - Venue probe (`VenueProbeMixin`, `should_probe_venue`); see "Venue probe"
+- `venue_rollup.py`, `_venue_facts.py` - Post-rank venue roll-up and its type/evidence helpers; see "Venue roll-up defaults"
+- `_containing_places.py` - `containingPlaces` fetch for the roll-up tie-breaker
 
 ### Persistent place cache (L2)
 
@@ -239,7 +268,7 @@ The photo import pipeline optionally uses computer vision to improve place match
 
 ### How It Works
 
-1. **Mobile (preparation)**: `visionPhoto.ts` selects up to 3 representative photos per cluster (closest-to-centroid + temporal extremes), resizes to 768px max dimension, and base64-encodes as JPEG (~50-80KB per image)
+1. **Mobile (preparation)**: `visionPhoto.ts` selects up to 3 representative photos per cluster from its locally available photos (closest-to-centroid + temporal extremes; iCloud-only photos are skipped, see "Offloaded photos and the prep breaker"), resizes to 768px max dimension, and base64-encodes as JPEG (~50-80KB per image)
 2. **Transport**: Vision images sent in `vision_images_base64` field of the `/photos/suggest-places` request (2M char payload cap)
 3. **Backend (classification)**: `PhotoClassifier` sends images to Gemini Flash Lite via OpenRouter with structured output schema
 4. **Backend (integration)**: Vision classification runs in parallel with Google Places search; results are merged before ranking
@@ -394,8 +423,15 @@ Photo import uses memory-optimized display types (`TripCandidateDisplay`, `Locat
 cached_photos          - GPS photo metadata cache (incremental import)
 cached_trip_segments   - Pre-computed trip segment data for memory-optimized display
 processed_clusters     - Tracks confirmed/hidden cluster suggestions
-cached_suggestions     - Place suggestion cache with TTL
+cached_place_suggestions - Place suggestion cache with TTL and suggestion_version
 ```
+
+### Suggestion cache version (U11, 2026-09-27)
+
+`SUGGESTION_CACHE_VERSION` (`photoCacheDbSuggestions.ts`, currently `1`) is stamped on every `cached_place_suggestions` row in the `suggestion_version` column. On read, a **non-empty** row with a different version (including pre-column rows, which read as NULL) is a miss and the cluster is refetched. Empty rows ignore the version and keep their 24h TTL. Confirmed, hidden and split state lives in other tables and is never touched (KTD7).
+
+- **When to bump:** a backend matcher change should replace suggestions users already have cached (version 1 = the major-venue roll-up).
+- **Deploy order:** ship the OTA carrying a bump **only after** the backend change is live in production. An earlier bump refetches from the old backend and re-caches its results under the new version, and they then stick.
 
 ## Tuning Place Matcher Ranking Weights
 
@@ -457,6 +493,24 @@ Captured against live Google with the production tiered-search code (rating-bear
 
 `scripts/eval_place_matcher.py --two-pass` (KTD5, `scripts/eval_two_pass.py`) replays these rows the way production ranks them: a rating-blind first pass, top-3 finalists, ratings restored for those only, re-rank and backfill, then the roll-up step, which is the only reader of a row's `probe_places`, and only when production's `should_probe_venue` would have fired for the row. Before U7, the four real Louvre-interior rows and the two hand-shaped museum/café rows failed (`PRE_ROLLUP_FAILURES` in `tests/scripts/test_eval_two_pass.py`); after U7 `KNOWN_TWO_PASS_FAILURES` is empty. The real no-hint Café Marly row now expects Le Café Marly: none of its candidates is museum/landmark/attraction family, so production never probes it and cannot see the Louvre (user decision, 2026-09-27).
 
+### Venue probe (U6, 2026-09-27)
+
+`_venue_probe.py` (KTD3) fetches the major venue a cluster sits in: one POPULARITY-ranked Nearby call, `includedTypes` = `VENUE_PROBE_INCLUDED_TYPES` (`museum, tourist_attraction, historical_landmark, cultural_landmark, monument, art_gallery, park`, exactly the set U4 proved live), with `VENUE_PROBE_FIELD_MASK` (the wide mask plus `rating`, `userRatingCount`, `viewport`) so the parent arrives rated and with a footprint.
+
+- **Trigger (`should_probe_venue`). No density gate** (user decision, 2026-09-27, overriding KTD3's DENSE/MEDIUM gate: U4 found most Louvre-interior clusters SPARSE). It fires at any density when either holds:
+  - a local candidate from the rings already searched carries a museum, landmark or attraction-family type (`VENUE_PROBE_TRIGGER_TYPES`: the vision `landmark` family plus `art_museum`, matched on full `types` and `primaryType`);
+  - an on-device scene hint is `museum_interior` or `artwork` (`VENUE_PROBE_TRIGGER_HINTS`).
+- **Cafés are never probed on their own** (user decision, 2026-09-27). A café or shop cluster with no landmark-family neighbor and no museum hint does not trigger, so the café stays first. Cards merge on `places[0]`, so rolling a real café visit up to the museum would swallow its card. The `--two-pass` eval applies the same trigger as production.
+- **Isolation.** Results go into a separate per-cluster map that only the roll-up reads. They never join the first-pass candidates, the backfill pool or the filler, so `places` is byte-identical with the probe on or off whenever the roll-up does not fire.
+- **Cache.** The request is centered on the centroid rounded to 3 decimals (~110m cell). Key: `venue_{token}_{lat}_{lng}_{radius}`, where the token is `VENUE_PROBE_CACHE_VERSION` (`v1`) plus an 8-hex hash of the field mask and included types, so a change to either mints new keys. It goes through the usual L1 → L2 (60-day) → single-flight stack, shared across clusters in the cell and across users. Bump `VENUE_PROBE_CACHE_VERSION` when the request shape changes.
+- **Failure.** Optional call: a timeout or transport error is not retried and yields `[]`; a non-200 yields `[]` and is not cached; a rate limit is retried with backoff. It is skipped once the request budget is spent. It never fails a cluster.
+- **Cost.** One Enterprise-SKU Nearby call per triggering ~110m cell for the first visitor, near zero once cached. The plan estimated 20-40 of 100 clusters triggering on a city trip (a few dozen calls, about $0.50-1.50 for a first visit to an area), but that assumed the density gate; without it, more clusters in landmark-heavy cities trigger. Spend shows as `outbound.venue_probe` in `place_matcher_phase_metrics`.
+
+| Knob | Default | Rollback / no-op |
+| --- | --- | --- |
+| `PLACES_VENUE_PROBE` (`places_venue_probe`) | `true` | `false`: no probe calls; with no probe places the roll-up never fires, so output matches pre-U6 |
+| `PLACES_VENUE_PROBE_RADIUS_M` | 400 (100-1000) | no no-op value; use the flag. 400m reached the Louvre point from every interior capture (85-255m) |
+
 ### Venue roll-up defaults (U7, 2026-09-27)
 
 `app/services/place_matcher/venue_rollup.py` (KTD4) promotes a venue-probe place to `places[0]` after re-rank and backfill. Production and the `--two-pass` eval call the same function.
@@ -464,10 +518,10 @@ Captured against live Google with the production tiered-search code (rating-bear
 | Knob | Default | Why | Rollback / no-op |
 | --- | --- | --- | --- |
 | `PLACES_ROLLUP_MIN_PARENT_REVIEWS` | 2000 | Keeps a 300-review village church from absorbing its square. Also the review count at which a museum finalist counts as a distinct institution (Arts Décoratifs, 10,083). | `0` turns the roll-up off (output identical to pre-U7) |
-| `PLACES_ROLLUP_DOMINANCE_RATIO` | 10 | Passes a café with no evidence (300k vs 12k = 25x). Blocks a 60k park next to a 300k museum (5x). Every real exhibit clears it by 900x or more. | raise it (max 1000) to require stronger dominance |
+| `PLACES_ROLLUP_DOMINANCE_RATIO` | 10 | Passes a café with no evidence (300k vs 12k = 25x). Blocks a 60k park next to a 300k museum (5x). Every real exhibit clears it by 900x or more. | no exact no-op; raise it (max 1000) to require stronger dominance. Turn the rule off with the reviews knob |
 | `PLACES_ROLLUP_MAX_DISTANCE_M` | 250 | Containment when the centroid is outside the parent's viewport. The Louvre viewport already covers every captured interior point. 250m excludes a museum 330m away across a garden. | `0` leaves only the viewport test |
 
-Two fixed guards live in `constants.py`:
+`PLACES_ROLLUP_MIN_PARENT_REVIEWS=0` stops the roll-up but not the probe calls; set `PLACES_VENUE_PROBE=false` as well to stop the spend. Two fixed guards (constants in `constants.py`):
 
 - **Viewport waiver.** When the centroid is inside the parent's viewport and the top finalist is an exhibit or landmark (tourist attraction, gallery, sculpture, cultural or historical landmark, monument), the ratio drops to `VENUE_ROLLUP_WAIVER_MIN_RATIO` = 2. The live Louvre Pyramid (85,693 reviews) is only 4.4x below the Louvre (378,404), so it needs the waiver.
 - **Eiffel guard.** The waiver never lets a parent win with less than 2x the finalist's reviews, and it never applies to a park or garden parent. At the Eiffel base the probe also returns Champ de Mars (225,645 reviews, 0.46x the Tower), whose viewport covers the base. Either guard alone keeps the Tower first. A park still absorbs a 27-review statue inside it, because that clears the full 10x ratio.
@@ -478,7 +532,7 @@ Never rolled up: a museum finalist with 2000+ reviews, a theater or place of wor
 
 U4 found Google's `containingPlaces` populated for Louvre exhibits and empty for the Pyramid and Le Café Marly, so it settles only what KTD4 cannot; it never detects a parent (KTD9). Logic lives in `venue_rollup.py` (`containment_fetch_target`, the `containing_place_ids` argument) and the fetch in `_containing_places.py`.
 
-- **Rule.** When the top finalist's `containingPlaces` names a probe place, that place wins without the containment test, the sub-POI type test or the dominance ratio. Every other guard still applies: parent type and `PLACES_ROLLUP_MIN_PARENT_REVIEWS`, the name-match lock, R6 evidence for food/drink/lodging/retail, the distinct-institution museum, never-rollable types. One fixed floor (`CONTAINMENT_MIN_RATIO` = 1): the container needs at least the finalist's review count, so Champ de Mars never absorbs the Eiffel Tower. A containing place that is not in the probe results, or no field, leaves U7 output unchanged.
+- **Rule.** When the top finalist's `containingPlaces` names a probe place, that place wins without the containment test, the sub-POI type test or the dominance ratio. Every other guard still applies: parent type and `PLACES_ROLLUP_MIN_PARENT_REVIEWS`, the name-match lock, R6 evidence for food/drink/lodging/retail, the distinct-institution museum, never-rollable types. One fixed floor (`CONTAINMENT_MIN_RATIO` = 1, in `venue_rollup.py`; not a setting): the container needs at least the finalist's review count, so Champ de Mars never absorbs the Eiffel Tower. A containing place that is not in the probe results, or no field, leaves U7 output unchanged.
 - **When it is fetched.** Only for a probed cluster with non-empty probe results, only for its top finalist, and only when KTD4 stopped at `no_qualifying_parent` or `finalist_not_sub_poi` while a probe place exists that would pass every other guard. A cluster KTD4 already rolled up, an evidence-kept café, a church, or a cluster with no major probe place never fetches. All such top finalists in a request go out in one batched pass after assembly, under the request budget and the cluster timeout.
 - **Cost.** One Place Details call with field mask `id,containingPlaces`, billed as **Place Details Pro** (the field is a Pro field; the rating enrichment stays on its own Enterprise mask). The answer is stored in `cached_google_place.details` under `containingPlaces` (an empty answer as `[]`), merged onto the rating row. Rows written before U8 lack the key and refetch once, then serve from cache. No migration.
 - **Failure.** A non-200, transport error, rate limit or timeout returns no answer and is not cached; the cluster keeps its U7 result.
@@ -495,7 +549,7 @@ Each cluster may carry `scene_hints: [{label, weight}]` (KTD6), derived for free
 
 - **Vocabulary.** `museum_interior` (`museum`, `dinosaur`), `artwork` (`painting`, `art`, `statue`, `stained_glass`, `illustrations`), `food` (about 60 food and drink identifiers plus `restaurant`), `outdoor_landmark` (`monument`, `tower`, `castle`, `ruins`, and similar). Every identifier was checked against `VNClassifyImageRequest.supportedIdentifiers()`. `sculpture`, `gallery`, `church`, `cathedral` and `palace` are not in Apple's taxonomy.
 - **Thresholds.** A label counts for a photo at confidence >= 0.3. A hint is sent when at least 30% of the cluster's tagged photos carry it (40% for `food`, because it is a veto). Untagged photos and rows without measured labels are left out of the denominator. A photo that was tagged before it was offloaded still counts.
-- **Backend.** `app/schemas/photos.py` caps the list at 8 entries (more returns 422), bounds weights to 0-1, and drops unknown labels so newer clients stay forward-compatible. `museum_interior` / `artwork` trigger the venue probe (`should_probe_venue`). `food` is the R6 evidence that keeps a food or drink finalist first (`venue_rollup._has_evidence`).
+- **Backend.** `app/schemas/photos.py` caps the list at 8 entries (more returns 422), bounds weights to 0-1, and drops unknown labels so newer clients stay forward-compatible. `museum_interior` / `artwork` trigger the venue probe (`should_probe_venue`). `food` is the R6 evidence that keeps a food or drink finalist first (`_venue_facts.has_evidence`).
 - **Rollback.** Raise a `SCENE_HINT_MIN_SHARE` entry above 1 over the air to stop sending that hint. With no hints, the backend behaves exactly as it did before U9.
 
 ### Sign text (U10, 2026-09-27)
@@ -505,9 +559,22 @@ Each cluster may carry `sign_text: [string]` (KTD6): short strings the photo tag
 - **Native.** `PhotoTaggerModule.swift` runs `VNRecognizeTextRequest` (`.fast`, no language correction) on the same handler and 512px local thumbnail as the scene classifier, in its own `perform` so an OCR failure never costs the labels. Each photo returns its 8 largest lines as raw `{string, confidence, area}`. They are stored in `photo_ml_tags.sign_text_json`, a nullable column added with `addColumnIfMissing`. Null means not measured.
 - **Tagger version.** `photoTagRows.ts` keys the effective version on `capabilities().textRecognition`: `TAGGER_VERSION + 1` (2) when the binary reports it, `TAGGER_VERSION` (1) otherwise. An older binary running new JS neither re-tags nor stamps rows as text-recognized. The first pass on a new binary re-tags existing rows once.
 - **Client thresholds** (`sceneHints.ts`, OTA-tunable). A line counts at confidence >= 0.5 (`SIGN_TEXT_MIN_CONFIDENCE`). Whitespace is collapsed and trimmed, each string is capped at 40 characters (`SIGN_TEXT_MAX_CHARS`), and a string needs at least 3 letters. Duplicates are removed case-insensitively across photos. Strings are ranked by how many photos show them, then by on-frame area. At most 5 are sent (`SIGN_TEXT_MAX_STRINGS`). The key is omitted when there are none.
-- **Backend.** `app/schemas/photos.py` accepts at most 5 strings of at most 64 characters (either cap returns 422), trims them, and drops blank and duplicate strings. In ranking, sign text joins the vision business names as name candidates (`_rank_by_distance`), with the same tiers: only a strong match earns the full bonus. A strong match is R6 evidence in the roll-up. It sets the enrichment-skip name lock only when the matched top finalist is not sub-POI-like (`_venue_facts.sign_text_sets_lock`), so a museum placard naming an exhibit cannot block the roll-up to the museum. Vision name-lock behavior is unchanged. The `--two-pass` eval passes a row's `sign_text` through the same ranking, lock and roll-up.
+- **Backend.** `app/schemas/photos.py` accepts at most 5 strings of at most 64 characters (either cap returns 422), trims them, and drops blank and duplicate strings. In ranking, sign text joins the vision business names as name candidates (`_rank_by_distance`), with the same tiers: only a strong match earns the full bonus. A strong match is R6 evidence in the roll-up. It sets the enrichment-skip name lock only when the matched top finalist is not sub-POI-like (`_venue_facts.sign_text_sets_lock`), so a museum placard naming an exhibit cannot block the roll-up to the museum. Vision name-lock behavior is unchanged. The `--two-pass` eval passes a row's `sign_text` through the same ranking, lock and roll-up. Sign text feeds only the Nearby ranking; the text-search rescue still queries on vision text alone. The diagnostics field `top_finalist_name_matched_vision` compares the top finalist against vision business names only, so a cluster locked by sign text shows `False`.
 - **Rollback.** Raise `SIGN_TEXT_MIN_CONFIDENCE` above 1 over the air to stop sending sign text. Without `sign_text`, the backend behaves exactly as it did before U10.
 - **Open check.** Record on-device yield on the Paris trip (the share of storefront photos that give a usable string at 512px fast recognition).
+
+### Apple Foundation Models / Private Cloud Compute (assessed September 2026, not built)
+
+- **Available.** On iOS 27 the Foundation Models framework exposes the on-device model (8K context) and `PrivateCloudComputeLanguageModel` (32K). Both take image attachments, guided generation and tool calling, including a system `OCRTool`. PCC is reportedly free to apps under ~2M downloads with a per-user daily quota; that threshold comes from secondary coverage of WWDC26 session 319 and must be confirmed in the developer account before anything relies on it.
+- **Not a fit for identification.** Apple says the model is not built for general world knowledge, and no public API returns a landmark or artwork name from pixels. Visual Look Up resolves identity server-side and shows it only in Apple's UI.
+- **Why not now.** It runs only on Apple Intelligence devices, so Gemini stays for everything older than iPhone 15 Pro. The Gemini Flash Lite spend it would replace is small. It hits the same iCloud-offloaded pixel problem. Picking the parent venue from a candidate list is already done by the deterministic roll-up, which the eval replays exactly.
+- **Where it could help later.** One on-device multimodal call that reads signage (via `OCRTool`) and names the business, on eligible devices. Revisit if plain OCR (U10) proves too noisy. If adopted, prefer a small first-party Expo module like `mobile/modules/photo-tagger/` over young community packages.
+
+### Known gaps (venue roll-up work, 2026-09-27)
+
+- **Text search ignores sign text.** Sign text is a ranking name signal only; the text-search rescue still builds its query from vision `detected_text`.
+- **Hints can drop with the watchdog.** Scene hints and sign text are attached inside the per-batch prepare step. When `PREPARE_WATCHDOG_MS` fires, that batch goes out as the bare skeleton, without hints or sign text.
+- **OCR yield unmeasured.** The on-device sign-text yield check on the Paris trip is still owed on a device build (`eas build`, U10).
 
 ### Diagnostics
 
@@ -525,6 +592,8 @@ Everything a dashboard needs about photo import is either a PostHog event from t
 | `photo_import_api_error`             | A dispatch is stopped by a rejection                        | `error_type`: `quota_exhausted` \| `rate_limited` \| `entitlement_exhausted` \| `unknown`                                                                                                                                                                                                                      |
 | `photo_import_workflow_completed`    | Every cluster confirmed, rejected or hidden                 | the existing counts and rates, plus `viewed_clusters` / `viewed_cluster_rate`                                                                                                                                                                                                                                  |
 | `photo_import_workflow_exited`       | The user leaves with clusters unprocessed                   | the existing counts, plus `viewed_clusters`, `viewed_cluster_rate`, `enqueued_clusters`, `settled_clusters`, `unsettled_clusters`, `retry_attempts`, `retry_generations`, `max_retry_attempts_per_generation`                                                                                                  |
+
+**Vision prep fields (U3, 2026-09-27).** `photo_import_suggestions_completed` and `photo_import_workflow_exited` both carry the dispatch run's prep telemetry (`prepTelemetry.ts`, flattened by `prepTelemetryProps` in `analytics.ts`): `prepare_ms_total`, `prepare_ms_max`, `vision_images_attempted`, `vision_images_produced`, `vision_images_timed_out`, `vision_photos_skipped_offloaded`, `vision_breaker_opened`. Each is `null` when the event carries no prep snapshot. A fresh main dispatch starts a new run; retries fold into it; the run survives `reset()` so the exit event can read it. Counts only. `vision_images_produced = 0` with a high `vision_photos_skipped_offloaded` is an iCloud-only library, not a broken encoder.
 
 **Reading the occupancy fields.** `peak_in_flight_batches` is the high-water mark of requests on the wire; `mean_in_flight_batches` is the same quantity integrated over time and divided by `wire_span_ms`, so it reports how much of the pool the run actually used. A peak of 3 with a mean near 1 is a preparation-bound run, not a network-bound one — `wire_span_ms - wire_busy_ms` is the dead air more concurrency cannot remove. `total_api_duration_ms` sums per-batch durations and therefore **over-counts** once batches overlap; use `wall_clock_ms` for elapsed time and the occupancy pair for the shape of it.
 
@@ -550,7 +619,7 @@ Three shifts break naive time-series comparisons through the progressive-loading
 
 ### Backend phase metrics
 
-The backend emits one `place_matcher_phase_metrics` line per request with `phase_ms` (search / vision_wait / enrichment / backfill), `cache`, `outbound`, `retries` and `vision.null_reasons`. Two vision numbers exist and they answer different questions: **`phase_ms.vision_wait` is the RESIDUAL wait vision adds on top of search** (the two run concurrently), while **`vision.total_ms` is vision's total wall time**. Tune ordering with the residual; size the vision budget with the total. `retries` is the rate-limit retry counter and is the leading indicator on the release watch list; the client-side counterpart is `retry_attempts` on the exit event.
+The backend emits one `place_matcher_phase_metrics` line per request with `phase_ms` (search / vision_wait / enrichment / backfill), `cache`, `outbound`, `retries` and `vision.null_reasons`. Two vision numbers exist and they answer different questions: **`phase_ms.vision_wait` is the RESIDUAL wait vision adds on top of search** (the two run concurrently), while **`vision.total_ms` is vision's total wall time**. Tune ordering with the residual; size the vision budget with the total. `vision.clusters_with_images` (U3) counts clusters that arrived with vision images; an image-less request records `0`, and one of `NO_IMAGE_WARNING_MIN_CLUSTERS` (3) or more clusters also logs `Vision: request of N clusters carried no vision images` (`photo_vision/classifier.py`). That warning is the server-side sign of the client prep failure the Paris import hit. `retries` is the rate-limit retry counter and is the leading indicator on the release watch list; the client-side counterpart is `retry_attempts` on the exit event.
 
 ### Ad-conversion baseline (`FirstPhotoImport`)
 
@@ -657,3 +726,6 @@ binaries built before the module. On-device verification:
 | `backend/app/services/place_matcher/_matcher_ranking.py` | Vision-integrated place ranking        |
 | `backend/app/services/place_matcher/_matcher_search.py`  | Density-adaptive search logic          |
 | `backend/app/services/photo_vision/classifier.py`        | Photo classification via Gemini        |
+| `backend/app/services/place_matcher/_venue_probe.py`     | Venue probe (major-venue lookup)       |
+| `backend/app/services/place_matcher/venue_rollup.py`     | Post-rank venue roll-up                |
+| `mobile/src/services/photoImport/visionPrepBreaker.ts`   | Per-dispatch vision prep breaker       |
