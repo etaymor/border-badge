@@ -65,11 +65,15 @@ METHOD_NEARBY = "nearby"
 METHOD_TEXT_SEARCH = "text_search"
 METHOD_POPULARITY_PROBE = "popularity_probe"
 METHOD_PLACE_DETAILS = "place_details"
+# Venue-rollup U6 (KTD3): the rated POPULARITY venue probe, counted apart from
+# the legacy vision-gated popularity probe so its cost is readable on its own.
+METHOD_VENUE_PROBE = "venue_probe"
 METHODS: tuple[str, ...] = (
     METHOD_NEARBY,
     METHOD_TEXT_SEARCH,
     METHOD_POPULARITY_PROBE,
     METHOD_PLACE_DETAILS,
+    METHOD_VENUE_PROBE,
 )
 
 # Where a lookup was served from. Every attempted lookup lands in exactly one
@@ -112,11 +116,13 @@ SITE_NEARBY = "nearby"
 SITE_TEXT_SEARCH = "text_search"
 SITE_POPULARITY_PROBE = "popularity_probe"
 SITE_ENRICHMENT = "enrichment"
+SITE_VENUE_PROBE = "venue_probe"
 SITES: tuple[str, ...] = (
     SITE_NEARBY,
     SITE_TEXT_SEARCH,
     SITE_POPULARITY_PROBE,
     SITE_ENRICHMENT,
+    SITE_VENUE_PROBE,
 )
 
 # The vision-null vocabulary lives in photo_vision.constants, a leaf module,

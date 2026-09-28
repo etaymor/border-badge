@@ -1,0 +1,274 @@
+"""Tests for the U6 venue probe (KTD3 as amended 2026-09-27).
+
+The venue probe is one POPULARITY-ranked Nearby call, restricted to major-venue
+types and carrying rating/userRatingCount/viewport, that brings a nearby major
+venue (the Louvre, the Eiffel Tower) into a SEPARATE per-cluster map. Only the
+KTD4 roll-up (U7) may read that map, so with the roll-up absent the returned
+``places`` must be byte-identical with the probe on or off.
+
+Trigger (user decision, overriding KTD3's density gate): no density gate. It
+fires at ANY density when a local candidate is museum/landmark/attraction
+family, or when on-device scene hints say ``museum_interior`` / ``artwork``.
+"""
+
+import asyncio
+import json
+from unittest.mock import AsyncMock
+
+import httpx
+import pytest
+
+from app.services.place_matcher import DensityLevel, PlaceMatcher
+from app.services.place_matcher._venue_probe import should_probe_venue
+from app.services.place_matcher.exceptions import RateLimitError
+from tests.services.venue_probe_support import (
+    _attraction_world,
+    _cluster,
+    _louvre,
+    _place,
+    _restaurant_world,
+    _wire_flow,
+    make_settings,
+)
+
+
+@pytest.fixture
+def settings(monkeypatch):
+    return make_settings(monkeypatch)
+
+
+# ---------------------------------------------------------------------------
+# Trigger (pure)
+# ---------------------------------------------------------------------------
+
+
+class TestShouldProbeVenue:
+    def test_cultural_landmark_candidate_triggers(self) -> None:
+        world = [_place("mona", "Mona Lisa", "cultural_landmark")]
+        assert should_probe_venue(world) is True
+
+    @pytest.mark.parametrize(
+        "primary_type",
+        [
+            "museum",
+            "art_museum",
+            "art_gallery",
+            "cultural_landmark",
+            "historical_landmark",
+            "monument",
+            "tourist_attraction",
+        ],
+    )
+    def test_each_major_family_type_triggers(self, primary_type: str) -> None:
+        assert should_probe_venue([_place("p", "P", primary_type)]) is True
+
+    def test_family_type_in_secondary_types_triggers(self) -> None:
+        # Google often puts the attraction type second (e.g. a sculpture).
+        world = [
+            _place("v", "Victoire", "sculpture", ["sculpture", "tourist_attraction"])
+        ]
+        assert should_probe_venue(world) is True
+
+    def test_restaurants_and_lodging_without_hints_do_not_trigger(self) -> None:
+        assert should_probe_venue(_restaurant_world()) is False
+        assert should_probe_venue(_restaurant_world(), None) is False
+
+    def test_empty_world_without_hints_does_not_trigger(self) -> None:
+        assert should_probe_venue([]) is False
+
+    @pytest.mark.parametrize("hint", ["museum_interior", "artwork"])
+    def test_museum_hint_triggers_even_on_restaurants(self, hint: str) -> None:
+        assert should_probe_venue(_restaurant_world(), [hint]) is True
+        assert should_probe_venue([], [{"label": hint, "weight": 0.8}]) is True
+
+    def test_unrelated_hints_do_not_trigger(self) -> None:
+        hints = [{"label": "food", "weight": 0.9}, "outdoor_landmark"]
+        assert should_probe_venue(_restaurant_world(), hints) is False
+
+    def test_malformed_hints_are_ignored(self) -> None:
+        assert should_probe_venue([], [None, 3, {"weight": 1}]) is False
+
+
+# ---------------------------------------------------------------------------
+# Cluster flow: trigger at every density, isolation, degradation
+# ---------------------------------------------------------------------------
+
+
+class TestVenueProbeClusterFlow:
+    @pytest.mark.asyncio
+    async def test_dense_attraction_cluster_probes_exactly_once(
+        self, settings, monkeypatch
+    ) -> None:
+        matcher = PlaceMatcher(http_client=AsyncMock())
+        calls = _wire_flow(
+            matcher, monkeypatch, _attraction_world(), DensityLevel.DENSE, [_louvre()]
+        )
+
+        _results, failed = await matcher.find_places_for_clusters([_cluster()])
+
+        assert failed == 0
+        assert len(calls) == 1
+        assert matcher.last_venue_probe_results == {"cluster-1": [_louvre()]}
+
+    @pytest.mark.asyncio
+    async def test_sparse_cluster_with_cultural_landmark_probes(
+        self, settings, monkeypatch
+    ) -> None:
+        """Indoors the 15m ring finds nothing: most Louvre clusters are SPARSE."""
+        matcher = PlaceMatcher(http_client=AsyncMock())
+        world = [_place("mona", "Mona Lisa", "cultural_landmark")]
+        calls = _wire_flow(
+            matcher, monkeypatch, world, DensityLevel.SPARSE, [_louvre()]
+        )
+
+        _results, failed = await matcher.find_places_for_clusters([_cluster()])
+
+        assert failed == 0
+        assert len(calls) == 1
+
+    @pytest.mark.asyncio
+    async def test_medium_cluster_with_museum_probes(
+        self, settings, monkeypatch
+    ) -> None:
+        matcher = PlaceMatcher(http_client=AsyncMock())
+        world = [_place("dept", "Departement des Antiquites", "museum")]
+        calls = _wire_flow(
+            matcher, monkeypatch, world, DensityLevel.MEDIUM, [_louvre()]
+        )
+
+        await matcher.find_places_for_clusters([_cluster()])
+
+        assert len(calls) == 1
+
+    @pytest.mark.parametrize(
+        "density", [DensityLevel.DENSE, DensityLevel.MEDIUM, DensityLevel.SPARSE]
+    )
+    @pytest.mark.asyncio
+    async def test_restaurant_cluster_never_probes(
+        self, settings, monkeypatch, density
+    ) -> None:
+        matcher = PlaceMatcher(http_client=AsyncMock())
+        calls = _wire_flow(
+            matcher, monkeypatch, _restaurant_world(), density, [_louvre()]
+        )
+
+        _results, failed = await matcher.find_places_for_clusters([_cluster()])
+
+        assert failed == 0
+        assert calls == []
+        assert matcher.last_venue_probe_results == {}
+
+    @pytest.mark.asyncio
+    async def test_probe_is_centered_on_the_rounded_cell(
+        self, settings, monkeypatch
+    ) -> None:
+        matcher = PlaceMatcher(http_client=AsyncMock())
+        calls = _wire_flow(
+            matcher, monkeypatch, _attraction_world(), DensityLevel.DENSE, []
+        )
+
+        await matcher.find_places_for_clusters([_cluster()])
+
+        assert calls == [(48.861, 2.336)]
+
+    @pytest.mark.asyncio
+    async def test_flag_off_makes_no_call(self, settings, monkeypatch) -> None:
+        settings.places_venue_probe = False
+        matcher = PlaceMatcher(http_client=AsyncMock())
+        calls = _wire_flow(
+            matcher, monkeypatch, _attraction_world(), DensityLevel.DENSE, [_louvre()]
+        )
+
+        _results, failed = await matcher.find_places_for_clusters([_cluster()])
+
+        assert failed == 0
+        assert calls == []
+        assert matcher.last_venue_probe_results == {}
+
+    @pytest.mark.asyncio
+    async def test_places_identical_with_probe_on_and_off(
+        self, settings, monkeypatch
+    ) -> None:
+        """KTD3 isolation: probe venues never become finalists, backfill or filler.
+
+        The world is sized below MAX_SUGGESTIONS_PER_CLUSTER after the review
+        gate so the backfill and un-gated filler paths both run, which is where
+        a leaked probe venue would surface.
+        """
+        world = _attraction_world()
+        ratings = {
+            "pyramid": {"rating": 4.6, "userRatingCount": 85693},
+            "dept-islam": {"rating": 4.5, "userRatingCount": 2},  # gated out
+            "galerie": {"rating": 4.8, "userRatingCount": 900},
+            "victoire": {"rating": 4.8, "userRatingCount": 45},
+        }
+
+        async def run(flag: bool) -> tuple[list[dict], list[tuple[float, float]]]:
+            settings.places_venue_probe = flag
+            matcher = PlaceMatcher(http_client=AsyncMock())
+            calls = _wire_flow(
+                matcher,
+                monkeypatch,
+                world,
+                DensityLevel.SPARSE,
+                [_louvre()],
+                ratings=ratings,
+            )
+            results, failed = await matcher.find_places_for_clusters([_cluster()])
+            assert failed == 0
+            return results, calls
+
+        on_results, on_calls = await run(True)
+        off_results, off_calls = await run(False)
+
+        assert len(on_calls) == 1
+        assert off_calls == []
+        assert json.dumps(on_results, sort_keys=True) == json.dumps(
+            off_results, sort_keys=True
+        )
+        assert "louvre" not in {p["place_id"] for p in on_results[0]["places"]}
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            RateLimitError("rate limited"),
+            httpx.ReadTimeout("slow"),
+            RuntimeError("unexpected"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_failed_probe_never_fails_the_cluster(
+        self, settings, monkeypatch, error
+    ) -> None:
+        matcher = PlaceMatcher(http_client=AsyncMock())
+        _wire_flow(matcher, monkeypatch, _attraction_world(), DensityLevel.DENSE, error)
+
+        results, failed = await matcher.find_places_for_clusters([_cluster()])
+
+        assert failed == 0
+        assert results[0]["places"]
+        assert matcher.last_venue_probe_results == {"cluster-1": []}
+
+    @pytest.mark.asyncio
+    async def test_probe_timeout_never_fails_the_cluster(
+        self, settings, monkeypatch
+    ) -> None:
+        matcher = PlaceMatcher(http_client=AsyncMock())
+        _wire_flow(matcher, monkeypatch, _attraction_world(), DensityLevel.DENSE, [])
+
+        async def hang(latitude, longitude):
+            await asyncio.sleep(10)
+            return [_louvre()]
+
+        monkeypatch.setattr(matcher, "_execute_venue_probe", hang)
+        monkeypatch.setattr(
+            "app.services.place_matcher._matcher_cluster_processing."
+            "cluster_timeout_for",
+            lambda _settings: 0.05,
+        )
+
+        results, failed = await matcher.find_places_for_clusters([_cluster()])
+
+        assert failed == 0
+        assert results[0]["places"]
+        assert matcher.last_venue_probe_results == {"cluster-1": []}

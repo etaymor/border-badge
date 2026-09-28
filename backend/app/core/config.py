@@ -375,6 +375,29 @@ class Settings(BaseSettings):
             "clusters still missing their venue after the U5 rescue."
         ),
     )
+    places_venue_probe: bool = Field(
+        default=True,
+        description=(
+            "Venue-rollup U6 (KTD3): one POPULARITY Nearby per ~110m cell, "
+            "restricted to major-venue types and carrying rating, review "
+            "count and viewport, fired (at any density) when a local "
+            "candidate is museum/landmark/attraction family or on-device "
+            "scene hints say museum_interior/artwork. Results sit in a "
+            "separate per-cluster map that only the roll-up reads, so ranking "
+            "is unchanged when the roll-up does not fire. Rollback: false "
+            "makes no call and restores prior behavior."
+        ),
+    )
+    places_venue_probe_radius_m: int = Field(
+        default=400,
+        ge=100,
+        le=1000,
+        description=(
+            "Radius (meters) of the venue probe. 400m reached the Louvre's "
+            "single map point from every interior capture point in the U4 "
+            "live evidence (85-255m away)."
+        ),
+    )
 
     # Travel photo quiz — vision eligibility gate (U2). The quiz is a free,
     # shareable surface (farmable across signups), so classification spend is

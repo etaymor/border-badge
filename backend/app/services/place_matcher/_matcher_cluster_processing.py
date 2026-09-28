@@ -80,6 +80,10 @@ class ClusterProcessingMixin:
     #: rather than changing this method's return shape, which that route reads.
     last_capacity_failed_cluster_count: int = 0
 
+    #: Venue-probe results of the last request, ``{cluster_id: places}`` (U6,
+    #: KTD3). Read-only observability; the roll-up reads the local map.
+    last_venue_probe_results: dict[str, list[dict[str, Any]]] = {}
+
     async def find_places_for_clusters(
         self,
         clusters: list[dict[str, Any]],
@@ -98,6 +102,7 @@ class ClusterProcessingMixin:
         ``resolve_places_concurrency``).
         """
         self.last_capacity_failed_cluster_count = 0
+        self.last_venue_probe_results = {}
         with request_metrics(), places_request_scope():
             return await self._find_places_for_clusters(clusters, vision_results_task)
 
@@ -366,6 +371,20 @@ class ClusterProcessingMixin:
             cluster, places, radius_used, search_result = r
             search_results.append((cluster, places, radius_used))
             search_result_by_cluster[cluster["id"]] = search_result
+
+        # Venue probe (U6, KTD3): runs beside the rescue/probe/enrichment
+        # phases and is joined only before the final assembly. Its map never
+        # feeds the candidate lists below; only the roll-up may read it.
+        venue_probe_task = asyncio.create_task(
+            self._venue_probes_for_clusters(
+                search_results,
+                semaphore=semaphore,
+                remaining_budget=_remaining_budget,
+                retry_budget=retry_budget,
+                cluster_timeout=cluster_timeout,
+                scene_hints_by_cluster=None,  # U9 wires on-device hints here
+            )
+        )
 
         # Per-cluster diagnostic trace accumulator (KTD2). Built only when the
         # flag is on; mutated across the four passes and emitted once at the end.
@@ -906,6 +925,10 @@ class ClusterProcessingMixin:
             except Exception as e:  # never crash the request on enrichment
                 logger.warning(f"Backfill rating enrichment unavailable: {e}")
                 backfill_ratings = {}
+
+        # Never raises (every failure degrades to []); see _venue_probe.
+        venue_probe_map: dict[str, list[dict]] = await venue_probe_task
+        self.last_venue_probe_results = venue_probe_map
 
         successful = []
 

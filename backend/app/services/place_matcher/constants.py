@@ -538,3 +538,58 @@ WIDE_FIELD_MASK = ",".join(
 # Place Details field mask used to enrich the top finalists with the live rating
 # signals the ranking needs. Requested per-place only for surfaced candidates.
 ENRICH_FIELD_MASK = "id,rating,userRatingCount"
+
+# ============================================================================
+# Venue probe (venue-rollup plan U6, KTD3)
+# ============================================================================
+
+# includedTypes for the POPULARITY venue probe. This is exactly the set the U4
+# live capture (2026-09-27) proved: at every Louvre-interior point it returned
+# the Louvre FIRST, with rating, review count and viewport.
+#
+# ``art_museum`` is deliberately absent even though it is the Louvre's
+# primaryType: ``includedTypes`` matches the FULL types array and the Louvre
+# (like every art museum seen in the capture) also carries ``museum``, so it
+# adds no recall. It was never exercised live, and an includedType the API
+# rejects answers 400, which the probe degrades to an empty result for every
+# cluster -- a silent total outage. Add types only after a live check.
+VENUE_PROBE_INCLUDED_TYPES: list[str] = [
+    "museum",
+    "tourist_attraction",
+    "historical_landmark",
+    "cultural_landmark",
+    "monument",
+    "art_gallery",
+    "park",
+]
+
+# A local candidate of any of these types makes a cluster probe-eligible, at
+# ANY density (user decision 2026-09-27, overriding KTD3's DENSE-only gate:
+# the U4 capture found most Louvre-interior clusters SPARSE, because the 15m
+# ring finds nothing indoors). Built on the vision "landmark" family the
+# ranking already uses, plus ``art_museum``, which Google returns as a
+# primaryType. Matched against each candidate's full ``types`` array.
+VENUE_PROBE_TRIGGER_TYPES: frozenset[str] = frozenset(
+    VISION_TO_PLACE_TYPES["landmark"] | {"art_museum"}
+)
+
+# On-device scene-hint labels (KTD6 vocabulary) that also make a cluster
+# probe-eligible, whatever its candidates are.
+VENUE_PROBE_TRIGGER_HINTS: frozenset[str] = frozenset({"museum_interior", "artwork"})
+
+# The probe's own field mask: the wide pass's fields plus the rating signals
+# and the viewport the roll-up's containment test reads. Enterprise-tier, but
+# one call per ~110m cell, shared across users. WIDE_FIELD_MASK and
+# ENRICH_FIELD_MASK are unchanged.
+VENUE_PROBE_FIELD_MASK = ",".join(
+    [
+        *WIDE_FIELD_MASK.split(","),
+        "places.rating",
+        "places.userRatingCount",
+        "places.viewport",
+    ]
+)
+
+# Bump when the request shape (types, mask, ranking) changes, so a cached row
+# written under the old shape is never read back as the new one.
+VENUE_PROBE_CACHE_VERSION = "v1"

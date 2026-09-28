@@ -132,6 +132,32 @@ class TestPopularityProbeKnob:
         assert Settings(_env_file=None).places_popularity_probe is True
 
 
+class TestVenueProbeKnobs:
+    """U6 venue probe (KTD3): default ON, 400m, with bounds."""
+
+    def test_default_on(self) -> None:
+        assert _settings().places_venue_probe is True
+
+    def test_env_off(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("PLACES_VENUE_PROBE", "false")
+        assert Settings(_env_file=None).places_venue_probe is False
+
+    def test_radius_default(self) -> None:
+        assert _settings().places_venue_probe_radius_m == 400
+
+    def test_radius_env_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("PLACES_VENUE_PROBE_RADIUS_M", "600")
+        assert Settings(_env_file=None).places_venue_probe_radius_m == 600
+
+    def test_radius_bounds(self) -> None:
+        assert _settings(places_venue_probe_radius_m=100).places_venue_probe_radius_m
+        assert _settings(places_venue_probe_radius_m=1000).places_venue_probe_radius_m
+        with pytest.raises(ValidationError):
+            _settings(places_venue_probe_radius_m=99)
+        with pytest.raises(ValidationError):
+            _settings(places_venue_probe_radius_m=1001)
+
+
 class TestTypePriorKnobs:
     """U3: lodging demotion + landmark boost ranking knobs."""
 
