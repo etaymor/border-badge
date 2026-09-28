@@ -38,6 +38,10 @@ import {
 } from '@services/photoImport';
 import { getVisionImagesForCluster } from '@services/photoImport/visionPhoto';
 import {
+  createVisionPrepBreaker,
+  type VisionPrepBreaker,
+} from '@services/photoImport/visionPrepBreaker';
+import {
   claimPhotoImportForTrip,
   ensurePhotoImportGrandfatherPass,
   hasDisclosedFreeImport,
@@ -288,6 +292,7 @@ function isEntitlementStop(error: unknown): boolean {
  */
 async function prepareVisionImagesBounded(
   clusters: LocationCluster[],
+  breaker: VisionPrepBreaker,
   maxConcurrency: number = VISION_PREP_CONCURRENCY
 ): Promise<string[][]> {
   if (clusters.length === 0) return [];
@@ -301,7 +306,7 @@ async function prepareVisionImagesBounded(
       const index = nextIndex++;
       if (index >= clusters.length) break;
       try {
-        results[index] = await getVisionImagesForCluster(clusters[index]);
+        results[index] = await getVisionImagesForCluster(clusters[index], undefined, { breaker });
       } catch (error) {
         if (__DEV__) {
           console.warn('[PhotoImport] Vision preparation failed for cluster', error);
@@ -335,11 +340,15 @@ function createVisionPrepareBatch(
   onFirstBatchPrepared?: () => void
 ): (batch: PlaceSuggestionCluster[]) => Promise<PlaceSuggestionCluster[]> {
   let announced = false;
+  // KTD2: one breaker per dispatch (this factory runs once per dispatch).
+  const breaker = createVisionPrepBreaker();
   return async (batch) => {
-    const batchClusters = batch
-      .map((payload) => clustersById.get(payload.id))
-      .filter((c): c is LocationCluster => c !== undefined);
-    const visionImages = await prepareVisionImagesBounded(batchClusters);
+    const batchClusters = breaker.isOpen()
+      ? []
+      : batch
+          .map((payload) => clustersById.get(payload.id))
+          .filter((c): c is LocationCluster => c !== undefined);
+    const visionImages = await prepareVisionImagesBounded(batchClusters, breaker);
     const imagesByClusterId = new Map(batchClusters.map((c, i) => [c.id, visionImages[i] ?? []]));
     const prepared = batch.map((payload) => {
       const images = imagesByClusterId.get(payload.id);
@@ -364,7 +373,7 @@ function createVisionPrepareBatch(
  */
 function createVisionPrepare(clusters: LocationCluster[]): () => Promise<PlaceSuggestionCluster[]> {
   return async () => {
-    const visionImages = await prepareVisionImagesBounded(clusters);
+    const visionImages = await prepareVisionImagesBounded(clusters, createVisionPrepBreaker());
     return clusters.map((cluster, index) => mapClusterToApiPayload(cluster, visionImages[index]));
   };
 }
