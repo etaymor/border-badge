@@ -13,12 +13,14 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from app.schemas.photos import PhotoCluster
 from app.services.place_matcher import DensityLevel, PlaceMatcher
 from tests.services.venue_probe_support import (
     LOUVRE_LAT,
     _cluster,
     _louvre,
     _place,
+    _restaurant_world,
     _wire_flow,
     make_settings,
 )
@@ -133,3 +135,116 @@ class TestOrchestration:
             "reason": "rolled_up",
             "parent_place_id": "louvre",
         }
+
+
+# ---------------------------------------------------------------------------
+# U9: on-device scene hints reach the probe trigger and the roll-up veto
+# ---------------------------------------------------------------------------
+
+
+def _hinted_cluster(labels: list[str], **kwargs: Any) -> dict[str, Any]:
+    """A cluster dict as the API hands it over: the schema's ``model_dump``."""
+    cluster = _cluster(**kwargs)
+    return PhotoCluster(
+        id=cluster["id"],
+        centroid=cluster["centroid"],
+        photos=[
+            {
+                "asset_id": f"{cluster['id']}-photo-1",
+                "latitude": cluster["centroid"]["latitude"],
+                "longitude": cluster["centroid"]["longitude"],
+            }
+        ],
+        scene_hints=[{"label": label, "weight": 0.8} for label in labels],
+    ).model_dump()
+
+
+def _cafe_world() -> list[dict[str, Any]]:
+    """A well-reviewed cafe at the centroid beside a small statue (the statue's
+    landmark family is what makes production probe this cluster)."""
+    return [
+        _place("marly", "Le Cafe Marly", "cafe", ["cafe", "restaurant", "food"]),
+        _place(
+            "statue",
+            "Statue of Lafayette",
+            "sculpture",
+            ["sculpture", "tourist_attraction", "point_of_interest"],
+            lat=LOUVRE_LAT + 0.0004,
+        ),
+    ]
+
+
+_CAFE_RATINGS = {
+    "marly": {"rating": 4.3, "userRatingCount": 12000},
+    "statue": {"rating": 4.5, "userRatingCount": 30},
+}
+
+
+def _gallery_world() -> list[dict[str, Any]]:
+    return [
+        _place("galerie", "Galerie d'Apollon", "art_gallery"),
+        _place(
+            "victoire", "Victoire de Samothrace", "sculpture", lat=LOUVRE_LAT + 0.0003
+        ),
+    ]
+
+
+_GALLERY_RATINGS = {
+    "galerie": {"rating": 4.8, "userRatingCount": 150},
+    "victoire": {"rating": 4.8, "userRatingCount": 45},
+}
+
+
+class TestSceneHints:
+    async def _run(
+        self, monkeypatch, world, ratings, cluster, density=DensityLevel.SPARSE
+    ) -> tuple[list[str], list]:
+        matcher = PlaceMatcher(http_client=AsyncMock())
+        calls = _wire_flow(
+            matcher, monkeypatch, world, density, [_louvre()], ratings=ratings
+        )
+        results, failed = await matcher.find_places_for_clusters([cluster])
+        assert failed == 0
+        return [p["place_id"] for p in results[0]["places"]], calls
+
+    @pytest.mark.asyncio
+    async def test_food_hint_keeps_the_cafe_first(self, settings, monkeypatch) -> None:
+        # Without a hint the roll-up applies (378k vs 12k reviews, 31x) ...
+        ids, _ = await self._run(monkeypatch, _cafe_world(), _CAFE_RATINGS, _cluster())
+        assert ids[:2] == ["louvre", "marly"]
+
+        # ... and the on-device food hint is the R6 evidence that vetoes it.
+        ids, _ = await self._run(
+            monkeypatch, _cafe_world(), _CAFE_RATINGS, _hinted_cluster(["food"])
+        )
+        assert ids[0] == "marly"
+
+    @pytest.mark.asyncio
+    async def test_food_hint_does_not_block_rollup_over_a_gallery(
+        self, settings, monkeypatch
+    ) -> None:
+        ids, _ = await self._run(
+            monkeypatch, _gallery_world(), _GALLERY_RATINGS, _hinted_cluster(["food"])
+        )
+        assert ids[0] == "louvre"
+
+    @pytest.mark.parametrize("density", [DensityLevel.MEDIUM, DensityLevel.SPARSE])
+    @pytest.mark.parametrize("label", ["museum_interior", "artwork"])
+    @pytest.mark.asyncio
+    async def test_museum_hint_probes_a_restaurant_only_cluster(
+        self, settings, monkeypatch, density, label
+    ) -> None:
+        _ids, calls = await self._run(
+            monkeypatch, _restaurant_world(), {}, _hinted_cluster([label]), density
+        )
+        assert len(calls) == 1
+
+    @pytest.mark.asyncio
+    async def test_food_or_absent_hints_do_not_probe_restaurants(
+        self, settings, monkeypatch
+    ) -> None:
+        for cluster in (_cluster(), _hinted_cluster(["food", "outdoor_landmark"])):
+            _ids, calls = await self._run(
+                monkeypatch, _restaurant_world(), {}, cluster, DensityLevel.MEDIUM
+            )
+            assert calls == []

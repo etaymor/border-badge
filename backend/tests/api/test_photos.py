@@ -10,6 +10,7 @@ from pydantic import ValidationError
 from app.schemas.photos import (
     MAX_CLUSTERS_PER_REQUEST,
     MAX_PHOTOS_PER_CLUSTER,
+    MAX_SCENE_HINTS_PER_CLUSTER,
     PhotoCluster,
     PlaceSuggestionRequest,
 )
@@ -279,3 +280,75 @@ class TestSuggestPlaces:
 
         # Should fail validation (or auth first)
         assert response.status_code in (401, 403, 422)
+
+
+class TestSceneHints:
+    """U9 / KTD6: optional, bounded on-device scene hints per cluster."""
+
+    def test_missing_field_is_accepted_as_none(self) -> None:
+        cluster = PhotoCluster(**_make_cluster())
+        assert cluster.scene_hints is None
+        assert cluster.model_dump()["scene_hints"] is None
+
+    def test_empty_list_normalizes_to_none(self) -> None:
+        assert PhotoCluster(**_make_cluster(scene_hints=[])).scene_hints is None
+
+    def test_known_hints_round_trip_as_label_weight_dicts(self) -> None:
+        hints = [
+            {"label": "artwork", "weight": 0.7},
+            {"label": "museum_interior", "weight": 0.4},
+        ]
+        cluster = PhotoCluster(**_make_cluster(scene_hints=hints))
+        assert cluster.model_dump()["scene_hints"] == hints
+
+    def test_unknown_labels_are_dropped_not_rejected(self) -> None:
+        cluster = PhotoCluster(
+            **_make_cluster(
+                scene_hints=[
+                    {"label": "food", "weight": 0.9},
+                    {"label": "underwater", "weight": 0.5},
+                ]
+            )
+        )
+        assert [h.label for h in cluster.scene_hints or []] == ["food"]
+
+    def test_only_unknown_labels_normalize_to_none(self) -> None:
+        cluster = PhotoCluster(
+            **_make_cluster(scene_hints=[{"label": "underwater", "weight": 0.5}])
+        )
+        assert cluster.scene_hints is None
+
+    def test_over_the_cap_is_rejected(self) -> None:
+        hints = [
+            {"label": "food", "weight": 0.5}
+            for _ in range(MAX_SCENE_HINTS_PER_CLUSTER + 1)
+        ]
+        with pytest.raises(ValidationError) as exc_info:
+            PhotoCluster(**_make_cluster(scene_hints=hints))
+        assert any("scene_hints" in str(e["loc"]) for e in exc_info.value.errors())
+
+    @pytest.mark.parametrize("weight", [-0.1, 1.5])
+    def test_weight_out_of_range_is_rejected(self, weight: float) -> None:
+        with pytest.raises(ValidationError):
+            PhotoCluster(
+                **_make_cluster(scene_hints=[{"label": "food", "weight": weight}])
+            )
+
+    def test_overlong_label_is_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            PhotoCluster(
+                **_make_cluster(scene_hints=[{"label": "x" * 65, "weight": 0.5}])
+            )
+
+    def test_duplicate_labels_keep_the_highest_weight(self) -> None:
+        cluster = PhotoCluster(
+            **_make_cluster(
+                scene_hints=[
+                    {"label": "artwork", "weight": 0.3},
+                    {"label": "artwork", "weight": 0.6},
+                ]
+            )
+        )
+        assert cluster.model_dump()["scene_hints"] == [
+            {"label": "artwork", "weight": 0.6}
+        ]

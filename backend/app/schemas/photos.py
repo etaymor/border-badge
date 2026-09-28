@@ -34,6 +34,17 @@ MAX_VISION_IMAGES_PER_REQUEST = 50
 MAX_VISION_PAYLOAD_CHARS = (
     10_000_000  # ~7.5MB decoded; accommodates 15 clusters x 3 images comfortably
 )
+# On-device scene hints (KTD6, venue-rollup plan U9). The client derives them
+# for free from Apple Vision labels it already stores; the matcher reads
+# ``food`` as R6 evidence and ``museum_interior`` / ``artwork`` as a venue-probe
+# trigger. The vocabulary is closed here, but an unknown label is DROPPED, not
+# rejected, so a newer client adding a label never 422s against an older
+# backend. The count cap still rejects: it bounds the payload, not the meaning.
+SCENE_HINT_LABELS = frozenset(
+    {"museum_interior", "artwork", "food", "outdoor_landmark"}
+)
+MAX_SCENE_HINTS_PER_CLUSTER = 8
+MAX_SCENE_HINT_LABEL_CHARS = 64
 
 
 def _normalize_coordinate_precision(value: float) -> float:
@@ -81,6 +92,14 @@ class PhotoMetadata(BaseModel):
         return _normalize_coordinate_precision(v)
 
 
+class SceneHint(BaseModel):
+    """One on-device scene hint: a normalized label and the share of the
+    cluster's tagged photos that carry it (0-1)."""
+
+    label: str = Field(..., min_length=1, max_length=MAX_SCENE_HINT_LABEL_CHARS)
+    weight: float = Field(..., ge=0.0, le=1.0)
+
+
 class PhotoCluster(BaseModel):
     """Cluster of photos at a location."""
 
@@ -101,6 +120,29 @@ class PhotoCluster(BaseModel):
         description="Up to 3 representative photos as base64 JPEG strings",
         max_length=3,
     )
+    scene_hints: list[SceneHint] | None = Field(
+        None,
+        description=(
+            "Optional on-device scene hints ({label, weight}); unknown labels "
+            "are dropped, absence means no hints"
+        ),
+        max_length=MAX_SCENE_HINTS_PER_CLUSTER,
+    )
+
+    @field_validator("scene_hints")
+    @classmethod
+    def normalize_scene_hints(cls, v: list[SceneHint] | None) -> list[SceneHint] | None:
+        """Drop unknown labels, keep one hint per label (highest weight)."""
+        if not v:
+            return None
+        by_label: dict[str, SceneHint] = {}
+        for hint in v:
+            if hint.label not in SCENE_HINT_LABELS:
+                continue
+            kept = by_label.get(hint.label)
+            if kept is None or hint.weight > kept.weight:
+                by_label[hint.label] = hint
+        return list(by_label.values()) or None
 
     @field_validator("vision_images_base64")
     @classmethod

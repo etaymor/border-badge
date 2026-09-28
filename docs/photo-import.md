@@ -474,6 +474,15 @@ Two fixed guards live in `constants.py`:
 
 Never rolled up: a museum finalist with 2000+ reviews, a theater or place of worship, and a food, drink, lodging or retail finalist that has evidence (a `food` scene hint, a vision category or business name matching it, or a strong sign-text match). A café that loses first place stays in slot 2. The roll-up is skipped when a strong vision name match locked the cluster. With `PLACES_DIAGNOSTICS=true`, each probed cluster's trace carries `venue_rollup: {reason, parent_place_id}`.
 
+### Scene hints (U9, 2026-09-27)
+
+Each cluster may carry `scene_hints: [{label, weight}]` (KTD6), derived for free from the Apple Vision labels the photo tagger already stores in `photo_ml_tags.labels_json`. `mobile/src/services/photoImport/sceneHints.ts` owns the identifier mapping and every threshold, so they retune over the air. It is computed in the per-batch prepare step next to vision prep, and it is sent even when the prep breaker is open or every photo is offloaded, as long as tag rows exist. The key is omitted when a cluster has no hints.
+
+- **Vocabulary.** `museum_interior` (`museum`, `dinosaur`), `artwork` (`painting`, `art`, `statue`, `stained_glass`, `illustrations`), `food` (about 60 food and drink identifiers plus `restaurant`), `outdoor_landmark` (`monument`, `tower`, `castle`, `ruins`, and similar). Every identifier was checked against `VNClassifyImageRequest.supportedIdentifiers()`. `sculpture`, `gallery`, `church`, `cathedral` and `palace` are not in Apple's taxonomy.
+- **Thresholds.** A label counts for a photo at confidence >= 0.3. A hint is sent when at least 30% of the cluster's tagged photos carry it (40% for `food`, because it is a veto). Untagged photos and rows without measured labels are left out of the denominator. A photo that was tagged before it was offloaded still counts.
+- **Backend.** `app/schemas/photos.py` caps the list at 8 entries (more returns 422), bounds weights to 0-1, and drops unknown labels so newer clients stay forward-compatible. `museum_interior` / `artwork` trigger the venue probe (`should_probe_venue`). `food` is the R6 evidence that keeps a food or drink finalist first (`venue_rollup._has_evidence`).
+- **Rollback.** Raise a `SCENE_HINT_MIN_SHARE` entry above 1 over the air to stop sending that hint. With no hints, the backend behaves exactly as it did before U9.
+
 ### Diagnostics
 
 Set `PLACES_DIAGNOSTICS=true` to emit one structured JSON trace per cluster (raw candidate world, filter-drop tallies, vision signals, finalists, outcome). Off by default — retaining the raw world has a memory cost, so production stays clean. Use it to capture real imports for the labeling workflow in `backend/docs/how-to-label-place-matcher-dataset.md`.

@@ -36,6 +36,7 @@ import {
   type ClusterSuggestion,
   type PlaceSuggestion,
 } from '@services/photoImport';
+import { loadSceneHintsForClusters, withSceneHints } from '@services/photoImport/sceneHints';
 import { getVisionImagesForCluster } from '@services/photoImport/visionPhoto';
 import {
   beginPrepTelemetryRun,
@@ -358,16 +359,22 @@ function createVisionPrepareBatch(
   // KTD2: one breaker per dispatch (this factory runs once per dispatch).
   const breaker = createVisionPrepBreaker();
   return async (batch) => {
-    const batchClusters = breaker.isOpen()
-      ? []
-      : batch
-          .map((payload) => clustersById.get(payload.id))
-          .filter((c): c is LocationCluster => c !== undefined);
-    const visionImages = await prepareVisionImagesBounded(batchClusters, breaker, telemetry);
+    const knownClusters = batch
+      .map((payload) => clustersById.get(payload.id))
+      .filter((c): c is LocationCluster => c !== undefined);
+    const batchClusters = breaker.isOpen() ? [] : knownClusters;
+    // U9: scene hints are free (stored tags, no pixels), so they are read for
+    // every cluster in the batch even when the breaker skips vision.
+    const [visionImages, hintsById] = await Promise.all([
+      prepareVisionImagesBounded(batchClusters, breaker, telemetry),
+      loadSceneHintsForClusters(knownClusters),
+    ]);
     const imagesByClusterId = new Map(batchClusters.map((c, i) => [c.id, visionImages[i] ?? []]));
     const prepared = batch.map((payload) => {
       const images = imagesByClusterId.get(payload.id);
-      return images && images.length > 0 ? { ...payload, vision_images_base64: images } : payload;
+      const withImages =
+        images && images.length > 0 ? { ...payload, vision_images_base64: images } : payload;
+      return withSceneHints(withImages, hintsById.get(payload.id));
     });
     if (!announced) {
       announced = true;
@@ -388,12 +395,13 @@ function createVisionPrepareBatch(
  */
 function createVisionPrepare(clusters: LocationCluster[]): () => Promise<PlaceSuggestionCluster[]> {
   return async () => {
-    const visionImages = await prepareVisionImagesBounded(
-      clusters,
-      createVisionPrepBreaker(),
-      currentPrepTelemetry()
+    const [visionImages, hintsById] = await Promise.all([
+      prepareVisionImagesBounded(clusters, createVisionPrepBreaker(), currentPrepTelemetry()),
+      loadSceneHintsForClusters(clusters),
+    ]);
+    return clusters.map((cluster, index) =>
+      mapClusterToApiPayload(cluster, visionImages[index], hintsById.get(cluster.id))
     );
-    return clusters.map((cluster, index) => mapClusterToApiPayload(cluster, visionImages[index]));
   };
 }
 

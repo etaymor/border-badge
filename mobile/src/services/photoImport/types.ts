@@ -4,6 +4,8 @@
 
 import type { EntryType } from '../../types/shared';
 
+import type { SceneHint } from './sceneHints';
+
 // Photo with GPS location data
 export interface PhotoWithLocation {
   id: string;
@@ -147,6 +149,8 @@ export interface PlaceSuggestionRequest {
     end_time?: string;
     time_hint?: TimeHint | null;
     vision_images_base64?: string[] | null;
+    /** On-device scene hints (U9); the key is omitted when there are none. */
+    scene_hints?: SceneHint[];
   }>;
 }
 

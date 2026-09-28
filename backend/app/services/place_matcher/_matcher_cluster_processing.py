@@ -383,7 +383,11 @@ class ClusterProcessingMixin:
                 remaining_budget=_remaining_budget,
                 retry_budget=retry_budget,
                 cluster_timeout=cluster_timeout,
-                scene_hints_by_cluster=None,  # U9 wires on-device hints here
+                scene_hints_by_cluster={  # U9: on-device hints (KTD6)
+                    c["id"]: c["scene_hints"]
+                    for c, _places, _radius in search_results
+                    if c.get("scene_hints")
+                },
             )
         )
 
@@ -1018,7 +1022,8 @@ class ClusterProcessingMixin:
                     thresholds=rollup_settings,
                     vision_result=vision_result,
                     name_match_locked=cluster_id in name_match_locked_clusters,
-                )  # U9 passes scene_hints / sign_text here
+                    scene_hints=cluster.get("scene_hints"),
+                )
                 if diagnostics and cluster_id in traces:
                     traces[cluster_id]["venue_rollup"] = rollup_decision.as_trace()
 

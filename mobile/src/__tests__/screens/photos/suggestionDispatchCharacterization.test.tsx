@@ -32,6 +32,7 @@ import { CHUNK_SIZE, FIRST_CHUNK_SIZE, planSuggestionBatches } from '@hooks/useP
 import { api } from '@services/api';
 import { Analytics } from '@services/analytics';
 import { getVisionImagesForCluster } from '@services/photoImport/visionPhoto';
+import { getTagsForIds, type PhotoMlTag } from '@services/photoImport/photoTagDb';
 import { manipulateAsync } from 'expo-image-manipulator';
 import {
   getCachedSuggestions,
@@ -719,5 +720,80 @@ describe('U1/U2: vision preparation does not stall the dispatch on offloaded pho
     expect(postedClusters().map((c) => c.vision_images_base64?.length)).toEqual(
       clusters.map(() => 3)
     );
+  });
+
+  // U9: scene hints come from stored tag rows, not pixels, so they ride the
+  // payload even when vision prep produced nothing.
+  describe('U9: scene hints', () => {
+    const mockedGetTags = getTagsForIds as jest.MockedFunction<typeof getTagsForIds>;
+    const museumTag = (id: string): PhotoMlTag => ({
+      id,
+      taggerVersion: 1,
+      status: 'ok',
+      isScreenshot: false,
+      faceCount: 0,
+      maxFaceArea: 0,
+      totalFaceArea: 0,
+      humanCount: 0,
+      maxHumanArea: 0,
+      totalHumanArea: 0,
+      labels: [{ identifier: 'museum', confidence: 0.8 }],
+      aestheticScore: null,
+      isUtility: null,
+      computedAt: 0,
+    });
+    const hintsOf = (id: string) =>
+      (
+        postedClusters().find((c) => c.id === id) as
+          | { scene_hints?: { label: string; weight: number }[] }
+          | undefined
+      )?.scene_hints;
+
+    beforeEach(() => {
+      // Only the first cluster's photos were tagged (before being offloaded).
+      mockedGetTags.mockImplementation(
+        async (ids: string[]) =>
+          new Map(
+            ids.filter((id) => id.startsWith('photo-hinted-0-')).map((id) => [id, museumTag(id)])
+          )
+      );
+    });
+
+    afterEach(() => {
+      mockedGetTags.mockReset();
+      mockedGetTags.mockResolvedValue(new Map());
+    });
+
+    it('sends hints for a fully offloaded cluster and omits the key for untagged ones', async () => {
+      jest.useFakeTimers({ doNotFake: ['setImmediate'] });
+      const clusters = Array.from({ length: FIRST_CHUNK_SIZE + 1 }, (_, i) =>
+        clusterWith(`hinted-${i}`, i, 3, (p) => `ph://hinted-${i}-${p}`)
+      );
+
+      await postsWithin(clusters, 1000);
+
+      expect(hintsOf('hinted-0')).toEqual([{ label: 'museum_interior', weight: 1 }]);
+      const others = postedClusters().filter((c) => c.id !== 'hinted-0');
+      expect(others.length).toBe(clusters.length - 1);
+      expect(others.every((c) => !('scene_hints' in c))).toBe(true);
+    });
+
+    it('still sends hints once the breaker has opened', async () => {
+      jest.useFakeTimers({ doNotFake: ['setImmediate'] });
+      // Stalled encodes open the breaker on the first batch; the hinted
+      // cluster rides the LAST batch, which prepares no images.
+      const stalled = Array.from({ length: FIRST_CHUNK_SIZE + CHUNK_SIZE * 2 }, (_, i) =>
+        clusterWith(`stall-${i}`, i, 3, (p) => `file://stall-${i}-${p}.jpg`)
+      );
+      const hinted = clusterWith('hinted-0', 99, 3, (p) => `file://stall-h-${p}.jpg`);
+      const clusters = [...stalled, hinted];
+      const batches = planSuggestionBatches(clusters);
+      expect(batches[batches.length - 1].map((c) => c.id)).toContain('hinted-0');
+
+      await postsWithin(clusters, 0);
+
+      expect(lastCompletedProps().prep.breakerOpened).toBe(true);
+      expect(hintsOf('hinted-0')).toEqual([{ label: 'museum_interior', weight: 1 }]);
+    });
   });
 });
