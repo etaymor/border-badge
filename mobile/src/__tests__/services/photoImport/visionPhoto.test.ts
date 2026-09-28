@@ -741,6 +741,40 @@ describe('getVisionImagesForCluster with the dispatch breaker (U2/KTD2)', () => 
     expect(breaker.consecutiveTimeouts()).toBe(0);
   });
 
+  // Only a success resets the streak: a decode failure is neither a timeout
+  // nor a success, so it must leave a live streak exactly where it was.
+  it('a decode failure leaves an existing timeout streak untouched', async () => {
+    mockManipulate.mockRejectedValue(new Error('decode failed'));
+    const breaker = createVisionPrepBreaker();
+    breaker.recordTimeout();
+    const cluster = createCluster([localPhoto('d1', 35.6762, 0)], 35.6762, 139.6503);
+
+    await expect(getVisionImagesForCluster(cluster, 3, { breaker })).resolves.toEqual([]);
+    expect(mockManipulate).toHaveBeenCalled();
+    expect(breaker.consecutiveTimeouts()).toBe(1);
+    expect(breaker.isOpen()).toBe(false);
+  });
+
+  it('a decode failure between timeouts does not stop the breaker opening', async () => {
+    mockManipulate.mockRejectedValue(new Error('decode failed'));
+    const breaker = createVisionPrepBreaker();
+    breaker.recordTimeout();
+    breaker.recordTimeout();
+    const cluster = createCluster([localPhoto('d1', 35.6762, 0)], 35.6762, 139.6503);
+
+    await expect(getVisionImagesForCluster(cluster, 3, { breaker })).resolves.toEqual([]);
+    expect(breaker.isOpen()).toBe(false);
+
+    mockManipulate.mockImplementation(() => new Promise(() => {}));
+    const stalled = createCluster([localPhoto('t1', 35.6762, 0)], 35.6762, 139.6503);
+    const pending = getVisionImagesForCluster(stalled, 3, { breaker });
+    await jest.advanceTimersByTimeAsync(VISION_IMAGE_TIMEOUT_MS);
+
+    await expect(pending).resolves.toEqual([]);
+    expect(breaker.consecutiveTimeouts()).toBe(3);
+    expect(breaker.isOpen()).toBe(true);
+  });
+
   it('edge: a cluster with zero photos returns an empty list without throwing', async () => {
     const cluster = createCluster([localPhoto('p1', 35.6762, 0)], 35.6762, 139.6503);
     cluster.photos = [];
