@@ -16,6 +16,18 @@ export interface NativePhotoLabel {
 }
 
 /**
+ * One line of text Apple Vision read from the photo (fast recognition level).
+ * Raw: the string is only whitespace-trimmed; confidence floors, length caps,
+ * and dedupe live in `src/services/photoImport/sceneHints.ts`.
+ */
+export interface NativePhotoText {
+  string: string;
+  confidence: number;
+  /** Bounding-box area as a fraction of the frame; signage tends to be large. */
+  area: number;
+}
+
+/**
  * Raw signals for one photo. Deliberately uninterpreted: no thresholds, no
  * verdicts, no scores. See `src/services/quiz/tagSignals.ts` for the reading.
  *
@@ -35,6 +47,12 @@ export interface NativePhotoTag {
   totalHumanArea: number;
   /** Top-N labels above a low confidence floor, highest confidence first. */
   labels: NativePhotoLabel[];
+  /**
+   * Recognized text, largest first (venue-rollup U10). ABSENT on binaries
+   * built before text recognition (see `PhotoTaggerCapabilities.textRecognition`);
+   * null when not measured (no local pixels, or recognition failed).
+   */
+  text?: NativePhotoText[] | null;
   /**
    * Apple's overall aesthetics score in -1..1, or null on iOS < 18 where the
    * API does not exist. Null means "not measured", never "unattractive".
@@ -88,6 +106,12 @@ export type ThermalState = 'nominal' | 'fair' | 'serious' | 'critical';
 export interface PhotoTaggerCapabilities {
   /** True when VNCalculateImageAestheticsScoresRequest is available (iOS 18+). */
   aesthetics: boolean;
+  /**
+   * True when `tagPhotos` runs text recognition (venue-rollup U10). Absent on
+   * older binaries, which must read as false: the effective tagger version
+   * keys on it (`photoTagRows.ts`).
+   */
+  textRecognition?: boolean;
   osMajor: number;
   /** Read fresh on every call - the user can toggle Low Power Mode any time. */
   lowPower: boolean;

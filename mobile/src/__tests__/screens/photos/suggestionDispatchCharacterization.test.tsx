@@ -740,6 +740,7 @@ describe('U1/U2: vision preparation does not stall the dispatch on offloaded pho
       labels: [{ identifier: 'museum', confidence: 0.8 }],
       aestheticScore: null,
       isUtility: null,
+      signText: [{ text: 'Musee du Louvre', confidence: 1, area: 0.1 }],
       computedAt: 0,
     });
     const hintsOf = (id: string) =>
@@ -776,6 +777,11 @@ describe('U1/U2: vision preparation does not stall the dispatch on offloaded pho
       const others = postedClusters().filter((c) => c.id !== 'hinted-0');
       expect(others.length).toBe(clusters.length - 1);
       expect(others.every((c) => !('scene_hints' in c))).toBe(true);
+      // U10: sign text rides the same stored rows and omits the key likewise.
+      expect(
+        (postedClusters().find((c) => c.id === 'hinted-0') as { sign_text?: string[] })?.sign_text
+      ).toEqual(['Musee du Louvre']);
+      expect(others.every((c) => !('sign_text' in c))).toBe(true);
     });
 
     it('still sends hints once the breaker has opened', async () => {

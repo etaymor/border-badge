@@ -14,13 +14,21 @@ jest.mock('../../../services/photoImport/photoTagDb', () => ({
 
 import { mapClusterToApiPayload } from '../../../screens/photos/photoImportUtils';
 import { getTagsForIds } from '../../../services/photoImport/photoTagDb';
-import type { PhotoMlTag, PhotoTagStatus } from '../../../services/photoImport/photoTagDb';
+import type {
+  PhotoMlTag,
+  PhotoSignText,
+  PhotoTagStatus,
+} from '../../../services/photoImport/photoTagDb';
 import {
   SCENE_HINT_IDENTIFIERS,
   SCENE_HINT_LABEL_FLOOR,
   SCENE_HINT_MIN_SHARE,
+  SIGN_TEXT_MAX_CHARS,
+  SIGN_TEXT_MAX_STRINGS,
+  SIGN_TEXT_MIN_CONFIDENCE,
   deriveSceneHints,
-  loadSceneHintsForClusters,
+  deriveSignText,
+  loadSceneSignalsForClusters,
   withSceneHints,
 } from '../../../services/photoImport/sceneHints';
 import type { LocationCluster, PhotoWithLocation } from '../../../services/photoImport/types';
@@ -195,7 +203,95 @@ describe('deriveSceneHints', () => {
   });
 });
 
-describe('loadSceneHintsForClusters', () => {
+/** A tagged photo carrying recognized text lines: [text, confidence, area]. */
+function textTag(id: string, lines: Array<[string, number, number?]>): PhotoMlTag {
+  const signText: PhotoSignText[] = lines.map(([text, confidence, area = 0.01]) => ({
+    text,
+    confidence,
+    area,
+  }));
+  return { ...tag(id, [['sky', 0.5]]), signText };
+}
+
+describe('deriveSignText (U10)', () => {
+  it('sends nothing when the tagger could not read text (capability absent)', () => {
+    // Rows from a binary without text recognition carry no signText at all.
+    expect(deriveSignText([tag('a', [['museum', 0.8]]), undefined])).toEqual([]);
+    expect(deriveSignText([{ ...tag('b', []), signText: null }])).toEqual([]);
+    expect(deriveSignText([])).toEqual([]);
+  });
+
+  it('trims, collapses whitespace, and dedupes case-insensitively across photos', () => {
+    const tags = [
+      textTag('a', [['  Cafe   Marly ', 1]]),
+      textTag('b', [['CAFE MARLY', 1]]),
+      textTag('c', [['cafe marly', 1]]),
+    ];
+    expect(deriveSignText(tags)).toEqual(['Cafe Marly']);
+  });
+
+  it(`caps the list at ${SIGN_TEXT_MAX_STRINGS}, most photos first, then largest`, () => {
+    const tags = [
+      textTag('a', [
+        ['Musee du Louvre', 1, 0.02],
+        ['Aile Denon', 1, 0.05],
+        ['Sortie', 1, 0.01],
+        ['Salle des Etats', 1, 0.2],
+        ['Pyramide', 1, 0.03],
+        ['Tuileries', 1, 0.04],
+      ]),
+      textTag('b', [['musee du louvre', 1, 0.01]]),
+    ];
+    expect(deriveSignText(tags)).toEqual([
+      'Musee du Louvre',
+      'Salle des Etats',
+      'Aile Denon',
+      'Tuileries',
+      'Pyramide',
+    ]);
+  });
+
+  it('counts a string once per photo however often that photo repeats it', () => {
+    const tags = [
+      textTag('a', [
+        ['Bistro', 1, 0.01],
+        ['Bistro', 1, 0.01],
+        ['bistro', 1, 0.01],
+      ]),
+      textTag('b', [['Boulangerie', 1, 0.001]]),
+      textTag('c', [['Boulangerie', 1, 0.001]]),
+    ];
+    expect(deriveSignText(tags)).toEqual(['Boulangerie', 'Bistro']);
+  });
+
+  it(`caps each string at ${SIGN_TEXT_MAX_CHARS} characters`, () => {
+    const long = 'Galerie ' + 'tres longue '.repeat(10);
+    const [only] = deriveSignText([textTag('a', [[long, 1]])]);
+    expect(only.length).toBeLessThanOrEqual(SIGN_TEXT_MAX_CHARS);
+    expect(only).toBe(only.trim());
+    expect(long.startsWith(only)).toBe(true);
+  });
+
+  it('drops low-confidence lines and strings with too few letters', () => {
+    const tags = [
+      textTag('a', [
+        ['Le Procope', SIGN_TEXT_MIN_CONFIDENCE - 0.01],
+        ['12', 1],
+        ['EUR 3,50', 1],
+        ['No', 1],
+        ['Chez Janou', SIGN_TEXT_MIN_CONFIDENCE],
+      ]),
+    ];
+    expect(deriveSignText(tags)).toEqual(['EUR 3,50', 'Chez Janou']);
+  });
+
+  it('ignores rows that were not measured ok', () => {
+    const errored = { ...textTag('a', [['Cafe Marly', 1]]), status: 'error' as const };
+    expect(deriveSignText([errored])).toEqual([]);
+  });
+});
+
+describe('loadSceneSignalsForClusters', () => {
   beforeEach(() => mockGetTags.mockReset());
 
   it('reads every photo in the batch once and returns hints per cluster', async () => {
@@ -207,25 +303,39 @@ describe('loadSceneHintsForClusters', () => {
       ])
     );
 
-    const hints = await loadSceneHintsForClusters([
+    const hints = await loadSceneSignalsForClusters([
       cluster('a', ['a1', 'a2']),
       cluster('b', ['b1', 'b2']),
     ]);
 
     expect(mockGetTags).toHaveBeenCalledTimes(1);
     expect(mockGetTags).toHaveBeenCalledWith(['a1', 'a2', 'b1', 'b2']);
-    expect(hints.get('a')).toEqual([{ label: 'artwork', weight: 1 }]);
+    expect(hints.get('a')).toEqual({ hints: [{ label: 'artwork', weight: 1 }], signText: [] });
     expect(hints.has('b')).toBe(false);
+  });
+
+  it('carries sign text alongside hints, and a text-only cluster still appears', async () => {
+    mockGetTags.mockResolvedValue(
+      new Map([
+        ['a1', textTag('a1', [['Cafe Marly', 1]])],
+        ['b1', tag('b1', [['sky', 0.9]])],
+      ])
+    );
+
+    const signals = await loadSceneSignalsForClusters([cluster('a', ['a1']), cluster('b', ['b1'])]);
+
+    expect(signals.get('a')).toEqual({ hints: [], signText: ['Cafe Marly'] });
+    expect(signals.has('b')).toBe(false);
   });
 
   it('degrades to no hints when the tag read fails', async () => {
     mockGetTags.mockRejectedValue(new Error('db locked'));
-    const hints = await loadSceneHintsForClusters([cluster('a', ['a1'])]);
+    const hints = await loadSceneSignalsForClusters([cluster('a', ['a1'])]);
     expect(hints.size).toBe(0);
   });
 
   it('makes no read for an empty batch', async () => {
-    const hints = await loadSceneHintsForClusters([]);
+    const hints = await loadSceneSignalsForClusters([]);
     expect(hints.size).toBe(0);
     expect(mockGetTags).not.toHaveBeenCalled();
   });
@@ -241,6 +351,24 @@ describe('scene_hints on the request payload', () => {
       false
     );
     expect('scene_hints' in withSceneHints(mapClusterToApiPayload(base, []), [])).toBe(false);
+  });
+
+  it('omits sign_text when there is none, and never throws without it (U10)', () => {
+    const hints = [{ label: 'artwork' as const, weight: 0.7 }];
+    expect('sign_text' in mapClusterToApiPayload(base, [], hints)).toBe(false);
+    expect('sign_text' in mapClusterToApiPayload(base, [], hints, [])).toBe(false);
+    expect('sign_text' in withSceneHints(mapClusterToApiPayload(base, []), hints)).toBe(false);
+    expect('sign_text' in withSceneHints(mapClusterToApiPayload(base, []), undefined, [])).toBe(
+      false
+    );
+  });
+
+  it('carries sign text as a string list, with or without hints (U10)', () => {
+    const signText = ['Cafe Marly'];
+    expect(mapClusterToApiPayload(base, [], undefined, signText).sign_text).toEqual(signText);
+    const payload = withSceneHints(mapClusterToApiPayload(base, []), [], signText);
+    expect(payload.sign_text).toEqual(signText);
+    expect('scene_hints' in payload).toBe(false);
   });
 
   it('carries the hints as {label, weight} when present', () => {

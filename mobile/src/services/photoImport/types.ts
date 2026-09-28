@@ -151,6 +151,8 @@ export interface PlaceSuggestionRequest {
     vision_images_base64?: string[] | null;
     /** On-device scene hints (U9); the key is omitted when there are none. */
     scene_hints?: SceneHint[];
+    /** On-device signage text (U10), at most 5 strings; omitted when none. */
+    sign_text?: string[];
   }>;
 }
 

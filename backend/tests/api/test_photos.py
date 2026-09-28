@@ -11,6 +11,8 @@ from app.schemas.photos import (
     MAX_CLUSTERS_PER_REQUEST,
     MAX_PHOTOS_PER_CLUSTER,
     MAX_SCENE_HINTS_PER_CLUSTER,
+    MAX_SIGN_TEXT_CHARS,
+    MAX_SIGN_TEXT_PER_CLUSTER,
     PhotoCluster,
     PlaceSuggestionRequest,
 )
@@ -352,3 +354,52 @@ class TestSceneHints:
         assert cluster.model_dump()["scene_hints"] == [
             {"label": "artwork", "weight": 0.6}
         ]
+
+
+class TestSignText:
+    """U10 / KTD6: optional, bounded on-device signage text per cluster."""
+
+    def test_missing_field_is_accepted_as_none(self) -> None:
+        cluster = PhotoCluster(**_make_cluster())
+        assert cluster.sign_text is None
+        assert cluster.model_dump()["sign_text"] is None
+
+    def test_empty_list_normalizes_to_none(self) -> None:
+        assert PhotoCluster(**_make_cluster(sign_text=[])).sign_text is None
+
+    def test_strings_round_trip(self) -> None:
+        cluster = PhotoCluster(
+            **_make_cluster(sign_text=["Cafe de Flore", "Boulevard Saint-Germain"])
+        )
+        assert cluster.model_dump()["sign_text"] == [
+            "Cafe de Flore",
+            "Boulevard Saint-Germain",
+        ]
+
+    def test_strings_are_trimmed_and_blank_and_duplicate_ones_dropped(self) -> None:
+        cluster = PhotoCluster(
+            **_make_cluster(sign_text=["  Cafe de Flore ", "   ", "CAFE DE FLORE"])
+        )
+        assert cluster.sign_text == ["Cafe de Flore"]
+
+    def test_only_blank_strings_normalize_to_none(self) -> None:
+        assert PhotoCluster(**_make_cluster(sign_text=["", "  "])).sign_text is None
+
+    def test_over_the_cap_is_rejected(self) -> None:
+        with pytest.raises(ValidationError) as exc_info:
+            PhotoCluster(
+                **_make_cluster(
+                    sign_text=[
+                        f"sign {i}" for i in range(MAX_SIGN_TEXT_PER_CLUSTER + 1)
+                    ]
+                )
+            )
+        assert any("sign_text" in str(e["loc"]) for e in exc_info.value.errors())
+
+    def test_overlong_string_is_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            PhotoCluster(**_make_cluster(sign_text=["x" * (MAX_SIGN_TEXT_CHARS + 1)]))
+
+    def test_request_without_sign_text_keeps_the_old_shape(self) -> None:
+        request = PlaceSuggestionRequest(clusters=[_make_cluster()])
+        assert request.clusters[0].sign_text is None

@@ -37,11 +37,11 @@ import {
   getTagCoverageStats,
   getUntaggedIds,
   INTENT_META_VERSION,
-  TAGGER_VERSION,
   upsertIntentTags,
   upsertTags,
 } from './photoTagDb';
 import type { PhotoIntentTag, PhotoMlTag } from './photoTagDb';
+import { effectiveTaggerVersion, toStoredTags } from './photoTagRows';
 import { SCAN_CONFIG } from './photoImportService';
 
 /** Stop after this many photos in one pass, however fast they go. */
@@ -408,11 +408,14 @@ export async function maybeRunTaggingPass(): Promise<TaggingPassResult | null> {
     if (!lock) return null;
 
     try {
+      // U10: read once per pass so the "needs tagging" filter and the version
+      // stamped on the new rows can never disagree.
+      const taggerVersion = effectiveTaggerVersion(capabilities);
       const result = await runTaggingPass(
         {
           loadPriorityIds: () => loadPriorityIds(),
-          getUntaggedIds: (ids) => getUntaggedIds(ids),
-          tagPhotos: (ids) => tagPhotos(ids).then(toStoredTags),
+          getUntaggedIds: (ids) => getUntaggedIds(ids, Date.now(), taggerVersion),
+          tagPhotos: (ids) => tagPhotos(ids).then((native) => toStoredTags(native, taggerVersion)),
           upsertTags,
           chunkSize: TAG_CHUNK_SIZE,
           now: () => Date.now(),
@@ -451,27 +454,6 @@ export async function maybeRunTaggingPass(): Promise<TaggingPassResult | null> {
     if (__DEV__) console.log('[PhotoTagging] pass failed:', error);
     return null;
   }
-}
-
-/** Map the native payload onto stored rows. */
-function toStoredTags(native: Array<import('@modules/photo-tagger').NativePhotoTag>): PhotoMlTag[] {
-  const computedAt = Date.now();
-  return native.map((tag) => ({
-    id: tag.id,
-    taggerVersion: TAGGER_VERSION,
-    status: tag.status,
-    isScreenshot: tag.isScreenshot,
-    faceCount: tag.faceCount,
-    maxFaceArea: tag.maxFaceArea,
-    totalFaceArea: tag.totalFaceArea,
-    humanCount: tag.humanCount,
-    maxHumanArea: tag.maxHumanArea,
-    totalHumanArea: tag.totalHumanArea,
-    labels: tag.labels,
-    aestheticScore: tag.aestheticScore,
-    isUtility: tag.isUtility,
-    computedAt,
-  }));
 }
 
 /** Map the native metadata payload onto stored rows. */

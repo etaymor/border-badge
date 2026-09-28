@@ -38,12 +38,14 @@ export const truncateCoordinate = (value: number): number => Math.round(value * 
  * Map a location cluster and its prepared vision images to the API request format.
  * Extracted from usePlaceSuggestions for testability.
  *
- * `sceneHints` (U9) are omitted from the payload entirely when there are none.
+ * `sceneHints` (U9) and `signText` (U10) are each omitted from the payload
+ * entirely when there are none.
  */
 export function mapClusterToApiPayload(
   cluster: LocationCluster,
   visionImages: string[],
-  sceneHints?: readonly SceneHint[]
+  sceneHints?: readonly SceneHint[],
+  signText?: readonly string[]
 ) {
   const payload = {
     id: cluster.id,
@@ -62,5 +64,5 @@ export function mapClusterToApiPayload(
     time_hint: computeTimeHint(cluster),
     vision_images_base64: visionImages.length > 0 ? visionImages : undefined,
   };
-  return withSceneHints(payload, sceneHints);
+  return withSceneHints(payload, sceneHints, signText);
 }

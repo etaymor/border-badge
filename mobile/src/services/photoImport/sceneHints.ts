@@ -12,6 +12,11 @@
  *   instead of being rolled up into the landmark it sits beside;
  * - `outdoor_landmark` is informational today.
  *
+ * It also sends `sign_text` (U10): up to 5 short strings the tagger's
+ * on-device text recognition read from the cluster's photos, which the matcher
+ * treats like a vision-detected business name. Rows from a binary without text
+ * recognition carry no text, so older builds simply send no `sign_text`.
+ *
  * Same rule as `services/quiz/tagSignals.ts`: Swift returns raw signals, and
  * every mapping and threshold lives here so it retunes over the air.
  *
@@ -149,6 +154,76 @@ const HINT_BY_IDENTIFIER: ReadonlyMap<string, SceneHintLabel> = new Map(
   )
 );
 
+/** Most sign strings sent per cluster (backend `MAX_SIGN_TEXT_PER_CLUSTER`). */
+export const SIGN_TEXT_MAX_STRINGS = 5;
+
+/** Per-string character cap; the backend rejects above 64. */
+export const SIGN_TEXT_MAX_CHARS = 40;
+
+/**
+ * Minimum recognition confidence for a line. Fast-level recognition reports
+ * coarse confidences (typically 0.3 / 0.5 / 1.0); 0.5 drops the guesses.
+ */
+export const SIGN_TEXT_MIN_CONFIDENCE = 0.5;
+
+/** A line needs this many letters: drops prices, times, and lone initials. */
+const SIGN_TEXT_MIN_LETTERS = 3;
+
+/** Per-cluster on-device signals sent with a suggestion request. */
+export interface ClusterSceneSignals {
+  hints: SceneHint[];
+  signText: string[];
+}
+
+/** Letters in cased scripts: fast recognition reads Latin-script languages only. */
+function letterCount(text: string): number {
+  let count = 0;
+  for (const ch of text) if (ch.toLowerCase() !== ch.toUpperCase()) count += 1;
+  return count;
+}
+
+function normalizeSignLine(raw: string): string | null {
+  const collapsed = raw.replace(/\s+/g, ' ').trim();
+  const capped = collapsed.slice(0, SIGN_TEXT_MAX_CHARS).trim();
+  return letterCount(capped) >= SIGN_TEXT_MIN_LETTERS ? capped : null;
+}
+
+/**
+ * Derive a cluster's sign strings from its photos' tag rows (U10): trimmed,
+ * whitespace-collapsed, length-capped, and deduped case-insensitively. Ranked
+ * by how many photos show the string, then by its largest on-frame area (signs
+ * are big text), keeping the casing of that largest sighting. At most
+ * `SIGN_TEXT_MAX_STRINGS`. A row without measured text contributes nothing.
+ */
+export function deriveSignText(tags: Iterable<PhotoMlTag | undefined>): string[] {
+  const byKey = new Map<string, { text: string; photos: number; area: number; order: number }>();
+  for (const tag of tags) {
+    if (!tag || tag.status !== 'ok' || !tag.signText) continue;
+    const seenInPhoto = new Set<string>();
+    for (const line of tag.signText) {
+      if (line.confidence < SIGN_TEXT_MIN_CONFIDENCE) continue;
+      const text = normalizeSignLine(line.text);
+      if (!text) continue;
+      const key = text.toLowerCase();
+      const entry = byKey.get(key);
+      if (!entry) {
+        byKey.set(key, { text, photos: 1, area: line.area, order: byKey.size });
+      } else {
+        if (!seenInPhoto.has(key)) entry.photos += 1;
+        if (line.area > entry.area) {
+          entry.area = line.area;
+          entry.text = text;
+        }
+      }
+      seenInPhoto.add(key);
+    }
+  }
+  return [...byKey.values()]
+    .sort((a, b) => b.photos - a.photos || b.area - a.area || a.order - b.order)
+    .slice(0, SIGN_TEXT_MAX_STRINGS)
+    .map((entry) => entry.text);
+}
+
 /**
  * Derive a cluster's hints from its photos' tag rows (`undefined` = untagged).
  *
@@ -185,14 +260,14 @@ export function deriveSceneHints(tags: Iterable<PhotoMlTag | undefined>): SceneH
 }
 
 /**
- * Hints for a batch of clusters, keyed by cluster id; clusters without hints
- * are absent. One tag read covers the whole batch. Best-effort: a read error
- * means no hints (today's behavior), never a failed dispatch.
+ * Hints and sign text for a batch of clusters, keyed by cluster id; clusters
+ * with neither are absent. One tag read covers the whole batch. Best-effort: a
+ * read error means no signals (today's behavior), never a failed dispatch.
  */
-export async function loadSceneHintsForClusters(
+export async function loadSceneSignalsForClusters(
   clusters: readonly LocationCluster[]
-): Promise<Map<string, SceneHint[]>> {
-  const result = new Map<string, SceneHint[]>();
+): Promise<Map<string, ClusterSceneSignals>> {
+  const result = new Map<string, ClusterSceneSignals>();
   if (clusters.length === 0) return result;
   let tags: Map<string, PhotoMlTag>;
   try {
@@ -207,19 +282,25 @@ export async function loadSceneHintsForClusters(
     return result;
   }
   for (const cluster of clusters) {
-    const hints = deriveSceneHints(cluster.photos.map((p) => tags.get(p.id)));
-    if (hints.length > 0) result.set(cluster.id, hints);
+    const clusterTags = cluster.photos.map((p) => tags.get(p.id));
+    const hints = deriveSceneHints(clusterTags);
+    const signText = deriveSignText(clusterTags);
+    if (hints.length > 0 || signText.length > 0) result.set(cluster.id, { hints, signText });
   }
   return result;
 }
 
 /**
- * Attach hints to a request payload. With none, the payload comes back
- * without a `scene_hints` key at all, so older-shape requests are unchanged.
+ * Attach hints and sign text to a request payload. Each key is omitted
+ * entirely when empty, so older-shape requests are unchanged.
  */
 export function withSceneHints<T extends object>(
   payload: T,
-  hints: readonly SceneHint[] | undefined
-): T & { scene_hints?: SceneHint[] } {
-  return hints && hints.length > 0 ? { ...payload, scene_hints: [...hints] } : payload;
+  hints: readonly SceneHint[] | undefined,
+  signText?: readonly string[]
+): T & { scene_hints?: SceneHint[]; sign_text?: string[] } {
+  let result: T & { scene_hints?: SceneHint[]; sign_text?: string[] } = payload;
+  if (hints && hints.length > 0) result = { ...result, scene_hints: [...hints] };
+  if (signText && signText.length > 0) result = { ...result, sign_text: [...signText] };
+  return result;
 }

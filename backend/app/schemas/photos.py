@@ -10,9 +10,16 @@ tracking), this provides better accuracy without significant privacy concerns.
 
 import base64
 from datetime import datetime
+from typing import Annotated
 from uuid import UUID
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    Field,
+    StringConstraints,
+    field_validator,
+    model_validator,
+)
 
 from app.schemas.entries import EntryType
 
@@ -45,6 +52,12 @@ SCENE_HINT_LABELS = frozenset(
 )
 MAX_SCENE_HINTS_PER_CLUSTER = 8
 MAX_SCENE_HINT_LABEL_CHARS = 64
+# On-device signage text (KTD6, venue-rollup plan U10): short strings Apple
+# Vision read from the cluster's photos. The client sends at most 5, each
+# already trimmed and length-capped; both caps reject here because they bound
+# the payload. Blank and case-insensitive duplicate strings are dropped.
+MAX_SIGN_TEXT_PER_CLUSTER = 5
+MAX_SIGN_TEXT_CHARS = 64
 
 
 def _normalize_coordinate_precision(value: float) -> float:
@@ -128,6 +141,15 @@ class PhotoCluster(BaseModel):
         ),
         max_length=MAX_SCENE_HINTS_PER_CLUSTER,
     )
+    sign_text: (
+        list[Annotated[str, StringConstraints(max_length=MAX_SIGN_TEXT_CHARS)]] | None
+    ) = Field(
+        None,
+        description=(
+            "Optional signage text read on-device; absence means no sign text"
+        ),
+        max_length=MAX_SIGN_TEXT_PER_CLUSTER,
+    )
 
     @field_validator("scene_hints")
     @classmethod
@@ -143,6 +165,23 @@ class PhotoCluster(BaseModel):
             if kept is None or hint.weight > kept.weight:
                 by_label[hint.label] = hint
         return list(by_label.values()) or None
+
+    @field_validator("sign_text")
+    @classmethod
+    def normalize_sign_text(cls, v: list[str] | None) -> list[str] | None:
+        """Trim, drop blanks, and keep the first of case-insensitive duplicates."""
+        if not v:
+            return None
+        seen: set[str] = set()
+        kept: list[str] = []
+        for text in v:
+            stripped = text.strip()
+            key = stripped.casefold()
+            if not stripped or key in seen:
+                continue
+            seen.add(key)
+            kept.append(stripped)
+        return kept or None
 
     @field_validator("vision_images_base64")
     @classmethod

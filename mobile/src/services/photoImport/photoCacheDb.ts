@@ -314,6 +314,10 @@ async function initSchema(conn: SQLite.SQLiteDatabase): Promise<void> {
   // count as stale (see photoCacheDbSuggestions.ts).
   await addColumnIfMissing(conn, 'cached_place_suggestions', 'suggestion_version', 'INTEGER');
 
+  // Venue-rollup U10: signage text Vision read per photo, compact JSON. Nullable:
+  // rows from older binaries (no text recognition) read as "not measured".
+  await addColumnIfMissing(conn, 'photo_ml_tags', 'sign_text_json', 'TEXT');
+
   // preview_asset_ids lets a failed thumbnail re-resolve a fresh URI from
   // MediaLibrary. Nullable so pre-existing rows read as [] (retry unavailable
   // for them, placeholder still applies) — see getTripSegments.
