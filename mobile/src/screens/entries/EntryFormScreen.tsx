@@ -476,9 +476,9 @@ export function EntryFormScreen({ route, navigation }: Props) {
   const showPlaceInput = entryType && ['place', 'food', 'stay'].includes(entryType);
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
-      {/* Custom Header */}
-      <View style={styles.header}>
+    <View style={styles.container}>
+      {/* Custom Header - owns the top inset so its opaque background covers the status-bar band */}
+      <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
         <View style={styles.headerRow}>
           <GlassBackButton onPress={() => navigation.goBack()} />
           <Text style={styles.headerTitle}>{isEditing ? 'Edit Entry' : 'Add Entry'}</Text>
@@ -718,11 +718,9 @@ const styles = StyleSheet.create({
   },
   keyboardAvoid: {
     flex: 1,
-    overflow: 'visible',
   },
   scrollView: {
     flex: 1,
-    overflow: 'visible',
   },
   scrollContent: {
     paddingHorizontal: 20,
