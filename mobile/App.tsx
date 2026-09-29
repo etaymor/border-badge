@@ -35,6 +35,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AnimatedSplash, markSplashDone } from '@components/splash';
 import { ResponsiveProvider } from '@contexts/ResponsiveContext';
 import { useAppStateTracking } from '@hooks/useAppStateTracking';
+import { useWinbackQuickAction } from '@hooks/useWinbackQuickAction';
 import { useAuthSession } from '@hooks/useAuthSession';
 import { useCountriesSync } from '@hooks/useCountriesSync';
 import { useNavigationPersistence } from '@hooks/useNavigationPersistence';
@@ -156,6 +157,9 @@ export default function App() {
 
   // App foreground/background tracking
   useAppStateTracking(session, checkAppGroupForSharedURL, homeCountry);
+
+  // "Deleting? Get 50% off" home-screen quick action (winback offer)
+  useWinbackQuickAction(session, isAppReady);
 
   // Dev-gated frame-drop instrumentation (U1). No-op unless the harness is armed.
   useFrameMetrics();

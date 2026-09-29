@@ -15,7 +15,7 @@ import RevenueCatUI, { PAYWALL_RESULT } from 'react-native-purchases-ui';
 import Purchases, { PurchasesOfferings } from 'react-native-purchases';
 
 import { AdEvents } from '@services/adEvents';
-import { Analytics } from '@services/analytics';
+import { Analytics, type PaywallLoc } from '@services/analytics';
 import { syncSubscriptionToAppGroup } from '@services/appGroupSync';
 import {
   ENTITLEMENT_ID,
@@ -23,11 +23,12 @@ import {
   initializeRevenueCat,
   isTrialing,
   waitForLogIn,
+  WINBACK_OFFERING_ID,
 } from '@services/revenueCat';
 import { useSubscriptionStore } from '@stores/subscriptionStore';
 import type { GatedFeature } from '@navigation/types';
 
-export type PaywallLocation = 'onboarding' | 'modal' | 'settings';
+export type PaywallLocation = PaywallLoc;
 
 export interface PaywallPresentationResult {
   /** Whether a purchase or restore was successful */
@@ -43,6 +44,11 @@ export interface PaywallPresentationResult {
 export interface PaywallPresentationOptions {
   /** The gated feature that triggered the paywall (for analytics) */
   feature?: GatedFeature;
+  /**
+   * Present a specific (non-current) offering, e.g. the winback. Omit to
+   * present the dashboard's current offering.
+   */
+  offeringId?: string;
 }
 
 /** Look up price/currency for a product from cached offerings. */
@@ -50,7 +56,11 @@ function getProductPrice(
   offerings: PurchasesOfferings,
   productIdentifier: string
 ): { price: number; currency: string } | null {
-  const packages = offerings.current?.availablePackages ?? [];
+  // The winback product only lives in its own offering, not the current one.
+  const packages = [
+    ...(offerings.current?.availablePackages ?? []),
+    ...(offerings.all[WINBACK_OFFERING_ID]?.availablePackages ?? []),
+  ];
   const pkg = packages.find((p) => p.product.identifier === productIdentifier);
   if (!pkg) return null;
   return { price: pkg.product.price, currency: pkg.product.currencyCode };
@@ -67,8 +77,10 @@ export function usePaywallPresentation(location: PaywallLocation) {
 
   const presentPaywall = useCallback(
     async (options?: PaywallPresentationOptions): Promise<PaywallPresentationResult> => {
+      const offer = options?.offeringId === WINBACK_OFFERING_ID ? 'winback' : 'standard';
+
       // Track paywall view
-      Analytics.viewPaywall({ location, feature: options?.feature });
+      Analytics.viewPaywall({ location, feature: options?.feature, offer });
 
       try {
         // Ensure RevenueCat SDK is fully initialized and user is identified.
@@ -81,12 +93,21 @@ export function usePaywallPresentation(location: PaywallLocation) {
         const offerings = await Purchases.getOfferings();
         console.log('[usePaywallPresentation] Offerings fetched:', offerings.current?.identifier);
 
-        if (!offerings.current) {
-          console.error('[usePaywallPresentation] No current offering available');
+        const offering = options?.offeringId
+          ? offerings.all[options.offeringId]
+          : offerings.current;
+
+        if (!offering) {
+          console.error(
+            '[usePaywallPresentation] Offering not available:',
+            options?.offeringId ?? 'current'
+          );
           return { success: false, result: PAYWALL_RESULT.ERROR, cancelled: false, error: true };
         }
 
         const result = await RevenueCatUI.presentPaywall({
+          // No offering argument means RevenueCat shows the current offering.
+          ...(options?.offeringId ? { offering } : {}),
           displayCloseButton: true,
         });
 
@@ -100,7 +121,7 @@ export function usePaywallPresentation(location: PaywallLocation) {
             if (customerInfo) {
               await syncSubscriptionToAppGroup(customerInfo);
               const plan = getSubscriptionPlan(customerInfo);
-              Analytics.purchaseCompleted({ plan, location });
+              Analytics.purchaseCompleted({ plan, location, offer });
 
               // Track ad conversions (fire-and-forget)
               if (isTrialing(customerInfo)) {
@@ -132,7 +153,7 @@ export function usePaywallPresentation(location: PaywallLocation) {
           }
 
           case PAYWALL_RESULT.CANCELLED:
-            Analytics.purchaseCancelled({ location });
+            Analytics.purchaseCancelled({ location, offer });
             return { success: false, result, cancelled: true, error: false };
 
           case PAYWALL_RESULT.NOT_PRESENTED:
@@ -146,6 +167,7 @@ export function usePaywallPresentation(location: PaywallLocation) {
           plan: null,
           error: error instanceof Error ? error.message : 'Unknown error',
           location,
+          offer,
         });
         return {
           success: false,
