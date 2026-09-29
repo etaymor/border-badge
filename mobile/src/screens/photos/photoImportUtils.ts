@@ -3,6 +3,7 @@
  */
 
 import { computeTimeHint, type LocationCluster } from '@services/photoImport';
+import { withSceneHints, type SceneHint } from '@services/photoImport/sceneHints';
 
 /**
  * Type guard for AbortError.
@@ -36,9 +37,17 @@ export const truncateCoordinate = (value: number): number => Math.round(value * 
 /**
  * Map a location cluster and its prepared vision images to the API request format.
  * Extracted from usePlaceSuggestions for testability.
+ *
+ * `sceneHints` (U9) and `signText` (U10) are each omitted from the payload
+ * entirely when there are none.
  */
-export function mapClusterToApiPayload(cluster: LocationCluster, visionImages: string[]) {
-  return {
+export function mapClusterToApiPayload(
+  cluster: LocationCluster,
+  visionImages: string[],
+  sceneHints?: readonly SceneHint[],
+  signText?: readonly string[]
+) {
+  const payload = {
     id: cluster.id,
     centroid: {
       latitude: truncateCoordinate(cluster.centroid.latitude),
@@ -55,4 +64,5 @@ export function mapClusterToApiPayload(cluster: LocationCluster, visionImages: s
     time_hint: computeTimeHint(cluster),
     vision_images_base64: visionImages.length > 0 ? visionImages : undefined,
   };
+  return withSceneHints(payload, sceneHints, signText);
 }

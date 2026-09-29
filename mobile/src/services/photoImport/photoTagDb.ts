@@ -25,14 +25,15 @@
  */
 
 import { getDb, SQLITE_PARAM_LIMIT, withPhotoCacheWriteLock } from './photoCacheDb';
+import {
+  effectiveTaggerVersion,
+  parseSignText,
+  serializeSignText,
+  TAGGER_VERSION,
+} from './photoTagRows';
 
-/**
- * Version of the native signal set. Bump ONLY when the Swift module changes what
- * it emits (a new request, a different normalization); rows below the current
- * version are re-tagged on the next pass. Retuning thresholds must NOT bump this
- * - that is the whole point of storing raw signals plus `labels_json`.
- */
-export const TAGGER_VERSION = 1;
+/** Tagger versioning lives in photoTagRows.ts (U10 capability-keyed rule). */
+export { TAGGER_VERSION };
 
 /**
  * Version of the native metadata signal set (`readPhotoMeta`). Same contract as
@@ -52,6 +53,14 @@ export interface PhotoTagLabel {
   /** Vision identifier, e.g. "beach", "mountain", "document". */
   identifier: string;
   confidence: number;
+}
+
+/** One line of text Vision read from a photo (U10), as stored in `sign_text_json`. */
+export interface PhotoSignText {
+  text: string;
+  confidence: number;
+  /** Bounding-box area as a fraction of the frame. */
+  area: number;
 }
 
 /**
@@ -74,6 +83,8 @@ export interface PhotoMlTag {
   aestheticScore: number | null;
   /** iOS 18+ only; null on older systems. */
   isUtility: boolean | null;
+  /** Recognized text (U10). Null/absent = not measured (older binary, no pixels). */
+  signText?: PhotoSignText[] | null;
   computedAt: number;
 }
 
@@ -139,6 +150,7 @@ interface PhotoMlTagRow {
   labels_json: string | null;
   aesthetic_score: number | null;
   is_utility: number | null;
+  sign_text_json?: string | null;
   computed_at: number;
 }
 
@@ -206,6 +218,7 @@ function toPhotoMlTag(row: PhotoMlTagRow): PhotoMlTag {
     labels: parseLabels(row.labels_json),
     aestheticScore: row.aesthetic_score,
     isUtility: row.is_utility === null ? null : row.is_utility === 1,
+    signText: parseSignText(row.sign_text_json),
     computedAt: row.computed_at,
   };
 }
@@ -271,7 +284,7 @@ export async function upsertTags(tags: PhotoMlTag[]): Promise<void> {
       for (let i = 0; i < tags.length; i += UPSERT_BATCH_SIZE) {
         const batch = tags.slice(i, i + UPSERT_BATCH_SIZE);
         const placeholders = batch
-          .map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+          .map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
           .join(', ');
         const values = batch.flatMap((t) => [
           t.id,
@@ -288,12 +301,14 @@ export async function upsertTags(tags: PhotoMlTag[]): Promise<void> {
           t.aestheticScore,
           t.isUtility === null ? null : t.isUtility ? 1 : 0,
           t.computedAt,
+          serializeSignText(t.signText),
         ]);
 
         await database.runAsync(
           `INSERT OR REPLACE INTO photo_ml_tags
          (id, tagger_version, status, is_screenshot, face_count, max_face_area, total_face_area,
-          human_count, max_human_area, total_human_area, labels_json, aesthetic_score, is_utility, computed_at)
+          human_count, max_human_area, total_human_area, labels_json, aesthetic_score, is_utility, computed_at,
+          sign_text_json)
          VALUES ${placeholders}`,
           values
         );
@@ -314,7 +329,8 @@ export async function getTagsForIds(ids: string[]): Promise<Map<string, PhotoMlT
     const placeholders = batch.map(() => '?').join(',');
     const rows = await database.getAllAsync<PhotoMlTagRow>(
       `SELECT id, tagger_version, status, is_screenshot, face_count, max_face_area, total_face_area,
-              human_count, max_human_area, total_human_area, labels_json, aesthetic_score, is_utility, computed_at
+              human_count, max_human_area, total_human_area, labels_json, aesthetic_score, is_utility, computed_at,
+              sign_text_json
        FROM photo_ml_tags WHERE id IN (${placeholders})`,
       batch
     );
@@ -336,15 +352,16 @@ const NO_LOCAL_IMAGE_RETRY_MS = 7 * 24 * 60 * 60 * 1000;
 /**
  * Given candidate ids in priority order, return those still needing a tagging
  * pass, preserving that order. A photo needs tagging when it has no row, when
- * its row predates the current TAGGER_VERSION, or when it is a `no-local-image`
- * row old enough to be worth retrying.
+ * its row predates the effective tagger version (see photoTagRows.ts), or when
+ * it is a `no-local-image` row old enough to be worth retrying.
  *
  * Loads the whole (id, version, status, computed_at) index once rather than
  * probing per id - one query beats thousands.
  */
 export async function getUntaggedIds(
   orderedIds: string[],
-  now: number = Date.now()
+  now: number = Date.now(),
+  version: number = effectiveTaggerVersion()
 ): Promise<string[]> {
   if (orderedIds.length === 0) return [];
 
@@ -361,7 +378,7 @@ export async function getUntaggedIds(
   return orderedIds.filter((id) => {
     const row = existing.get(id);
     if (!row) return true;
-    if (row.tagger_version < TAGGER_VERSION) return true;
+    if (row.tagger_version < version) return true;
     if (row.status === 'no-local-image') {
       return now - row.computed_at >= NO_LOCAL_IMAGE_RETRY_MS;
     }
@@ -389,11 +406,12 @@ export async function getTagCoverageStats(): Promise<TagCoverageStats> {
   const byStatus: Record<string, number> = {};
   let total = 0;
   let currentVersion = 0;
+  const version = effectiveTaggerVersion();
 
   for (const row of rows) {
     byStatus[row.status] = (byStatus[row.status] ?? 0) + row.count;
     total += row.count;
-    if (row.tagger_version === TAGGER_VERSION) currentVersion += row.count;
+    if (row.tagger_version === version) currentVersion += row.count;
   }
 
   return { total, currentVersion, byStatus };

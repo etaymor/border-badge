@@ -32,6 +32,8 @@ Dataset schema (JSON):
 ]
 
 `vision_results` is optional and is useful for measuring multi-photo aggregation.
+`probe_places`, `scene_hints`, `sign_text` and `expected_in_top3` are optional
+fields read only by `--two-pass` (documented in scripts/eval_two_pass.py).
 """
 
 from __future__ import annotations
@@ -58,6 +60,7 @@ from app.services.place_matcher.utils import (
     name_match_strength,
     name_matches_candidate,
 )
+from scripts.eval_two_pass import TwoPassMetrics, evaluate_two_pass
 
 WeightName = Literal[
     "places_rank_distance_weight",
@@ -181,6 +184,16 @@ def parse_args() -> argparse.Namespace:
             "text, simulate a Text Search that recovers world places whose "
             "displayName matches the vision business_name_candidates. Reports "
             "avg_text_search_calls."
+        ),
+    )
+    parser.add_argument(
+        "--two-pass",
+        action="store_true",
+        help=(
+            "KTD5 sim: score rows the way production ranks them: rating-blind "
+            "first pass, top-3 finalists, ratings restored for those only, "
+            "re-rank + backfill, then the venue roll-up step (reads the rows' "
+            "probe_places). See scripts/eval_two_pass.py."
         ),
     )
     return parser.parse_args()
@@ -544,7 +557,7 @@ def random_weight_configs(
     return configs
 
 
-def format_metrics(metrics: EvalMetrics) -> str:
+def format_metrics(metrics: EvalMetrics | TwoPassMetrics) -> str:
     mean_rank_str = (
         f"{metrics.mean_rank:.2f}" if metrics.mean_rank is not None else "n/a"
     )
@@ -554,7 +567,9 @@ def format_metrics(metrics: EvalMetrics) -> str:
     )
 
 
-def score_value(metrics: EvalMetrics, optimize_for: Literal["top1", "mrr"]) -> float:
+def score_value(
+    metrics: EvalMetrics | TwoPassMetrics, optimize_for: Literal["top1", "mrr"]
+) -> float:
     return metrics.top1 if optimize_for == "top1" else metrics.mrr
 
 
@@ -563,15 +578,32 @@ def main() -> None:
     samples = load_dataset(args.dataset)
 
     matcher = PlaceMatcher(http_client=AsyncMock())
+
+    def run_eval(weights: dict[WeightName, float]) -> EvalMetrics | TwoPassMetrics:
+        if not args.two_pass:
+            return evaluate(
+                matcher=matcher,
+                samples=samples,
+                weights=weights,
+                vision_mode=args.vision_mode,
+            )
+        set_weights(matcher, weights)
+        return evaluate_two_pass(
+            matcher,
+            samples,
+            lambda s: select_vision_for_sample(s, args.vision_mode),
+        )
+
     baseline_weights = current_weights(matcher)
-    baseline_metrics = evaluate(
-        matcher=matcher,
-        samples=samples,
-        weights=baseline_weights,
-        vision_mode=args.vision_mode,
-    )
+    baseline_metrics = run_eval(baseline_weights)
 
     print("Baseline:", format_metrics(baseline_metrics))
+    if isinstance(baseline_metrics, TwoPassMetrics):
+        print("Two-pass top1 failures:", baseline_metrics.top1_failures)
+        print(
+            "Two-pass expected_in_top3 failures:",
+            baseline_metrics.top3_constraint_failures,
+        )
     print("Baseline weights:", json.dumps(baseline_weights, indent=2))
 
     if args.pipeline:
@@ -616,14 +648,11 @@ def main() -> None:
         trials=args.trials,
         seed=args.seed,
     )
-    scored: list[tuple[float, EvalMetrics, dict[WeightName, float]]] = []
+    scored: list[
+        tuple[float, EvalMetrics | TwoPassMetrics, dict[WeightName, float]]
+    ] = []
     for cfg in configs:
-        metrics = evaluate(
-            matcher=matcher,
-            samples=samples,
-            weights=cfg,
-            vision_mode=args.vision_mode,
-        )
+        metrics = run_eval(cfg)
         scored.append((score_value(metrics, args.optimize_for), metrics, cfg))
 
     scored.sort(key=lambda x: x[0], reverse=True)

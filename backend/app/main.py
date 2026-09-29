@@ -21,6 +21,7 @@ from slowapi.util import get_remote_address
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import FileResponse, RedirectResponse, Response
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app.core.config import get_settings
 from app.core.http_client import (
@@ -387,22 +388,33 @@ class WwwToApexMiddleware(BaseHTTPMiddleware):
         return RedirectResponse(url=location, status_code=301)
 
 
-def _head_response_keeping_get_headers(response: Response) -> Response:
-    return Response(
-        content=b"",
-        status_code=response.status_code,
-        headers=dict(response.headers),
-        background=getattr(response, "background", None),
-    )
+class HeadAsGetMiddleware:
+    """Serve HEAD through the GET handlers, then drop the body.
 
+    Pure ASGI on purpose: the app below sees a *copy* of the scope with
+    ``method="GET"``, while the server's own scope keeps ``HEAD``. uvicorn reads
+    that scope's method on ``http.response.start`` to decide it expects zero
+    body bytes; mutating the shared scope made it expect the GET
+    ``content-length`` and raise "Response content shorter than
+    Content-Length". The GET headers (including ``content-length``) pass
+    through unchanged, as RFC 9110 allows for HEAD.
+    """
 
-class HeadAsGetMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next) -> Response:  # type: ignore[no-untyped-def]
-        if request.method != "HEAD":
-            return await call_next(request)
-        request.scope["method"] = "GET"
-        response = await call_next(request)
-        return _head_response_keeping_get_headers(response)
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http" or scope["method"] != "HEAD":
+            await self.app(scope, receive, send)
+            return
+
+        async def send_without_body(message: Message) -> None:
+            if message["type"] != "http.response.body":
+                await send(message)
+            elif not message.get("more_body", False):
+                await send({"type": "http.response.body", "body": b""})
+
+        await self.app({**scope, "method": "GET"}, receive, send_without_body)
 
 
 app = FastAPI(

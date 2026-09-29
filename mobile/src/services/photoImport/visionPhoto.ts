@@ -15,11 +15,14 @@ import {
   computeQualityScores,
   isNearDuplicatePair,
 } from '@services/photoSignals';
-import { withNativeTimeout } from '@utils/withNativeTimeout';
+import { isNativeTimeoutError, withNativeTimeout } from '@utils/withNativeTimeout';
 
 import { haversine } from './photoClustering';
 import { getIntentTagsForIds, getTagsForIds } from './photoTagDb';
+import type { PhotoMlTag } from './photoTagDb';
 import type { LocationCluster, PhotoWithLocation } from './types';
+import type { PrepTelemetrySink } from './prepTelemetry';
+import type { VisionPrepBreaker } from './visionPrepBreaker';
 
 const VISION_MAX_DIMENSION = 768;
 const VISION_JPEG_QUALITY = 0.8;
@@ -55,6 +58,25 @@ function getImageDimensions(photoUri: string): Promise<{ width: number; height: 
     'Image.getSize',
     VISION_IMAGE_TIMEOUT_MS
   );
+}
+
+/**
+ * Whether a photo's pixels are on the device, so preparing it never waits on
+ * a network download (KTD1, R1).
+ *
+ * Uses only signals already stored. The scan caches `localUri ?? uri`, so a
+ * cached `ph://` URI means PhotoKit reported no local file: the original lives
+ * only in iCloud and `manipulateAsync` would download it (the Sept 2026 Paris
+ * import: a 10s timeout per photo, and nothing back). A `no-local-image` tag
+ * row is the native tagger finding the same thing later, for a photo whose
+ * `file://` path has since been offloaded. Without a tag row the URI decides.
+ */
+export function isPhotoLocallyAvailable(
+  photo: PhotoWithLocation,
+  tag?: Pick<PhotoMlTag, 'status'>
+): boolean {
+  if (photo.uri.startsWith('ph://')) return false;
+  return tag?.status !== 'no-local-image';
 }
 
 /**
@@ -236,6 +258,18 @@ export async function prepareVisionImage(
   photoUri: string,
   knownDimensions?: KnownImageDimensions
 ): Promise<string | null> {
+  return (await prepareVisionImageWithOutcome(photoUri, knownDimensions)).base64;
+}
+
+/**
+ * `prepareVisionImage`, also reporting whether the native call timed out — the
+ * signal the dispatch breaker (KTD2) counts. A decode failure or an oversized
+ * result is a bad input, not a stuck native layer, so it is not a timeout.
+ */
+async function prepareVisionImageWithOutcome(
+  photoUri: string,
+  knownDimensions?: KnownImageDimensions
+): Promise<{ base64: string | null; timedOut: boolean }> {
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { manipulateAsync, SaveFormat } = require('expo-image-manipulator');
@@ -266,9 +300,9 @@ export async function prepareVisionImage(
       if (__DEV__) {
         console.warn(`[VisionPhoto] Image too large after compression: ${base64.length} chars`);
       }
-      return null;
+      return { base64: null, timedOut: false };
     }
-    return base64;
+    return { base64, timedOut: false };
   } catch (error) {
     if (__DEV__) {
       console.warn(
@@ -276,7 +310,7 @@ export async function prepareVisionImage(
         error instanceof Error ? error.message : error
       );
     }
-    return null;
+    return { base64: null, timedOut: isNativeTimeoutError(error) };
   }
 }
 
@@ -290,12 +324,16 @@ export async function prepareVisionImage(
  * BOTH flags because the composite score without intent rows is mostly noise.
  */
 async function loadClusterQualityScores(
-  cluster: LocationCluster
+  cluster: LocationCluster,
+  tags: Map<string, PhotoMlTag> | null
 ): Promise<Map<string, number> | undefined> {
   if (!features.enableQualityRanking || !features.enableIntentSignals) return undefined;
+  // The tag rows were loaded (for local availability) by the caller; a failed
+  // load degrades to the pre-signals selection exactly as before.
+  if (tags === null) return undefined;
   try {
     const ids = cluster.photos.map((photo) => photo.id);
-    const [tags, intents] = await Promise.all([getTagsForIds(ids), getIntentTagsForIds(ids)]);
+    const intents = await getIntentTagsForIds(ids);
     if (tags.size === 0 && intents.size === 0) return undefined;
 
     const countryCode = cluster.countryCode ?? null;
@@ -323,22 +361,86 @@ async function loadClusterQualityScores(
 }
 
 /**
+ * The cluster's tag rows, or null when they cannot be read. Best-effort: a read
+ * error must not fail a suggestion fetch, and without rows the URI alone
+ * decides local availability.
+ */
+async function loadTagRows(cluster: LocationCluster): Promise<Map<string, PhotoMlTag> | null> {
+  try {
+    return await getTagsForIds(cluster.photos.map((photo) => photo.id));
+  } catch (error) {
+    if (__DEV__) {
+      console.warn(
+        '[VisionPhoto] Tag row load failed:',
+        error instanceof Error ? error.message : error
+      );
+    }
+    return null;
+  }
+}
+
+export interface VisionImagesOptions {
+  /**
+   * The dispatch's breaker (KTD2). When open, nothing is prepared; each
+   * photo's timeout or success is recorded on it.
+   */
+  breaker?: VisionPrepBreaker;
+  /** The dispatch's preparation telemetry (U3/R4): skips and per-photo outcomes. */
+  telemetry?: PrepTelemetrySink;
+}
+
+/**
  * Select and prepare representative photos for a cluster.
+ *
+ * Only locally available photos are candidates (KTD1): selection runs over the
+ * cluster with its offloaded photos removed, so the closest-to-centroid anchor
+ * becomes the closest LOCAL photo. A cluster with none returns no images at
+ * once and still goes to the matcher on its coordinates (R2).
  *
  * Returns an array of successfully prepared base64 images (0 to maxPhotos).
  */
 export async function getVisionImagesForCluster(
   cluster: LocationCluster,
-  maxPhotos: number = MAX_VISION_PHOTOS_PER_CLUSTER
+  maxPhotos: number = MAX_VISION_PHOTOS_PER_CLUSTER,
+  options: VisionImagesOptions = {}
 ): Promise<string[]> {
-  const quality = await loadClusterQualityScores(cluster);
-  const photos = selectRepresentativePhotos(cluster, maxPhotos, quality);
+  const { breaker, telemetry } = options;
+  if (breaker?.isOpen()) return [];
+  // The URI check is free, so an all-iCloud cluster skips even the tag read.
+  if (!cluster.photos.some((photo) => isPhotoLocallyAvailable(photo))) {
+    telemetry?.recordSkippedOffloaded(cluster.photos.length);
+    return [];
+  }
+
+  const tags = await loadTagRows(cluster);
+  const localPhotos = cluster.photos.filter((photo) =>
+    isPhotoLocallyAvailable(photo, tags?.get(photo.id))
+  );
+  telemetry?.recordSkippedOffloaded(cluster.photos.length - localPhotos.length);
+  if (localPhotos.length === 0) return [];
+
+  // Quality is scored over the whole cluster (capture contexts need its full
+  // timeline); only the selection pool is narrowed to local photos.
+  const quality = await loadClusterQualityScores(cluster, tags);
+  const photos = selectRepresentativePhotos(
+    { ...cluster, photos: localPhotos },
+    maxPhotos,
+    quality
+  );
   if (photos.length === 0) return [];
 
   const prepared = await Promise.all(
-    photos.map((photo) =>
-      prepareVisionImage(photo.uri, { width: photo.width, height: photo.height })
-    )
+    photos.map(async (photo) => {
+      if (breaker?.isOpen()) return null;
+      const { base64, timedOut } = await prepareVisionImageWithOutcome(photo.uri, {
+        width: photo.width,
+        height: photo.height,
+      });
+      if (timedOut) breaker?.recordTimeout();
+      else if (base64) breaker?.recordSuccess();
+      telemetry?.recordPhotoOutcome({ produced: !!base64, timedOut });
+      return base64;
+    })
   );
   return prepared.filter((image): image is string => typeof image === 'string' && image.length > 0);
 }

@@ -5,6 +5,7 @@ import math
 from app.services.photo_vision import VisionResult
 from app.services.photo_vision.constants import VISION_TO_PLACE_TYPES
 
+from ._venue_facts import sign_text_match_strength
 from .constants import (
     BAYESIAN_CONFIDENCE,
     BAYESIAN_PRIOR_MEAN,
@@ -120,7 +121,8 @@ class RankingMixin:
 
         Args:
             places: Places from API response
-            cluster: Cluster with centroid and time data
+            cluster: Cluster with centroid and time data (and optional
+                on-device ``sign_text``, read as a name signal)
             time_hint: Optional time hint (food/attraction/nightlife/quick_stop)
             vision_result: Optional VisionResult from photo classification
 
@@ -131,15 +133,23 @@ class RankingMixin:
         cluster_lat = cluster["centroid"]["latitude"]
         cluster_lng = cluster["centroid"]["longitude"]
 
-        name_candidates: list[str] = (
+        # KTD6 (U10): on-device sign text is a name signal like a vision
+        # business name. Same tiers: only a strong match earns the full bonus,
+        # but a lone generic sign word ("CAFE") is capped at weak by
+        # sign_text_match_strength; vision names keep plain matching.
+        vision_names: list[str] = (
             vision_result.business_name_candidates if vision_result is not None else []
         )
+        sign_names: list[str] = list(cluster.get("sign_text") or [])
 
         def _best_name_match_strength(raw_name: str) -> str:
             """Best match tier across all detected name candidates."""
             best = "none"
-            for candidate in name_candidates:
-                strength = name_match_strength(raw_name, candidate)
+            strengths = (
+                *(name_match_strength(raw_name, c) for c in vision_names),
+                *(sign_text_match_strength(raw_name, t) for t in sign_names),
+            )
+            for strength in strengths:
                 if strength == "strong":
                     return "strong"
                 if strength == "weak":

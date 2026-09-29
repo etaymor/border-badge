@@ -3,6 +3,7 @@
  * Tests category selection, form validation, and entry creation/editing.
  */
 
+import { KeyboardAvoidingView, ScrollView, StyleSheet } from 'react-native';
 import { fireEvent, render, screen, act } from '../utils/testUtils';
 import {
   createMockTrip,
@@ -329,6 +330,29 @@ describe('EntryFormScreen', () => {
       fireEvent.press(backButton);
 
       expect(mockNavigation.goBack).toHaveBeenCalled();
+    });
+  });
+
+  describe('Header layering', () => {
+    // Regression: with the keyboard up the form scrolls, and scrolled content
+    // (photos, "Choose Photos") showed through the status-bar band above the
+    // Add/Edit Entry header because the scroll area drew outside its bounds.
+    it.each([
+      ['create', undefined],
+      ['edit', 'entry-123'],
+    ])('clips scrolled form content to the area below the header (%s)', (_mode, entryId) => {
+      mockHooks({
+        entry: entryId ? createMockEntryWithPlace({ id: entryId, title: 'Test Entry' }) : null,
+      });
+      const route = createEntryFormRoute({ tripId: 'trip-123', entryId, entryType: 'food' });
+
+      render(<EntryFormScreen navigation={mockNavigation} route={route} />);
+
+      const scrollView = screen.UNSAFE_getByType(ScrollView);
+      expect(StyleSheet.flatten(scrollView.props.style).overflow).not.toBe('visible');
+
+      const keyboardAvoid = screen.UNSAFE_getByType(KeyboardAvoidingView);
+      expect(StyleSheet.flatten(keyboardAvoid.props.style).overflow).not.toBe('visible');
     });
   });
 

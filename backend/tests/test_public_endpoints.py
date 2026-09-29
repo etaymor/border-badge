@@ -112,6 +112,93 @@ def test_head_landing_is_empty_html(client: TestClient) -> None:
         )
 
 
+async def _drive_asgi_like_uvicorn(
+    method: str, path: str
+) -> tuple[int, dict[str, str], bytes, int | None]:
+    """Drive the app over raw ASGI and apply uvicorn's Content-Length check.
+
+    TestClient never enforces Content-Length. uvicorn's httptools protocol does:
+    on ``http.response.start`` it reads ``scope["method"]`` from the scope it
+    handed the app. For ``HEAD`` it expects zero body bytes; otherwise it
+    expects exactly the ``content-length`` value, and raises "Response content
+    shorter than Content-Length" when the body falls short. This harness reads
+    the method from that same scope dict at the same moment, so a middleware
+    that mutates the shared scope reproduces the production RuntimeError.
+    Returns status, headers, body, and the expected length the server derived.
+    """
+    scope: dict[str, Any] = {
+        "type": "http",
+        "asgi": {"version": "3.0", "spec_version": "2.3"},
+        "http_version": "1.1",
+        "method": method,
+        "scheme": "http",
+        "path": path,
+        "raw_path": path.encode(),
+        "root_path": "",
+        "query_string": b"",
+        "headers": [(b"host", b"localhost:8000")],
+        "client": ("127.0.0.1", 12345),
+        "server": ("localhost", 8000),
+        "state": {},
+    }
+    request_sent = False
+
+    async def receive() -> dict[str, Any]:
+        nonlocal request_sent
+        if not request_sent:
+            request_sent = True
+            return {"type": "http.request", "body": b"", "more_body": False}
+        return {"type": "http.disconnect"}
+
+    status = 0
+    headers: dict[str, str] = {}
+    body = b""
+    expected_length: int | None = None
+
+    async def send(message: dict[str, Any]) -> None:
+        nonlocal status, headers, body, expected_length
+        if message["type"] == "http.response.start":
+            status = message["status"]
+            headers = {k.decode().lower(): v.decode() for k, v in message["headers"]}
+            if scope["method"] == "HEAD":
+                expected_length = 0
+            elif "content-length" in headers:
+                expected_length = int(headers["content-length"])
+        elif message["type"] == "http.response.body":
+            body += message.get("body", b"")
+
+    await app(scope, receive, send)
+    return status, headers, body, expected_length
+
+
+async def test_head_body_matches_what_the_server_expects() -> None:
+    """R11: HEAD must not trip uvicorn's 'shorter than Content-Length' check."""
+    status, headers, body, expected = await _drive_asgi_like_uvicorn("HEAD", "/")
+    assert status == 200
+    assert "text/html" in headers["content-type"]
+    assert body == b""
+    # The server must still see HEAD so it expects zero body bytes.
+    assert expected == 0
+    assert len(body) == expected
+
+
+async def test_get_over_raw_asgi_is_unchanged() -> None:
+    status, headers, body, expected = await _drive_asgi_like_uvicorn("GET", "/")
+    assert status == 200
+    assert "text/html" in headers["content-type"]
+    assert b"Atlasi" in body
+    if expected is not None:
+        assert len(body) == expected
+
+
+async def test_head_on_redirecting_path_keeps_redirect() -> None:
+    status, headers, body, expected = await _drive_asgi_like_uvicorn("HEAD", "/blog/")
+    assert status == 301
+    assert headers["location"].endswith("/blog")
+    assert body == b""
+    assert expected == 0
+
+
 def test_landing_h1_and_guide_links(client: TestClient) -> None:
     text = client.get("/").text
     assert "<h1>Track countries, import travel photos, and log every trip.</h1>" in text

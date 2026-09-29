@@ -375,6 +375,69 @@ class Settings(BaseSettings):
             "clusters still missing their venue after the U5 rescue."
         ),
     )
+    places_venue_probe: bool = Field(
+        default=True,
+        description=(
+            "Venue-rollup U6 (KTD3): one POPULARITY Nearby per ~110m cell, "
+            "restricted to major-venue types and carrying rating, review "
+            "count and viewport, fired (at any density) when a local "
+            "candidate is museum/landmark/attraction family or on-device "
+            "scene hints say museum_interior/artwork. Results sit in a "
+            "separate per-cluster map that only the roll-up reads, so ranking "
+            "is unchanged when the roll-up does not fire. Rollback: false "
+            "makes no call and restores prior behavior."
+        ),
+    )
+    places_venue_probe_radius_m: int = Field(
+        default=400,
+        ge=100,
+        le=1000,
+        description=(
+            "Radius (meters) of the venue probe. 400m reached the Louvre's "
+            "single map point from every interior capture point in the U4 "
+            "live evidence (85-255m away)."
+        ),
+    )
+    places_rollup_max_distance_m: int = Field(
+        default=250,
+        ge=0,
+        le=1000,
+        description=(
+            "Venue-rollup U7 (KTD4): a venue-probe place contains a cluster "
+            "when the centroid is inside its viewport OR within this many "
+            "meters of its point. 0 leaves only the viewport test."
+        ),
+    )
+    places_rollup_min_parent_reviews: int = Field(
+        default=2000,
+        ge=0,
+        description=(
+            "Venue-rollup U7 (KTD4): minimum userRatingCount for a probe place "
+            "to become the parent, and the review count at which a museum "
+            "finalist counts as a distinct institution. Rollback: 0 turns the "
+            "roll-up off (output identical to pre-U7)."
+        ),
+    )
+    places_rollup_dominance_ratio: float = Field(
+        default=10.0,
+        ge=1.0,
+        le=1000.0,
+        description=(
+            "Venue-rollup U7 (KTD4): the parent needs this many times the top "
+            "finalist's reviews. Waived (down to a 2x floor) for an exhibit "
+            "or landmark-family finalist inside a non-park parent's viewport."
+        ),
+    )
+    places_rollup_containing_places: bool = Field(
+        default=True,
+        description=(
+            "Venue-rollup U8 (KTD9): when KTD4 cannot settle a probed cluster, "
+            "fetch Google containingPlaces (Place Details Pro, cached in "
+            "cached_google_place) for the TOP finalist only; if it names a "
+            "probe parent, the parent wins without the dominance ratio. "
+            "Rollback: false (output identical to U7, no extra calls)."
+        ),
+    )
 
     # Travel photo quiz — vision eligibility gate (U2). The quiz is a free,
     # shareable surface (farmable across signups), so classification spend is

@@ -20,6 +20,10 @@ public class PhotoTaggerModule: Module {
   private static let targetSize = CGSize(width: 512, height: 512)
   private static let maxLabels = 10
   private static let minLabelConfidence: Float = 0.05
+  /// Text observations kept per photo, largest first. Signage is big text, so
+  /// area order keeps storefront names ahead of menu fine print; every other
+  /// cut (confidence floor, length, dedupe) lives in TypeScript.
+  private static let maxTextObservations = 8
   /// Vision already saturates the ANE; more parallelism buys nothing and risks
   /// thermal throttling on a background pass the user did not ask for.
   private static let concurrency = 2
@@ -41,6 +45,10 @@ public class PhotoTaggerModule: Module {
       }
       return [
         "aesthetics": aesthetics,
+        // Venue-rollup U10: rows from this binary carry `text`. TypeScript
+        // keys the effective tagger version on this flag, so a binary without
+        // it neither re-tags nor stamps rows as text-recognized.
+        "textRecognition": true,
         "osMajor": info.operatingSystemVersion.majorVersion,
         "lowPower": info.isLowPowerModeEnabled,
         "thermalState": Self.thermalStateName(info.thermalState)
@@ -240,6 +248,9 @@ public class PhotoTaggerModule: Module {
 
     let (image, isInCloud) = requestLocalImage(asset: asset)
 
+    // Local thumbnails only (network access is off in requestLocalImage), so
+    // text recognition, like every other request here, never downloads.
+
     guard let image = image, let cgImage = image.cgImage else {
       // Nothing stored locally is a "try again later", not a failure: iOS
       // re-materializes thumbnails on its own schedule.
@@ -292,6 +303,7 @@ public class PhotoTaggerModule: Module {
     tag["maxHumanArea"] = maxArea(humans)
     tag["totalHumanArea"] = totalArea(humans)
     tag["labels"] = topLabels(classifyRequest.results)
+    tag["text"] = recognizeText(handler: handler)
 
     if #available(iOS 18.0, *) {
       if let observation = aestheticsRequest?.results?.first
@@ -302,6 +314,53 @@ public class PhotoTaggerModule: Module {
     }
 
     return tag
+  }
+
+  // MARK: - Text
+
+  /// Signage text on the SAME handler, so it reuses the decode above. Run as its
+  /// own perform rather than inside the batch: a text-recognition failure must
+  /// cost only the text, never the scene labels and face geometry already
+  /// measured. `.fast` with language correction off keeps it cheap at 512px.
+  /// Returns NSNull when recognition failed (not measured), else the rows.
+  private static func recognizeText(handler: VNImageRequestHandler) -> Any {
+    let request = VNRecognizeTextRequest()
+    request.recognitionLevel = .fast
+    request.usesLanguageCorrection = false
+
+    do {
+      try handler.perform([request])
+    } catch {
+      return NSNull()
+    }
+
+    return topText(request.results)
+  }
+
+  private struct TextObservation {
+    let string: String
+    let confidence: Float
+    let area: Double
+  }
+
+  private static func topText(_ results: [VNRecognizedTextObservation]?) -> [[String: Any]] {
+    guard let results = results else { return [] }
+    return
+      results
+      .compactMap { observation -> TextObservation? in
+        guard let candidate = observation.topCandidates(1).first else { return nil }
+        let string = candidate.string.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !string.isEmpty else { return nil }
+        let box = observation.boundingBox
+        return TextObservation(
+          string: string,
+          confidence: candidate.confidence,
+          area: Double(box.width * box.height)
+        )
+      }
+      .sorted { $0.area > $1.area }
+      .prefix(maxTextObservations)
+      .map { ["string": $0.string, "confidence": Double($0.confidence), "area": $0.area] }
   }
 
   // MARK: - Pixels
@@ -375,6 +434,8 @@ public class PhotoTaggerModule: Module {
       "maxHumanArea": 0,
       "totalHumanArea": 0,
       "labels": [[String: Any]](),
+      // Null, not []: "no pixels, text not read" must not read as "read, no text".
+      "text": NSNull(),
       "aestheticScore": NSNull(),
       "isUtility": NSNull()
     ]

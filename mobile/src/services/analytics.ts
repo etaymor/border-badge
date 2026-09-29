@@ -8,6 +8,7 @@ import PostHog from 'posthog-react-native';
 
 import { isProduction } from '@config/env';
 import type { QuizEntryPoint, QuizShareSource } from '@navigation/types';
+import type { PrepTelemetry } from '@services/photoImport/prepTelemetry';
 import { stableHashOrNull } from '@utils/stableHash';
 
 export type PhotoPermissionDoor = 'quiz' | 'trips' | 'profile' | 'other';
@@ -146,6 +147,24 @@ export function calculateApiPercentiles(responseTimes: number[]): {
     p50: calculatePercentile(sorted, 50),
     p95: calculatePercentile(sorted, 95),
     p99: calculatePercentile(sorted, 99),
+  };
+}
+
+/**
+ * U3/R4. Vision preparation cost and coverage for one dispatch run (see
+ * `prepTelemetry.ts`), flattened onto the event. Shared by the completed and
+ * exited events so an abandoned import reports the same fields. Null when the
+ * caller had no run to report.
+ */
+function prepTelemetryProps(prep: PrepTelemetry | undefined) {
+  return {
+    prepare_ms_total: prep?.prepareMsTotal ?? null,
+    prepare_ms_max: prep?.prepareMsMax ?? null,
+    vision_images_attempted: prep?.visionImagesAttempted ?? null,
+    vision_images_produced: prep?.visionImagesProduced ?? null,
+    vision_images_timed_out: prep?.visionImagesTimedOut ?? null,
+    vision_photos_skipped_offloaded: prep?.visionPhotosSkippedOffloaded ?? null,
+    vision_breaker_opened: prep?.breakerOpened ?? null,
   };
 }
 
@@ -432,6 +451,8 @@ export const Analytics = {
      * preparation-bound share that more concurrency cannot remove.
      */
     wireSpanMs?: number;
+    /** U3/R4. Vision preparation cost and coverage for this dispatch run. */
+    prep?: PrepTelemetry;
   }) =>
     track('photo_import_suggestions_completed', {
       suggestion_count: props.suggestionCount,
@@ -449,6 +470,7 @@ export const Analytics = {
       mean_in_flight_batches: props.meanInFlightBatches ?? null,
       wire_busy_ms: props.wireBusyMs ?? null,
       wire_span_ms: props.wireSpanMs ?? null,
+      ...prepTelemetryProps(props.prep),
     }),
 
   /**
@@ -531,6 +553,11 @@ export const Analytics = {
      * summed total cannot.
      */
     maxRetryAttemptsPerGeneration?: number;
+    /**
+     * U3/R4. Vision preparation for the run the user walked away from, so an
+     * abandoned import still reports what preparation cost and produced.
+     */
+    prep?: PrepTelemetry;
   }) =>
     track('photo_import_workflow_exited', {
       total_clusters: props.totalClusters,
@@ -545,6 +572,7 @@ export const Analytics = {
       retry_attempts: props.retryAttempts ?? null,
       retry_generations: props.retryGenerations ?? null,
       max_retry_attempts_per_generation: props.maxRetryAttemptsPerGeneration ?? null,
+      ...prepTelemetryProps(props.prep),
     }),
 
   // Entry organization (Saved Places feature)

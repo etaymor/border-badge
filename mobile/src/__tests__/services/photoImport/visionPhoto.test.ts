@@ -26,9 +26,11 @@ import {
   prepareVisionImage,
   VISION_IMAGE_TIMEOUT_MS,
   getVisionImagesForCluster,
+  isPhotoLocallyAvailable,
 } from '../../../services/photoImport/visionPhoto';
-import { getIntentTagsForIds } from '../../../services/photoImport/photoTagDb';
-import type { PhotoIntentTag } from '../../../services/photoImport/photoTagDb';
+import { createVisionPrepBreaker } from '../../../services/photoImport/visionPrepBreaker';
+import { getIntentTagsForIds, getTagsForIds } from '../../../services/photoImport/photoTagDb';
+import type { PhotoIntentTag, PhotoMlTag } from '../../../services/photoImport/photoTagDb';
 import type { LocationCluster, PhotoWithLocation } from '../../../services/photoImport/types';
 
 function createPhoto(id: string, lat: number, lng: number, daysAgo: number = 0): PhotoWithLocation {
@@ -532,5 +534,272 @@ describe('getVisionImagesForCluster', () => {
     const images = await getVisionImagesForCluster(cluster, 3);
 
     expect(images).toEqual(['file://p1.jpg', 'file://p2.jpg']);
+  });
+});
+
+// ── U1/U2: iCloud-offloaded photos never reach native preparation (R1/R2) ──
+//
+// A `ph://` cached URI means the scan found no `localUri`: the pixels live only
+// in iCloud, and `manipulateAsync` on it downloads the full original — which on
+// the Sept 2026 Paris import hit the 10s bound every time and returned nothing.
+// A `no-local-image` tag row is the native tagger reporting the same thing for a
+// photo whose `file://` path no longer has pixels behind it. Either way the
+// cluster must go to the matcher on its coordinates with no added delay.
+describe('getVisionImagesForCluster over offloaded photos (U1)', () => {
+  const mockManipulate = ImageManipulator.manipulateAsync as jest.Mock;
+  const mockGetSize = Image.getSize as jest.Mock;
+  const mockGetTags = getTagsForIds as jest.Mock;
+
+  /** Dimensions are cached, so the probe is skipped and only the encode runs. */
+  const photoWithUri = (id: string, lat: number, uri: string, daysAgo: number) => ({
+    ...createPhoto(id, lat, 139.6503, daysAgo),
+    uri,
+    width: 1600,
+    height: 900,
+  });
+
+  const offloadedTag = (id: string): PhotoMlTag => ({
+    id,
+    taggerVersion: 1,
+    status: 'no-local-image',
+    isScreenshot: false,
+    faceCount: null,
+    maxFaceArea: null,
+    totalFaceArea: null,
+    humanCount: null,
+    maxHumanArea: null,
+    totalHumanArea: null,
+    labels: [],
+    aestheticScore: null,
+    isUtility: null,
+    computedAt: 0,
+  });
+
+  beforeEach(() => {
+    jest.useFakeTimers({ doNotFake: ['setImmediate'] });
+    mockManipulate.mockReset();
+    mockGetSize.mockReset();
+    mockGetSize.mockImplementation((_uri, success) => success(1600, 900));
+    // An iCloud-only asset: the encode waits on a network download that, on
+    // the reported import, never finished inside the bound.
+    mockManipulate.mockImplementation((uri: string) =>
+      uri.startsWith('ph://') ? new Promise(() => {}) : Promise.resolve({ uri, base64: uri })
+    );
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+    mockGetTags.mockResolvedValue(new Map());
+  });
+
+  /** Start preparation and report whether it settled within `ms` of fake time. */
+  async function settleWithin(cluster: LocationCluster, ms: number) {
+    let images: string[] | undefined;
+    const pending = getVisionImagesForCluster(cluster, 3).then((result) => {
+      images = result;
+      return result;
+    });
+    await jest.advanceTimersByTimeAsync(ms);
+    const settledInTime = images !== undefined;
+    // Drain whatever the implementation left running so no timer leaks.
+    await jest.advanceTimersByTimeAsync(VISION_IMAGE_TIMEOUT_MS * 2);
+    await pending;
+    return { settledInTime, images: images as string[] };
+  }
+
+  it('never hands an all-ph:// cluster to the manipulator and settles at once', async () => {
+    const cluster = createCluster(
+      [
+        photoWithUri('p1', 35.6762, 'ph://p1', 2),
+        photoWithUri('p2', 35.6763, 'ph://p2', 1),
+        photoWithUri('p3', 35.6764, 'ph://p3', 0),
+      ],
+      35.6762,
+      139.6503
+    );
+
+    const { settledInTime, images } = await settleWithin(cluster, 50);
+
+    expect(mockManipulate).not.toHaveBeenCalled();
+    expect(settledInTime).toBe(true);
+    expect(images).toEqual([]);
+  });
+
+  it('selects only local photos from a mixed cluster, anchored on the closest LOCAL one', async () => {
+    // The two photos nearest the centroid are offloaded; the local anchor is
+    // the closest of the remaining file:// photos.
+    const cluster = createCluster(
+      [
+        photoWithUri('icloud-a', 35.6762, 'ph://icloud-a', 3),
+        photoWithUri('icloud-b', 35.67625, 'ph://icloud-b', 2),
+        photoWithUri('local-near', 35.6764, 'file://local-near.jpg', 1),
+        photoWithUri('local-far', 35.6772, 'file://local-far.jpg', 0),
+      ],
+      35.6762,
+      139.6503
+    );
+
+    const { settledInTime, images } = await settleWithin(cluster, 50);
+
+    const encodedUris = mockManipulate.mock.calls.map((call) => call[0]);
+    expect(encodedUris.every((uri: string) => uri.startsWith('file://'))).toBe(true);
+    expect(settledInTime).toBe(true);
+    expect(images).toEqual(['file://local-near.jpg', 'file://local-far.jpg']);
+  });
+
+  it('skips file:// photos whose tag row says no-local-image', async () => {
+    const photos = [
+      photoWithUri('t1', 35.6762, 'file://t1.jpg', 2),
+      photoWithUri('t2', 35.6763, 'file://t2.jpg', 1),
+      photoWithUri('t3', 35.6764, 'file://t3.jpg', 0),
+    ];
+    mockGetTags.mockResolvedValue(new Map(photos.map((p) => [p.id, offloadedTag(p.id)])));
+    // Those files have no pixels behind them: the encode would stall.
+    mockManipulate.mockImplementation(() => new Promise(() => {}));
+    const cluster = createCluster(photos, 35.6762, 139.6503);
+
+    const { settledInTime, images } = await settleWithin(cluster, 50);
+
+    expect(mockManipulate).not.toHaveBeenCalled();
+    expect(settledInTime).toBe(true);
+    expect(images).toEqual([]);
+  });
+});
+
+describe('getVisionImagesForCluster with the dispatch breaker (U2/KTD2)', () => {
+  const mockManipulate = ImageManipulator.manipulateAsync as jest.Mock;
+  let warnSpy: jest.SpyInstance;
+
+  const localPhoto = (id: string, lat: number, daysAgo: number) => ({
+    ...createPhoto(id, lat, 139.6503, daysAgo),
+    width: 1600,
+    height: 900,
+  });
+
+  beforeEach(() => {
+    jest.useFakeTimers({ doNotFake: ['setImmediate'] });
+    mockManipulate.mockReset();
+    warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+    warnSpy.mockRestore();
+  });
+
+  it('records each photo timeout and opens after a cluster of three', async () => {
+    mockManipulate.mockImplementation(() => new Promise(() => {}));
+    const breaker = createVisionPrepBreaker();
+    const cluster = createCluster(
+      [localPhoto('s1', 35.6762, 2), localPhoto('s2', 35.6763, 1), localPhoto('s3', 35.6764, 0)],
+      35.6762,
+      139.6503
+    );
+
+    const pending = getVisionImagesForCluster(cluster, 3, { breaker });
+    await jest.advanceTimersByTimeAsync(VISION_IMAGE_TIMEOUT_MS);
+
+    await expect(pending).resolves.toEqual([]);
+    expect(breaker.isOpen()).toBe(true);
+  });
+
+  it('a successful encode resets the streak', async () => {
+    mockManipulate.mockImplementation((uri: string) =>
+      uri.includes('ok') ? Promise.resolve({ uri, base64: uri }) : new Promise(() => {})
+    );
+    const breaker = createVisionPrepBreaker();
+    breaker.recordTimeout();
+    breaker.recordTimeout();
+    const cluster = createCluster([localPhoto('ok', 35.6762, 0)], 35.6762, 139.6503);
+
+    await expect(getVisionImagesForCluster(cluster, 3, { breaker })).resolves.toEqual([
+      'file://ok.jpg',
+    ]);
+    expect(breaker.consecutiveTimeouts()).toBe(0);
+    expect(breaker.isOpen()).toBe(false);
+  });
+
+  it('prepares nothing once the breaker is open', async () => {
+    const breaker = createVisionPrepBreaker();
+    for (let i = 0; i < 3; i++) breaker.recordTimeout();
+    const cluster = createCluster([localPhoto('p1', 35.6762, 0)], 35.6762, 139.6503);
+
+    await expect(getVisionImagesForCluster(cluster, 3, { breaker })).resolves.toEqual([]);
+    expect(mockManipulate).not.toHaveBeenCalled();
+  });
+
+  it('a decode failure is not a timeout', async () => {
+    mockManipulate.mockRejectedValue(new Error('decode failed'));
+    const breaker = createVisionPrepBreaker();
+    const cluster = createCluster(
+      [localPhoto('d1', 35.6762, 2), localPhoto('d2', 35.6763, 1), localPhoto('d3', 35.6764, 0)],
+      35.6762,
+      139.6503
+    );
+
+    await expect(getVisionImagesForCluster(cluster, 3, { breaker })).resolves.toEqual([]);
+    expect(breaker.consecutiveTimeouts()).toBe(0);
+  });
+
+  // Only a success resets the streak: a decode failure is neither a timeout
+  // nor a success, so it must leave a live streak exactly where it was.
+  it('a decode failure leaves an existing timeout streak untouched', async () => {
+    mockManipulate.mockRejectedValue(new Error('decode failed'));
+    const breaker = createVisionPrepBreaker();
+    breaker.recordTimeout();
+    const cluster = createCluster([localPhoto('d1', 35.6762, 0)], 35.6762, 139.6503);
+
+    await expect(getVisionImagesForCluster(cluster, 3, { breaker })).resolves.toEqual([]);
+    expect(mockManipulate).toHaveBeenCalled();
+    expect(breaker.consecutiveTimeouts()).toBe(1);
+    expect(breaker.isOpen()).toBe(false);
+  });
+
+  it('a decode failure between timeouts does not stop the breaker opening', async () => {
+    mockManipulate.mockRejectedValue(new Error('decode failed'));
+    const breaker = createVisionPrepBreaker();
+    breaker.recordTimeout();
+    breaker.recordTimeout();
+    const cluster = createCluster([localPhoto('d1', 35.6762, 0)], 35.6762, 139.6503);
+
+    await expect(getVisionImagesForCluster(cluster, 3, { breaker })).resolves.toEqual([]);
+    expect(breaker.isOpen()).toBe(false);
+
+    mockManipulate.mockImplementation(() => new Promise(() => {}));
+    const stalled = createCluster([localPhoto('t1', 35.6762, 0)], 35.6762, 139.6503);
+    const pending = getVisionImagesForCluster(stalled, 3, { breaker });
+    await jest.advanceTimersByTimeAsync(VISION_IMAGE_TIMEOUT_MS);
+
+    await expect(pending).resolves.toEqual([]);
+    expect(breaker.consecutiveTimeouts()).toBe(3);
+    expect(breaker.isOpen()).toBe(true);
+  });
+
+  it('edge: a cluster with zero photos returns an empty list without throwing', async () => {
+    const cluster = createCluster([localPhoto('p1', 35.6762, 0)], 35.6762, 139.6503);
+    cluster.photos = [];
+
+    await expect(
+      getVisionImagesForCluster(cluster, 3, { breaker: createVisionPrepBreaker() })
+    ).resolves.toEqual([]);
+    expect(mockManipulate).not.toHaveBeenCalled();
+  });
+});
+
+describe('isPhotoLocallyAvailable (KTD1)', () => {
+  it('treats a cached ph:// URI as offloaded', () => {
+    expect(isPhotoLocallyAvailable({ ...createPhoto('a', 0, 0), uri: 'ph://a' })).toBe(false);
+  });
+
+  it('treats a no-local-image tag row as offloaded even with a file:// URI', () => {
+    expect(isPhotoLocallyAvailable(createPhoto('a', 0, 0), { status: 'no-local-image' })).toBe(
+      false
+    );
+  });
+
+  it('treats a file:// URI with no row, or any other status, as local', () => {
+    expect(isPhotoLocallyAvailable(createPhoto('a', 0, 0))).toBe(true);
+    expect(isPhotoLocallyAvailable(createPhoto('a', 0, 0), { status: 'ok' })).toBe(true);
+    expect(isPhotoLocallyAvailable(createPhoto('a', 0, 0), { status: 'error' })).toBe(true);
   });
 });

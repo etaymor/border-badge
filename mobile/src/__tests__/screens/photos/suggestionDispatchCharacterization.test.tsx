@@ -30,6 +30,10 @@ import { usePlaceSuggestions } from '../../../screens/photos/usePlaceSuggestions
 import { suggestionDispatch } from '@services/photoImport/suggestionDispatch';
 import { CHUNK_SIZE, FIRST_CHUNK_SIZE, planSuggestionBatches } from '@hooks/usePhotoImport';
 import { api } from '@services/api';
+import { Analytics } from '@services/analytics';
+import { getVisionImagesForCluster } from '@services/photoImport/visionPhoto';
+import { getTagsForIds, type PhotoMlTag } from '@services/photoImport/photoTagDb';
+import { manipulateAsync } from 'expo-image-manipulator';
 import {
   getCachedSuggestions,
   cacheSuggestions,
@@ -52,6 +56,18 @@ jest.mock('@services/photoImport', () => ({
 
 jest.mock('@services/photoImport/visionPhoto', () => ({
   getVisionImagesForCluster: jest.fn().mockResolvedValue([]),
+}));
+
+// Only reached by the U1/U2 block below, which routes the (otherwise mocked)
+// `getVisionImagesForCluster` to the real implementation.
+jest.mock('expo-image-manipulator', () => ({
+  manipulateAsync: jest.fn(),
+  SaveFormat: { JPEG: 'jpeg' },
+}));
+
+jest.mock('@services/photoImport/photoTagDb', () => ({
+  getTagsForIds: jest.fn().mockResolvedValue(new Map()),
+  getIntentTagsForIds: jest.fn().mockResolvedValue(new Map()),
 }));
 
 jest.mock('@services/analytics', () => ({
@@ -503,5 +519,287 @@ describe('CHARACTERIZATION: retry (retryFailedClusters)', () => {
     expect(mockedApi.post).not.toHaveBeenCalled();
     expect(cacheWriteSequence()).toEqual([]);
     expect(result.current.cachedSuggestions.map((s) => s.cluster_id)).toEqual(['rt-cached']);
+  });
+});
+
+// ---- U1/U2: vision preparation over iCloud-offloaded photos ----------------
+//
+// NOT a recording of pre-refactor behavior: these pin the fix for the Sept 2026
+// Paris import, where every batch waited ~10-20s on `manipulateAsync` over
+// `ph://` originals that were never going to download, and then posted with no
+// images anyway. They drive the real hook wiring (`createVisionPrepareBatch`)
+// through the real `getVisionImagesForCluster`.
+
+describe('U1/U2: vision preparation does not stall the dispatch on offloaded photos', () => {
+  const mockedGetVisionImages = getVisionImagesForCluster as jest.MockedFunction<
+    typeof getVisionImagesForCluster
+  >;
+  const mockedManipulate = manipulateAsync as jest.MockedFunction<typeof manipulateAsync>;
+  const realVision = jest.requireActual<typeof import('@services/photoImport/visionPhoto')>(
+    '@services/photoImport/visionPhoto'
+  );
+
+  /** A cluster whose `count` photos all carry `uriFor(i)` and cached dimensions. */
+  function clusterWith(id: string, index: number, count: number, uriFor: (i: number) => string) {
+    const base = makeCluster(id, 35 + index * 0.01, 139 + index * 0.01);
+    const template = base.photos[0];
+    base.photos = Array.from({ length: count }, (_, i) => ({
+      ...template,
+      id: `photo-${id}-${i}`,
+      uri: uriFor(i),
+      creationTime: new Date(template.creationTime.getTime() + i * 60_000),
+      width: 1600,
+      height: 900,
+    }));
+    return base;
+  }
+
+  const postedClusters = () =>
+    mockedApi.post.mock.calls.flatMap(
+      (call) =>
+        (call[1] as { clusters: { id: string; vision_images_base64?: string[] }[] }).clusters
+    );
+
+  beforeEach(() => {
+    mockedGetVisionImages.mockImplementation((...args) =>
+      realVision.getVisionImagesForCluster(...args)
+    );
+    // iCloud-only (`ph://`) and pixel-less files never finish encoding;
+    // anything else encodes instantly.
+    mockedManipulate.mockImplementation(((uri: string) =>
+      uri.startsWith('ph://') || uri.includes('stall')
+        ? new Promise(() => {})
+        : Promise.resolve({ uri, width: 768, height: 432, base64: `b64:${uri}` })) as never);
+    mockedApi.post.mockImplementation(async (_url, body) =>
+      respondFor(
+        (body as { clusters: { id: string }[] }).clusters.map((c) => c.id),
+        true
+      )
+    );
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+    mockedGetVisionImages.mockReset();
+    mockedGetVisionImages.mockResolvedValue([]);
+    mockedManipulate.mockReset();
+    mockedApi.post.mockReset();
+  });
+
+  /**
+   * Kick off the main dispatch, report how many requests went out within
+   * `windowMs` of fake time, then drain the run so nothing leaks.
+   */
+  async function postsWithin(clusters: LocationCluster[], windowMs: number) {
+    const { result } = setup(clusters);
+    let run!: Promise<unknown>;
+    await act(async () => {
+      run = result.current.fetchSuggestions(buildCandidate(clusters));
+    });
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(windowMs);
+    });
+    const posted = mockedApi.post.mock.calls.length;
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(10 * 60_000);
+      await run;
+    });
+    return posted;
+  }
+
+  it('posts every batch of a fully offloaded trip within one second, with no images', async () => {
+    jest.useFakeTimers({ doNotFake: ['setImmediate'] });
+    const clusters = Array.from({ length: 12 }, (_, i) =>
+      clusterWith(`icloud-${i}`, i, 3, (p) => `ph://icloud-${i}-${p}`)
+    );
+    const batchCount = planSuggestionBatches(clusters).length;
+
+    const postedInFirstSecond = await postsWithin(clusters, 1000);
+
+    expect(postedInFirstSecond).toBe(batchCount);
+    expect(mockedManipulate).not.toHaveBeenCalled();
+    expect(postedClusters()).toHaveLength(clusters.length);
+    expect(postedClusters().every((c) => c.vision_images_base64 === undefined)).toBe(true);
+  });
+
+  it('stops preparing once repeated timeouts open the breaker: later batches go out bare', async () => {
+    jest.useFakeTimers({ doNotFake: ['setImmediate'] });
+    // Local paths whose encodes hang anyway (the backstop KTD1 cannot see).
+    const clusters = Array.from({ length: FIRST_CHUNK_SIZE + CHUNK_SIZE * 3 }, (_, i) =>
+      clusterWith(`stall-${i}`, i, 3, (p) => `file://stall-${i}-${p}.jpg`)
+    );
+    const batches = planSuggestionBatches(clusters);
+    const lastBatchUris = new Set(
+      batches[batches.length - 1].flatMap((c) => c.photos.map((p) => p.uri))
+    );
+
+    await postsWithin(clusters, 0);
+
+    expect(mockedApi.post).toHaveBeenCalledTimes(batches.length);
+    const encodedUris = mockedManipulate.mock.calls.map((call) => call[0]);
+    expect(encodedUris.some((uri) => lastBatchUris.has(uri))).toBe(false);
+    expect(postedClusters().every((c) => c.vision_images_base64 === undefined)).toBe(true);
+  });
+
+  it('a new dispatch starts with the breaker closed', async () => {
+    jest.useFakeTimers({ doNotFake: ['setImmediate'] });
+    const stalled = Array.from({ length: FIRST_CHUNK_SIZE + CHUNK_SIZE }, (_, i) =>
+      clusterWith(`stall-${i}`, i, 3, (p) => `file://stall-${i}-${p}.jpg`)
+    );
+    await postsWithin(stalled, 0);
+    mockedApi.post.mockClear();
+
+    const local = Array.from({ length: FIRST_CHUNK_SIZE }, (_, i) =>
+      clusterWith(`fresh-${i}`, 20 + i, 3, (p) => `file://fresh-${i}-${p}.jpg`)
+    );
+    const { result } = setup(local);
+    let run!: Promise<unknown>;
+    await act(async () => {
+      run = result.current.fetchSuggestions(buildCandidate(local, 'cand-fresh'));
+    });
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(1000);
+      await run;
+    });
+
+    expect(postedClusters().map((c) => c.vision_images_base64?.length)).toEqual([3, 3]);
+  });
+
+  // U3/R4: the completed event carries the dispatch's preparation telemetry.
+  const lastCompletedProps = () =>
+    (Analytics.photoImportSuggestionsCompleted as jest.Mock).mock.calls.at(-1)?.[0];
+
+  it('reports 2 produced, 1 timed out and 4 offloaded skips on the completed event', async () => {
+    jest.useFakeTimers({ doNotFake: ['setImmediate'] });
+    const clusters = [
+      clusterWith('mixed-0', 0, 3, (p) => (p < 2 ? `file://ok-${p}.jpg` : 'file://stall-2.jpg')),
+      clusterWith('icloud-1', 1, 4, (p) => `ph://icloud-1-${p}`),
+    ];
+
+    await postsWithin(clusters, 0);
+
+    expect(lastCompletedProps().prep).toMatchObject({
+      visionImagesAttempted: 3,
+      visionImagesProduced: 2,
+      visionImagesTimedOut: 1,
+      visionPhotosSkippedOffloaded: 4,
+      breakerOpened: false,
+    });
+    expect(lastCompletedProps().prep.prepareMsTotal).toBeGreaterThanOrEqual(10_000);
+    expect(lastCompletedProps().prep.prepareMsMax).toBeGreaterThanOrEqual(10_000);
+  });
+
+  it('reports an opened breaker on the completed event', async () => {
+    jest.useFakeTimers({ doNotFake: ['setImmediate'] });
+    const clusters = Array.from({ length: FIRST_CHUNK_SIZE + CHUNK_SIZE }, (_, i) =>
+      clusterWith(`stall-${i}`, i, 3, (p) => `file://stall-${i}-${p}.jpg`)
+    );
+
+    await postsWithin(clusters, 0);
+
+    expect(lastCompletedProps().prep).toMatchObject({
+      breakerOpened: true,
+      visionImagesProduced: 0,
+    });
+    expect(lastCompletedProps().prep.visionImagesTimedOut).toBeGreaterThanOrEqual(3);
+  });
+
+  it('a fully local dispatch still attaches up to 3 images per cluster', async () => {
+    const clusters = Array.from({ length: FIXED_CLUSTER_COUNT }, (_, i) =>
+      clusterWith(`local-${i}`, i, 4, (p) => `file://local-${i}-${p}.jpg`)
+    );
+
+    const { result } = setup(clusters);
+    await act(async () => {
+      await result.current.fetchSuggestions(buildCandidate(clusters));
+    });
+
+    expect(dispatchedIdSequence()).toEqual(
+      planSuggestionBatches(clusters).map((b) => b.map((c) => c.id))
+    );
+    expect(postedClusters().map((c) => c.vision_images_base64?.length)).toEqual(
+      clusters.map(() => 3)
+    );
+  });
+
+  // U9: scene hints come from stored tag rows, not pixels, so they ride the
+  // payload even when vision prep produced nothing.
+  describe('U9: scene hints', () => {
+    const mockedGetTags = getTagsForIds as jest.MockedFunction<typeof getTagsForIds>;
+    const museumTag = (id: string): PhotoMlTag => ({
+      id,
+      taggerVersion: 1,
+      status: 'ok',
+      isScreenshot: false,
+      faceCount: 0,
+      maxFaceArea: 0,
+      totalFaceArea: 0,
+      humanCount: 0,
+      maxHumanArea: 0,
+      totalHumanArea: 0,
+      labels: [{ identifier: 'museum', confidence: 0.8 }],
+      aestheticScore: null,
+      isUtility: null,
+      signText: [{ text: 'Musee du Louvre', confidence: 1, area: 0.1 }],
+      computedAt: 0,
+    });
+    const hintsOf = (id: string) =>
+      (
+        postedClusters().find((c) => c.id === id) as
+          | { scene_hints?: { label: string; weight: number }[] }
+          | undefined
+      )?.scene_hints;
+
+    beforeEach(() => {
+      // Only the first cluster's photos were tagged (before being offloaded).
+      mockedGetTags.mockImplementation(
+        async (ids: string[]) =>
+          new Map(
+            ids.filter((id) => id.startsWith('photo-hinted-0-')).map((id) => [id, museumTag(id)])
+          )
+      );
+    });
+
+    afterEach(() => {
+      mockedGetTags.mockReset();
+      mockedGetTags.mockResolvedValue(new Map());
+    });
+
+    it('sends hints for a fully offloaded cluster and omits the key for untagged ones', async () => {
+      jest.useFakeTimers({ doNotFake: ['setImmediate'] });
+      const clusters = Array.from({ length: FIRST_CHUNK_SIZE + 1 }, (_, i) =>
+        clusterWith(`hinted-${i}`, i, 3, (p) => `ph://hinted-${i}-${p}`)
+      );
+
+      await postsWithin(clusters, 1000);
+
+      expect(hintsOf('hinted-0')).toEqual([{ label: 'museum_interior', weight: 1 }]);
+      const others = postedClusters().filter((c) => c.id !== 'hinted-0');
+      expect(others.length).toBe(clusters.length - 1);
+      expect(others.every((c) => !('scene_hints' in c))).toBe(true);
+      // U10: sign text rides the same stored rows and omits the key likewise.
+      expect(
+        (postedClusters().find((c) => c.id === 'hinted-0') as { sign_text?: string[] })?.sign_text
+      ).toEqual(['Musee du Louvre']);
+      expect(others.every((c) => !('sign_text' in c))).toBe(true);
+    });
+
+    it('still sends hints once the breaker has opened', async () => {
+      jest.useFakeTimers({ doNotFake: ['setImmediate'] });
+      // Stalled encodes open the breaker on the first batch; the hinted
+      // cluster rides the LAST batch, which prepares no images.
+      const stalled = Array.from({ length: FIRST_CHUNK_SIZE + CHUNK_SIZE * 2 }, (_, i) =>
+        clusterWith(`stall-${i}`, i, 3, (p) => `file://stall-${i}-${p}.jpg`)
+      );
+      const hinted = clusterWith('hinted-0', 99, 3, (p) => `file://stall-h-${p}.jpg`);
+      const clusters = [...stalled, hinted];
+      const batches = planSuggestionBatches(clusters);
+      expect(batches[batches.length - 1].map((c) => c.id)).toContain('hinted-0');
+
+      await postsWithin(clusters, 0);
+
+      expect(lastCompletedProps().prep.breakerOpened).toBe(true);
+      expect(hintsOf('hinted-0')).toEqual([{ label: 'museum_interior', weight: 1 }]);
+    });
   });
 });

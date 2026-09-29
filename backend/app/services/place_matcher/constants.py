@@ -538,3 +538,124 @@ WIDE_FIELD_MASK = ",".join(
 # Place Details field mask used to enrich the top finalists with the live rating
 # signals the ranking needs. Requested per-place only for surfaced candidates.
 ENRICH_FIELD_MASK = "id,rating,userRatingCount"
+
+# ============================================================================
+# Venue probe (venue-rollup plan U6, KTD3)
+# ============================================================================
+
+# includedTypes for the POPULARITY venue probe. This is exactly the set the U4
+# live capture (2026-09-27) proved: at every Louvre-interior point it returned
+# the Louvre FIRST, with rating, review count and viewport.
+#
+# ``art_museum`` is deliberately absent even though it is the Louvre's
+# primaryType: ``includedTypes`` matches the FULL types array and the Louvre
+# (like every art museum seen in the capture) also carries ``museum``, so it
+# adds no recall. It was never exercised live, and an includedType the API
+# rejects answers 400, which the probe degrades to an empty result for every
+# cluster -- a silent total outage. Add types only after a live check.
+VENUE_PROBE_INCLUDED_TYPES: list[str] = [
+    "museum",
+    "tourist_attraction",
+    "historical_landmark",
+    "cultural_landmark",
+    "monument",
+    "art_gallery",
+    "park",
+]
+
+# A local candidate of any of these types makes a cluster probe-eligible, at
+# ANY density (user decision 2026-09-27, overriding KTD3's DENSE-only gate:
+# the U4 capture found most Louvre-interior clusters SPARSE, because the 15m
+# ring finds nothing indoors). Built on the vision "landmark" family the
+# ranking already uses, plus ``art_museum``, which Google returns as a
+# primaryType. Matched against each candidate's full ``types`` array.
+VENUE_PROBE_TRIGGER_TYPES: frozenset[str] = frozenset(
+    VISION_TO_PLACE_TYPES["landmark"] | {"art_museum"}
+)
+
+# On-device scene-hint labels (KTD6 vocabulary) that also make a cluster
+# probe-eligible, whatever its candidates are.
+VENUE_PROBE_TRIGGER_HINTS: frozenset[str] = frozenset({"museum_interior", "artwork"})
+
+# The probe's own field mask: the wide pass's fields plus the rating signals
+# and the viewport the roll-up's containment test reads. Enterprise-tier, but
+# one call per ~110m cell, shared across users. WIDE_FIELD_MASK and
+# ENRICH_FIELD_MASK are unchanged.
+VENUE_PROBE_FIELD_MASK = ",".join(
+    [
+        *WIDE_FIELD_MASK.split(","),
+        "places.rating",
+        "places.userRatingCount",
+        "places.viewport",
+    ]
+)
+
+# Bump when the request shape (types, mask, ranking) changes, so a cached row
+# written under the old shape is never read back as the new one.
+VENUE_PROBE_CACHE_VERSION = "v1"
+
+# ============================================================================
+# Venue roll-up (venue-rollup plan U7, KTD4)
+# ============================================================================
+#
+# Types are read from a place's ``primaryType``; a place Google gives no
+# primaryType (the live Mona Lisa listing) is read from its full ``types``.
+
+# Park-family types. A park is a fine PARENT for a statue or kiosk inside it,
+# but it never takes the viewport waiver (below): Champ de Mars (225,645
+# reviews, a viewport covering the Eiffel base) must never replace the Eiffel
+# Tower. As a finalist, a park is sub-POI-like but must meet the full ratio
+# (the Tuileries next to the Louvre keeps its place).
+VENUE_ROLLUP_PARK_TYPES: frozenset[str] = frozenset(
+    VISION_TO_PLACE_TYPES["nature"] | {"city_park", "fountain"}
+)
+
+# Finalists that are minor places inside a major venue: exhibits, galleries,
+# departments, landmark-family POIs, small gardens.
+VENUE_ROLLUP_SUB_POI_TYPES: frozenset[str] = frozenset(
+    (VISION_TO_PLACE_TYPES["landmark"] - {"performing_arts_theater"})
+    | {"art_museum", "history_museum", "sculpture", "historical_place"}
+    | VENUE_ROLLUP_PARK_TYPES
+)
+
+# Finalist types that never roll up, even when a secondary type would make
+# them look sub-POI-like: a theater or a place of worship inside a palace is a
+# destination of its own.
+VENUE_ROLLUP_NON_ROLLABLE_TYPES: frozenset[str] = frozenset(
+    {"performing_arts_theater", "church", "place_of_worship", "concert_hall"}
+)
+
+# Food, drink, lodging and retail. Matched against a finalist's FULL types
+# array (Google tags these generically: "food", "store", "lodging"). Such a
+# finalist rolls up only when the cluster carries no evidence for it (R6).
+VENUE_ROLLUP_EVIDENCE_GATED_TYPES: frozenset[str] = frozenset(
+    VISION_TO_PLACE_TYPES["food"]
+    | VISION_TO_PLACE_TYPES["stay"]
+    | VISION_TO_PLACE_TYPES["shopping"]
+    | VISION_TO_PLACE_TYPES["nightlife"]
+    | {"food", "food_store", "meal_takeaway", "sandwich_shop", "book_store"}
+)
+
+# Finalist types eligible for the viewport waiver of the dominance ratio: the
+# exhibit and landmark family (the Louvre Pyramid, 85,693 reviews, is only
+# 4.4x below the Louvre). Museums and parks are excluded: a museum is either a
+# small department (passes the ratio anyway) or a distinct institution.
+VENUE_ROLLUP_WAIVER_TYPES: frozenset[str] = frozenset(
+    VENUE_ROLLUP_SUB_POI_TYPES
+    - VENUE_ROLLUP_PARK_TYPES
+    - {"museum", "art_museum", "history_museum"}
+)
+
+# Even under the waiver, the parent needs at least this many times the top
+# finalist's reviews, so a less-reviewed neighbor can never displace a finalist
+# (Champ de Mars has 0.46x the Eiffel Tower's reviews).
+VENUE_ROLLUP_WAIVER_MIN_RATIO = 2.0
+
+# Probe places eligible as a PARENT: museum, landmark, attraction and park
+# families, plus major churches (a cathedral over the chapels inside it).
+# Excludes the probe's incidental hits (bridges, tour agencies, schools that
+# also carry a museum type).
+VENUE_ROLLUP_PARENT_TYPES: frozenset[str] = frozenset(
+    (VENUE_ROLLUP_SUB_POI_TYPES - {"sculpture", "historical_place"})
+    | {"church", "place_of_worship"}
+)

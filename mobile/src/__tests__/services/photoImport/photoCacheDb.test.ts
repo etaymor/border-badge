@@ -546,7 +546,11 @@ describe('photoCacheDb', () => {
         },
       ];
       mockDb.getAllAsync.mockResolvedValue([
-        { cluster_id: 'cluster-1', suggestions_json: JSON.stringify(places) },
+        {
+          cluster_id: 'cluster-1',
+          suggestions_json: JSON.stringify(places),
+          suggestion_version: photoCacheDbSuggestions.SUGGESTION_CACHE_VERSION,
+        },
       ]);
 
       const result = await photoCacheDbSuggestions.getCachedSuggestions(['cluster-1']);
@@ -609,6 +613,7 @@ describe('photoCacheDb', () => {
           cluster_id: 'cluster-old-with-places',
           suggestions_json: JSON.stringify(places),
           cached_at: oldTimestamp,
+          suggestion_version: photoCacheDbSuggestions.SUGGESTION_CACHE_VERSION,
         },
       ]);
 
@@ -641,6 +646,7 @@ describe('photoCacheDb', () => {
               location_key: 'geohashabc',
               suggestions_json: JSON.stringify(places),
               cached_at: Date.now(),
+              suggestion_version: photoCacheDbSuggestions.SUGGESTION_CACHE_VERSION,
             },
           ];
         }
@@ -671,7 +677,12 @@ describe('photoCacheDb', () => {
       mockDb.getAllAsync.mockImplementation(async (sql: string) => {
         if (sql.includes('cluster_id IN')) {
           return [
-            { cluster_id: 'c1', suggestions_json: JSON.stringify(idPlaces), cached_at: Date.now() },
+            {
+              cluster_id: 'c1',
+              suggestions_json: JSON.stringify(idPlaces),
+              cached_at: Date.now(),
+              suggestion_version: photoCacheDbSuggestions.SUGGESTION_CACHE_VERSION,
+            },
           ];
         }
         return []; // location_key query should not be needed
@@ -734,6 +745,15 @@ describe('photoCacheDb', () => {
       );
       expect(mockDb.execAsync).toHaveBeenCalledWith(
         expect.stringContaining('CREATE INDEX IF NOT EXISTS idx_photo_ml_tags_version')
+      );
+    });
+
+    it('adds the suggestion_version column for databases predating it (U11/KTD7)', async () => {
+      await photoCacheDb.getLastImportTime();
+
+      const executed = mockDb.execAsync.mock.calls.map((call: unknown[]) => String(call[0]));
+      expect(executed).toContain(
+        'ALTER TABLE cached_place_suggestions ADD COLUMN suggestion_version INTEGER'
       );
     });
 

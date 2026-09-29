@@ -4,13 +4,21 @@ import httpx
 
 from app.core.config import get_settings
 
+from ._containing_places import ContainingPlacesMixin
 from ._matcher_cluster_processing import ClusterProcessingMixin
 from ._matcher_ranking import RankingMixin
 from ._matcher_search import SearchMixin
+from ._venue_probe import VenueProbeMixin
 from .utils import haversine
 
 
-class PlaceMatcher(ClusterProcessingMixin, SearchMixin, RankingMixin):
+class PlaceMatcher(
+    ClusterProcessingMixin,
+    ContainingPlacesMixin,
+    VenueProbeMixin,
+    SearchMixin,
+    RankingMixin,
+):
     """
     Matches photo clusters to nearby places using Google Places API.
 
