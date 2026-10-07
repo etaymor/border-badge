@@ -640,4 +640,40 @@ describe('photoCacheDbSuggestions — suggestion cache version (U11/KTD7)', () =
       expect(sql).not.toMatch(/processed_clusters|cluster_splits|saved_cluster_photos/);
     }
   });
+
+  it('Tier 2 falls back to an older current-version row when the newest row is stale', async () => {
+    // The newest row for the cell carries an old suggestion_version, so it is
+    // rejected. An older row for the same key is current and must still be served
+    // rather than skipped as "already seen".
+    const venue = { latitude: 35.0, longitude: 139.0 };
+    const key = geohash.encode(venue.latitude, venue.longitude, GEOHASH_PRECISION);
+    const now = Date.now();
+
+    mockDb.getAllAsync.mockImplementation(async (sql: string, params: string[]) => {
+      if (sql.includes('cluster_id IN')) return [];
+      if (sql.includes('location_key IN') && params.includes(key)) {
+        return [
+          {
+            location_key: key,
+            suggestions_json: JSON.stringify(otherVenuePlaces),
+            cached_at: now,
+            suggestion_version: suggestions.SUGGESTION_CACHE_VERSION - 1,
+          },
+          {
+            location_key: key,
+            suggestions_json: JSON.stringify(samePlace),
+            cached_at: now - 1000,
+            suggestion_version: suggestions.SUGGESTION_CACHE_VERSION,
+          },
+        ];
+      }
+      return [];
+    });
+
+    const result = await suggestions.getCachedSuggestions([
+      { id: 'cluster', locationKey: key, centroid: venue },
+    ]);
+
+    expect(result.get('cluster')).toEqual(samePlace);
+  });
 });

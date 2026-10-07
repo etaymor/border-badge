@@ -360,8 +360,7 @@ export async function getCachedSuggestions(
     );
     const seenKeys = new Set<string>();
     for (const row of rows) {
-      if (seenKeys.has(row.location_key)) continue; // keep newest per key
-      seenKeys.add(row.location_key);
+      if (seenKeys.has(row.location_key)) continue; // keep newest valid row per key
       const places = parseSuggestionsRow(
         row.suggestions_json,
         row.cached_at,
@@ -369,7 +368,9 @@ export async function getCachedSuggestions(
         now,
         `location ${row.location_key}`
       );
+      // A stale or unparseable newest row must not hide an older valid one.
       if (places === null) continue;
+      seenKeys.add(row.location_key);
       for (const id of keyToIds.get(row.location_key) ?? []) {
         if (!result.has(id)) result.set(id, places);
       }
