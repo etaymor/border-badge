@@ -18,7 +18,13 @@ export const PRODUCT_IDS = {
   weekly: 'com.atlasi.app.Weekly',
   monthly: 'com.atlasi.app.Monthly',
   annual: 'com.atlasi.app.Annual',
+  // $24.99/yr one-time discount, sold only through the winback offering
+  annualWinback: 'com.atlasi.app.AnnualWinback',
 } as const;
+
+// Non-current offering presented as the abandon-paywall winback. Deleting it in
+// the RevenueCat dashboard switches every winback trigger off.
+export const WINBACK_OFFERING_ID = 'winback';
 
 // Shared init promise to ensure configure() completes before logIn()/logOut()
 let initPromise: Promise<void> | null = null;
@@ -209,6 +215,7 @@ export function getSubscriptionPlan(
   if (productId === PRODUCT_IDS.weekly) return 'weekly';
   if (productId === PRODUCT_IDS.monthly) return 'monthly';
   if (productId === PRODUCT_IDS.annual) return 'annual';
+  if (productId === PRODUCT_IDS.annualWinback) return 'annual';
 
   return null;
 }

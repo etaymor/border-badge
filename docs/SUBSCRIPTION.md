@@ -147,9 +147,13 @@ Create the following products in your subscription group:
 
 | Reference Name | Product ID | Duration | Price (USD) | Free Trial |
 |----------------|------------|----------|-------------|------------|
-| Weekly Premium | `com.atlasi.app.Weekly` | 1 Week | $4.99 | 7 days |
+| Weekly Premium | `com.atlasi.app.Weekly` | 1 Week | $4.99 | None |
 | Monthly Premium | `com.atlasi.app.Monthly` | 1 Month | $9.99 | 7 days |
 | Annual Premium | `com.atlasi.app.Annual` | 1 Year | $49.99 | 7 days |
+| Annual Winback | `com.atlasi.app.AnnualWinback` | 1 Year | $24.99 | None |
+
+Rank Annual Winback at the same level as Annual in the group, so moving between
+them is a crossgrade.
 
 For each product:
 1. Click **+** > **Create Subscription**
@@ -159,7 +163,7 @@ For each product:
    - **Subscription Duration**: Select appropriate duration
 3. Add **Subscription Prices** (click + under Pricing)
 4. Add **Localizations** for App Store display
-5. For Monthly and Annual, add **Introductory Offers**:
+5. For Monthly and Annual only, add **Introductory Offers** (Weekly and Annual Winback have no trial):
    - **Type**: Free Trial
    - **Duration**: 7 days
 
@@ -223,13 +227,14 @@ New in-app purchases require review. You can:
 | `weekly` | `com.atlasi.app.Weekly` | Subscription |
 | `monthly` | `com.atlasi.app.Monthly` | Subscription |
 | `annual` | `com.atlasi.app.Annual` | Subscription |
+| `annual_winback` | `com.atlasi.app.AnnualWinback` | Subscription |
 
 ### 4. Create Entitlement
 
 1. Go to **Entitlements**
 2. Click **+ New**:
    - **Identifier**: `Full Access`
-   - Add all three products to this entitlement
+   - Add all four products to this entitlement
 
 ### 5. Create Offering
 
@@ -241,6 +246,17 @@ New in-app purchases require review. You can:
    - **Weekly**: Associate with `weekly` product
    - **Monthly**: Associate with `monthly` product
    - **Annual**: Associate with `annual` product
+
+### 5b. Create the Winback Offering
+
+1. Go to **Offerings** > **+ New**:
+   - **Identifier**: `winback` (must match `WINBACK_OFFERING_ID` in `mobile/src/services/revenueCat.ts`)
+   - Do **not** make it current
+2. Add one **Annual** package associated with `annual_winback`
+3. Attach a paywall to it framed as a one-time offer ($24.99/yr, 50% off)
+
+Deleting this offering is the kill switch: every winback trigger checks for it
+and does nothing (without spending the trigger) when it is missing.
 
 ### 6. Get API Keys
 
@@ -688,6 +704,7 @@ REVENUECAT_API_KEY=sk_xxx
 | Weekly | `com.atlasi.app.Weekly` |
 | Monthly | `com.atlasi.app.Monthly` |
 | Annual | `com.atlasi.app.Annual` |
+| Annual (winback) | `com.atlasi.app.AnnualWinback` |
 
 ### Entitlement ID
 
@@ -713,3 +730,28 @@ These limits are defined in:
 - TypeScript: `mobile/src/stores/subscriptionStore.ts` (`FREE_LIMITS`)
 - Python: `backend/app/api/subscriptions.py` (`FREE_LIMITS`)
 - Swift: `mobile/plugins/share-extension/Utilities/AppGroupStorage.swift` (`freeShareExtensionLimit`)
+
+---
+
+## Winback Offer
+
+A one-time $24.99/yr offer (offering `winback`) for users who pass on the
+standard paywall. It is presented by `useWinbackOffer`
+(`mobile/src/hooks/useWinbackOffer.ts`) through the same
+`usePaywallPresentation` path as the standard paywall, so purchase handling,
+App Group sync and ad events are shared.
+
+**Triggers** (each fires at most once per install, recorded in AsyncStorage by
+`mobile/src/services/winback.ts`; a failed read counts as used):
+
+| Trigger | Where | Notes |
+|---------|-------|-------|
+| `paywall_close` | `PaywallScreen` (onboarding) and `PaywallModalScreen` | Closing the standard paywall without buying. Presented 400ms after the first sheet closes. |
+| `quick_action` | `useWinbackQuickAction`, mounted in `App.tsx` | Home-screen long-press action "Deleting? Get 50% off", registered at runtime (`expo-quick-actions`) only for signed-in free users who haven't used it. |
+
+Only users whose subscription status is `free` are eligible. The RevenueCat
+Paywalls UI does not report backing out of the Apple purchase sheet separately
+from closing the paywall, so that case is covered by `paywall_close`.
+
+The webhook's substring match maps `AnnualWinback` to the `annual` plan, and
+`getSubscriptionPlan` does the same on device.

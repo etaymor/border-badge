@@ -14,6 +14,8 @@ import { stableHashOrNull } from '@utils/stableHash';
 export type PhotoPermissionDoor = 'quiz' | 'trips' | 'profile' | 'other';
 export type PhotoPermissionOsStatus = 'granted' | 'limited' | 'denied' | 'undetermined';
 export type PhotoPermissionCarouselVia = 'initial' | 'tap' | 'swipe';
+export type PaywallLoc = 'onboarding' | 'modal' | 'settings' | 'quick_action';
+export type PaywallOffer = 'standard' | 'winback';
 
 let posthog: PostHog | null = null;
 let isInitialized = false;
@@ -585,26 +587,43 @@ export const Analytics = {
     }),
 
   // Subscription & Paywall Events
-  viewPaywall: (props: { location: 'onboarding' | 'modal' | 'settings'; feature?: string }) =>
-    track('view_paywall', { location: props.location, feature: props.feature ?? null }),
+  // `offer` splits the standard paywall from the $24.99/yr winback offering.
+  viewPaywall: (props: { location: PaywallLoc; feature?: string; offer?: PaywallOffer }) =>
+    track('view_paywall', {
+      location: props.location,
+      feature: props.feature ?? null,
+      offer: props.offer ?? 'standard',
+    }),
 
-  paywallDismissed: (props: { location: 'onboarding' | 'modal' | 'settings'; feature?: string }) =>
+  paywallDismissed: (props: { location: PaywallLoc; feature?: string }) =>
     track('paywall_dismissed', { location: props.location, feature: props.feature ?? null }),
 
-  purchaseCompleted: (props: {
-    plan: string | null;
-    location: 'onboarding' | 'modal' | 'settings';
-  }) => track('purchase_completed', { plan: props.plan, location: props.location }),
+  purchaseCompleted: (props: { plan: string | null; location: PaywallLoc; offer?: PaywallOffer }) =>
+    track('purchase_completed', {
+      plan: props.plan,
+      location: props.location,
+      offer: props.offer ?? 'standard',
+    }),
 
   purchaseFailed: (props: {
     plan: string | null;
     error: string;
-    location: 'onboarding' | 'modal' | 'settings';
+    location: PaywallLoc;
+    offer?: PaywallOffer;
   }) =>
-    track('purchase_failed', { plan: props.plan, error: props.error, location: props.location }),
+    track('purchase_failed', {
+      plan: props.plan,
+      error: props.error,
+      location: props.location,
+      offer: props.offer ?? 'standard',
+    }),
 
-  purchaseCancelled: (props: { location: 'onboarding' | 'modal' | 'settings' }) =>
-    track('purchase_cancelled', { location: props.location }),
+  purchaseCancelled: (props: { location: PaywallLoc; offer?: PaywallOffer }) =>
+    track('purchase_cancelled', { location: props.location, offer: props.offer ?? 'standard' }),
+
+  /** A winback trigger fired and the $24.99/yr offer is about to be presented. */
+  winbackShown: (props: { trigger: 'paywall_close' | 'quick_action'; location: PaywallLoc }) =>
+    track('winback_shown', { trigger: props.trigger, location: props.location }),
 
   restoreInitiated: () => track('restore_initiated'),
 

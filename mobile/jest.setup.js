@@ -636,6 +636,18 @@ jest.mock('expo-tracking-transparency', () => ({
   getTrackingPermissionsAsync: jest.fn().mockResolvedValue({ status: 'undetermined' }),
 }));
 
+// Mock expo-quick-actions (home-screen quick actions, native module)
+jest.mock('expo-quick-actions', () => ({
+  initial: undefined,
+  setItems: jest.fn().mockResolvedValue(undefined),
+  isSupported: jest.fn().mockResolvedValue(true),
+  addListener: jest.fn(() => ({ remove: jest.fn() })),
+}));
+jest.mock('expo-quick-actions/hooks', () => ({
+  useQuickActionCallback: jest.fn(),
+  useQuickAction: jest.fn(() => null),
+}));
+
 // Mock countriesDb service
 jest.mock('@services/countriesDb', () => ({
   getAllCountries: jest.fn().mockResolvedValue([]),

@@ -8,12 +8,6 @@
       "displayPrice" : "4.99",
       "familyShareable" : false,
       "internalID" : "6740020233",
-      "introductoryOffer" : {
-        "internalID" : "1A2B3C4D",
-        "numberOfPeriods" : 1,
-        "paymentMode" : "free",
-        "subscriptionPeriod" : "P7D"
-      },
       "localizations" : [
         {
           "description" : "Weekly Premium Access",
@@ -138,16 +132,10 @@
           "codeOffers" : [
 
           ],
-          "displayPrice" : "0.99",
+          "displayPrice" : "4.99",
           "familyShareable" : false,
           "groupNumber" : 1,
           "internalID" : "6740020233",
-          "introductoryOffer" : {
-            "internalID" : "1A2B3C4D",
-            "numberOfPeriods" : 1,
-            "paymentMode" : "free",
-            "subscriptionPeriod" : "P1W"
-          },
           "localizations" : [
             {
               "description" : "Weekly Premium Access",
@@ -168,7 +156,7 @@
           "codeOffers" : [
 
           ],
-          "displayPrice" : "2.99",
+          "displayPrice" : "9.99",
           "familyShareable" : false,
           "groupNumber" : 2,
           "internalID" : "6740020156",
@@ -198,7 +186,7 @@
           "codeOffers" : [
 
           ],
-          "displayPrice" : "29.99",
+          "displayPrice" : "49.99",
           "familyShareable" : false,
           "groupNumber" : 3,
           "internalID" : "6740020079",
@@ -218,6 +206,30 @@
           "productID" : "com.atlasi.app.Annual",
           "recurringSubscriptionPeriod" : "P1Y",
           "referenceName" : "Annual",
+          "subscriptionGroupID" : "21624498",
+          "type" : "RecurringSubscription"
+        },
+        {
+          "adHocOffers" : [
+
+          ],
+          "codeOffers" : [
+
+          ],
+          "displayPrice" : "24.99",
+          "familyShareable" : false,
+          "groupNumber" : 3,
+          "internalID" : "6740020300",
+          "localizations" : [
+            {
+              "description" : "One-time annual offer",
+              "displayName" : "Annual (Winback)",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "com.atlasi.app.AnnualWinback",
+          "recurringSubscriptionPeriod" : "P1Y",
+          "referenceName" : "Annual Winback",
           "subscriptionGroupID" : "21624498",
           "type" : "RecurringSubscription"
         }
