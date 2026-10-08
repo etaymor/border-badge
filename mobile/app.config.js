@@ -12,7 +12,7 @@ export default {
   expo: {
     name: 'Atlasi',
     slug: 'border-badge',
-    version: '1.0.17',
+    version: '1.0.18',
     orientation: 'portrait',
     icon: './assets/atlasi-stamp-app-icon.png',
     userInterfaceStyle: 'automatic',
