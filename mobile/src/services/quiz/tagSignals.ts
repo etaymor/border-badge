@@ -81,107 +81,123 @@ const PEOPLE_PROMINENCE_MARGINAL = 0.1;
 const LABEL_FLOOR = 0.15;
 
 /**
- * Outdoor scene labels. Includes covered-but-open places (markets, platforms,
- * arcades) because the server counts those as OUTDOOR - getting this wrong is
- * what made the original gate reject nearly everything.
+ * Label vocabularies. Every identifier in every set below is checked against
+ * the real classifier taxonomy (`VNClassifyImageRequest.supportedIdentifiers()`,
+ * 1,303 labels) by `visionVocabulary.test.ts`: a name Vision never emits does
+ * not fail, it silently scores zero forever. Many plausible names are NOT in
+ * the taxonomy -- "church", "cathedral", "temple", "mosque", "palace", "city",
+ * "skyline", "sea", "coast", "valley", "meadow", "plaza", "meal", "menu",
+ * "text" -- so the nearest real labels stand in for them (e.g. `cityscape`,
+ * `belltower`, `dome`, `ruins`, `shore`), and a concept with no real label is
+ * simply absent.
+ *
+ * Outdoor scene labels. Includes covered-but-open places (station platforms)
+ * because the server counts those as OUTDOOR - getting this wrong is what made
+ * the original gate reject nearly everything. Every LANDMARK / SCENERY /
+ * BUILDING label is also here; the extra outdoor-only labels (boats, docks,
+ * grass, graves, rocks, ...) are outdoor evidence without saying what kind of
+ * puzzle the photo would make.
  */
 const OUTDOOR_LABELS = new Set([
+  'alley',
+  'arch',
   'beach',
+  'belltower',
+  'boat',
   'bridge',
+  'building',
   'canyon',
   'castle',
-  'cathedral',
-  'cemetery',
-  'church',
-  'city',
+  'cityscape',
   'cliff',
-  'coast',
+  'clock_tower',
+  'crosswalk',
+  'cruise_ship',
   'desert',
+  'dock',
+  'dome',
   'farm',
-  'field',
   'forest',
   'fountain',
   'garden',
   'glacier',
-  'harbor',
+  'grass',
+  'grave',
+  'harbour',
   'hill',
-  'house',
+  'house_single',
   'island',
+  'jungle',
   'lake',
-  'landscape',
   'lighthouse',
-  'meadow',
   'monument',
-  'mosque',
   'mountain',
+  'obelisk',
   'ocean',
+  'orchard',
   'outdoor',
-  'palace',
   'park',
-  'plaza',
-  'pond',
+  'pier',
   'pyramid',
   'railroad',
+  'rice_field',
   'river',
   'road',
-  'rock',
-  'ruin',
-  'sea',
-  'ship',
+  'rocks',
+  'ruins',
+  'sailboat',
+  'sand_dune',
   'shore',
+  'sidewalk',
   'sky',
-  'skyline',
   'skyscraper',
   'snow',
   'stadium',
   'statue',
+  'storefront',
   'street',
-  'sunset',
-  'temple',
+  'sunset_sunrise',
   'tower',
-  'town',
+  'train_station',
   'tree',
-  'valley',
+  'vineyard',
   'volcano',
   'waterfall',
+  'waterways',
+  'wetland',
   'windmill',
 ]);
 
-/** Fully-enclosed interiors and close-up subjects the gate calls "other". */
+/**
+ * Fully-enclosed interiors and close-up subjects the gate calls "other".
+ * `stairs` is deliberately absent: outdoor landmark steps carry it too.
+ */
 const INDOOR_LABELS = new Set([
   'bathroom',
   'bedroom',
-  'ceiling',
+  'bookshelf',
   'closet',
-  'couch',
   'desk',
   'furniture',
-  'indoor',
+  'interior_room',
+  'interior_shop',
   'kitchen',
-  'laboratory',
   'living_room',
   'museum',
-  'office',
   'restaurant',
-  'room',
-  'shelf',
-  'staircase',
-  'store',
+  'sofa',
   'table',
 ]);
 
 const FOOD_LABELS = new Set([
-  'beverage',
   'bread',
   'cake',
   'cocktail',
   'coffee',
   'dessert',
-  'dish',
   'drink',
   'food',
   'fruit',
-  'meal',
   'meat',
   'pasta',
   'pizza',
@@ -194,36 +210,44 @@ const FOOD_LABELS = new Set([
   'wine',
 ]);
 
-/** Screenshots, documents, receipts, whiteboards - Apple's "utility" family. */
+/**
+ * Screenshots, documents, receipts, whiteboards - Apple's "utility" family.
+ *
+ * These feed a HARD DROP (summed confidence >= 0.5 skips the gate forever), so
+ * only labels that near-certainly mean a document or screen belong here.
+ * Deliberately left out: `book` and `bookshelf` (bookshops and libraries can
+ * be puzzles), `map` (trailhead and city map boards sit in real scenes),
+ * `chalkboard` and `billboards` (street cafes and squares), `credit_card` /
+ * `money` / `currency` (close-ups, but not documents; the gate rejects them).
+ */
 const UTILITY_LABELS = new Set([
-  'barcode',
-  'book_jacket',
-  'business_card',
+  'chart',
+  'diagram',
   'document',
-  'letter',
-  'menu',
+  'flipchart',
+  'handwriting',
   'newspaper',
-  'paper',
-  'poster',
+  'passport',
+  'printed_page',
   'receipt',
   'screenshot',
   'sign',
-  'text',
+  'ticket',
   'whiteboard',
 ]);
 
 const LANDMARK_LABELS = new Set([
+  'arch',
+  'belltower',
   'castle',
-  'cathedral',
-  'church',
+  'clock_tower',
+  'dome',
   'lighthouse',
   'monument',
-  'mosque',
-  'palace',
+  'obelisk',
   'pyramid',
-  'ruin',
+  'ruins',
   'statue',
-  'temple',
   'tower',
   'windmill',
 ]);
@@ -232,43 +256,58 @@ const SCENERY_LABELS = new Set([
   'beach',
   'canyon',
   'cliff',
-  'coast',
   'desert',
-  'field',
   'forest',
   'glacier',
   'hill',
   'island',
+  'jungle',
   'lake',
-  'landscape',
-  'meadow',
   'mountain',
   'ocean',
-  'pond',
+  'rice_field',
   'river',
-  'sea',
+  'sand_dune',
   'shore',
   'sky',
   'snow',
-  'sunset',
-  'valley',
+  'sunset_sunrise',
+  'vineyard',
   'volcano',
   'waterfall',
+  'wetland',
 ]);
 
 const BUILDING_LABELS = new Set([
+  'alley',
   'bridge',
-  'city',
+  'building',
+  'cityscape',
+  'crosswalk',
   'fountain',
-  'harbor',
-  'house',
-  'plaza',
+  'harbour',
+  'house_single',
+  'pier',
   'road',
-  'skyline',
+  'sidewalk',
   'skyscraper',
+  'storefront',
   'street',
-  'town',
 ]);
+
+/**
+ * Every label vocabulary above, exported so a test can hold each identifier to
+ * the real classifier taxonomy. A name Vision never emits silently scores zero.
+ */
+export const TAG_SIGNAL_VOCABULARIES: Readonly<Record<string, ReadonlySet<string>>> = {
+  outdoor: OUTDOOR_LABELS,
+  indoor: INDOOR_LABELS,
+  food: FOOD_LABELS,
+  utility: UTILITY_LABELS,
+  landmark: LANDMARK_LABELS,
+  scenery: SCENERY_LABELS,
+  building: BUILDING_LABELS,
+};
 
 /** Sum the confidences of a photo's labels that fall in `vocabulary`. */
 function scoreLabels(tag: PhotoMlTag, vocabulary: Set<string>): number {

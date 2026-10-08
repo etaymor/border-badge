@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import functools
 import json
 import logging
 from typing import Any
@@ -12,11 +13,13 @@ import httpx
 from app.services.photo_vision import VisionResult
 from app.services.photo_vision.constants import VISION_TO_PLACE_TYPES
 
+from ._containing_places import containing_places_enabled
 from ._matcher_search import (
     TieredSearchResult,
     places_request_scope,
     resolve_places_concurrency,
 )
+from ._venue_facts import name_match_locks
 from .constants import (
     MAX_CONCURRENT_PLACES_REQUESTS,
     MAX_SUGGESTIONS_PER_CLUSTER,
@@ -38,6 +41,11 @@ from .rate_limit import (
     retry_budget_scope,
 )
 from .utils import name_match_strength, name_matches_candidate
+from .venue_rollup import (
+    apply_venue_rollup,
+    containment_fetch_target,
+    rollup_thresholds,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +88,10 @@ class ClusterProcessingMixin:
     #: rather than changing this method's return shape, which that route reads.
     last_capacity_failed_cluster_count: int = 0
 
+    #: Venue-probe results of the last request, ``{cluster_id: places}`` (U6,
+    #: KTD3). Read-only observability; the roll-up reads the local map.
+    last_venue_probe_results: dict[str, list[dict[str, Any]]] = {}
+
     async def find_places_for_clusters(
         self,
         clusters: list[dict[str, Any]],
@@ -98,13 +110,28 @@ class ClusterProcessingMixin:
         ``resolve_places_concurrency``).
         """
         self.last_capacity_failed_cluster_count = 0
+        self.last_venue_probe_results = {}
+        # Background tasks the body starts and joins only later (the venue
+        # probe). If a phase raises or the request is cancelled before the
+        # join, cancel them here so no paid call outlives the request.
+        owned_tasks: list[asyncio.Task[Any]] = []
         with request_metrics(), places_request_scope():
-            return await self._find_places_for_clusters(clusters, vision_results_task)
+            try:
+                return await self._find_places_for_clusters(
+                    clusters, vision_results_task, owned_tasks
+                )
+            finally:
+                unjoined = [t for t in owned_tasks if not t.done()]
+                for task in unjoined:
+                    task.cancel()
+                if unjoined:
+                    await asyncio.gather(*unjoined, return_exceptions=True)
 
     async def _find_places_for_clusters(
         self,
         clusters: list[dict[str, Any]],
         vision_results_task: asyncio.Task[dict[str, VisionResult]] | None = None,
+        owned_tasks: list[asyncio.Task[Any]] | None = None,
     ) -> tuple[list[dict[str, Any]], int]:
         """
         Find place suggestions for photo clusters.
@@ -366,6 +393,26 @@ class ClusterProcessingMixin:
             cluster, places, radius_used, search_result = r
             search_results.append((cluster, places, radius_used))
             search_result_by_cluster[cluster["id"]] = search_result
+
+        # Venue probe (U6, KTD3): runs beside the rescue/probe/enrichment
+        # phases and is joined only before the final assembly. Its map never
+        # feeds the candidate lists below; only the roll-up may read it.
+        venue_probe_task = asyncio.create_task(
+            self._venue_probes_for_clusters(
+                search_results,
+                semaphore=semaphore,
+                remaining_budget=_remaining_budget,
+                retry_budget=retry_budget,
+                cluster_timeout=cluster_timeout,
+                scene_hints_by_cluster={  # U9: on-device hints (KTD6)
+                    c["id"]: c["scene_hints"]
+                    for c, _places, _radius in search_results
+                    if c.get("scene_hints")
+                },
+            )
+        )
+        if owned_tasks is not None:  # cancelled by the caller if never joined
+            owned_tasks.append(venue_probe_task)
 
         # Per-cluster diagnostic trace accumulator (KTD2). Built only when the
         # flag is on; mutated across the four passes and emitted once at the end.
@@ -779,13 +826,15 @@ class ClusterProcessingMixin:
             # A weak (containment) match must NOT lock: its bonus is small enough
             # for enrichment to overturn, and locking would also skip the review
             # re-gate that filters zero-review listings.
-            if (
-                finalists
-                and vision_result is not None
-                and any(
-                    name_match_strength(finalists[0]["name"], c) == "strong"
-                    for c in vision_result.business_name_candidates
-                )
+            # KTD6 (U10): strong sign text may lock too, never on a sub-POI.
+            if finalists and name_match_locks(
+                next(
+                    (p for p in merged if p["id"] == finalists[0]["place_id"]),
+                    finalists[0],
+                ),
+                finalists[0]["name"],
+                vision_result,
+                cluster.get("sign_text"),
             ):
                 name_match_locked_clusters.add(cluster_id)
                 logger.debug(
@@ -907,6 +956,14 @@ class ClusterProcessingMixin:
                 logger.warning(f"Backfill rating enrichment unavailable: {e}")
                 backfill_ratings = {}
 
+        # Never raises (every failure degrades to []); see _venue_probe.
+        venue_probe_map: dict[str, list[dict]] = await venue_probe_task
+        self.last_venue_probe_results = venue_probe_map
+        rollup_settings = rollup_thresholds(self._settings)
+        containment_on = containing_places_enabled(self._settings)
+        containment_pending: list[tuple[dict[str, Any], str, Any]] = []
+        live_ratings = {**enriched_ratings, **backfill_ratings}
+
         successful = []
 
         for cluster, _places, _radius_used in search_results:
@@ -979,6 +1036,39 @@ class ClusterProcessingMixin:
                     )
                 suggestions = reranked or finalists
 
+            # KTD4 roll-up (U7): the only reader of the venue-probe map.
+            containment_target = None
+            if cluster_id in venue_probe_map:
+                place_facts = {
+                    p["id"]: _with_live_ratings(p, live_ratings)
+                    for p in per_cluster_merged.get(cluster_id, [])
+                }
+                rollup_call = functools.partial(
+                    apply_venue_rollup,
+                    suggestions,
+                    venue_probe_map[cluster_id],
+                    centroid=cluster["centroid"],
+                    place_facts=place_facts,
+                    thresholds=rollup_settings,
+                    vision_result=vision_result,
+                    name_match_locked=cluster_id in name_match_locked_clusters,
+                    scene_hints=cluster.get("scene_hints"),
+                    sign_text=cluster.get("sign_text"),  # U10: R6 evidence
+                )
+                pre_rollup_suggestions = suggestions
+                suggestions, rollup_decision = rollup_call()
+                if containment_on:  # U8: top finalist only, when it can matter
+                    containment_target = containment_fetch_target(
+                        pre_rollup_suggestions,
+                        venue_probe_map[cluster_id],
+                        rollup_decision,
+                        place_facts=place_facts,
+                        thresholds=rollup_settings,
+                        centroid=cluster["centroid"],
+                    )
+                if diagnostics and cluster_id in traces:
+                    traces[cluster_id]["venue_rollup"] = rollup_decision.as_trace()
+
             logger.debug(
                 f"Cluster {cluster_id}: returning {len(suggestions)} suggestions"
                 + (f", top={suggestions[0]['name']}" if suggestions else "")
@@ -990,6 +1080,10 @@ class ClusterProcessingMixin:
                     "places": suggestions,
                 }
             )
+            if containment_target is not None:
+                containment_pending.append(
+                    (successful[-1], containment_target, rollup_call)
+                )
 
             if diagnostics and cluster_id in traces:
                 self._finalize_cluster_trace(
@@ -998,6 +1092,24 @@ class ClusterProcessingMixin:
                     enriched_ratings=enriched_ratings,
                     vision_result=vision_result,
                 )
+
+        # U8 (KTD9): one batched containingPlaces lookup for the top finalists
+        # KTD4 could not settle. Never raises; no answer keeps the U7 result.
+        if containment_pending and _remaining_budget() > 0:
+            with retry_budget_scope(retry_budget):
+                changed = await self._apply_containment_tiebreaks(
+                    containment_pending, timeout=cluster_timeout
+                )
+            for entry, decision in changed:
+                if diagnostics and entry["cluster_id"] in traces:
+                    trace = traces[entry["cluster_id"]]
+                    trace["venue_rollup"] = decision.as_trace()
+                    self._finalize_cluster_trace(
+                        trace=trace,
+                        suggestions=entry["places"],
+                        enriched_ratings=enriched_ratings,
+                        vision_result=vision_map.get(entry["cluster_id"]),
+                    )
 
         record_clusters(len(clusters), failed_count)
         self.last_capacity_failed_cluster_count = capacity_failed_count

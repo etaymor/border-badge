@@ -180,3 +180,18 @@ in the first 48 h after a build promotes — evaluated only once at least 20
 checklist device, and read together with the `elapsed_ms` distribution:
 `lease_expired` includes system-UI cancels, so the ratio is a review trigger,
 not an automatic flip.
+
+## Paywall and winback (PostHog, mobile only)
+
+Defined in `mobile/src/services/analytics.ts`. `location` is `onboarding`,
+`modal`, `settings` or `quick_action`. `offer` is `standard` or `winback`, so
+the $24.99/yr winback funnel can be split from the standard paywall.
+
+| Event | Properties |
+|-------|------------|
+| `view_paywall` | `location`, `feature`, `offer` |
+| `purchase_completed` | `plan`, `location`, `offer` |
+| `purchase_cancelled` | `location`, `offer` |
+| `purchase_failed` | `plan`, `error`, `location`, `offer` |
+| `paywall_dismissed` | `location`, `feature` |
+| `winback_shown` | `trigger` (`paywall_close` or `quick_action`), `location` |

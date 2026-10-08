@@ -540,4 +540,62 @@ describe('Analytics Service', () => {
       });
     });
   });
+
+  describe('photo import vision preparation telemetry (U3/R4)', () => {
+    const prep = {
+      prepareMsTotal: 10_400,
+      prepareMsMax: 10_000,
+      visionImagesAttempted: 3,
+      visionImagesProduced: 2,
+      visionImagesTimedOut: 1,
+      visionPhotosSkippedOffloaded: 4,
+      breakerOpened: false,
+    };
+    const flattened = {
+      prepare_ms_total: 10_400,
+      prepare_ms_max: 10_000,
+      vision_images_attempted: 3,
+      vision_images_produced: 2,
+      vision_images_timed_out: 1,
+      vision_photos_skipped_offloaded: 4,
+      vision_breaker_opened: false,
+    };
+    const lastTrackedProps = () => consoleLogSpy.mock.calls.at(-1)?.[2];
+
+    it('flattens the preparation fields onto photo_import_suggestions_completed', () => {
+      Analytics.photoImportSuggestionsCompleted({
+        suggestionCount: 1,
+        failedChunks: 0,
+        cachedClusters: 0,
+        uncachedClusters: 2,
+        cacheHitRate: 0,
+        prep,
+      });
+      expect(lastTrackedProps()).toMatchObject(flattened);
+    });
+
+    it('flattens the preparation fields onto photo_import_workflow_exited', () => {
+      Analytics.photoImportWorkflowExited({
+        totalClusters: 4,
+        processedClusters: 0,
+        remainingClusters: 4,
+        workflowDurationMs: 1000,
+        prep,
+      });
+      expect(lastTrackedProps()).toMatchObject(flattened);
+    });
+
+    it('reports null preparation fields when the caller has no run', () => {
+      Analytics.photoImportWorkflowExited({
+        totalClusters: 4,
+        processedClusters: 0,
+        remainingClusters: 4,
+        workflowDurationMs: 1000,
+      });
+      expect(lastTrackedProps()).toMatchObject({
+        prepare_ms_total: null,
+        vision_breaker_opened: null,
+      });
+    });
+  });
 });

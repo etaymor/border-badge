@@ -150,6 +150,20 @@ describe('photoTagDb', () => {
       }
     });
 
+    it('stores sign text as compact JSON, and absent sign text as null (U10)', async () => {
+      await photoTagDb.upsertTags([
+        baseTag({ signText: [{ text: 'Cafe Marly', confidence: 1, area: 0.04 }] }),
+        baseTag({ id: 'photo-2' }),
+      ]);
+
+      const sql = callWith('INSERT OR REPLACE INTO photo_ml_tags')?.[0] as string;
+      const values = callWith('INSERT OR REPLACE INTO photo_ml_tags')?.[1] as unknown[];
+      expect(sql).toContain('sign_text_json');
+      const perRow = values.length / 2;
+      expect(values[14]).toBe(JSON.stringify([{ t: 'Cafe Marly', c: 1, a: 0.04 }]));
+      expect(values[perRow + 14]).toBeNull();
+    });
+
     it('wraps the write in a transaction', async () => {
       await photoTagDb.upsertTags([baseTag()]);
 
@@ -246,6 +260,36 @@ describe('photoTagDb', () => {
       expect(tag?.labels).toEqual([]);
     });
 
+    it('reads sign text back, and degrades a missing or malformed blob to null (U10)', async () => {
+      const row = {
+        tagger_version: 2,
+        status: 'ok',
+        is_screenshot: 0,
+        face_count: 0,
+        max_face_area: 0,
+        total_face_area: 0,
+        human_count: 0,
+        max_human_area: 0,
+        total_human_area: 0,
+        labels_json: null,
+        aesthetic_score: null,
+        is_utility: null,
+        computed_at: 123,
+      };
+      mockDb.getAllAsync.mockResolvedValue([
+        { ...row, id: 'a', sign_text_json: JSON.stringify([{ t: 'Louvre', c: 0.5, a: 0.1 }]) },
+        { ...row, id: 'b', sign_text_json: null },
+        { ...row, id: 'c', sign_text_json: '{not json' },
+      ]);
+
+      const tags = await photoTagDb.getTagsForIds(['a', 'b', 'c']);
+
+      expect(mockDb.getAllAsync.mock.calls[0][0]).toContain('sign_text_json');
+      expect(tags.get('a')?.signText).toEqual([{ text: 'Louvre', confidence: 0.5, area: 0.1 }]);
+      expect(tags.get('b')?.signText).toBeNull();
+      expect(tags.get('c')?.signText).toBeNull();
+    });
+
     it('batches large id lists', async () => {
       const ids = Array.from({ length: 250 }, (_, i) => `photo-${i}`);
 
@@ -317,6 +361,47 @@ describe('photoTagDb', () => {
       const result = await photoTagDb.getUntaggedIds(['a', 'b'], 10_000_000_000);
 
       expect(result).toEqual([]);
+    });
+
+    // U10: the effective version keys on the native text-recognition flag.
+    it('with the text-recognition capability absent, returns no already-tagged ids', async () => {
+      mockDb.getAllAsync.mockResolvedValue([
+        { id: 'a', tagger_version: photoTagDb.TAGGER_VERSION, status: 'ok', computed_at: 1 },
+        { id: 'b', tagger_version: photoTagDb.TAGGER_VERSION, status: 'error', computed_at: 1 },
+      ]);
+
+      const result = await photoTagDb.getUntaggedIds(['a', 'b', 'new']);
+
+      expect(result).toEqual(['new']);
+    });
+
+    it('with text recognition reported, re-tags base-version rows once', async () => {
+      jest.resetModules();
+      jest.doMock('@modules/photo-tagger', () => ({
+        photoTaggerCapabilities: () => ({
+          aesthetics: true,
+          textRecognition: true,
+          osMajor: 26,
+          lowPower: false,
+          thermalState: 'nominal',
+        }),
+      }));
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const withText = require('../../../services/photoImport/photoTagDb') as typeof photoTagDb;
+      mockDb.getAllAsync.mockResolvedValue([
+        { id: 'old', tagger_version: withText.TAGGER_VERSION, status: 'ok', computed_at: 1 },
+        {
+          id: 'done',
+          tagger_version: withText.TAGGER_VERSION + 1,
+          status: 'ok',
+          computed_at: 1,
+        },
+      ]);
+
+      const result = await withText.getUntaggedIds(['old', 'done']);
+
+      expect(result).toEqual(['old']);
+      jest.dontMock('@modules/photo-tagger');
     });
 
     it('returns an empty list without querying when given no ids', async () => {

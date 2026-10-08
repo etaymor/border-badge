@@ -28,7 +28,14 @@ jest.mock('@config/env', () => ({
   isDevelopment: false,
 }));
 
-import { prepareLogIn, settleLogIn, waitForLogIn } from '@services/revenueCat';
+import {
+  getSubscriptionPlan,
+  PRODUCT_IDS,
+  prepareLogIn,
+  settleLogIn,
+  waitForLogIn,
+} from '@services/revenueCat';
+import type { CustomerInfo } from 'react-native-purchases';
 
 describe('revenueCat logIn promise lifecycle', () => {
   it('waitForLogIn returns false when no logIn was prepared', async () => {
@@ -86,5 +93,20 @@ describe('revenueCat logIn promise lifecycle', () => {
     settleLogIn(true);
     const secondResult = await waitForLogIn();
     expect(secondResult).toBe(true);
+  });
+});
+
+describe('getSubscriptionPlan', () => {
+  const withProduct = (productIdentifier: string) =>
+    ({
+      entitlements: { active: { 'Full Access': { productIdentifier } } },
+    }) as unknown as CustomerInfo;
+
+  it('maps the $24.99 winback product to the annual plan', () => {
+    expect(getSubscriptionPlan(withProduct(PRODUCT_IDS.annualWinback))).toBe('annual');
+  });
+
+  it('still maps the regular annual product', () => {
+    expect(getSubscriptionPlan(withProduct(PRODUCT_IDS.annual))).toBe('annual');
   });
 });

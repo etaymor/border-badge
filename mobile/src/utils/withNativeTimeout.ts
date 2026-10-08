@@ -1,3 +1,14 @@
+const NATIVE_TIMEOUT_ERROR_NAME = 'NativeTimeoutError';
+
+/**
+ * True when `error` is the watchdog losing the race (not an abort, not the
+ * native call's own rejection). Lets callers tell "the native layer is stuck"
+ * apart from "this one input was bad".
+ */
+export function isNativeTimeoutError(error: unknown): boolean {
+  return error instanceof Error && error.name === NATIVE_TIMEOUT_ERROR_NAME;
+}
+
 /**
  * Bound a native call that may never settle.
  *
@@ -28,7 +39,11 @@ export function withNativeTimeout<T>(
 
   const guard = new Promise<never>((_resolve, reject) => {
     if (ms !== null) {
-      timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+      timer = setTimeout(() => {
+        const error = new Error(`${label} timed out after ${ms}ms`);
+        error.name = NATIVE_TIMEOUT_ERROR_NAME;
+        reject(error);
+      }, ms);
     }
     if (signal) {
       onAbort = () => reject(new Error(`${label} aborted`));

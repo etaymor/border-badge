@@ -8,11 +8,14 @@ import PostHog from 'posthog-react-native';
 
 import { isProduction } from '@config/env';
 import type { QuizEntryPoint, QuizShareSource } from '@navigation/types';
+import type { PrepTelemetry } from '@services/photoImport/prepTelemetry';
 import { stableHashOrNull } from '@utils/stableHash';
 
 export type PhotoPermissionDoor = 'quiz' | 'trips' | 'profile' | 'other';
 export type PhotoPermissionOsStatus = 'granted' | 'limited' | 'denied' | 'undetermined';
 export type PhotoPermissionCarouselVia = 'initial' | 'tap' | 'swipe';
+export type PaywallLoc = 'onboarding' | 'modal' | 'settings' | 'quick_action';
+export type PaywallOffer = 'standard' | 'winback';
 
 let posthog: PostHog | null = null;
 let isInitialized = false;
@@ -146,6 +149,24 @@ export function calculateApiPercentiles(responseTimes: number[]): {
     p50: calculatePercentile(sorted, 50),
     p95: calculatePercentile(sorted, 95),
     p99: calculatePercentile(sorted, 99),
+  };
+}
+
+/**
+ * U3/R4. Vision preparation cost and coverage for one dispatch run (see
+ * `prepTelemetry.ts`), flattened onto the event. Shared by the completed and
+ * exited events so an abandoned import reports the same fields. Null when the
+ * caller had no run to report.
+ */
+function prepTelemetryProps(prep: PrepTelemetry | undefined) {
+  return {
+    prepare_ms_total: prep?.prepareMsTotal ?? null,
+    prepare_ms_max: prep?.prepareMsMax ?? null,
+    vision_images_attempted: prep?.visionImagesAttempted ?? null,
+    vision_images_produced: prep?.visionImagesProduced ?? null,
+    vision_images_timed_out: prep?.visionImagesTimedOut ?? null,
+    vision_photos_skipped_offloaded: prep?.visionPhotosSkippedOffloaded ?? null,
+    vision_breaker_opened: prep?.breakerOpened ?? null,
   };
 }
 
@@ -432,6 +453,8 @@ export const Analytics = {
      * preparation-bound share that more concurrency cannot remove.
      */
     wireSpanMs?: number;
+    /** U3/R4. Vision preparation cost and coverage for this dispatch run. */
+    prep?: PrepTelemetry;
   }) =>
     track('photo_import_suggestions_completed', {
       suggestion_count: props.suggestionCount,
@@ -449,6 +472,7 @@ export const Analytics = {
       mean_in_flight_batches: props.meanInFlightBatches ?? null,
       wire_busy_ms: props.wireBusyMs ?? null,
       wire_span_ms: props.wireSpanMs ?? null,
+      ...prepTelemetryProps(props.prep),
     }),
 
   /**
@@ -531,6 +555,11 @@ export const Analytics = {
      * summed total cannot.
      */
     maxRetryAttemptsPerGeneration?: number;
+    /**
+     * U3/R4. Vision preparation for the run the user walked away from, so an
+     * abandoned import still reports what preparation cost and produced.
+     */
+    prep?: PrepTelemetry;
   }) =>
     track('photo_import_workflow_exited', {
       total_clusters: props.totalClusters,
@@ -545,6 +574,7 @@ export const Analytics = {
       retry_attempts: props.retryAttempts ?? null,
       retry_generations: props.retryGenerations ?? null,
       max_retry_attempts_per_generation: props.maxRetryAttemptsPerGeneration ?? null,
+      ...prepTelemetryProps(props.prep),
     }),
 
   // Entry organization (Saved Places feature)
@@ -557,26 +587,43 @@ export const Analytics = {
     }),
 
   // Subscription & Paywall Events
-  viewPaywall: (props: { location: 'onboarding' | 'modal' | 'settings'; feature?: string }) =>
-    track('view_paywall', { location: props.location, feature: props.feature ?? null }),
+  // `offer` splits the standard paywall from the $24.99/yr winback offering.
+  viewPaywall: (props: { location: PaywallLoc; feature?: string; offer?: PaywallOffer }) =>
+    track('view_paywall', {
+      location: props.location,
+      feature: props.feature ?? null,
+      offer: props.offer ?? 'standard',
+    }),
 
-  paywallDismissed: (props: { location: 'onboarding' | 'modal' | 'settings'; feature?: string }) =>
+  paywallDismissed: (props: { location: PaywallLoc; feature?: string }) =>
     track('paywall_dismissed', { location: props.location, feature: props.feature ?? null }),
 
-  purchaseCompleted: (props: {
-    plan: string | null;
-    location: 'onboarding' | 'modal' | 'settings';
-  }) => track('purchase_completed', { plan: props.plan, location: props.location }),
+  purchaseCompleted: (props: { plan: string | null; location: PaywallLoc; offer?: PaywallOffer }) =>
+    track('purchase_completed', {
+      plan: props.plan,
+      location: props.location,
+      offer: props.offer ?? 'standard',
+    }),
 
   purchaseFailed: (props: {
     plan: string | null;
     error: string;
-    location: 'onboarding' | 'modal' | 'settings';
+    location: PaywallLoc;
+    offer?: PaywallOffer;
   }) =>
-    track('purchase_failed', { plan: props.plan, error: props.error, location: props.location }),
+    track('purchase_failed', {
+      plan: props.plan,
+      error: props.error,
+      location: props.location,
+      offer: props.offer ?? 'standard',
+    }),
 
-  purchaseCancelled: (props: { location: 'onboarding' | 'modal' | 'settings' }) =>
-    track('purchase_cancelled', { location: props.location }),
+  purchaseCancelled: (props: { location: PaywallLoc; offer?: PaywallOffer }) =>
+    track('purchase_cancelled', { location: props.location, offer: props.offer ?? 'standard' }),
+
+  /** A winback trigger fired and the $24.99/yr offer is about to be presented. */
+  winbackShown: (props: { trigger: 'paywall_close' | 'quick_action'; location: PaywallLoc }) =>
+    track('winback_shown', { trigger: props.trigger, location: props.location }),
 
   restoreInitiated: () => track('restore_initiated'),
 

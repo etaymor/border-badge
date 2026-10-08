@@ -14,6 +14,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { colors } from '@constants/colors';
 import { usePaywallPresentation } from '@hooks/usePaywallPresentation';
+import { useWinbackOffer } from '@hooks/useWinbackOffer';
 import type { OnboardingStackScreenProps } from '@navigation/types';
 import { Analytics } from '@services/analytics';
 
@@ -23,6 +24,7 @@ export function PaywallScreen({ navigation }: Props) {
   const [isLoading, setIsLoading] = useState(true);
   const hasPresented = useRef(false);
   const { presentPaywall } = usePaywallPresentation('onboarding');
+  const { presentWinback } = useWinbackOffer('onboarding');
 
   const handlePresentPaywall = useCallback(async () => {
     // Prevent double presentation
@@ -38,6 +40,12 @@ export function PaywallScreen({ navigation }: Props) {
       Analytics.paywallDismissed({ location: 'onboarding' });
     }
 
+    // Closing without buying earns a one-time $24.99/yr offer. Onboarding
+    // moves on whatever the user does with it.
+    if (cancelled) {
+      await presentWinback('paywall_close');
+    }
+
     // The post-signup flow ends at the first-quiz offer, which owns the
     // finish (useFinishOnboarding) — needsPostSignupFlow stays true until the
     // offer is answered, so the settled order is untouched.
@@ -48,7 +56,7 @@ export function PaywallScreen({ navigation }: Props) {
     // shows nothing (isLoading already false, re-present blocked) — a blank
     // screen. Replacing removes Paywall so back navigation can't reach it.
     navigation.replace('FirstQuizOffer');
-  }, [presentPaywall, navigation]);
+  }, [presentPaywall, presentWinback, navigation]);
 
   useEffect(() => {
     // Small delay to ensure screen is mounted before presenting modal

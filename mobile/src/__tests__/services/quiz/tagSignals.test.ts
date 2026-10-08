@@ -95,7 +95,8 @@ describe('deriveSignals', () => {
       // The original gate counted markets and platforms as indoor and rejected
       // nearly every photo of a real library. Do not regress that here.
       expect(
-        deriveSignals(makeTag({ labels: labels(['street', 0.7], ['plaza', 0.5]) })).outdoorScore
+        deriveSignals(makeTag({ labels: labels(['street', 0.7], ['train_station', 0.5]) }))
+          .outdoorScore
       ).toBeGreaterThan(0);
     });
 
@@ -106,9 +107,9 @@ describe('deriveSignals', () => {
 
   describe('category', () => {
     it.each([
-      ['temple', 'landmark'],
+      ['belltower', 'landmark'],
       ['beach', 'scenery'],
-      ['skyline', 'building'],
+      ['cityscape', 'building'],
       ['receipt', 'other'],
     ])('reads %s as %s', (label, expected) => {
       expect(deriveSignals(makeTag({ labels: labels([label, 0.8]) })).categoryGuess).toBe(expected);
@@ -208,11 +209,11 @@ describe('classifyPrefilter', () => {
     });
 
     it('marks outdoor landmarks as likely', () => {
-      expect(tierOf({ labels: labels(['temple', 0.85]) })).toBe('likely');
+      expect(tierOf({ labels: labels(['ruins', 0.85]) })).toBe('likely');
     });
 
     it('marks street architecture as likely', () => {
-      expect(tierOf({ labels: labels(['street', 0.8], ['skyline', 0.4]) })).toBe('likely');
+      expect(tierOf({ labels: labels(['street', 0.8], ['cityscape', 0.4]) })).toBe('likely');
     });
 
     it('demotes a scenic photo once a person becomes noticeable', () => {

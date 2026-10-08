@@ -20,6 +20,22 @@ import { GEOHASH_PRECISION, haversine } from './photoClustering';
 const EMPTY_SUGGESTION_TTL_MS = 24 * 60 * 60 * 1000;
 
 /**
+ * Version stamped on every cached_place_suggestions row (U11/KTD7). A NON-EMPTY
+ * row whose version differs (including pre-column rows, which read as NULL) is a
+ * cache miss, so the cluster is refetched. Empty rows ignore the version and keep
+ * their 24h TTL. Processed-cluster state (confirmed/hidden/split) lives in other
+ * tables and is never touched by a bump.
+ *
+ * Bump it when a backend matcher change should replace suggestions users already
+ * have cached. Ship the OTA carrying a bump ONLY after the backend change it
+ * depends on is deployed to production: an earlier bump refetches from the old
+ * backend and re-caches the old results under the new version.
+ *
+ * 1: major-venue roll-up (fix/place-match-speed-venue-rollup).
+ */
+export const SUGGESTION_CACHE_VERSION = 1;
+
+/**
  * Compute the location cache key for a cluster centroid. Stable across cluster-id
  * changes (splits, re-segmentation) for the same physical location, so a
  * re-segmented cluster at the same spot reuses cached results instead of
@@ -229,12 +245,14 @@ export interface ClusterCacheRef {
 const NEIGHBOR_CELL_MAX_DISTANCE_M = 300;
 
 /**
- * Parse a cached suggestions row, honoring the empty-result TTL.
- * Returns the places array, or null if the row is invalid or an expired empty.
+ * Parse a cached suggestions row, honoring the empty-result TTL and the cache
+ * version. Returns the places array, or null if the row is invalid, an expired
+ * empty, or a non-empty row written under another SUGGESTION_CACHE_VERSION.
  */
 function parseSuggestionsRow(
   suggestionsJson: string,
   cachedAt: number,
+  version: number | null | undefined,
   now: number,
   label: string
 ): CachedPlaceSuggestion['places'] | null {
@@ -246,6 +264,9 @@ function parseSuggestionsRow(
         if (__DEV__) console.log(`[PhotoCache] Expired empty cache for ${label}`);
         return null;
       }
+    } else if (version !== SUGGESTION_CACHE_VERSION) {
+      if (__DEV__) console.log(`[PhotoCache] Stale suggestion version for ${label}`);
+      return null;
     }
     return places;
   } catch {
@@ -292,14 +313,16 @@ export async function getCachedSuggestions(
       cluster_id: string;
       suggestions_json: string;
       cached_at: number;
+      suggestion_version: number | null;
     }>(
-      `SELECT cluster_id, suggestions_json, cached_at FROM cached_place_suggestions WHERE cluster_id IN (${placeholders})`,
+      `SELECT cluster_id, suggestions_json, cached_at, suggestion_version FROM cached_place_suggestions WHERE cluster_id IN (${placeholders})`,
       batch
     );
     for (const row of rows) {
       const places = parseSuggestionsRow(
         row.suggestions_json,
         row.cached_at,
+        row.suggestion_version,
         now,
         `cluster ${row.cluster_id}`
       );
@@ -328,23 +351,26 @@ export async function getCachedSuggestions(
       location_key: string;
       suggestions_json: string;
       cached_at: number;
+      suggestion_version: number | null;
     }>(
-      `SELECT location_key, suggestions_json, cached_at FROM cached_place_suggestions
+      `SELECT location_key, suggestions_json, cached_at, suggestion_version FROM cached_place_suggestions
        WHERE location_key IN (${placeholders})
        ORDER BY cached_at DESC`,
       batch
     );
     const seenKeys = new Set<string>();
     for (const row of rows) {
-      if (seenKeys.has(row.location_key)) continue; // keep newest per key
-      seenKeys.add(row.location_key);
+      if (seenKeys.has(row.location_key)) continue; // keep newest valid row per key
       const places = parseSuggestionsRow(
         row.suggestions_json,
         row.cached_at,
+        row.suggestion_version,
         now,
         `location ${row.location_key}`
       );
+      // A stale or unparseable newest row must not hide an older valid one.
       if (places === null) continue;
+      seenKeys.add(row.location_key);
       for (const id of keyToIds.get(row.location_key) ?? []) {
         if (!result.has(id)) result.set(id, places);
       }
@@ -386,8 +412,9 @@ export async function getCachedSuggestions(
       location_key: string;
       suggestions_json: string;
       cached_at: number;
+      suggestion_version: number | null;
     }>(
-      `SELECT location_key, suggestions_json, cached_at FROM cached_place_suggestions
+      `SELECT location_key, suggestions_json, cached_at, suggestion_version FROM cached_place_suggestions
        WHERE location_key IN (${placeholders})
        ORDER BY cached_at DESC`,
       batch
@@ -396,6 +423,7 @@ export async function getCachedSuggestions(
       const places = parseSuggestionsRow(
         row.suggestions_json,
         row.cached_at,
+        row.suggestion_version,
         now,
         `neighbor ${row.location_key}`
       );
@@ -459,16 +487,17 @@ export async function cacheSuggestions(suggestions: CachedPlaceSuggestion[]): Pr
     await database.withTransactionAsync(async () => {
       for (let i = 0; i < suggestions.length; i += BATCH_SIZE) {
         const batch = suggestions.slice(i, i + BATCH_SIZE);
-        const placeholders = batch.map(() => '(?, ?, ?, ?)').join(', ');
+        const placeholders = batch.map(() => '(?, ?, ?, ?, ?)').join(', ');
         const values = batch.flatMap((s) => [
           s.cluster_id,
           JSON.stringify(s.places),
           now,
           s.location_key ?? null,
+          SUGGESTION_CACHE_VERSION,
         ]);
 
         await database.runAsync(
-          `INSERT OR REPLACE INTO cached_place_suggestions (cluster_id, suggestions_json, cached_at, location_key) VALUES ${placeholders}`,
+          `INSERT OR REPLACE INTO cached_place_suggestions (cluster_id, suggestions_json, cached_at, location_key, suggestion_version) VALUES ${placeholders}`,
           values
         );
       }

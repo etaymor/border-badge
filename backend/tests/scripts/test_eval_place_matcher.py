@@ -26,6 +26,17 @@ from scripts.eval_place_matcher import (
 
 SAMPLE_DATASET = "docs/place_matcher_eval_dataset.sample.json"
 
+# Rows whose expected parent venue is reachable only through the venue probe
+# (``probe_places``), never through the DISTANCE-ranked world (U4/U5).
+PROBE_ONLY_EXPECTED_ROWS = {
+    "paris-louvre-mona-lisa-room-real",
+    "paris-louvre-pyramid-real",
+    "paris-louvre-winged-victory-real",
+    "paris-louvre-winged-victory-cafe-sign",
+    "hand-museum-interior-no-vision",
+    "hand-cafe-in-landmark-no-hints",
+}
+
 
 def make_matcher() -> PlaceMatcher:
     return PlaceMatcher(http_client=AsyncMock())
@@ -385,7 +396,19 @@ class TestPipelineRegressionAndComposition:
         # the two Paris Eiffel rows (the tower's point sits beyond the search
         # radii). The rescue sim recovers all of them, lifting recall to 1.0
         # with exactly one text-search call each.
-        samples = load_dataset(SAMPLE_DATASET)
+        #
+        # U5 (KTD3): the parent-venue rows keep their expected place ONLY in
+        # ``probe_places`` -- by design no DISTANCE Nearby or name rescue
+        # fetches it (no vision, no signage), so they are excluded here and
+        # pinned exactly below, not absorbed into a looser recall bound.
+        all_samples = load_dataset(SAMPLE_DATASET)
+        probe_only = {
+            s["id"]
+            for s in all_samples
+            if s["expected_place_id"] not in {p["id"] for p in s["places"]}
+        }
+        assert probe_only == PROBE_ONLY_EXPECTED_ROWS
+        samples = [s for s in all_samples if s["id"] not in probe_only]
         baseline = evaluate_pipeline(
             matcher=make_matcher(),
             samples=samples,

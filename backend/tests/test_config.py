@@ -132,6 +132,67 @@ class TestPopularityProbeKnob:
         assert Settings(_env_file=None).places_popularity_probe is True
 
 
+class TestVenueProbeKnobs:
+    """U6 venue probe (KTD3): default ON, 400m, with bounds."""
+
+    def test_default_on(self) -> None:
+        assert _settings().places_venue_probe is True
+
+    def test_env_off(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("PLACES_VENUE_PROBE", "false")
+        assert Settings(_env_file=None).places_venue_probe is False
+
+    def test_radius_default(self) -> None:
+        assert _settings().places_venue_probe_radius_m == 400
+
+    def test_radius_env_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("PLACES_VENUE_PROBE_RADIUS_M", "600")
+        assert Settings(_env_file=None).places_venue_probe_radius_m == 600
+
+    def test_radius_bounds(self) -> None:
+        assert _settings(places_venue_probe_radius_m=100).places_venue_probe_radius_m
+        assert _settings(places_venue_probe_radius_m=1000).places_venue_probe_radius_m
+        with pytest.raises(ValidationError):
+            _settings(places_venue_probe_radius_m=99)
+        with pytest.raises(ValidationError):
+            _settings(places_venue_probe_radius_m=1001)
+
+
+class TestVenueRollupKnobs:
+    """U7 venue roll-up (KTD4): tuned defaults, 0 parent reviews = off."""
+
+    def test_defaults(self) -> None:
+        s = _settings()
+        assert s.places_rollup_max_distance_m == 250
+        assert s.places_rollup_min_parent_reviews == 2000
+        assert s.places_rollup_dominance_ratio == 10.0
+        assert s.places_rollup_containing_places is True
+
+    def test_env_overrides(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("PLACES_ROLLUP_MAX_DISTANCE_M", "150")
+        monkeypatch.setenv("PLACES_ROLLUP_MIN_PARENT_REVIEWS", "0")
+        monkeypatch.setenv("PLACES_ROLLUP_DOMINANCE_RATIO", "25")
+        s = Settings(_env_file=None)
+        assert s.places_rollup_max_distance_m == 150
+        assert s.places_rollup_min_parent_reviews == 0
+        assert s.places_rollup_dominance_ratio == 25.0
+
+    def test_bounds(self) -> None:
+        assert (
+            _settings(places_rollup_max_distance_m=0).places_rollup_max_distance_m == 0
+        )
+        with pytest.raises(ValidationError):
+            _settings(places_rollup_max_distance_m=-1)
+        with pytest.raises(ValidationError):
+            _settings(places_rollup_max_distance_m=1001)
+        with pytest.raises(ValidationError):
+            _settings(places_rollup_min_parent_reviews=-1)
+        with pytest.raises(ValidationError):
+            _settings(places_rollup_dominance_ratio=0.5)
+        with pytest.raises(ValidationError):
+            _settings(places_rollup_dominance_ratio=1001)
+
+
 class TestTypePriorKnobs:
     """U3: lodging demotion + landmark boost ranking knobs."""
 

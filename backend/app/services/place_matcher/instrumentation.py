@@ -65,11 +65,15 @@ METHOD_NEARBY = "nearby"
 METHOD_TEXT_SEARCH = "text_search"
 METHOD_POPULARITY_PROBE = "popularity_probe"
 METHOD_PLACE_DETAILS = "place_details"
+# Venue-rollup U6 (KTD3): the rated POPULARITY venue probe, counted apart from
+# the legacy vision-gated popularity probe so its cost is readable on its own.
+METHOD_VENUE_PROBE = "venue_probe"
 METHODS: tuple[str, ...] = (
     METHOD_NEARBY,
     METHOD_TEXT_SEARCH,
     METHOD_POPULARITY_PROBE,
     METHOD_PLACE_DETAILS,
+    METHOD_VENUE_PROBE,
 )
 
 # Where a lookup was served from. Every attempted lookup lands in exactly one
@@ -112,11 +116,13 @@ SITE_NEARBY = "nearby"
 SITE_TEXT_SEARCH = "text_search"
 SITE_POPULARITY_PROBE = "popularity_probe"
 SITE_ENRICHMENT = "enrichment"
+SITE_VENUE_PROBE = "venue_probe"
 SITES: tuple[str, ...] = (
     SITE_NEARBY,
     SITE_TEXT_SEARCH,
     SITE_POPULARITY_PROBE,
     SITE_ENRICHMENT,
+    SITE_VENUE_PROBE,
 )
 
 # The vision-null vocabulary lives in photo_vision.constants, a leaf module,
@@ -153,6 +159,11 @@ class RequestMetrics:
     vision_images_attempted: int = 0
     vision_images_null: int = 0
     vision_total_ms: float = 0.0
+    # U3/R4: clusters that arrived carrying at least one vision image. None
+    # means the classifier never ran for this request; 0 is a request whose
+    # every cluster came without images (the silent drop the Sept 2026 Paris
+    # import hit), which must be visible rather than indistinguishable.
+    vision_clusters_with_images: int | None = None
     # Why the null images were null (U12). Sums to vision_images_null.
     vision_null_reasons: dict[str, int] = field(
         default_factory=lambda: dict.fromkeys(VISION_NULL_REASONS, 0)
@@ -234,6 +245,7 @@ class RequestMetrics:
             },
             "vision": {
                 "clusters_attempted": vision_attempted,
+                "clusters_with_images": self.vision_clusters_with_images,
                 "clusters_classified": self.vision_clusters_classified,
                 "clusters_null": vision_null,
                 "null_rate": (
@@ -356,6 +368,7 @@ def record_clusters(cluster_count: int, failed_cluster_count: int) -> None:
 
 def record_vision(
     *,
+    clusters_with_images: int,
     clusters_attempted: int,
     clusters_classified: int,
     images_attempted: int,
@@ -372,6 +385,9 @@ def record_vision(
     metrics = _metrics_var.get()
     if metrics is None:
         return
+    metrics.vision_clusters_with_images = (
+        metrics.vision_clusters_with_images or 0
+    ) + clusters_with_images
     metrics.vision_clusters_attempted += clusters_attempted
     metrics.vision_clusters_classified += clusters_classified
     metrics.vision_images_attempted += images_attempted

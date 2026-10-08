@@ -12,6 +12,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors } from '@constants/colors';
 import { fonts } from '@constants/typography';
 import { usePaywallPresentation } from '@hooks/usePaywallPresentation';
+import { useWinbackOffer } from '@hooks/useWinbackOffer';
 import type { RootStackScreenProps, GatedFeature } from '@navigation/types';
 import { Analytics } from '@services/analytics';
 
@@ -29,6 +30,7 @@ export function PaywallModalScreen({ navigation, route }: Props) {
   const [isLoading, setIsLoading] = useState(false);
   const hasPresented = useRef(false);
   const { presentPaywall } = usePaywallPresentation('modal');
+  const { presentWinback } = useWinbackOffer('modal');
 
   const dismiss = useCallback(() => {
     Analytics.paywallDismissed({ location: 'modal', feature });
@@ -44,7 +46,10 @@ export function PaywallModalScreen({ navigation, route }: Props) {
 
     const { success, cancelled, error } = await presentPaywall({ feature });
 
-    if (success) {
+    // Closing without buying earns a one-time $24.99/yr offer.
+    const winback = cancelled ? await presentWinback('paywall_close') : null;
+
+    if (success || winback?.success) {
       // Navigate back without triggering dismiss analytics (purchase succeeded)
       navigation.goBack();
     } else {
@@ -56,7 +61,7 @@ export function PaywallModalScreen({ navigation, route }: Props) {
     }
 
     setIsLoading(false);
-  }, [presentPaywall, navigation, feature]);
+  }, [presentPaywall, presentWinback, navigation, feature]);
 
   useEffect(() => {
     // Auto-present paywall when modal opens (matches onboarding behavior)
