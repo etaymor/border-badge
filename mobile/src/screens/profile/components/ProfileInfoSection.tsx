@@ -253,20 +253,20 @@ export function ProfileInfoSection({
                 onPress={onOpenPhotoEnableModal}
                 style={styles.enableButton}
                 accessibilityRole="button"
-                accessibilityLabel="Enable photo library access"
-                accessibilityHint="Opens instructions for enabling photo access in Settings"
+                accessibilityLabel="Open Settings for photo access"
+                accessibilityHint="Shows how to turn on photo access in Settings"
               >
-                <Text style={styles.enableButtonText}>Enable</Text>
+                <Text style={styles.enableButtonText}>Settings</Text>
               </TouchableOpacity>
             ) : (
               <TouchableOpacity
                 onPress={onRequestPhotoPermission}
                 style={styles.enableButton}
                 accessibilityRole="button"
-                accessibilityLabel="Enable photo library access"
-                accessibilityHint="Requests permission to access your photo library"
+                accessibilityLabel="Continue to photo access"
+                accessibilityHint="Shows the system photo access prompt"
               >
-                <Text style={styles.enableButtonText}>Enable</Text>
+                <Text style={styles.enableButtonText}>Continue</Text>
               </TouchableOpacity>
             )}
           </View>

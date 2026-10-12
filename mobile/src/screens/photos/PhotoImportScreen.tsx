@@ -312,9 +312,10 @@ export function PhotoImportScreen({ navigation, route }: Props) {
     scanFailure,
     clearScanFailure,
     permissionUi,
+    autoStartHold,
     permissionCarouselStep,
     handlePermissionCarouselBeatChange,
-    handlePermissionPreheatChoice,
+    handlePermissionRequest,
     getUploadState,
     uploadingClusterIds,
     isPremium,
@@ -641,14 +642,19 @@ export function PhotoImportScreen({ navigation, route }: Props) {
   );
 
   const isPermissionPreheat = phase === 'idle' && permissionUi === 'preheat';
-  const isScanStage = phase === 'scanning' && !scanFailure;
-  const isIdleStage = phase === 'idle' && permissionUi === 'none';
+  // A pending autoStart holds the scan stage it is about to start, so idle ->
+  // scanning is one continuous view (see useAutoStartHold).
+  const isScanStage =
+    (phase === 'scanning' && !scanFailure) || (phase === 'idle' && autoStartHold === 'scan');
+  const isHoldStage = phase === 'idle' && autoStartHold === 'stage';
+  const isHoldLoading = phase === 'idle' && autoStartHold === 'loading';
+  const isIdleStage = phase === 'idle' && permissionUi === 'none' && autoStartHold === 'none';
 
   return (
     <View
       style={[
         styles.container,
-        isPermissionPreheat || isScanStage || isIdleStage
+        isPermissionPreheat || isScanStage || isHoldStage || isIdleStage
           ? styles.permissionStage
           : { paddingTop: insets.top },
       ]}
@@ -688,7 +694,7 @@ export function PhotoImportScreen({ navigation, route }: Props) {
               door="trips"
               step={permissionCarouselStep}
               onBeatChange={handlePermissionCarouselBeatChange}
-              onChoose={handlePermissionPreheatChoice}
+              onRequestPermission={handlePermissionRequest}
             />
           </View>
         </>
@@ -701,9 +707,14 @@ export function PhotoImportScreen({ navigation, route }: Props) {
           onLeave={() => handleBackNavigation('goBack')}
           onRetryScan={() => startScan(false)}
         />
+      ) : isHoldStage ? (
+        <StatusBar barStyle="light-content" />
+      ) : isHoldLoading ? (
+        <View style={styles.idleContainer} testID="photo-import-autostart-loading">
+          <ActivityIndicator size="large" color={colors.sunsetGold} />
+        </View>
       ) : isIdleStage ? (
         <IdlePhase
-          autoStart={autoStart}
           lastImportTime={lastImportTime}
           homeCountry={homeCountryCode}
           onStartScan={startScan}
@@ -760,7 +771,7 @@ export function PhotoImportScreen({ navigation, route }: Props) {
                   Linking.openURL('app-settings:').catch(() => undefined);
                 }}
                 onRetry={() => {
-                  void handlePermissionPreheatChoice('full-access');
+                  void handlePermissionRequest();
                 }}
               />
             </View>

@@ -7,7 +7,6 @@ import type {
   PhotoPermissionCarouselChangeVia,
   PhotoPermissionCarouselStep,
 } from '@components/photos/PhotoPermissionCarousel';
-import type { PhotoPermissionPreheatChoice } from '@components/photos/PhotoPermissionPreheatStack';
 import type { ClusterUploadState } from '@hooks/useMultiClusterUpload';
 import type { SuggestionDispatchState } from '@hooks/usePhotoImport';
 import type {
@@ -19,6 +18,7 @@ import type {
   PlaceSuggestion,
 } from '@services/photoImport';
 import type { EntryType } from '@navigation/types';
+import type { AutoStartHold } from './useAutoStartHold';
 import type { ScanFailureReason } from './usePhotoScan';
 import type { SuggestionDecisionMeta } from './components/PlaceSuggestionCard';
 
@@ -84,12 +84,15 @@ export interface PhotoImportWorkflowResult {
   clearScanFailure: () => void;
   /** Soft-ask / recovery overlay while Photos access is unresolved */
   permissionUi: 'none' | 'preheat' | 'recovery';
+  /** What to hold on screen while an autoStart route is still pending */
+  autoStartHold: AutoStartHold;
   permissionCarouselStep: PhotoPermissionCarouselStep;
   handlePermissionCarouselBeatChange: (
     step: PhotoPermissionCarouselStep,
     via: PhotoPermissionCarouselChangeVia
   ) => void;
-  handlePermissionPreheatChoice: (choice: PhotoPermissionPreheatChoice) => void;
+  /** Show the iOS Photos system prompt (carousel Continue / recovery Try Again) */
+  handlePermissionRequest: () => void;
   dismissPermissionRecovery: () => void;
 
   /**

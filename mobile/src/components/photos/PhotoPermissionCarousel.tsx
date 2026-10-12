@@ -11,10 +11,6 @@ import {
   type ViewToken,
 } from 'react-native';
 
-import {
-  PhotoPermissionPreheatStack,
-  type PhotoPermissionPreheatChoice,
-} from '@components/photos/PhotoPermissionPreheatStack';
 import { PrivacyLockGlyph } from '@components/photos/PrivacyLockGlyph';
 import { RotatingStatusLine } from '@components/photos/RotatingStatusLine';
 import { Button } from '@components/ui/Button';
@@ -31,7 +27,11 @@ export interface PhotoPermissionCarouselProps {
   door: PhotoPermissionCarouselDoor;
   step: PhotoPermissionCarouselStep;
   onBeatChange: (step: PhotoPermissionCarouselStep, via: PhotoPermissionCarouselChangeVia) => void;
-  onChoose: (choice: PhotoPermissionPreheatChoice) => void;
+  /**
+   * Last beat's Continue. Must go straight to the iOS system prompt: per App
+   * Review 5.1.1(iv) the pre-prompt is neutral and offers no choices itself.
+   */
+  onRequestPermission: () => void;
   visual?: ReactNode;
   testID?: string;
 }
@@ -89,7 +89,7 @@ export function PhotoPermissionCarousel({
   door,
   step,
   onBeatChange,
-  onChoose,
+  onRequestPermission,
   visual,
   testID = 'photo-permission-carousel',
 }: PhotoPermissionCarouselProps) {
@@ -140,6 +140,7 @@ export function PhotoPermissionCarousel({
   const handleContinue = useStableCallback(() => {
     const nextStep = step + 1;
     if (!isCarouselStep(nextStep)) {
+      onRequestPermission();
       return;
     }
 
@@ -227,16 +228,12 @@ export function PhotoPermissionCarousel({
       </View>
 
       <View style={styles.actionBand} testID="photo-permission-carousel-action-band">
-        {step < TOTAL_STEPS ? (
-          <Button
-            title={SCAN_COPY.permission.carousel.continueCta}
-            onPress={handleContinue}
-            style={styles.continueButton}
-            testID="photo-permission-carousel-continue"
-          />
-        ) : (
-          <PhotoPermissionPreheatStack onChoose={onChoose} />
-        )}
+        <Button
+          title={SCAN_COPY.permission.carousel.continueCta}
+          onPress={handleContinue}
+          style={styles.continueButton}
+          testID="photo-permission-carousel-continue"
+        />
       </View>
 
       <View

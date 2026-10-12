@@ -112,7 +112,7 @@ export function PhotoLibraryEnableModal({ visible, onClose }: PhotoLibraryEnable
 
           {/* Header */}
           <View style={styles.header}>
-            <Text style={styles.title}>Enable Photo Import</Text>
+            <Text style={styles.title}>Photo Access Is Off</Text>
             <Text style={styles.subtitle}>Discover trips from your travel photos</Text>
           </View>
 

@@ -7,7 +7,7 @@
  * button for someone who arrived with access already granted.
  */
 
-import { ActivityIndicator, Pressable, StatusBar, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StatusBar, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { PrivacyLockGlyph } from '@components/photos/PrivacyLockGlyph';
@@ -24,7 +24,6 @@ import { formatLastScanTime } from '../photoImportHelpers';
 import { styles } from '../photoImportStyles';
 
 export interface IdlePhaseProps {
-  autoStart: boolean | undefined;
   lastImportTime: number | null;
   homeCountry?: string | null;
   onStartScan: (forceRefresh: boolean) => void;
@@ -37,7 +36,6 @@ export interface IdlePhaseProps {
 }
 
 export function IdlePhase({
-  autoStart,
   lastImportTime,
   homeCountry,
   onStartScan,
@@ -53,18 +51,6 @@ export function IdlePhase({
     Analytics.photoSyncScanTapped({ isRefresh: forceRefresh, isFirstRun: !lastImportTime });
     onStartScan(forceRefresh);
   };
-
-  if (autoStart && lastImportTime) {
-    return (
-      <View style={[styles.idleContainer, sheetStyles.preparing]}>
-        <ActivityIndicator size="large" color={colors.sunsetGold} />
-        <Text style={styles.idleTitle}>Preparing...</Text>
-        <Text style={styles.idleDescription}>
-          {SCAN_COPY.trips.scanningTitle('scanning', true)}
-        </Text>
-      </View>
-    );
-  }
 
   return (
     <View style={styles.scanStageLayout} testID="photo-import-idle">
@@ -125,9 +111,6 @@ export function IdlePhase({
 }
 
 const sheetStyles = StyleSheet.create({
-  preparing: {
-    backgroundColor: colors.warmCream,
-  },
   body: {
     alignItems: 'center',
     gap: 14,

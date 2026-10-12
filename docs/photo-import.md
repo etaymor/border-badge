@@ -186,9 +186,17 @@ the system prompt. Each beat is a title only. The claims the subtitles
 used to carry rotate, one short line at a time, through the lock footer
 (`SCAN_COPY.permission.carousel.footerLines(door)`). The footer's
 accessibility label reads every line at once. Beat 3 is the same
-`StampScatter` the live scan uses, fed demo stamps and stills. Allow Full Access is the consent: `usePhotoImportWorkflow` starts
-the scan on that grant even when the route did not pass `autoStart`, so the
-idle screen does not appear as a second pitch.
+`StampScatter` the live scan uses, fed demo stamps and stills. Every beat,
+including the last, shows the same neutral Continue button; Continue on beat 3
+calls `onRequestPermission`, which goes straight to the iOS system prompt.
+App Review Guideline 5.1.1(iv) rejected the earlier OS-shaped "Select Photos /
+Allow Full Access / Don't Allow" stack: a pre-prompt must use "Continue" or
+"Next", never "Enable"/"Allow", and must not offer its own permission choices
+(`src/__tests__/compliance/photoPermissionPrePrompt.test.tsx` guards this, and
+the Profile photo-access row too). A system-prompt grant is the consent:
+`usePhotoImportWorkflow` starts the scan on that grant even when the route did
+not pass `autoStart`, so the idle screen does not appear as a second pitch. A
+denial lands on the recovery sheet, whose Try Again re-requests the OS prompt.
 
 **Idle.** Only when the user arrives with access already granted. Both first
 and return visits hold beat 3's stamp page on its last frame. A first run

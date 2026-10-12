@@ -13,7 +13,6 @@ import { SCAN_COPY } from '@constants/scanCopy';
 function renderIdle(lastImportTime: number | null, cachedPhotoCount?: number) {
   return render(
     <IdlePhase
-      autoStart={undefined}
       lastImportTime={lastImportTime}
       homeCountry="US"
       onStartScan={jest.fn()}

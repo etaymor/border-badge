@@ -443,7 +443,7 @@ describe('usePhotoImportWorkflow', () => {
     });
   });
 
-  describe('handlePermissionPreheatChoice', () => {
+  describe('handlePermissionRequest', () => {
     it('opens manual scans on beat 1 and records each carousel step once', async () => {
       mockPhotoPermission.status = 'undetermined';
       const { result, unmount } = renderHook(() => usePhotoImportWorkflow({}), {
@@ -483,7 +483,7 @@ describe('usePhotoImportWorkflow', () => {
       });
     });
 
-    it('emits the soft ask once for each no-OS carousel mount', async () => {
+    it('emits the soft ask once for each carousel mount', async () => {
       mockPhotoPermission.status = 'undetermined';
       const { result, unmount } = renderHook(() => usePhotoImportWorkflow({}), {
         wrapper: createWrapper(queryClient),
@@ -496,11 +496,13 @@ describe('usePhotoImportWorkflow', () => {
       expect(result.current.permissionUi).toBe('preheat');
       expect(Analytics.photoPermissionSoftAskShown).toHaveBeenCalledTimes(1);
 
+      mockRequestPermission.mockResolvedValueOnce('denied');
       await act(async () => {
-        await result.current.handlePermissionPreheatChoice('select-photos');
+        await result.current.handlePermissionRequest();
       });
       expect(result.current.permissionUi).toBe('recovery');
-      expect(Analytics.photoPermissionCarouselLeft).toHaveBeenCalledTimes(1);
+      // The OS prompt was shown, so this mount did not "leave" the carousel.
+      expect(Analytics.photoPermissionCarouselLeft).not.toHaveBeenCalled();
 
       act(() => {
         result.current.dismissPermissionRecovery();
@@ -513,7 +515,7 @@ describe('usePhotoImportWorkflow', () => {
       expect(result.current.permissionUi).toBe('preheat');
       expect(Analytics.photoPermissionSoftAskShown).toHaveBeenCalledTimes(2);
       unmount();
-      expect(Analytics.photoPermissionCarouselLeft).toHaveBeenCalledTimes(2);
+      expect(Analytics.photoPermissionCarouselLeft).toHaveBeenCalledTimes(1);
     });
 
     it('ignores duplicate requests, keeps interrupted access on beat 3, and emits no left', async () => {
@@ -533,8 +535,8 @@ describe('usePhotoImportWorkflow', () => {
       });
       act(() => {
         result.current.handlePermissionCarouselBeatChange(3, 'tap');
-        void result.current.handlePermissionPreheatChoice('full-access');
-        void result.current.handlePermissionPreheatChoice('full-access');
+        void result.current.handlePermissionRequest();
+        void result.current.handlePermissionRequest();
       });
       expect(mockRequestPermission).toHaveBeenCalledTimes(1);
 
@@ -558,10 +560,10 @@ describe('usePhotoImportWorkflow', () => {
 
       await act(async () => {
         await result.current.startScan();
-        await result.current.handlePermissionPreheatChoice('full-access');
+        await result.current.handlePermissionRequest();
       });
       await act(async () => {
-        await result.current.handlePermissionPreheatChoice('full-access');
+        await result.current.handlePermissionRequest();
       });
 
       expect(mockRequestPermission).toHaveBeenCalledTimes(2);
@@ -589,7 +591,7 @@ describe('usePhotoImportWorkflow', () => {
       expect(mockedPhotoImport.startScan).not.toHaveBeenCalled();
 
       await act(async () => {
-        await result.current.handlePermissionPreheatChoice('full-access');
+        await result.current.handlePermissionRequest();
       });
 
       expect(mockedPhotoImport.startScan).toHaveBeenCalledTimes(1);
@@ -604,7 +606,7 @@ describe('usePhotoImportWorkflow', () => {
       });
 
       await act(async () => {
-        await result.current.handlePermissionPreheatChoice('full-access');
+        await result.current.handlePermissionRequest();
       });
 
       expect(mockedPhotoImport.startScan).toHaveBeenCalledTimes(1);
@@ -619,7 +621,7 @@ describe('usePhotoImportWorkflow', () => {
         wrapper: createWrapper(queryClient),
       });
       await act(async () => {
-        await denied.result.current.handlePermissionPreheatChoice('full-access');
+        await denied.result.current.handlePermissionRequest();
       });
       expect(denied.result.current.permissionUi).toBe('recovery');
       denied.unmount();
@@ -642,7 +644,7 @@ describe('usePhotoImportWorkflow', () => {
         });
 
         await act(async () => {
-          await result.current.handlePermissionPreheatChoice('full-access');
+          await result.current.handlePermissionRequest();
         });
 
         expect(mockRequestPermission).toHaveBeenCalledTimes(1);
@@ -654,21 +656,31 @@ describe('usePhotoImportWorkflow', () => {
       }
     );
 
-    it.each(['select-photos', 'dont-allow'] as const)(
-      'does not emit an OS result for %s because no request occurs',
-      async (choice) => {
-        const { result } = renderHook(() => usePhotoImportWorkflow({}), {
-          wrapper: createWrapper(queryClient),
-        });
+    it('always shows the OS prompt from the carousel, and Try Again re-prompts after a denial', async () => {
+      mockPhotoPermission.status = 'undetermined';
+      mockRequestPermission.mockResolvedValueOnce('denied').mockResolvedValueOnce('granted');
+      const { result } = renderHook(() => usePhotoImportWorkflow({}), {
+        wrapper: createWrapper(queryClient),
+      });
 
-        await act(async () => {
-          await result.current.handlePermissionPreheatChoice(choice);
-        });
+      await act(async () => {
+        await result.current.startScan();
+      });
+      expect(result.current.permissionUi).toBe('preheat');
 
-        expect(mockRequestPermission).not.toHaveBeenCalled();
-        expect(Analytics.photoPermissionOsResult).not.toHaveBeenCalled();
-      }
-    );
+      await act(async () => {
+        await result.current.handlePermissionRequest();
+      });
+      expect(mockRequestPermission).toHaveBeenCalledTimes(1);
+      expect(result.current.permissionUi).toBe('recovery');
+
+      await act(async () => {
+        await result.current.handlePermissionRequest();
+      });
+      expect(mockRequestPermission).toHaveBeenCalledTimes(2);
+      expect(result.current.permissionUi).toBe('none');
+      expect(mockedPhotoImport.startScan).toHaveBeenCalledTimes(1);
+    });
   });
 
   describe('startScan', () => {

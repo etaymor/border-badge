@@ -294,9 +294,6 @@ const permission = {
   recoveryAllowMorePhotosCta: 'Allow More Photos',
   recoveryContinueLimitedCta: 'Continue With Selected Photos',
   recoveryRetryCta: 'Try Again',
-  preheatSelectPhotos: 'Select Photos',
-  preheatAllowFullAccess: 'Allow Full Access',
-  preheatDontAllow: "Don't Allow",
   carousel: permissionCarousel,
 } as const;
 

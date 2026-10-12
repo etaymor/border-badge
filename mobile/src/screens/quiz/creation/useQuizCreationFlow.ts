@@ -22,7 +22,6 @@ import type {
   PhotoPermissionCarouselChangeVia,
   PhotoPermissionCarouselStep,
 } from '@components/photos/PhotoPermissionCarousel';
-import type { PhotoPermissionPreheatChoice } from '@components/photos/PhotoPermissionPreheatStack';
 import { SCAN_COPY } from '@constants/scanCopy';
 import { usePhotoPermissionStatus } from '@hooks/usePhotoPermissions';
 import { useQuizBuildJob } from '@hooks/useQuizBuildJob';
@@ -98,7 +97,6 @@ export interface QuizCreationFlow {
     step: PhotoPermissionCarouselStep,
     via: PhotoPermissionCarouselChangeVia
   ) => void;
-  handlePreheatChoice: (choice: PhotoPermissionPreheatChoice) => void;
   /** Stop the build, behind a confirm. */
   handleCancel: () => void;
   handleBack: () => void;
@@ -351,14 +349,6 @@ export function useQuizCreationFlow({ entryPoint, navigation }: Options): QuizCr
     }
   );
 
-  const handlePreheatChoice = useStableCallback(async (choice: PhotoPermissionPreheatChoice) => {
-    if (choice === 'full-access') {
-      await handleRequestPermission();
-      return;
-    }
-    setPhase('permission-denied');
-  });
-
   // Stop the build outright. The persisted draft stays resumable (KTD7), so
   // the classification already paid for is not thrown away.
   const handleStopBuilding = useStableCallback(() => {
@@ -465,7 +455,6 @@ export function useQuizCreationFlow({ entryPoint, navigation }: Options): QuizCr
     startCreation,
     handleRequestPermission,
     handlePermissionCarouselBeatChange,
-    handlePreheatChoice,
     handleCancel,
     handleBack,
     handleClose,

@@ -6,7 +6,6 @@ import {
   getPhotoPermissionCarouselBottomInset,
   PhotoPermissionCarousel,
 } from '@components/photos/PhotoPermissionCarousel';
-import type { PhotoPermissionPreheatChoice } from '@components/photos/PhotoPermissionPreheatStack';
 import { SCAN_COPY } from '@constants/scanCopy';
 
 const mockUseReducedMotion = jest.fn(() => false);
@@ -18,14 +17,14 @@ jest.mock('@hooks/useReducedMotion', () => ({
 interface HarnessProps {
   initialStep?: 1 | 2 | 3;
   onBeatChange?: jest.Mock;
-  onChoose?: jest.Mock;
+  onRequestPermission?: jest.Mock;
   visual?: React.ReactNode;
 }
 
 function CarouselHarness({
   initialStep = 1,
   onBeatChange = jest.fn(),
-  onChoose = jest.fn(),
+  onRequestPermission = jest.fn(),
   visual,
 }: HarnessProps) {
   const [step, setStep] = useState<1 | 2 | 3>(initialStep);
@@ -38,7 +37,7 @@ function CarouselHarness({
         onBeatChange(nextStep, via);
         setStep(nextStep);
       }}
-      onChoose={onChoose}
+      onRequestPermission={onRequestPermission}
       visual={visual}
     />
   );
@@ -71,28 +70,36 @@ describe('PhotoPermissionCarousel', () => {
     announcementSpy.mockRestore();
   });
 
-  it('starts on beat 1 with Continue and keeps the permission stack hidden', () => {
-    render(<CarouselHarness />);
+  it('starts on beat 1 with Continue and does not request permission yet', () => {
+    const onRequestPermission = jest.fn();
+    render(<CarouselHarness onRequestPermission={onRequestPermission} />);
 
     expect(screen.getByText(SCAN_COPY.permission.carousel.beat1Title)).toBeTruthy();
     // Title only: the beat's supporting claims rotate through the footer.
     expect(screen.getByTestId('photo-permission-carousel-page-1').children).toHaveLength(1);
     expect(screen.getByText(SCAN_COPY.permission.carousel.continueCta)).toBeTruthy();
-    expect(screen.queryByTestId('photo-permission-preheat-buttons')).toBeNull();
+    expect(onRequestPermission).not.toHaveBeenCalled();
   });
 
-  it('advances by tap and exposes the unchanged stack only on beat 3', () => {
+  it('advances by tap, then Continue on beat 3 requests permission', () => {
     const onBeatChange = jest.fn();
-    render(<CarouselHarness onBeatChange={onBeatChange} />);
+    const onRequestPermission = jest.fn();
+    render(
+      <CarouselHarness onBeatChange={onBeatChange} onRequestPermission={onRequestPermission} />
+    );
 
     fireEvent.press(screen.getByTestId('photo-permission-carousel-continue'));
     fireEvent.press(screen.getByTestId('photo-permission-carousel-continue'));
 
     expect(onBeatChange).toHaveBeenNthCalledWith(1, 2, 'tap');
     expect(onBeatChange).toHaveBeenNthCalledWith(2, 3, 'tap');
-    expect(screen.getByTestId('photo-permission-preheat-select')).toBeTruthy();
-    expect(screen.getByTestId('photo-permission-preheat-full-access')).toBeTruthy();
-    expect(screen.getByTestId('photo-permission-preheat-dont-allow')).toBeTruthy();
+    expect(onRequestPermission).not.toHaveBeenCalled();
+
+    fireEvent.press(screen.getByTestId('photo-permission-carousel-continue'));
+    expect(onRequestPermission).toHaveBeenCalledTimes(1);
+    expect(onBeatChange).toHaveBeenCalledTimes(2);
+    // Same neutral CTA on every beat; no app-drawn permission choices.
+    expect(screen.getAllByRole('button')).toHaveLength(1);
   });
 
   it('reports forward and backward viewability changes as swipes without duplicates', () => {
@@ -108,24 +115,30 @@ describe('PhotoPermissionCarousel', () => {
     expect(onBeatChange).toHaveBeenCalledTimes(2);
   });
 
-  it.each<[string, PhotoPermissionPreheatChoice]>([
-    ['photo-permission-preheat-select', 'select-photos'],
-    ['photo-permission-preheat-full-access', 'full-access'],
-    ['photo-permission-preheat-dont-allow', 'dont-allow'],
-  ])('forwards %s only when the stack is visible', (testID, expectedChoice) => {
-    const onChoose = jest.fn();
+  it('requests permission only from the last beat', () => {
+    const onRequestPermission = jest.fn();
     const { rerender } = render(
-      <PhotoPermissionCarousel door="quiz" step={1} onBeatChange={jest.fn()} onChoose={onChoose} />
+      <PhotoPermissionCarousel
+        door="quiz"
+        step={1}
+        onBeatChange={jest.fn()}
+        onRequestPermission={onRequestPermission}
+      />
     );
 
-    expect(screen.queryByTestId(testID)).toBeNull();
-    expect(onChoose).not.toHaveBeenCalled();
+    fireEvent.press(screen.getByTestId('photo-permission-carousel-continue'));
+    expect(onRequestPermission).not.toHaveBeenCalled();
 
     rerender(
-      <PhotoPermissionCarousel door="quiz" step={3} onBeatChange={jest.fn()} onChoose={onChoose} />
+      <PhotoPermissionCarousel
+        door="quiz"
+        step={3}
+        onBeatChange={jest.fn()}
+        onRequestPermission={onRequestPermission}
+      />
     );
-    fireEvent.press(screen.getByTestId(testID));
-    expect(onChoose).toHaveBeenCalledWith(expectedChoice);
+    fireEvent.press(screen.getByTestId('photo-permission-carousel-continue'));
+    expect(onRequestPermission).toHaveBeenCalledTimes(1);
   });
 
   it('persists the privacy footer and custom lock glyph on every beat', () => {
@@ -134,7 +147,7 @@ describe('PhotoPermissionCarousel', () => {
         door="trips"
         step={1}
         onBeatChange={jest.fn()}
-        onChoose={jest.fn()}
+        onRequestPermission={jest.fn()}
       />
     );
 
@@ -144,7 +157,7 @@ describe('PhotoPermissionCarousel', () => {
           door="trips"
           step={step}
           onBeatChange={jest.fn()}
-          onChoose={jest.fn()}
+          onRequestPermission={jest.fn()}
         />
       );
       expect(screen.getByText(SCAN_COPY.permission.carousel.footerLines('trips')[0])).toBeTruthy();
@@ -159,7 +172,7 @@ describe('PhotoPermissionCarousel', () => {
           door={door}
           step={1}
           onBeatChange={jest.fn()}
-          onChoose={jest.fn()}
+          onRequestPermission={jest.fn()}
         />
       );
       const lines = SCAN_COPY.permission.carousel.footerLines(door);
@@ -170,13 +183,13 @@ describe('PhotoPermissionCarousel', () => {
     }
   });
 
-  it('uses one fixed action-band height for Continue and the stack', () => {
+  it('uses one fixed action-band height on every beat', () => {
     const { rerender } = render(
       <PhotoPermissionCarousel
         door="trips"
         step={1}
         onBeatChange={jest.fn()}
-        onChoose={jest.fn()}
+        onRequestPermission={jest.fn()}
       />
     );
     const continueHeight = StyleSheet.flatten(
@@ -188,15 +201,15 @@ describe('PhotoPermissionCarousel', () => {
         door="trips"
         step={3}
         onBeatChange={jest.fn()}
-        onChoose={jest.fn()}
+        onRequestPermission={jest.fn()}
       />
     );
-    const stackHeight = StyleSheet.flatten(
+    const lastBeatHeight = StyleSheet.flatten(
       screen.getByTestId('photo-permission-carousel-action-band').props.style
     ).height;
 
     expect(continueHeight).toBeGreaterThan(0);
-    expect(stackHeight).toBe(continueHeight);
+    expect(lastBeatHeight).toBe(continueHeight);
   });
 
   it.each([

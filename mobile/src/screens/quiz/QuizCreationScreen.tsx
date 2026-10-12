@@ -90,7 +90,7 @@ export function QuizCreationScreen({ navigation, route }: Props) {
     permissionCarouselStep,
     startCreation,
     handlePermissionCarouselBeatChange,
-    handlePreheatChoice,
+    handleRequestPermission,
     handleCancel,
     handleBack,
     handleClose,
@@ -234,7 +234,7 @@ export function QuizCreationScreen({ navigation, route }: Props) {
               door="quiz"
               step={permissionCarouselStep}
               onBeatChange={handlePermissionCarouselBeatChange}
-              onChoose={handlePreheatChoice}
+              onRequestPermission={handleRequestPermission}
             />
           </View>
         )}
@@ -245,7 +245,7 @@ export function QuizCreationScreen({ navigation, route }: Props) {
               variant="denied"
               onOpenSettings={handleOpenSettings}
               onRetry={() => {
-                void handlePreheatChoice('full-access');
+                void handleRequestPermission();
               }}
             />
           </View>

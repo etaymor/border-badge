@@ -216,14 +216,14 @@ describe('QuizCreationScreen', () => {
     expect(mockStart).not.toHaveBeenCalled();
   });
 
-  it('renders quiz beat 1 without the permission stack or an OS request', async () => {
+  it('renders quiz beat 1 with a neutral Continue and no OS request', async () => {
     mockPermission.status = 'undetermined';
 
     await renderScreen();
 
     await waitFor(() => expect(screen.getByTestId('quiz-permission-request')).toBeTruthy());
     expect(screen.getByText(SCAN_COPY.permission.carousel.beat1Title)).toBeTruthy();
-    expect(screen.queryByTestId('photo-permission-preheat-buttons')).toBeNull();
+    expect(screen.getByTestId('photo-permission-carousel-continue')).toBeTruthy();
     expect(mockPermission.requestPermission).not.toHaveBeenCalled();
     expect(mockStart).not.toHaveBeenCalled();
   });
@@ -242,9 +242,9 @@ describe('QuizCreationScreen', () => {
     fireEvent.press(screen.getByTestId('photo-permission-carousel-continue'));
     fireEvent.press(screen.getByTestId('photo-permission-carousel-continue'));
 
-    const fullAccess = screen.getByTestId('photo-permission-preheat-full-access');
-    fireEvent.press(fullAccess);
-    fireEvent.press(fullAccess);
+    const continueOnBeat3 = screen.getByTestId('photo-permission-carousel-continue');
+    fireEvent.press(continueOnBeat3);
+    fireEvent.press(continueOnBeat3);
     expect(mockPermission.requestPermission).toHaveBeenCalledTimes(1);
 
     await act(async () => {
@@ -252,7 +252,7 @@ describe('QuizCreationScreen', () => {
     });
 
     expect(screen.getByTestId('quiz-permission-request')).toBeTruthy();
-    expect(screen.getByTestId('photo-permission-preheat-full-access')).toBeTruthy();
+    expect(screen.getByTestId('photo-permission-carousel-continue')).toBeTruthy();
   });
 
   it('offers Try Again after denial and re-requests permission', async () => {
@@ -266,7 +266,7 @@ describe('QuizCreationScreen', () => {
     fireEvent.press(screen.getByTestId('photo-permission-carousel-continue'));
     fireEvent.press(screen.getByTestId('photo-permission-carousel-continue'));
     await act(async () => {
-      fireEvent.press(screen.getByTestId('photo-permission-preheat-full-access'));
+      fireEvent.press(screen.getByTestId('photo-permission-carousel-continue'));
     });
 
     await waitFor(() => expect(screen.getByTestId('quiz-permission-denied')).toBeTruthy());

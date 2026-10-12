@@ -10,7 +10,6 @@ import type {
   PhotoPermissionCarouselChangeVia,
   PhotoPermissionCarouselStep,
 } from '@components/photos/PhotoPermissionCarousel';
-import type { PhotoPermissionPreheatChoice } from '@components/photos/PhotoPermissionPreheatStack';
 import { Analytics } from '@services/analytics';
 import { usePhotoPermissionStatus } from '@hooks/usePhotoPermissions';
 import { useOnboardingStore, selectHomeCountry } from '@stores/onboardingStore';
@@ -41,6 +40,7 @@ import { useEntryCreation } from './useEntryCreation';
 import { useWorkflowAnalytics } from './useWorkflowAnalytics';
 import { useWorkflowNavigation } from './useWorkflowNavigation';
 import { useAutoStartWorkflow } from './useAutoStartWorkflow';
+import { useAutoStartHold } from './useAutoStartHold';
 
 // Re-export types for convenience
 export type {
@@ -360,55 +360,49 @@ export function usePhotoImportWorkflow({
     []
   );
 
-  const handlePermissionPreheatChoice = useCallback(
-    async (choice: PhotoPermissionPreheatChoice) => {
-      if (choice !== 'full-access') {
-        setPermissionUi('recovery');
-        return;
-      }
-
-      if (permissionRequestInFlightRef.current) return;
-      permissionRequestInFlightRef.current = true;
-      permissionOsRequestedRef.current = true;
-      try {
-        const result = await requestPermission();
-        Analytics.photoPermissionOsResult({ door: 'trips', status: result });
-        if (result === 'granted' || result === 'limited') {
-          setPermissionUi('none');
-          // A carousel grant is the consent. Routes that did not arrive with
-          // autoStart still start the scan here, so idle never appears as a
-          // second pitch. autoStart routes keep using useAutoStartWorkflow
-          // once permission is ready, unless a manual scan was already pending.
-          const startFromCarousel = pendingScanAfterGrantRef.current || !autoStart;
-          pendingScanAfterGrantRef.current = false;
-          if (startFromCarousel) {
-            setScanFailure(null);
-            setPhase('scanning');
-            const outcome = await startScanInternal(false);
-            if (!outcome.success) {
-              setPhase('idle');
-              if (outcome.reason) {
-                setScanFailure({
-                  reason: outcome.reason,
-                  title: outcome.title,
-                  message: outcome.message,
-                });
-              }
+  // Guideline 5.1.1(iv): the carousel's Continue (and recovery's Try Again)
+  // always reach the iOS system prompt; the app never offers its own choices.
+  const handlePermissionRequest = useCallback(async () => {
+    if (permissionRequestInFlightRef.current) return;
+    permissionRequestInFlightRef.current = true;
+    permissionOsRequestedRef.current = true;
+    try {
+      const result = await requestPermission();
+      Analytics.photoPermissionOsResult({ door: 'trips', status: result });
+      if (result === 'granted' || result === 'limited') {
+        setPermissionUi('none');
+        // A carousel grant is the consent. Routes that did not arrive with
+        // autoStart still start the scan here, so idle never appears as a
+        // second pitch. autoStart routes keep using useAutoStartWorkflow
+        // once permission is ready, unless a manual scan was already pending.
+        const startFromCarousel = pendingScanAfterGrantRef.current || !autoStart;
+        pendingScanAfterGrantRef.current = false;
+        if (startFromCarousel) {
+          setScanFailure(null);
+          setPhase('scanning');
+          const outcome = await startScanInternal(false);
+          if (!outcome.success) {
+            setPhase('idle');
+            if (outcome.reason) {
+              setScanFailure({
+                reason: outcome.reason,
+                title: outcome.title,
+                message: outcome.message,
+              });
             }
           }
-          return;
         }
-        if (result === 'denied') {
-          setPermissionUi('recovery');
-        }
-      } catch {
-        // Keep the carousel or recovery sheet available for another attempt.
-      } finally {
-        permissionRequestInFlightRef.current = false;
+        return;
       }
-    },
-    [autoStart, requestPermission, startScanInternal]
-  );
+      if (result === 'denied') {
+        setPermissionUi('recovery');
+      }
+    } catch {
+      // Keep the carousel or recovery sheet available for another attempt.
+    } finally {
+      permissionRequestInFlightRef.current = false;
+    }
+  }, [autoStart, requestPermission, startScanInternal]);
 
   const dismissPermissionRecovery = useCallback(() => {
     setPermissionUi('none');
@@ -738,6 +732,15 @@ export function usePhotoImportWorkflow({
     };
   }, [clearFetchedCache]);
 
+  const autoStartHold = useAutoStartHold({
+    autoStart,
+    skipToSuggestions,
+    homeCountry,
+    phase,
+    permissionUi,
+    permissionReady,
+  });
+
   // ==========================================================================
   // Return
   // ==========================================================================
@@ -768,9 +771,10 @@ export function usePhotoImportWorkflow({
     scanFailure,
     clearScanFailure,
     permissionUi,
+    autoStartHold,
     permissionCarouselStep,
     handlePermissionCarouselBeatChange,
-    handlePermissionPreheatChoice,
+    handlePermissionRequest,
     dismissPermissionRecovery,
     uploadStates,
     getUploadState,
