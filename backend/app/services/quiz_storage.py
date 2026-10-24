@@ -23,6 +23,7 @@ import httpx
 
 from app.core.config import Settings, get_settings
 from app.core.http_client import get_http_client
+from app.core.supabase_keys import admin_headers
 
 logger = logging.getLogger(__name__)
 
@@ -38,10 +39,7 @@ class QuizStorageDeletionError(Exception):
 def _storage_headers(settings: Settings) -> dict[str, str]:
     # Service role: quiz storage prefixes are user-anonymous and
     # backend-owned; storage RLS knows nothing about quiz ownership.
-    return {
-        "apikey": settings.supabase_service_role_key,
-        "Authorization": f"Bearer {settings.supabase_service_role_key}",
-    }
+    return admin_headers(settings)
 
 
 async def _list_object_paths(

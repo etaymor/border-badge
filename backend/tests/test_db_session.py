@@ -13,8 +13,9 @@ class DummySettings:
 
     def __init__(self) -> None:
         self.supabase_url = "https://example.supabase.co"
-        self.supabase_anon_key = "anon-key"
-        self.supabase_service_role_key = "service-role-key"
+        # Legacy keys are JWTs, which is what keeps them on the Bearer header.
+        self.supabase_anon_key = "eyJ.anon-key"
+        self.supabase_service_role_key = "eyJ.service-role-key"
         self.supabase_jwt_secret = "jwt-secret"
 
 
@@ -41,6 +42,29 @@ def test_user_scoped_headers_use_anon_key_and_user_token(monkeypatch) -> None:
 
     assert client.headers["apikey"] == dummy.supabase_anon_key
     assert client.headers["Authorization"] == f"Bearer {user_token}"
+
+
+def test_secret_key_headers_omit_bearer(monkeypatch) -> None:
+    """sb_secret_ keys go on apikey only; the gateway mints the service JWT."""
+    dummy = DummySettings()
+    dummy.supabase_secret_key = "sb_secret_abc"
+    monkeypatch.setattr("app.db.session.get_settings", lambda: dummy)
+
+    client = SupabaseClient()
+
+    assert client.headers["apikey"] == "sb_secret_abc"
+    assert "Authorization" not in client.headers
+
+
+def test_user_scoped_headers_prefer_publishable_key(monkeypatch) -> None:
+    dummy = DummySettings()
+    dummy.supabase_publishable_key = "sb_publishable_xyz"
+    monkeypatch.setattr("app.db.session.get_settings", lambda: dummy)
+
+    client = SupabaseClient(user_token="user-access-token")
+
+    assert client.headers["apikey"] == "sb_publishable_xyz"
+    assert client.headers["Authorization"] == "Bearer user-access-token"
 
 
 class _DummyRPCClient:

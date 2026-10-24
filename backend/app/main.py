@@ -33,6 +33,7 @@ from app.core.http_client import (
 )
 from app.core.logging import setup_logging
 from app.core.posthog import shutdown_posthog
+from app.core.security import jwks_cache
 from app.core.urls import safe_external_url
 
 # ContextVar for accessing request in rate limit functions
@@ -186,6 +187,31 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "SUPABASE_URL is missing. Token validation will fail. "
             "Set SUPABASE_URL to your Supabase project URL."
         )
+
+    # Startup validation - Supabase API keys. The legacy JWT keys still work
+    # as a fallback but leaked in the Railway incident; flag any deploy that
+    # is still running on them.
+    if not settings.supabase_secret_key:
+        if settings.supabase_service_role_key:
+            logger.warning(
+                "SUPABASE_LEGACY_KEY_IN_USE: SUPABASE_SECRET_KEY is not set; "
+                "falling back to the legacy service_role key."
+            )
+        else:
+            logger.error(
+                "SUPABASE_MISCONFIGURATION: neither SUPABASE_SECRET_KEY nor "
+                "SUPABASE_SERVICE_ROLE_KEY is set. Admin operations will fail."
+            )
+    if settings.supabase_jwt_secret:
+        logger.warning(
+            "SUPABASE_LEGACY_JWT_ACCEPTED: SUPABASE_JWT_SECRET is set, so HS256 "
+            "tokens signed with the legacy secret are still accepted."
+        )
+
+    # Startup - warm the signing-key cache so the first asymmetric token of a
+    # process verifies without a fetch on the request path.
+    if settings.supabase_url:
+        await jwks_cache.refresh(settings.supabase_url)
 
     # Startup validation - warn if Google Places API key is missing
     if not settings.google_places_api_key:

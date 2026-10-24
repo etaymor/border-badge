@@ -27,6 +27,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from app.core.config import get_settings
+from app.core.supabase_keys import admin_api_key
 from app.db.session import get_supabase_client
 
 logger = logging.getLogger(__name__)
@@ -40,7 +41,7 @@ def _persistent_cache_enabled() -> bool:
     L1 path clean in unconfigured environments (e.g. tests).
     """
     settings = get_settings()
-    return bool(settings.supabase_url and settings.supabase_service_role_key)
+    return bool(settings.supabase_url and admin_api_key(settings))
 
 
 # Place sets near a coordinate (and a place's own metadata) are very stable, so

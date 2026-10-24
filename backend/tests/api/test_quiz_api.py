@@ -200,7 +200,8 @@ def quiz_settings(monkeypatch):
     """Pin the settings the quiz lifecycle endpoints read."""
     settings = get_settings()
     monkeypatch.setattr(settings, "base_url", "https://example.com")
-    monkeypatch.setattr(settings, "supabase_service_role_key", "service-role-key")
+    monkeypatch.setattr(settings, "supabase_secret_key", "")
+    monkeypatch.setattr(settings, "supabase_service_role_key", "eyJ.service-role-key")
     yield
 
 
@@ -639,7 +640,7 @@ class TestUploadUrls:
             assert u["cache_control"] == "60"
         # Minted with the service role key, not a user JWT.
         for c in http.post.call_args_list:
-            assert c.kwargs["headers"]["Authorization"] == "Bearer service-role-key"
+            assert c.kwargs["headers"]["Authorization"] == "Bearer eyJ.service-role-key"
 
     def test_upload_urls_other_users_quiz_404(self, client: TestClient) -> None:
         db = FakeDB()

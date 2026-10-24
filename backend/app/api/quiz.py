@@ -43,6 +43,7 @@ from fastapi import APIRouter, HTTPException, Request, status
 from app.core.config import get_settings
 from app.core.media import build_media_url
 from app.core.security import CurrentUser
+from app.core.supabase_keys import admin_headers
 from app.db.session import SupabaseClient, get_http_client, get_supabase_client
 from app.main import limiter
 from app.schemas.quiz import (
@@ -771,11 +772,7 @@ async def create_quiz_upload_urls(
         )
 
     client = get_http_client()
-    headers = {
-        "apikey": settings.supabase_service_role_key,
-        "Authorization": f"Bearer {settings.supabase_service_role_key}",
-        "Content-Type": "application/json",
-    }
+    headers = {**admin_headers(settings), "Content-Type": "application/json"}
     uploads: list[QuizUploadTarget] = []
     for _ in range(data.count):
         path = f"quiz/{quiz_id}/{uuid_mod.uuid4().hex}.jpg"

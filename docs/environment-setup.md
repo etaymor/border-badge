@@ -25,6 +25,10 @@ EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY=goog_xxx  # Optional
 ENV=development
 DEBUG=true
 SUPABASE_URL=<supabase-url>
+SUPABASE_PUBLISHABLE_KEY=<sb_publishable_...>
+SUPABASE_SECRET_KEY=<sb_secret_...>
+# Legacy (being retired, see docs/supabase-key-migration.md). Only needed until
+# the new keys are set; SUPABASE_JWT_SECRET keeps legacy HS256 tokens valid.
 SUPABASE_ANON_KEY=<anon-key>
 SUPABASE_SERVICE_ROLE_KEY=<service-role-key>
 SUPABASE_JWT_SECRET=<jwt-secret>

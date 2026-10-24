@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException, Request, status
 from app.api.utils import get_token_from_request
 from app.core.config import get_settings
 from app.core.security import CurrentUser
+from app.core.supabase_keys import admin_headers
 from app.db.session import get_http_client, get_supabase_client
 from app.main import limiter
 from app.schemas.profile import Profile, ProfileUpdate
@@ -163,10 +164,7 @@ async def delete_account(
         client = get_http_client()
         response = await client.delete(
             auth_admin_url,
-            headers={
-                "apikey": settings.supabase_service_role_key,
-                "Authorization": f"Bearer {settings.supabase_service_role_key}",
-            },
+            headers=admin_headers(settings),
         )
         response.raise_for_status()
 

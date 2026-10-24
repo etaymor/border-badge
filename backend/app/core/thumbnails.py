@@ -7,6 +7,8 @@ import logging
 import pillow_heif
 from PIL import Image
 
+from app.core.supabase_keys import headers_for_admin_key
+
 pillow_heif.register_heif_opener()
 
 # =============================================================================
@@ -116,7 +118,7 @@ async def upload_thumbnail_to_storage(
     thumbnail_data: bytes,
     storage_path: str,
     supabase_url: str,
-    service_role_key: str,
+    admin_key: str,
 ) -> bool:
     """Upload thumbnail to Supabase storage.
 
@@ -126,7 +128,7 @@ async def upload_thumbnail_to_storage(
         thumbnail_data: JPEG thumbnail bytes
         storage_path: Path in the media bucket (e.g., "user-id/file-id_thumb.jpg")
         supabase_url: Supabase project URL
-        service_role_key: Service role key for authentication
+        admin_key: Supabase secret (or legacy service role) key
 
     Returns:
         True on success, False on failure.
@@ -138,8 +140,7 @@ async def upload_thumbnail_to_storage(
     client = get_http_client()
     upload_url = f"{supabase_url}/storage/v1/object/media/{storage_path}"
     headers = {
-        "apikey": service_role_key,
-        "Authorization": f"Bearer {service_role_key}",
+        **headers_for_admin_key(admin_key),
         "Content-Type": "image/jpeg",
     }
 

@@ -9,6 +9,7 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, status
 from app.api.utils import get_token_from_request
 from app.core.config import get_settings
 from app.core.security import CurrentUser
+from app.core.supabase_keys import admin_headers, client_api_key
 from app.db.session import get_http_client, get_supabase_client
 from app.main import limiter
 from app.schemas.media import (
@@ -212,12 +213,11 @@ async def delete_media(
 
     # Delete from storage (use httpx client)
     client = get_http_client()
-    storage_headers = {
-        "apikey": settings.supabase_anon_key,
-        "Authorization": f"Bearer {token}"
+    storage_headers = (
+        {"apikey": client_api_key(settings), "Authorization": f"Bearer {token}"}
         if token
-        else f"Bearer {settings.supabase_service_role_key}",
-    }
+        else admin_headers(settings)
+    )
 
     # Delete main file from storage
     if settings.supabase_url:
