@@ -41,7 +41,7 @@ short.
 ## Runbook
 
 1. **Dashboard → Settings → API Keys:** create a publishable key and a new
-   secret key (name it `railway-backend`).
+   secret key (ours is `atlasi_secret`; names can't contain dashes).
 2. **Dashboard → Settings → JWT Keys:** if the legacy secret is not yet
    migrated, click "Migrate JWT secret". Confirm that the **current** key is
    still the legacy HS256 secret and the ES256 key is **standby**. Do not
