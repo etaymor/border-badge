@@ -39,7 +39,10 @@ def _classification_rate_limit() -> str:
     """
     import jwt
 
-    from app.core.security import determine_supabase_issuer
+    from app.core.security import (
+        decode_supabase_token_cached,
+        determine_supabase_issuer,
+    )
 
     request = get_request_context()
     if request is None:
@@ -62,13 +65,8 @@ def _classification_rate_limit() -> str:
         return "5/hour"
 
     try:
-        payload = jwt.decode(
-            token,
-            settings.supabase_jwt_secret,
-            algorithms=["HS256"],
-            audience="authenticated",
-            issuer=issuer,
-        )
+        # Sync limiter hook: reads cached signing keys only, never fetches.
+        payload = decode_supabase_token_cached(token, settings)
         # Valid token with user ID - use lenient limit
         if payload.get("sub"):
             return "30/minute"

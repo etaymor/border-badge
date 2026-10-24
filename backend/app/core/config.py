@@ -40,11 +40,16 @@ class Settings(BaseSettings):
     # CORS - comma-separated list of allowed origins for production
     allowed_origins: list[str] = []
 
-    # Supabase
+    # Supabase. Read API keys through app.core.supabase_keys, which prefers the
+    # new sb_publishable_/sb_secret_ keys and falls back to the legacy JWT keys.
     supabase_url: str = ""
-    supabase_anon_key: str = ""
-    supabase_service_role_key: str = ""
-    supabase_jwt_secret: str = ""
+    supabase_publishable_key: str = Field(default="", repr=False)
+    supabase_secret_key: str = Field(default="", repr=False)
+    supabase_anon_key: str = ""  # legacy
+    supabase_service_role_key: str = Field(default="", repr=False)  # legacy
+    # Legacy HS256 signing secret. While set, tokens signed with it are still
+    # accepted; unset it once the project has rotated to asymmetric JWT keys.
+    supabase_jwt_secret: str = Field(default="", repr=False)
 
     # Public web settings
     base_url: str = Field(

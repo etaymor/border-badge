@@ -235,6 +235,7 @@ System trips (e.g. "Saved Places") use the `is_system` flag and have nullable `c
 | `docs/ios-share-extension.md`             | iOS Share Extension build doc |
 | `docs/place-extraction-algorithm.md`      | LLM extraction algorithm      |
 | `docs/analytics.md`                       | Analytics tool split + events |
+| `docs/supabase-key-migration.md`          | Legacy → new Supabase keys runbook (Railway leak) |
 
 ## Share Extension Architecture (IMPORTANT)
 

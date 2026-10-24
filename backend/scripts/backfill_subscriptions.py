@@ -27,6 +27,7 @@ import httpx
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from app.core.config import get_settings  # noqa: E402
+from app.core.supabase_keys import admin_api_key, admin_headers  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO,
@@ -52,10 +53,7 @@ async def fetch_free_users(settings) -> list[dict]:
     """Fetch user_profile rows with subscription_status='free'."""
     async with httpx.AsyncClient(timeout=15.0) as client:
         url = f"{settings.supabase_url}/rest/v1/user_profile"
-        headers = {
-            "apikey": settings.supabase_service_role_key,
-            "Authorization": f"Bearer {settings.supabase_service_role_key}",
-        }
+        headers = admin_headers(settings)
         params = {
             "select": "user_id,subscription_status,revenuecat_customer_id",
             "subscription_status": "eq.free",
@@ -136,11 +134,7 @@ async def update_user(
     """Update user_profile via update_subscription_if_newer RPC."""
     async with httpx.AsyncClient(timeout=10.0) as client:
         url = f"{settings.supabase_url}/rest/v1/rpc/update_subscription_if_newer"
-        headers = {
-            "apikey": settings.supabase_service_role_key,
-            "Authorization": f"Bearer {settings.supabase_service_role_key}",
-            "Content-Type": "application/json",
-        }
+        headers = {**admin_headers(settings), "Content-Type": "application/json"}
         now = datetime.now(UTC)
         data = {
             "p_user_id": str(user_id),
@@ -170,8 +164,8 @@ async def main() -> None:
     if not settings.revenuecat_api_key:
         logger.error("REVENUECAT_API_KEY not set in .env")
         sys.exit(1)
-    if not settings.supabase_service_role_key:
-        logger.error("SUPABASE_SERVICE_ROLE_KEY not set in .env")
+    if not admin_api_key(settings):
+        logger.error("SUPABASE_SECRET_KEY not set in .env")
         sys.exit(1)
 
     logger.info("Fetching users with subscription_status='free'...")

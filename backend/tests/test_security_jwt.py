@@ -39,9 +39,8 @@ async def test_get_current_user_uses_expected_issuer(monkeypatch) -> None:
 
     monkeypatch.setattr("app.core.security.jwt.decode", fake_decode)
 
-    credentials = HTTPAuthorizationCredentials(
-        scheme="Bearer", credentials="dummy-token"
-    )
+    token = jwt.encode({"sub": "user-id-123"}, settings.supabase_jwt_secret)
+    credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
 
     user = await get_current_user(credentials)
 

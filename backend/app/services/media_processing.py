@@ -5,6 +5,7 @@ import logging
 import httpx
 
 from app.core.config import get_settings
+from app.core.supabase_keys import admin_api_key, admin_headers
 from app.core.thumbnails import (
     SUPPORTED_EXTENSIONS,
     generate_thumbnail,
@@ -39,10 +40,7 @@ async def process_media_thumbnail(media_id: str, file_path: str) -> None:
 
         # 1. Download original file from Supabase Storage
         download_url = f"{settings.supabase_url}/storage/v1/object/media/{file_path}"
-        headers = {
-            "apikey": settings.supabase_service_role_key,
-            "Authorization": f"Bearer {settings.supabase_service_role_key}",
-        }
+        headers = admin_headers(settings)
 
         response = await client.get(download_url, headers=headers)
         if response.status_code != 200:
@@ -65,7 +63,7 @@ async def process_media_thumbnail(media_id: str, file_path: str) -> None:
             thumbnail_data,
             thumbnail_path,
             settings.supabase_url,
-            settings.supabase_service_role_key,
+            admin_api_key(settings),
         )
         if not success:
             return

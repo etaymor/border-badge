@@ -57,7 +57,8 @@ def quiz_settings(monkeypatch):
     """Pin the settings the quiz lifecycle endpoints read."""
     settings = get_settings()
     monkeypatch.setattr(settings, "base_url", "https://example.com")
-    monkeypatch.setattr(settings, "supabase_service_role_key", "service-role-key")
+    monkeypatch.setattr(settings, "supabase_secret_key", "")
+    monkeypatch.setattr(settings, "supabase_service_role_key", "eyJ.service-role-key")
     yield
 
 
@@ -93,7 +94,7 @@ class FakeStorage:
 
     async def post(self, url: str, headers=None, json=None):
         assert url.endswith("/storage/v1/object/list/media"), url
-        assert headers["Authorization"] == "Bearer service-role-key"
+        assert headers["Authorization"] == "Bearer eyJ.service-role-key"
         prefix = str(json["prefix"]).rstrip("/")
         self.list_calls.append(prefix)
         names = sorted(
@@ -102,7 +103,7 @@ class FakeStorage:
         return _resp(200, [{"name": n} for n in names])
 
     async def delete(self, url: str, headers=None):
-        assert headers["Authorization"] == "Bearer service-role-key"
+        assert headers["Authorization"] == "Bearer eyJ.service-role-key"
         path = url.split("/storage/v1/object/media/", 1)[1]
         if path in self.fail_deletes:
             return _resp(500, {"message": "storage backend error"})

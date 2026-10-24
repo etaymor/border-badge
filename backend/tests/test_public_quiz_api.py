@@ -57,7 +57,8 @@ def quiz_settings(monkeypatch):
     """Pin the settings the quiz endpoints read."""
     settings = get_settings()
     monkeypatch.setattr(settings, "base_url", "https://example.com")
-    monkeypatch.setattr(settings, "supabase_service_role_key", "service-role-key")
+    monkeypatch.setattr(settings, "supabase_secret_key", "")
+    monkeypatch.setattr(settings, "supabase_service_role_key", "eyJ.service-role-key")
     yield
 
 

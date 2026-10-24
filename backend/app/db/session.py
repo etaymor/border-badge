@@ -7,6 +7,7 @@ from fastapi import HTTPException, status
 
 from app.core.config import get_settings
 from app.core.http_client import close_http_client, get_http_client
+from app.core.supabase_keys import admin_headers, client_api_key
 
 # Re-export for backward compatibility with main.py import
 __all__ = [
@@ -31,17 +32,17 @@ class SupabaseClient:
         self.settings = get_settings()
         self.base_url = self.settings.supabase_url
 
-        # Use user token for RLS, or service role for admin operations
-        auth_token = user_token or self.settings.supabase_service_role_key
+        # Use user token for RLS, or the admin key for admin operations.
         # Supabase REST expects the apikey header to align with the auth context.
-        api_key = (
-            self.settings.supabase_anon_key
-            if user_token
-            else self.settings.supabase_service_role_key
-        )
+        if user_token:
+            auth_headers = {
+                "apikey": client_api_key(self.settings),
+                "Authorization": f"Bearer {user_token}",
+            }
+        else:
+            auth_headers = admin_headers(self.settings)
         self.headers = {
-            "apikey": api_key,
-            "Authorization": f"Bearer {auth_token}",
+            **auth_headers,
             "Content-Type": "application/json",
             "Prefer": "return=representation",
         }

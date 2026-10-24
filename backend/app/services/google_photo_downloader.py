@@ -5,6 +5,7 @@ import logging
 import httpx
 
 from app.core.config import get_settings
+from app.core.supabase_keys import admin_api_key
 from app.core.thumbnails import generate_thumbnail, upload_thumbnail_to_storage
 from app.core.urls import safe_google_photo_url
 from app.db.session import get_http_client, get_supabase_client
@@ -76,7 +77,7 @@ async def download_and_store_google_photo(
             thumbnail_data,
             thumbnail_path,
             settings.supabase_url,
-            settings.supabase_service_role_key,
+            admin_api_key(settings),
         )
         if not success:
             return None
